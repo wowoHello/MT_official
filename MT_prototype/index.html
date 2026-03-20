@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CWT 命題工作平臺 - 登入</title>
+    <link rel="icon" type="image/png" href="./assets/images/pencil.png">
+    <!-- Tailwind CSS v4 Browser Build -->
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SweetAlert2 for Alerts -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <style type="text/tailwindcss">
+        @theme {
+            --color-oatmeal: #FBF9F6;
+            --color-morandi: #6B8EAD;
+            --color-sage: #8EAB94;
+            --color-terracotta: #D98A6C;
+            --color-slate-main: #374151;
+        }
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: var(--color-oatmeal);
+            color: var(--color-slate-main);
+            transition: font-size 0.3s ease;
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+
+<body class="min-h-screen flex items-center justify-center relative overflow-hidden bg-[var(--color-oatmeal)]">
+
+    <!-- Background Decoration / Illustration Area -->
+    <div class="absolute inset-0 z-0 flex md:flex-row flex-col">
+        <!-- Left Side Image -->
+        <div class="hidden md:block w-3/5 h-full relative">
+            <img id="bgImg" src="./assets/images/login-bg.png" alt="Knowledge Background"
+                class="w-full h-full object-cover opacity-90">
+            <!-- Overlay Gradient -->
+            <div class="absolute inset-0 bg-gradient-to-r from-transparent to-[var(--color-oatmeal)]"></div>
+        </div>
+        <!-- Right Side Space -->
+        <div class="w-full md:w-2/5 h-full bg-[var(--color-oatmeal)]"></div>
+    </div>
+
+    <!-- Main Content Container -->
+    <div class="container mx-auto px-4 z-10 flex md:justify-end justify-center items-center min-h-screen">
+        <!-- Login Card -->
+        <div class="glass-card w-full max-w-md p-8 sm:p-10 rounded-2xl shadow-xl md:mr-[10%] xl:mr-[15%]">
+
+            <!-- Logo & Title -->
+            <div class="text-center mb-8">
+                <div
+                    class="w-16 h-16 bg-[var(--color-morandi)]/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <img src="./assets/images/pencil.png" alt="CWT Logo" class="w-10 h-10 object-contain">
+                </div>
+                <h1 class="text-2xl font-bold text-slate-main mb-2">CWT 命題工作平臺</h1>
+                <p class="text-sm text-gray-500">歡迎回來，請登入您的帳號</p>
+            </div>
+
+            <!-- Error Alert -->
+            <div id="loginAlert"
+                class="hidden mb-4 p-3 bg-red-50 text-[var(--color-terracotta)] border border-red-200 rounded-lg text-sm flex items-center gap-2">
+                <i class="fa-solid fa-circle-exclamation"></i>
+                <span id="loginAlertMsg"></span>
+            </div>
+
+            <!-- Login Form -->
+            <form id="loginForm" class="space-y-5" onsubmit="return false;">
+                <!-- Account -->
+                <div>
+                    <label for="username" class="block text-sm font-medium mb-1">帳號</label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                            <i class="fa-regular fa-user"></i>
+                        </span>
+                        <input type="text" id="username"
+                            class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 bg-white/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent transition-all"
+                            placeholder="請輸入帳號" required>
+                    </div>
+                </div>
+
+                <!-- Password -->
+                <div>
+                    <label for="password" class="block text-sm font-medium mb-1">密碼</label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                            <i class="fa-solid fa-lock"></i>
+                        </span>
+                        <input type="password" id="password"
+                            class="w-full pl-10 pr-10 py-2.5 rounded-lg border border-gray-300 bg-white/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent transition-all"
+                            placeholder="請輸入密碼" required>
+                        <button type="button" id="togglePasswordBtn"
+                            class="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600 focus:outline-none">
+                            <i class="fa-regular fa-eye-slash" id="eyeIcon"></i>
+                        </button>
+                    </div>
+                    <!-- Remember Me & Forgot Password -->
+                    <div class="flex items-center justify-between mt-2">
+                        <label class="flex items-center gap-2 cursor-pointer group">
+                            <div class="relative flex items-center justify-center">
+                                <input type="checkbox" id="rememberMe" class="peer sr-only">
+                                <div class="w-4 h-4 border border-gray-300 rounded flex items-center justify-center transition-colors peer-checked:bg-[var(--color-morandi)] peer-checked:border-[var(--color-morandi)] group-hover:border-[var(--color-morandi)]">
+                                    <i class="fa-solid fa-check text-white text-[10px] opacity-0 peer-checked:opacity-100 transition-opacity"></i>
+                                </div>
+                            </div>
+                            <span class="text-sm text-gray-600 group-hover:text-gray-800 transition-colors">記住登入狀態 (90天)</span>
+                        </label>
+                        <button type="button" id="forgotPwdBtn"
+                            class="text-sm text-[var(--color-morandi)] hover:text-blue-700 hover:underline transition-colors focus:outline-none">忘記密碼？</button>
+                    </div>
+                </div>
+
+                <!-- Captcha -->
+                <div>
+                    <label for="captcha" class="block text-sm font-medium mb-1">驗證碼</label>
+                    <div class="flex gap-3">
+                        <input type="text" id="captcha"
+                            class="w-1/2 px-4 py-2.5 rounded-lg border border-gray-300 bg-white/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent transition-all uppercase"
+                            placeholder="輸入圖形碼" required autocomplete="off">
+                        <div class="w-1/2 flex items-center gap-2">
+                            <canvas id="captchaCanvas" width="140" height="42"
+                                class="rounded border border-gray-200 cursor-pointer bg-white" title="點擊重新產生"></canvas>
+                            <button type="button" id="refreshCaptchaBtn"
+                                class="text-gray-400 hover:text-[var(--color-morandi)] focus:outline-none p-2 rounded-full hover:bg-gray-100 transition-colors"
+                                title="重新產生">
+                                <i class="fa-solid fa-rotate-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Security Notice -->
+                <div class="bg-blue-50/70 border border-blue-100 rounded-lg p-3 text-xs text-blue-800 flex items-start gap-2">
+                    <i class="fa-solid fa-shield-halved mt-0.5 text-[var(--color-morandi)]"></i>
+                    <div>
+                        <strong class="block mb-1 text-[var(--color-morandi)]">資安提示</strong>
+                        <ul class="list-disc pl-4 space-y-1 opacity-80">
+                            <li>請勿將帳號密碼交給他人使用。</li>
+                            <li>登入後若需離開座位，請確實登出系統。</li>
+                            <li>建議定期更換您的密碼以確保帳號安全。</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Submit -->
+                <button type="submit" id="submitBtn"
+                    class="w-full py-3 bg-[var(--color-morandi)] hover:bg-[#5b7a95] text-white rounded-lg font-medium transition-all shadow-md flex justify-center items-center gap-2 mt-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--color-morandi)]">
+                    <span id="btnText">登入系統</span>
+                    <i id="btnIcon" class="fa-solid fa-arrow-right-to-bracket"></i>
+                    <!-- Spinner (Hidden by default) -->
+                    <svg id="btnSpinner" class="hidden animate-spin h-5 w-5 text-white"
+                        xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                        </circle>
+                        <path class="opacity-75" fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                        </path>
+                    </svg>
+                </button>
+            </form>
+
+            <div class="mt-8 text-center text-xs text-gray-400">
+                &copy; <span id="currentYear"></span> 全民中文檢定 CWT. All rights reserved.
+            </div>
+        </div>
+    </div>
+
+
+
+    <!-- Forgot Password Modal -->
+    <div id="forgotPwdModal" class="hidden fixed inset-0 z-[100] flex items-center justify-center">
+        <!-- Backdrop -->
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm modal-backdrop transition-opacity"></div>
+        <!-- Modal Content -->
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 relative z-10 transform scale-95 opacity-0 transition-all duration-300"
+            id="forgotPwdPanel">
+            <div class="p-6 border-b border-gray-100 flex justify-between items-center">
+                <h2 class="text-lg font-bold text-[var(--color-slate-main)] flex items-center gap-2">
+                    <i class="fa-solid fa-key text-[var(--color-morandi)]"></i> 忘記密碼 / 重設密碼
+                </h2>
+                <button type="button"
+                    class="close-modal-btn text-gray-400 hover:text-gray-600 focus:outline-none w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="p-6">
+                <!-- Step 1: Request Reset Link -->
+                <div id="step1Container">
+                    <p class="text-sm text-gray-600 mb-4">請輸入您註冊的電子信箱，我們將發送密碼重設連結給您。</p>
+                    <div class="mb-4 relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                            <i class="fa-regular fa-envelope"></i>
+                        </span>
+                        <input type="email" id="resetEmail"
+                            class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent"
+                            placeholder="example@school.edu.tw">
+                    </div>
+                    <button type="button" id="sendResetLinkBtn"
+                        class="w-full py-2.5 bg-[var(--color-sage)] hover:bg-[#7b9c81] text-white rounded-lg font-medium transition-all shadow-sm flex justify-center items-center gap-2 focus:outline-none">
+                        <span>發送重設連結</span>
+                    </button>
+                </div>
+
+                <!-- Step 2: Simulate clicking the link & resetting password -->
+                <div id="step2Container" class="hidden">
+                    <div class="bg-blue-50 text-blue-800 text-xs p-3 rounded mb-4">
+                        <i class="fa-solid fa-circle-info mr-1"></i> (DEMO 測試) 請直接假裝您已點擊了信件中的連結，在此設定新密碼。
+                    </div>
+
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium mb-1">舊密碼 (Demo 用途對比)</label>
+                            <input type="password" id="demoOldPwd"
+                                class="w-full px-3 py-2.5 rounded-lg border border-gray-300 bg-gray-50 text-gray-500"
+                                value="admin123" readonly>
+                        </div>
+                        <div>
+                            <label for="newPassword" class="block text-sm font-medium mb-1">新密碼</label>
+                            <input type="password" id="newPassword"
+                                class="w-full px-3 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent"
+                                placeholder="請輸入新密碼">
+                        </div>
+                        <div>
+                            <label for="confirmNewPassword" class="block text-sm font-medium mb-1">確認新密碼</label>
+                            <input type="password" id="confirmNewPassword"
+                                class="w-full px-3 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent"
+                                placeholder="請再次輸入新密碼">
+                        </div>
+
+                        <!-- Error hint -->
+                        <div id="resetPwdError"
+                            class="hidden text-[var(--color-terracotta)] text-sm flex items-center gap-1 font-medium mt-1">
+                            <i class="fa-solid fa-triangle-exclamation text-xs"></i> <span>新密碼不可與舊密碼相同</span>
+                        </div>
+                    </div>
+
+                    <div class="mt-6 flex justify-end gap-2">
+                        <button type="button"
+                            class="close-modal-btn px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-sm font-medium focus:outline-none">取消</button>
+                        <button type="button" id="confirmResetBtn"
+                            class="px-6 py-2 bg-[var(--color-morandi)] hover:bg-[#5b7a95] text-white rounded-lg font-medium transition-colors text-sm shadow-sm flex items-center justify-center gap-2 focus:outline-none">
+                            儲存變更
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="./js/shared.js"></script>
+    <script src="./js/login.js"></script>
+</body>
+
+</html>

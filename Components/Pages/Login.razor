@@ -1,0 +1,436 @@
+@page "/"
+@layout LoginLayout
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject ICaptchaService CaptchaService
+@inject IEmailService EmailService
+@inject IConfiguration Configuration
+@inject ProtectedLocalStorage LocalStorage
+@rendermode InteractiveServer
+
+<PageTitle>CWT 命題工作平臺 - 登入</PageTitle>
+
+<body class="min-h-screen flex items-center justify-center relative overflow-hidden bg-[var(--color-oatmeal)]">
+
+    <!-- Background Decoration / Illustration Area -->
+    <div class="absolute inset-0 z-0 flex md:flex-row flex-col">
+        <!-- Left Side Image -->
+        <div class="hidden md:block w-3/5 h-full relative">
+            <img src="img/login-bg.png" alt="Knowledge Background"
+                class="w-full h-full object-cover opacity-90">
+            <!-- Overlay Gradient -->
+            <div class="absolute inset-0 bg-gradient-to-r from-transparent to-[var(--color-oatmeal)]"></div>
+        </div>
+        <!-- Right Side Space -->
+        <div class="w-full md:w-2/5 h-full bg-[var(--color-oatmeal)]"></div>
+    </div>
+
+    <!-- Main Content Container -->
+    <div class="container mx-auto px-4 z-10 flex md:justify-end justify-center items-center min-h-screen">
+        <!-- Login Card -->
+        <div class="glass-card w-full max-w-md p-8 sm:p-10 rounded-2xl shadow-xl md:mr-[10%] xl:mr-[15%]">
+
+            <!-- Logo & Title -->
+            <div class="text-center mb-8">
+                <div class="w-16 h-16 bg-[var(--color-morandi)]/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <img src="img/pencil.png" alt="CWT Logo" class="w-10 h-10 object-contain">
+                </div>
+                <h1 class="text-2xl font-bold text-slate-main mb-2">CWT 命題工作平臺</h1>
+                <p class="text-sm text-gray-500">歡迎回來，請登入您的帳號</p>
+            </div>
+
+            <!-- Error Alert -->
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="mb-4 p-3 bg-red-50 text-[var(--color-terracotta)] border border-red-200 rounded-lg text-sm flex items-center gap-2">
+                    <i class="fa-solid fa-circle-exclamation"></i>
+                    <span>@errorMessage</span>
+                </div>
+            }
+
+            <!-- Login Form -->
+            <form class="space-y-5" @onsubmit="HandleLogin" @onsubmit:preventDefault>
+                <!-- Account -->
+                <div>
+                    <label for="username" class="block text-sm font-medium mb-1">帳號</label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                            <i class="fa-regular fa-user"></i>
+                        </span>
+                        <input type="text" id="username" @bind="username" disabled="@isLoading"
+                            class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 bg-white/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent transition-all"
+                            placeholder="請輸入帳號" required>
+                    </div>
+                </div>
+
+                <!-- Password -->
+                <div>
+                    <label for="password" class="block text-sm font-medium mb-1">密碼</label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                            <i class="fa-solid fa-lock"></i>
+                        </span>
+                        <input type="@passwordInputType" id="password" @bind="password" disabled="@isLoading"
+                            class="w-full pl-10 pr-10 py-2.5 rounded-lg border border-gray-300 bg-white/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent transition-all"
+                            placeholder="請輸入密碼" required>
+                        <button type="button" @onclick="TogglePasswordVisibility"
+                            class="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600 focus:outline-none">
+                            <i class="fa-regular @eyeIconClass"></i>
+                        </button>
+                    </div>
+                    <!-- Remember Me & Forgot Password -->
+                    <div class="flex items-center justify-between mt-2">
+                        <label class="flex items-center gap-2 cursor-pointer group">
+                            <div class="relative flex items-center justify-center">
+                                <input type="checkbox" @bind="rememberMe" class="peer sr-only">
+                                <div class="w-4 h-4 border border-gray-300 rounded flex items-center justify-center transition-colors peer-checked:bg-[var(--color-morandi)] peer-checked:border-[var(--color-morandi)] group-hover:border-[var(--color-morandi)]">
+                                    <i class="fa-solid fa-check text-white text-[10px] opacity-0 peer-checked:opacity-100 transition-opacity"></i>
+                                </div>
+                            </div>
+                            <span class="text-sm text-gray-600 group-hover:text-gray-800 transition-colors">記住登入狀態 (90天)</span>
+                        </label>
+                        <button type="button" @onclick="OpenForgotPwdModal"
+                            class="text-sm text-[var(--color-morandi)] hover:text-blue-700 hover:underline transition-colors focus:outline-none">忘記密碼？</button>
+                    </div>
+                </div>
+
+                <!-- Captcha -->
+                <div>
+                    <label for="captcha" class="block text-sm font-medium mb-1">驗證碼</label>
+                    <div class="flex gap-3">
+                        <input type="text" id="captcha" @bind="captchaInput" disabled="@isLoading"
+                            class="w-1/2 px-4 py-2.5 rounded-lg border border-gray-300 bg-white/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent transition-all uppercase"
+                            placeholder="輸入圖形碼" required autocomplete="off">
+                        <div class="w-1/2 flex items-center gap-2">
+                            <img src="@captchaImage" @onclick="RefreshCaptcha"
+                                class="rounded border border-gray-200 cursor-pointer bg-white h-[42px] w-[140px]" title="點擊重新產生" />
+                            <button type="button" @onclick="RefreshCaptcha"
+                                class="text-gray-400 hover:text-[var(--color-morandi)] focus:outline-none p-2 rounded-full hover:bg-gray-100 transition-colors"
+                                title="重新產生">
+                                <i class="fa-solid fa-rotate-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Security Notice -->
+                <div class="bg-blue-50/70 border border-blue-100 rounded-lg p-3 text-xs text-blue-800 flex items-start gap-2">
+                    <i class="fa-solid fa-shield-halved mt-0.5 text-[var(--color-morandi)]"></i>
+                    <div>
+                        <strong class="block mb-1 text-[var(--color-morandi)]">資安提示</strong>
+                        <ul class="list-disc pl-4 space-y-1 opacity-80">
+                            <li>請勿將帳號密碼交給他人使用。</li>
+                            <li>登入後若需離開座位，請確實登出系統。</li>
+                            <li>建議定期更換您的密碼以確保帳號安全。</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Submit -->
+                <button type="submit" disabled="@isLoading"
+                    class="w-full py-3 bg-[var(--color-morandi)] hover:bg-[#5b7a95] text-white rounded-lg font-medium transition-all shadow-md flex justify-center items-center gap-2 mt-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--color-morandi)] disabled:opacity-60 disabled:cursor-not-allowed">
+                    <span>@btnText</span>
+                    @if (isLoading)
+                    {
+                        <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    }
+                    else
+                    {
+                        <i class="fa-solid fa-arrow-right-to-bracket"></i>
+                    }
+                </button>
+            </form>
+
+            <div class="mt-8 text-center text-xs text-gray-400">
+                &copy; @DateTime.Now.Year 全民中文檢定 CWT. All rights reserved.
+            </div>
+        </div>
+    </div>
+
+    <!-- Forgot Password Modal -->
+    @if (showForgotPwdModal)
+    {
+        <div class="fixed inset-0 z-[100] flex items-center justify-center">
+            <!-- Backdrop -->
+            <div class="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity" @onclick="CloseForgotPwdModal"></div>
+            <!-- Modal Content -->
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 relative z-10 transform transition-all duration-300"
+                style="animation: modalIn 0.3s ease-out;">
+                <div class="p-6 border-b border-gray-100 flex justify-between items-center">
+                    <h2 class="text-lg font-bold text-[var(--color-slate-main)] flex items-center gap-2">
+                        <i class="fa-solid fa-key text-[var(--color-morandi)]"></i> 忘記密碼 / 重設密碼
+                    </h2>
+                    <button type="button" @onclick="CloseForgotPwdModal"
+                        class="text-gray-400 hover:text-gray-600 focus:outline-none w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <div class="p-6">
+                    <!-- Request Reset Link -->
+                    <p class="text-sm text-gray-600 mb-4">請輸入您註冊的電子信箱，我們將發送密碼重設連結給您。</p>
+                    <div class="mb-4 relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                            <i class="fa-regular fa-envelope"></i>
+                        </span>
+                        <input type="email" @bind="resetEmail"
+                            class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent"
+                            placeholder="example@school.edu.tw">
+                    </div>
+                    <button type="button" @onclick="SendResetLink" disabled="@isSendingReset"
+                        class="w-full py-2.5 bg-[var(--color-sage)] hover:bg-[#7b9c81] text-white rounded-lg font-medium transition-all shadow-sm flex justify-center items-center gap-2 focus:outline-none disabled:opacity-60">
+                        @if (isSendingReset)
+                        {
+                            <i class="fa-solid fa-spinner fa-spin"></i>
+                            <span>驗證發送中...</span>
+                        }
+                        else
+                        {
+                            <span>發送重設連結</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+</body>
+
+@code {
+    // --- 表單欄位 ---
+    private string username = "";
+    private string password = "";
+    private string captchaInput = "";
+    private bool rememberMe = false;
+
+    // --- UI 控制 ---
+    private string errorMessage = "";
+    private bool isLoading = false;
+    private string btnText = "登入系統";
+    private string passwordInputType = "password";
+    private string eyeIconClass = "fa-eye-slash";
+
+    // --- 驗證碼 ---
+    private string generatedCaptcha = "";
+    private string captchaImage = "";
+
+    // --- 忘記密碼 Modal ---
+    private bool showForgotPwdModal = false;
+    private string resetEmail = "";
+    private bool isSendingReset = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // 初始化驗證碼 (C#)
+        RefreshCaptchaSync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // 讀取「記住帳號」狀態
+            try 
+            {
+                var result = await LocalStorage.GetAsync<string>("cwt_remembered_account");
+                if (result.Success && !string.IsNullOrEmpty(result.Value))
+                {
+                    username = result.Value;
+                    rememberMe = true;
+                    StateHasChanged();
+                }
+            }
+            catch 
+            {
+                // 忽略 Pre-rendering 期間的錯誤
+            }
+        }
+    }
+
+    /// <summary>密碼顯示/隱藏切換 (純 C#)</summary>
+    private void TogglePasswordVisibility()
+    {
+        if (passwordInputType == "password")
+        {
+            passwordInputType = "text";
+            eyeIconClass = "fa-eye";
+        }
+        else
+        {
+            passwordInputType = "password";
+            eyeIconClass = "fa-eye-slash";
+        }
+    }
+
+    /// <summary>重新產生驗證碼 (使用 C# Service)</summary>
+    private void RefreshCaptchaSync()
+    {
+        var result = CaptchaService.GenerateCaptcha();
+        generatedCaptcha = result.Text;
+        captchaImage = result.ImageBase64;
+    }
+
+    private async Task RefreshCaptcha()
+    {
+        RefreshCaptchaSync();
+        await Task.CompletedTask;
+    }
+
+    /// <summary>處理登入流程 (DEMO)</summary>
+    private async Task HandleLogin()
+    {
+        errorMessage = "";
+
+        // 基本驗證
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+        {
+            errorMessage = "請輸入完整的帳號密碼。";
+            return;
+        }
+
+        // 驗證碼比對 (不分大小寫)
+        if (!string.Equals(captchaInput?.Trim(), generatedCaptcha, StringComparison.OrdinalIgnoreCase))
+        {
+            errorMessage = "驗證碼錯誤，請重新輸入。";
+            captchaInput = "";
+            RefreshCaptchaSync();
+            return;
+        }
+
+        // 開始載入
+        isLoading = true;
+        btnText = "登入中...";
+        StateHasChanged();
+
+        try
+        {
+            // 處理「記住帳號」
+            if (rememberMe)
+            {
+                await LocalStorage.SetAsync("cwt_remembered_account", username);
+            }
+            else
+            {
+                await LocalStorage.DeleteAsync("cwt_remembered_account");
+            }
+
+            // 模擬 API 請求延遲
+            await Task.Delay(1200);
+
+            // 登入成功 Toast (JS Interop 必要項目)
+            await JS.InvokeVoidAsync("swalInterop.fireToast", "success", "登入成功", "即將進入命題工作平臺...", 1000);
+
+            // 導航至首頁
+            Navigation.NavigateTo("/home");
+        }
+        catch
+        {
+            errorMessage = "系統登入發生例外錯誤，請稍後再試。";
+            isLoading = false;
+            btnText = "登入系統";
+        }
+    }
+
+    // --- 忘記密碼相關方法 ---
+
+    private void OpenForgotPwdModal()
+    {
+        resetEmail = "";
+        showForgotPwdModal = true;
+    }
+
+    private void CloseForgotPwdModal()
+    {
+        showForgotPwdModal = false;
+    }
+
+    /// <summary>發送重設連結 (Dapper + 寄信)</summary>
+    private async Task SendResetLink()
+    {
+        if (string.IsNullOrWhiteSpace(resetEmail))
+        {
+            await JS.InvokeVoidAsync("swalInterop.fire", new
+            {
+                icon = "error",
+                title = "錯誤",
+                text = "請輸入電子信箱",
+                confirmButtonColor = "#6B8EAD"
+            });
+            return;
+        }
+
+        isSendingReset = true;
+        StateHasChanged();
+
+        try 
+        {
+            string connStr = Configuration.GetConnectionString("DefaultConnection") ?? "";
+            using var conn = new SqlConnection(connStr);
+            
+            // 由於尚未建立實體 DB 連線測試，這裡的 SQL 為照規格實作。如無法連線則會捕捉 Error
+            var sqlCheck = "SELECT TOP 1 Ter_Id, Ter_Name FROM GoS_Teacher WHERE Ter_Email = @Email"; 
+            var teacher = await conn.QueryFirstOrDefaultAsync(sqlCheck, new { Email = resetEmail.Trim() });
+
+            // 若要解除本地除錯沒 DB 報錯，可暫記：
+            // teacher = new { Ter_Id = 1, Ter_Name = "Demo Teacher" }; // Mock
+            
+            if (teacher != null)
+            {
+                // 1. 產生通行證 (GUID)
+                string token = Guid.NewGuid().ToString("N");
+                // 2. 設定有效期限 (例如 1 小時後)
+                DateTime expireDate = DateTime.Now.AddHours(1);
+
+                // 3. 更新至資料庫 (假設欄位名為 Ter_Token, Ter_TokenExpire)
+                var sqlUpdate = @"
+                    UPDATE GoS_Teacher 
+                    SET Ter_Token = @Token, Ter_TokenExpire = @Expire 
+                    WHERE Ter_Id = @Id";
+                
+                await conn.ExecuteAsync(sqlUpdate, new { Token = token, Expire = expireDate, Id = (int)teacher.Ter_Id });
+
+                // 4. 寄出重設信件
+                string resetLink = $"{Navigation.BaseUri}resetpassword?token={token}";
+                await EmailService.SendResetPWEmailAsync(resetEmail.Trim(), "CWT 命題工作平臺 - 密碼重設通知", Navigation.BaseUri, resetLink);
+
+                // 5. 通知使用者
+                await JS.InvokeVoidAsync("swalInterop.fire", new { 
+                    icon = "success", 
+                    title = "信件已發送", 
+                    text = "重設連結已發送至您的信箱！(請點開信件並點擊連結)", 
+                    timer = 2500, 
+                    showConfirmButton = false 
+                });
+                
+                await Task.Delay(2600);
+                CloseForgotPwdModal();
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("swalInterop.fire", new { 
+                    icon = "error", 
+                    title = "發送失敗", 
+                    text = "找不到此電子信箱，請確認是否為系統帳號。",
+                    confirmButtonColor = "#6B8EAD"
+                });
+            }
+        }
+        catch (SqlException)
+        {
+            // 第一版開發期間，若資料庫尚未連線，則進行 Mock 成功假像，或報錯提示
+            await JS.InvokeVoidAsync("swalInterop.fire", new { icon = "info", title = "開發模式", text = "目前無法連線至 SQL Server，請確認連線字串。", confirmButtonColor = "#6B8EAD" });
+        }
+        catch (Exception)
+        {
+            await JS.InvokeVoidAsync("swalInterop.fire", new { icon = "error", title = "系統錯誤", text = "發生無法預期的錯誤，請聯絡系統確認。", confirmButtonColor = "#6B8EAD" });
+        }
+        finally
+        {
+            isSendingReset = false;
+            StateHasChanged();
+        }
+    }
+}

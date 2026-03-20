@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+@theme {
+    --color-oatmeal: #FBF9F6;
+    --color-morandi: #6B8EAD;
+    --color-sage: #8EAB94;
+    --color-terracotta: #D98A6C;
+    --color-slate-main: #374151;
+}
+
+@layer base {
+    body {
+        font-family: 'Noto Sans TC', sans-serif;
+        background-color: var(--color-oatmeal);
+        color: var(--color-slate-main);
+        transition: font-size 0.3s ease;
+    }
+}
+
+@layer components {
+    .glass-card {
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.4);
+    }
+    
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+}
+
+/* Modal Animation */
+@keyframes modalIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}

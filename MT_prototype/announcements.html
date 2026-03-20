@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CWT 命題工作平臺 - 系統公告 / 使用說明</title>
+    <link rel="icon" type="image/png" href="./assets/images/pencil.png">
+    <!-- Tailwind CSS v4 Browser Build -->
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SweetAlert2 for Alerts -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- Quill Rich Text Editor -->
+    <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
+    <script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
+
+    <style type="text/tailwindcss">
+        @theme {
+            --color-oatmeal: #FBF9F6;
+            --color-morandi: #6B8EAD;
+            --color-sage: #8EAB94;
+            --color-terracotta: #D98A6C;
+            --color-slate-main: #374151;
+        }
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: var(--color-oatmeal);
+            color: var(--color-slate-main);
+            transition: font-size 0.3s ease;
+        }
+
+        /* Custom scroll */
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Quill 編輯器客製化 */
+        .ql-toolbar.ql-snow { border: none !important; border-bottom: 1px solid #e5e7eb !important; background: #f9fafb; flex-shrink: 0; }
+        .ql-toolbar.ql-snow .ql-formats { margin-right: 10px; }
+        .ql-container.ql-snow { border: none !important; font-family: 'Noto Sans TC', sans-serif; font-size: 1rem; min-height: 0; }
+        #quillEditorContainer { display: flex; flex-direction: column; min-height: 250px; }
+        #quillEditorContainer .ql-toolbar.ql-snow { flex-shrink: 0; }
+        #quillEditorContainer .ql-container.ql-snow { flex: 1; min-height: 0; }
+        .ql-editor { min-height: 200px; overflow-y: auto; line-height: 1.8; }
+        .ql-editor:focus { outline: none; }
+
+        /* 中文標點按鈕 */
+        .punct-btn {
+            padding: 2px 8px;
+            font-size: 0.875rem;
+            color: #6b7280;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            font-family: 'Noto Sans TC', sans-serif;
+        }
+        .punct-btn:hover { background: var(--color-morandi); color: white; border-color: var(--color-morandi); }
+
+        /* Tab active styles */
+        .ann-tab-btn.active-tab {
+            color: var(--color-morandi);
+            border-bottom-color: var(--color-morandi);
+            font-weight: 700;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen relative flex flex-col h-screen overflow-hidden">
+    <!-- Navbar Container -->
+    <div id="navbar-container" class="flex-shrink-0"></div>
+
+    <!-- Main Content wrapper -->
+    <div class="flex-grow flex flex-col w-full max-w-[1920px] mx-auto h-[calc(100vh-4rem)] overflow-hidden">
+
+        <!-- Breadcrumb & Header Row -->
+        <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur border-b border-gray-200">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <nav class="flex text-sm text-gray-500 mb-1 font-medium" aria-label="Breadcrumb">
+                        <ol class="inline-flex items-center space-x-1 md:space-x-2">
+                            <li class="inline-flex items-center">
+                                <a href="firstpage.html"
+                                    class="inline-flex items-center hover:text-[var(--color-morandi)] transition-colors">
+                                    <i class="fa-solid fa-house mr-1"></i> 首頁
+                                </a>
+                            </li>
+                            <li>
+                                <div class="flex items-center">
+                                    <i class="fa-solid fa-chevron-right text-xs mx-1"></i>
+                                    <span class="text-[var(--color-slate-main)]">系統公告 / 使用說明</span>
+                                </div>
+                            </li>
+                        </ol>
+                    </nav>
+                    <h1 class="text-2xl font-bold flex items-center gap-2">
+                        <i class="fa-solid fa-bullhorn text-[var(--color-morandi)]"></i> 系統公告 / 使用說明
+                    </h1>
+                </div>
+                <div class="flex gap-2">
+                    <a href="#" id="btnUserGuide"
+                        class="cursor-pointer px-4 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm focus:outline-none flex items-center gap-2">
+                        <i class="fa-solid fa-book"></i> 使用說明手冊
+                    </a>
+                    <button type="button" id="btnNewAnnouncement"
+                        class="cursor-pointer px-5 py-2.5 bg-[var(--color-sage)] text-white rounded-lg text-sm font-medium hover:bg-[#7b9c81] transition-all shadow-sm focus:outline-none flex items-center gap-2">
+                        <i class="fa-solid fa-plus"></i> 新增公告
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Navigation + Stats -->
+        <div class="px-4 sm:px-6 lg:px-8 pt-4 flex-shrink-0">
+            <!-- Statistics Cards -->
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition duration-200 hover:shadow-md">
+                    <div class="text-gray-500 text-[10px] font-bold mb-0.5 flex items-center justify-between">
+                        公告總數 <i class="fa-solid fa-bullhorn text-[var(--color-morandi)] opacity-50"></i>
+                    </div>
+                    <div class="text-xl font-bold text-[var(--color-slate-main)]" id="statTotal">--</div>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition duration-200 hover:shadow-md">
+                    <div class="text-gray-500 text-[10px] font-bold mb-0.5 flex items-center justify-between">
+                        已發佈 <i class="fa-solid fa-circle-check text-[var(--color-sage)] opacity-50"></i>
+                    </div>
+                    <div class="text-xl font-bold text-[var(--color-sage)]" id="statPublished">--</div>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition duration-200 hover:shadow-md">
+                    <div class="text-gray-500 text-[10px] font-bold mb-0.5 flex items-center justify-between">
+                        草稿 <i class="fa-solid fa-file-pen text-gray-400 opacity-50"></i>
+                    </div>
+                    <div class="text-xl font-bold text-gray-500" id="statDraft">--</div>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition duration-200 hover:shadow-md">
+                    <div class="text-gray-500 text-[10px] font-bold mb-0.5 flex items-center justify-between">
+                        已下架 <i class="fa-solid fa-eye-slash text-[var(--color-terracotta)] opacity-50"></i>
+                    </div>
+                    <div class="text-xl font-bold text-[var(--color-terracotta)]" id="statArchived">--</div>
+                </div>
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition duration-200 hover:shadow-md">
+                    <div class="text-gray-500 text-[10px] font-bold mb-0.5 flex items-center justify-between">
+                        置頂中 <i class="fa-solid fa-thumbtack text-red-500 opacity-50"></i>
+                    </div>
+                    <div class="text-xl font-bold text-red-500" id="statPinned">--</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="flex-grow flex flex-col overflow-hidden px-4 sm:px-6 lg:px-8 pb-4">
+            <div class="flex-grow flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+
+                <!-- Filters Bar -->
+                <div class="p-4 border-b border-gray-100 bg-gray-50 flex flex-col md:flex-row gap-3 items-center justify-between shrink-0">
+                    <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                        <div class="relative w-full md:w-64">
+                            <i class="fa-solid fa-magnifying-glass left-3 top-2.5 absolute text-gray-400"></i>
+                            <input type="text" id="filterKeyword"
+                                class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--color-morandi)] focus:border-[var(--color-morandi)]"
+                                placeholder="搜尋公告標題或內容...">
+                        </div>
+                        <select id="filterCategory"
+                            class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--color-morandi)] bg-white cursor-pointer">
+                            <option value="all">所有分類</option>
+                            <option value="system">系統公告</option>
+                            <option value="compose">命題公告</option>
+                            <option value="review">審題公告</option>
+                            <option value="other">其它</option>
+                        </select>
+                        <select id="filterStatus"
+                            class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--color-morandi)] bg-white cursor-pointer">
+                            <option value="all">所有狀態</option>
+                            <option value="published">已發佈</option>
+                            <option value="draft">草稿</option>
+                            <option value="archived">已下架</option>
+                        </select>
+                    </div>
+                    <div class="text-sm text-gray-500 font-medium flex-shrink-0">
+                        共 <span id="listCount" class="text-[var(--color-morandi)] font-bold">0</span> 則公告
+                    </div>
+                </div>
+
+                <!-- Table Header -->
+                <div class="grid grid-cols-12 gap-2 px-6 py-3 border-b border-gray-200 bg-white text-xs font-bold text-gray-500 uppercase tracking-wider shrink-0">
+                    <div class="col-span-1 text-center">置頂</div>
+                    <div class="col-span-1">分類</div>
+                    <div class="col-span-4 lg:col-span-5">公告標題</div>
+                    <div class="col-span-2 hidden lg:block">綁定梯次</div>
+                    <div class="col-span-2 lg:col-span-1">狀態</div>
+                    <div class="col-span-1 hidden md:block">發佈日</div>
+                    <div class="col-span-1 text-center">操作</div>
+                </div>
+
+                <!-- Announcement List -->
+                <div class="flex-grow overflow-y-auto custom-scroll" id="announcementListContainer">
+                    <div class="p-8 text-center text-gray-400">載入中...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ============================================== -->
+    <!-- Slide-over panel: 新增 / 編輯公告 -->
+    <!-- ============================================== -->
+    <div id="slideOverWrapper" class="fixed inset-0 z-50 overflow-hidden hidden">
+        <!-- Backdrop -->
+        <div id="slideOverBackdrop"
+            class="absolute inset-0 bg-black/50 backdrop-blur-sm opacity-0 transition-opacity duration-300"></div>
+
+        <div class="absolute inset-y-0 right-0 flex max-w-full pl-10 sm:pl-16">
+            <!-- Panel -->
+            <div id="slideOverPanel"
+                class="w-screen max-w-3xl transform transition ease-in-out duration-300 translate-x-full bg-white shadow-2xl flex flex-col">
+
+                <!-- Panel Header -->
+                <div class="px-6 py-5 border-b border-gray-200 bg-gray-50 flex items-center justify-between shadow-sm z-10">
+                    <h2 class="text-xl font-bold text-[var(--color-slate-main)] flex items-center gap-2" id="panelTitle">
+                        <i class="fa-solid fa-bullhorn text-[var(--color-morandi)]"></i> <span>新增公告</span>
+                    </h2>
+                    <button type="button"
+                        class="close-panel-btn cursor-pointer text-gray-400 hover:text-gray-600 focus:outline-none w-8 h-8 rounded-full hover:bg-gray-200 flex items-center justify-center transition-colors">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+
+                <!-- Panel Body -->
+                <div class="flex-grow overflow-y-auto custom-scroll p-6 bg-white relative">
+                    <form id="announcementForm" class="space-y-6" onsubmit="return false;">
+
+                        <!-- 區塊 1: 公告設定 -->
+                        <div class="space-y-4">
+                            <h3 class="text-base font-bold text-gray-800 border-b border-[var(--color-morandi)]/30 pb-2 flex items-center gap-2">
+                                <span class="bg-[var(--color-morandi)] text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span>
+                                公告設定
+                            </h3>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium mb-1 text-gray-700">分類 <span class="text-red-500">*</span></label>
+                                    <select id="frmCategory" required
+                                        class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-[var(--color-morandi)] focus:border-[var(--color-morandi)] focus:outline-none text-sm bg-white cursor-pointer">
+                                        <option value="system">系統公告</option>
+                                        <option value="compose">命題公告</option>
+                                        <option value="review">審題公告</option>
+                                        <option value="other">其它</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1 text-gray-700">狀態 <span class="text-red-500">*</span></label>
+                                    <select id="frmStatus" required
+                                        class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-[var(--color-morandi)] focus:border-[var(--color-morandi)] focus:outline-none text-sm bg-white cursor-pointer">
+                                        <option value="draft">草稿</option>
+                                        <option value="published">已發佈</option>
+                                        <option value="archived">已下架</option>
+                                    </select>
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="block text-sm font-medium mb-1 text-gray-700">綁定顯示梯次</label>
+                                    <select id="frmProject"
+                                        class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-[var(--color-morandi)] focus:border-[var(--color-morandi)] focus:outline-none text-sm bg-white cursor-pointer">
+                                        <option value="ALL">全站廣播 (所有梯次)</option>
+                                        <!-- JS 動態注入 -->
+                                    </select>
+                                    <p class="text-[10px] text-gray-400 mt-1">
+                                        <i class="fa-solid fa-circle-info mr-0.5"></i> 選擇「全站廣播」則所有梯次均可看到此公告；選擇特定梯次，則僅在該梯次下顯示。
+                                    </p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1 text-gray-700">上架日期 <span class="text-red-500">*</span></label>
+                                    <input type="date" id="frmPublishDate" required
+                                        class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-[var(--color-morandi)] focus:border-[var(--color-morandi)] focus:outline-none text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium mb-1 text-gray-700">下架日期 <span class="text-gray-400 font-normal">(選填)</span></label>
+                                    <input type="date" id="frmUnpublishDate"
+                                        class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-[var(--color-morandi)] focus:border-[var(--color-morandi)] focus:outline-none text-sm">
+                                    <p class="text-[10px] text-gray-400 mt-1">留空表示不自動下架。超過此日期後，狀態將自動變為「已下架」。</p>
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="flex items-center gap-3 cursor-pointer bg-red-50/50 px-4 py-3 rounded-lg border border-red-100 hover:bg-red-50 transition-colors">
+                                        <input type="checkbox" id="frmPinned"
+                                            class="w-4 h-4 text-red-500 focus:ring-red-400 rounded">
+                                        <div>
+                                            <span class="text-sm font-bold text-red-600 flex items-center gap-1">
+                                                <i class="fa-solid fa-thumbtack"></i> 置頂公告
+                                            </span>
+                                            <p class="text-[10px] text-gray-500 mt-0.5">開啟後此公告會在列表與首頁公告看板中優先顯示於最頂端。</p>
+                                        </div>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 區塊 2: 公告內容 -->
+                        <div class="space-y-4">
+                            <h3 class="text-base font-bold text-gray-800 border-b border-[var(--color-morandi)]/30 pb-2 flex items-center gap-2">
+                                <span class="bg-[var(--color-morandi)] text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">2</span>
+                                公告內容
+                            </h3>
+                            <div>
+                                <label class="block text-sm font-medium mb-1 text-gray-700">公告標題 <span class="text-red-500">*</span></label>
+                                <input type="text" id="frmTitle" required placeholder="請輸入公告標題"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-[var(--color-morandi)] focus:border-[var(--color-morandi)] focus:outline-none text-sm">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium mb-2 text-gray-700">公告內容 <span class="text-red-500">*</span></label>
+                                <!-- 中文標點快速插入列 -->
+                                <div class="flex items-center gap-1 mb-2 flex-wrap">
+                                    <span class="text-[10px] text-gray-400 mr-1 flex-shrink-0">快速插入</span>
+                                    <button type="button" class="punct-btn" data-char="，">，</button>
+                                    <button type="button" class="punct-btn" data-char="。">。</button>
+                                    <button type="button" class="punct-btn" data-char="、">、</button>
+                                    <button type="button" class="punct-btn" data-char="；">；</button>
+                                    <button type="button" class="punct-btn" data-char="：">：</button>
+                                    <button type="button" class="punct-btn" data-char="「」" data-pair="true">「」</button>
+                                    <button type="button" class="punct-btn" data-char="『』" data-pair="true">『』</button>
+                                    <button type="button" class="punct-btn" data-char="（）" data-pair="true">（）</button>
+                                    <button type="button" class="punct-btn" data-char="！">！</button>
+                                    <button type="button" class="punct-btn" data-char="？">？</button>
+                                    <button type="button" class="punct-btn" data-char="——">——</button>
+                                    <button type="button" class="punct-btn" data-char="……">……</button>
+                                </div>
+                                <!-- Quill Editor -->
+                                <div class="border border-gray-300 rounded-lg overflow-hidden">
+                                    <div id="quillEditorContainer"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </form>
+                </div>
+
+                <!-- Panel Footer -->
+                <div class="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-between items-center flex-shrink-0 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                    <button type="button" id="btnSaveDraft"
+                        class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors focus:outline-none shadow-sm flex items-center gap-2">
+                        <i class="fa-solid fa-file-pen"></i> 存為草稿
+                    </button>
+                    <div class="flex gap-3">
+                        <button type="button"
+                            class="cursor-pointer close-panel-btn px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors focus:outline-none shadow-sm">
+                            取消
+                        </button>
+                        <button type="button" id="btnSaveAnnouncement"
+                            class="cursor-pointer px-6 py-2 bg-[var(--color-morandi)] text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] transition-colors focus:outline-none shadow-sm flex items-center gap-2">
+                            <i class="fa-solid fa-floppy-disk"></i> 儲存公告
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ============================================== -->
+    <!-- Modal: 公告檢視 -->
+    <!-- ============================================== -->
+    <div id="viewModal" class="hidden fixed inset-0 z-[100] flex items-center justify-center">
+        <div class="absolute inset-0 bg-black/40 backdrop-blur-sm modal-backdrop transition-opacity"></div>
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 relative z-10 flex flex-col max-h-[90vh] transform scale-95 opacity-0 transition-all duration-300"
+            id="viewModalPanel">
+            <!-- Header -->
+            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-start">
+                <div class="min-w-0">
+                    <div id="viewModalTags" class="mb-2 flex gap-2 flex-wrap"></div>
+                    <h2 class="text-xl font-bold text-[var(--color-slate-main)] leading-tight" id="viewModalTitle">公告標題</h2>
+                    <div class="text-xs text-gray-500 mt-2 flex items-center gap-3 flex-wrap">
+                        <span class="flex items-center gap-1"><i class="fa-regular fa-clock"></i> 發佈：<span id="viewModalPublishDate"></span></span>
+                        <span class="flex items-center gap-1" id="viewModalUnpublishWrap"><i class="fa-solid fa-eye-slash"></i> 下架：<span id="viewModalUnpublishDate"></span></span>
+                        <span class="flex items-center gap-1"><i class="fa-solid fa-folder-open"></i> <span id="viewModalProject"></span></span>
+                    </div>
+                </div>
+                <button type="button"
+                    class="close-view-modal cursor-pointer text-gray-400 hover:text-gray-600 focus:outline-none w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors flex-shrink-0 ml-4">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+            <!-- Body -->
+            <div class="p-6 overflow-y-auto custom-scroll text-gray-700 leading-relaxed text-sm md:text-base space-y-4" id="viewModalContent">
+            </div>
+            <!-- Footer -->
+            <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 rounded-b-xl flex justify-between items-center">
+                <button type="button" id="viewModalEditBtn"
+                    class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors focus:outline-none shadow-sm flex items-center gap-2">
+                    <i class="fa-solid fa-pen-to-square"></i> 編輯此公告
+                </button>
+                <button type="button"
+                    class="close-view-modal px-6 py-2 bg-[var(--color-morandi)] hover:bg-[#5b7a95] text-white rounded-lg font-medium transition-colors focus:outline-none">
+                    確認關閉
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+
+
+    <!-- Scripts -->
+    <script src="./js/shared.js"></script>
+    <script src="./js/announcements.js"></script>
+</body>
+
+</html>

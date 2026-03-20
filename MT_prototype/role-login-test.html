@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CWT 角色權限登入測試</title>
+    <!-- Tailwind v4 -->
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* 視覺與滾動條美化 */
+        body { font-family: 'Inter', 'Noto Sans TC', sans-serif; background-color: #FBF9F6; }
+        .terminal-scroll::-webkit-scrollbar { width: 6px; }
+        .terminal-scroll::-webkit-scrollbar-track { background: #1f2937; }
+        .terminal-scroll::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+        
+        .fade-in { animation: fadeIn 0.4s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 3px solid #ffffff;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="text-gray-700 min-h-screen p-6">
+
+    <div class="max-w-6xl mx-auto space-y-6">
+        
+        <!-- Header -->
+        <header class="bg-white rounded-2xl shadow-sm p-6 flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold text-[#6B8EAD]">登入身分與權限區塊測試環境 (Role Handler)</h1>
+                <p class="text-sm text-gray-500 mt-1">模擬三種身分別：「網站管理員」、「命題老師」、「審題委員」的登入轉址與模組呈現狀態。</p>
+            </div>
+            <button id="logoutBtn" onclick="TestHarness.handleLogout()" class="hidden bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-lg font-medium transition-colors">
+                重新測試 (登出)
+            </button>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            <!-- Left Side: Login Form & Role Mocks -->
+            <div class="space-y-6" id="loginSection">
+                <div class="bg-white rounded-2xl shadow-sm p-6 hover:-translate-y-1 transition-transform">
+                    <h2 class="text-lg font-bold mb-4 text-[#374151]">第一步：選擇測試帳號</h2>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <!-- Admin -->
+                        <button onclick="TestHarness.selectRole('admin')" class="bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 rounded-xl p-4 text-left transition-colors">
+                            <div class="font-bold">網站管理員</div>
+                            <div class="text-xs text-blue-500 mt-1">Admin</div>
+                        </button>
+                        <!-- Teacher -->
+                        <button onclick="TestHarness.selectRole('teacher')" class="bg-[#F4F7F5] hover:bg-[#EAF0EB] border border-[#8EAB94] text-[#4A6450] rounded-xl p-4 text-left transition-colors">
+                            <div class="font-bold">命題老師</div>
+                            <div class="text-xs text-[#6B8572] mt-1">Teacher</div>
+                        </button>
+                        <!-- Reviewer -->
+                        <button onclick="TestHarness.selectRole('reviewer')" class="bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 rounded-xl p-4 text-left transition-colors">
+                            <div class="font-bold">審題委員</div>
+                            <div class="text-xs text-purple-500 mt-1">Review Expert</div>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow-sm p-6 hover:-translate-y-1 transition-transform">
+                    <h2 class="text-lg font-bold mb-4 text-[#374151]">第二步：模擬登入</h2>
+                    <form id="loginForm" onsubmit="event.preventDefault(); TestHarness.handleLogin();" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-600 mb-1">帳號 (Username)</label>
+                            <input type="text" id="username" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-[#6B8EAD] focus:border-transparent outline-none transition-all" readonly placeholder="請先選擇上方測試角色">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-600 mb-1">密碼 (Password)</label>
+                            <input type="password" id="password" class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-[#6B8EAD] focus:border-transparent outline-none transition-all" readonly>
+                        </div>
+                        <button type="submit" id="submitBtn" class="w-full bg-[#6B8EAD] hover:bg-[#5a7a96] text-white rounded-lg px-4 py-3 font-medium transition-all flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                            <span id="submitText">模擬登入 (Simulate Login)</span>
+                            <div id="submitSpinner" class="hidden spinner"></div>
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Right Side: Terminal Log & Preview Area -->
+            <div class="space-y-6">
+                <!-- Terminal Log -->
+                <div class="bg-gray-900 rounded-2xl shadow-sm p-4 h-64 flex flex-col hover:-translate-y-1 transition-transform">
+                    <div class="flex items-center gap-2 mb-3 pb-2 border-b border-gray-700">
+                        <div class="w-3 h-3 rounded-full bg-red-500"></div>
+                        <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                        <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                        <span class="text-gray-400 text-xs font-mono ml-2">Testing Console</span>
+                        <button onclick="TestHarness.clearLog()" class="ml-auto text-xs text-gray-400 hover:text-white transition-colors">Clear</button>
+                    </div>
+                    <div id="terminalBody" class="flex-1 overflow-y-auto terminal-scroll font-mono text-xs space-y-1 pb-2">
+                        <!-- Logs will be appended here -->
+                    </div>
+                </div>
+
+                <!-- Block Preview Area -->
+                <div id="dashboardPreview" class="hidden bg-white rounded-2xl shadow-sm p-6 fade-in h-[480px] overflow-y-auto">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-bold text-[#374151]">登入後可見功能區塊預覽</h2>
+                        <span id="roleBadge" class="bg-gray-100 text-gray-700 px-3 py-1 rounded-full border border-gray-200 text-xs font-bold"></span>
+                    </div>
+                    <div class="bg-blue-50 border-l-4 border-blue-400 p-4 mb-6 rounded-r-lg">
+                        <div class="flex">
+                            <div class="ml-3">
+                                <p class="text-sm text-blue-700">
+                                  <strong>說明：</strong> 此區塊動態模擬該角色登入系統後，首頁導覽及系統選單能看見的對應模組卡片。
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="moduleGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                        <!-- Dynamic Modules will be generated here -->
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Blazor Migration & State Management Scripts -->
+    <script>
+        /**
+         * [Blazor Migration Note]
+         * 1. MockData 將對應 C# 端的 DbContext 或 Mock Repository 設定。
+         * 2. State 變數將轉換為 Blazor 的 ViewModel (如 LoginState, CurrentUser) 或 CascadingParameter。
+         * 3. handleLogin 的延遲及驗證將會替換成 HttpClient.PostAsJsonAsync 呼叫 /api/auth API 並儲存 JWT Token 至 LocalStorage 或 SessionStorage。
+         * 4. 權限渲染部分，Blazor 中會由 <AuthorizeView Roles="..."> 自動取代此處的 JavaScript filter 與 innerHTML 掛載，並以 StateHasChanged() 重新渲染畫面。
+         */
+
+        // --- Mock Data ---
+        // 模擬伺服器端存放的使用者與權限屬性資料
+        const MockRepository = {
+            users: {
+                admin: { 
+                    username: 'admin_sys', 
+                    password: 'password_admin', 
+                    roleName: '網站管理員', 
+                    token: 'eyJhbGciOiJIUzI1NiIsInR5cCI...', // 假 JWT
+                    permissions: [
+                        'dashboard', 'projects', 'overview', 'tasks', 'reviews', 'teachers', 'roles', 'announcements_edit'
+                    ]
+                },
+                teacher: { 
+                    username: 'teacher_demo', 
+                    password: 'password_teacher', 
+                    roleName: '命題老師', 
+                    token: 'teachers_token_12345',
+                    permissions: [
+                        'tasks', 'reviews', 'announcements_view'
+                    ]
+                },
+                reviewer: { 
+                    username: 'expert_reviewer', 
+                    password: 'password_expert', 
+                    roleName: '審題委員', 
+                    token: 'expert_token_5555',
+                    permissions: [
+                        'reviews', 'announcements_view'
+                    ]
+                }
+            },
+            modules: [
+                { id: 'dashboard', icon: '<i class="fa-solid fa-chart-pie"></i>', color: 'text-indigo-600', bgColor: 'bg-indigo-50', hoverBg: 'group-hover:bg-indigo-100', name: '命題儀表板', desc: '檢視梯次進度與整體命題統計' },
+                { id: 'projects', icon: '<i class="fa-solid fa-box-archive"></i>', color: 'text-amber-600', bgColor: 'bg-amber-50', hoverBg: 'group-hover:bg-amber-100', name: '命題專案管理', desc: '新增編輯專案時程、指派參與人員' },
+                { id: 'overview', icon: '<i class="fa-solid fa-globe"></i>', color: 'text-emerald-600', bgColor: 'bg-emerald-50', hoverBg: 'group-hover:bg-emerald-100', name: '命題總覽', desc: '監看所有試題審查進度與題型分布' },
+                { id: 'tasks', icon: '<i class="fa-solid fa-pen-to-square"></i>', color: 'text-[#6B8EAD]', bgColor: 'bg-blue-50', hoverBg: 'group-hover:bg-blue-100', name: '我的命題任務', desc: '命製七大類題型與提交試題送審' },
+                { id: 'reviews', icon: '<i class="fa-solid fa-magnifying-glass-chart"></i>', color: 'text-[#D98A6C]', bgColor: 'bg-red-50', hoverBg: 'group-hover:bg-red-100', name: '審題清單', desc: '進行試題互審、專家審查及總召決策' },
+                { id: 'teachers', icon: '<i class="fa-solid fa-chalkboard-user"></i>', color: 'text-cyan-600', bgColor: 'bg-cyan-50', hoverBg: 'group-hover:bg-cyan-100', name: '教師管理系統', desc: '管理外部命審人員名單與歷程檔案' },
+                { id: 'roles', icon: '<i class="fa-solid fa-id-card-clip"></i>', color: 'text-purple-600', bgColor: 'bg-purple-50', hoverBg: 'group-hover:bg-purple-100', name: '角色與權限管理', desc: '設定內部與外部同仁之系統功能檢視權限' },
+                { id: 'announcements_edit', icon: '<i class="fa-solid fa-bullhorn"></i>', color: 'text-pink-600', bgColor: 'bg-pink-50', hoverBg: 'group-hover:bg-pink-100', name: '系統公告(管理)', desc: '新增、下架公告與編輯首頁提示資訊' },
+                { id: 'announcements_view', icon: '<i class="fa-solid fa-bullhorn"></i>', color: 'text-pink-600', bgColor: 'bg-pink-50', hoverBg: 'group-hover:bg-pink-100', name: '系統公告(檢視)', desc: '查看平台所有公告與任務指示內容' }
+            ]
+        };
+
+        // --- State Management ---
+        const State = {
+            selectedRole: null,
+            currentUser: null,
+            isLoading: false
+        };
+
+        // --- Core Application Logic ---
+        const TestHarness = {
+            
+            init() {
+                this.log('[System] 角色登入區塊權限測試載入完成。', 'info');
+                this.log('請於左側選擇欲測試之教職員角色...', 'warning');
+            },
+
+            // 選擇角色填充表單
+            selectRole(roleKey) {
+                State.selectedRole = roleKey;
+                const user = MockRepository.users[roleKey];
+                
+                document.getElementById('username').value = user.username;
+                document.getElementById('password').value = user.password;
+                
+                this.log(`[UI] 已載入測試帳號參數: ${user.roleName} (${user.username})`, 'info');
+            },
+
+            // 處理登入動作
+            async handleLogin() {
+                if (!State.selectedRole) {
+                    this.log('[Error] 請先選定一個測試角色。', 'error');
+                    return;
+                }
+
+                const usernameInput = document.getElementById('username').value;
+                const passwordInput = document.getElementById('password').value;
+
+                // UI Loading 狀態
+                State.isLoading = true;
+                this.updateButtonState();
+                this.log(`[Network] POST /api/auth/login 送出帳號及密碼...`, 'warning');
+                
+                // 模擬網路延遲 1 秒
+                await this.delay(1000);
+
+                const mockUser = MockRepository.users[State.selectedRole];
+                
+                // 驗證
+                if (usernameInput === mockUser.username && passwordInput === mockUser.password) {
+                    // Success
+                    State.currentUser = mockUser;
+                    this.log(`[Network] 200 OK. 取得授權 Token: ${mockUser.token.substring(0, 10)}...`, 'success');
+                    this.log(`[Auth] 登入成功！使用者身分別：${mockUser.roleName}`, 'success');
+                    
+                    this.renderDashboard();
+                } else {
+                    // Fail
+                    this.log(`[Network] 401 Unauthorized. 帳號或密碼錯誤。`, 'error');
+                }
+
+                State.isLoading = false;
+                this.updateButtonState();
+            },
+
+            handleLogout() {
+                State.currentUser = null;
+                State.selectedRole = null;
+                document.getElementById('username').value = '';
+                document.getElementById('password').value = '';
+                
+                document.getElementById('loginSection').classList.remove('hidden');
+                document.getElementById('logoutBtn').classList.add('hidden');
+                document.getElementById('dashboardPreview').classList.add('hidden');
+                document.getElementById('moduleGrid').innerHTML = '';
+
+                this.log(`[Auth] 已經完全清空 Session 與 Token，返回登入測試流程。`, 'warning');
+            },
+
+            // 渲染登入後對應呈現之功能模組區塊
+            renderDashboard() {
+                const previewArea = document.getElementById('dashboardPreview');
+                const moduleContainer = document.getElementById('moduleGrid');
+                const badge = document.getElementById('roleBadge');
+                const loginSection = document.getElementById('loginSection');
+                
+                loginSection.classList.add('hidden');
+                previewArea.classList.remove('hidden');
+                document.getElementById('logoutBtn').classList.remove('hidden');
+
+                const user = State.currentUser;
+                badge.innerText = `模擬身分：${user.roleName}`;
+                
+                this.log(`[Render] 開始根據 Role Permissions Array 解析導覽與首頁選單樹...`, 'info');
+                
+                // 進行篩選，比照 Blazor 內的 <AuthorizeView> 
+                const visibleModules = MockRepository.modules.filter(m => user.permissions.includes(m.id));
+                
+                moduleContainer.innerHTML = '';
+                
+                if (visibleModules.length === 0) {
+                    moduleContainer.innerHTML = `<div class="col-span-2 text-center text-gray-400 py-6">此身分無任何授權功能</div>`;
+                }
+
+                visibleModules.forEach(mod => {
+                    const card = document.createElement('div');
+                    card.className = "bg-white border hover:border-[#8EAB94] p-4 rounded-xl shadow-sm flex items-center gap-4 transition-colors group cursor-default h-full";
+                    card.innerHTML = `
+                        <div class="text-2xl h-14 w-14 shrink-0 flex items-center justify-center rounded-lg transition-colors ${mod.bgColor} ${mod.color} ${mod.hoverBg}">${mod.icon}</div>
+                        <div>
+                            <h3 class="font-bold text-[#374151]">${mod.name}</h3>
+                            <p class="text-[11px] text-gray-500 mt-1 leading-snug">${mod.desc}</p>
+                        </div>
+                    `;
+                    moduleContainer.appendChild(card);
+                    this.log(`   └─ 動態掛載區塊: ${mod.name}`, 'success');
+                });
+            },
+
+            // --- Utilities ---
+            
+            updateButtonState() {
+                const btn = document.getElementById('submitBtn');
+                const txt = document.getElementById('submitText');
+                const spinner = document.getElementById('submitSpinner');
+                
+                if (State.isLoading) {
+                    btn.disabled = true;
+                    txt.innerText = '身分驗證中...';
+                    spinner.classList.remove('hidden');
+                } else {
+                    btn.disabled = false;
+                    txt.innerText = '模擬登入 (Simulate Login)';
+                    spinner.classList.add('hidden');
+                }
+            },
+
+            delay(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            },
+
+            log(message, type = 'info') {
+                const terminal = document.getElementById('terminalBody');
+                const timestamp = new Date().toISOString().split('T')[1].substring(0, 12);
+                
+                let colorClass = 'text-gray-300';
+                if (type === 'success') colorClass = 'text-green-400';
+                if (type === 'error') colorClass = 'text-red-400';
+                if (type === 'warning') colorClass = 'text-yellow-400';
+                
+                const entry = document.createElement('div');
+                entry.className = `break-all ${colorClass} py-0.5`;
+                entry.innerHTML = `<span class="text-gray-500 mr-2">[${timestamp}]</span> ${message}`;
+                
+                terminal.appendChild(entry);
+                terminal.scrollTop = terminal.scrollHeight;
+            },
+
+            clearLog() {
+                document.getElementById('terminalBody').innerHTML = '';
+                this.log('[System] 紀錄已清除。', 'info');
+            }
+        };
+
+        // On Load
+        window.addEventListener('DOMContentLoaded', () => {
+            TestHarness.init();
+        });
+
+    </script>
+</body>
+</html>

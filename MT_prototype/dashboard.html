@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CWT 命題工作平臺 - 命題儀表板</title>
+    <link rel="icon" type="image/png" href="./assets/images/pencil.png">
+    <!-- Tailwind CSS v4 Browser Build -->
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SweetAlert2 for Alerts -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+
+    <style type="text/tailwindcss">
+        @theme {
+            --color-oatmeal: #FBF9F6;
+            --color-morandi: #6B8EAD;
+            --color-sage: #8EAB94;
+            --color-terracotta: #D98A6C;
+            --color-slate-main: #374151;
+        }
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: var(--color-oatmeal);
+            color: var(--color-slate-main);
+            transition: font-size 0.3s ease;
+        }
+        
+        .stat-card {
+            background: #ffffff;
+            border: 1px solid #f1f5f9;
+            transition: all 0.2s;
+        }
+        .stat-card:hover {
+            box-shadow: 0 10px 15px -3px rgba(107, 142, 173, 0.15);
+            border-color: #e2e8f0;
+            transform: translateY(-2px);
+        }
+
+        /* 針對圖表容器 */
+        .chart-container {
+            position: relative;
+            height: 300px;
+            width: 100%;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen relative flex flex-col">
+    <!-- Navbar Container (Injected via shared.js) -->
+    <div id="navbar-container"></div>
+
+    <!-- Main Content wrapper -->
+    <div class="flex-grow py-6 px-4 sm:px-6 lg:px-8 max-w-[1920px] mx-auto w-full">
+
+        <!-- Breadcrumb & Header -->
+        <div class="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+                <!-- Breadcrumb -->
+                <nav class="flex text-sm text-gray-500 mb-2 font-medium" aria-label="Breadcrumb">
+                    <ol class="inline-flex items-center space-x-1 md:space-x-2">
+                        <li class="inline-flex items-center">
+                            <a href="firstpage.html"
+                                class="inline-flex items-center hover:text-[var(--color-morandi)] transition-colors">
+                                <i class="fa-solid fa-house mr-1"></i> 首頁
+                            </a>
+                        </li>
+                        <li>
+                            <div class="flex items-center">
+                                <i class="fa-solid fa-chevron-right text-xs mx-1"></i>
+                                <span class="text-[var(--color-slate-main)]">命題儀表板</span>
+                            </div>
+                        </li>
+                    </ol>
+                </nav>
+                <h1 class="text-2xl font-bold flex items-center gap-2">
+                    <i class="fa-solid fa-chart-pie text-[var(--color-morandi)]"></i> 命題儀表板
+                </h1>
+                <p class="text-sm text-gray-500 mt-1">監控目前梯次的題目產出達成率、題型缺口與逾期狀態。資料會隨梯次切換動態更新。</p>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="flex gap-2">
+                <button onclick="window.location.href='projects.html'"
+                    class="px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50 hover:text-[var(--color-morandi)] hover:-translate-y-0.5 hover:shadow-md cursor-pointer active:scale-95 transition-all duration-200 shadow-sm focus:outline-none">
+                    <i class="fa-solid fa-gear mr-1"></i> 專案設定
+                </button>
+                <button onclick="window.location.href='overview.html'"
+                    class="px-4 py-2 bg-[var(--color-morandi)] text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] hover:-translate-y-0.5 hover:shadow-md cursor-pointer active:scale-95 transition-all duration-200 shadow-sm focus:outline-none">
+                    <i class="fa-solid fa-list-check mr-1"></i> 試題總覽
+                </button>
+            </div>
+        </div>
+
+        <!-- 4 Stat Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6" id="statCardsContainer">
+            <!-- 1. 總目標題數 -->
+            <div class="stat-card rounded-xl p-5 shadow-sm flex items-center justify-between group">
+                <div>
+                    <p class="text-sm font-bold text-gray-500 mb-1">總目標題數</p>
+                    <div class="flex items-baseline gap-2">
+                        <h3 class="text-3xl font-black text-[var(--color-slate-main)]" id="statTotalTarget">...</h3>
+                        <span class="text-sm text-gray-400">題</span>
+                    </div>
+                </div>
+                <div
+                    class="w-12 h-12 rounded-full bg-blue-50 text-[var(--color-morandi)] flex items-center justify-center text-xl group-hover:scale-110 transition-transform">
+                    <i class="fa-solid fa-bullseye"></i>
+                </div>
+            </div>
+
+            <!-- 2. 已達成(審核入庫) -->
+            <div class="stat-card rounded-xl p-5 shadow-sm flex items-center justify-between group">
+                <div>
+                    <p class="text-sm font-bold text-gray-500 mb-1">已納入題庫 (採用)</p>
+                    <div class="flex items-baseline gap-2">
+                        <h3 class="text-3xl font-black text-[var(--color-sage)]" id="statAchieved">...</h3>
+                        <span class="text-sm text-gray-400">題</span>
+                    </div>
+                </div>
+                <div
+                    class="w-12 h-12 rounded-full bg-green-50 text-[var(--color-sage)] flex items-center justify-center text-xl group-hover:scale-110 transition-transform">
+                    <i class="fa-solid fa-check-double"></i>
+                </div>
+            </div>
+
+            <!-- 3. 審查中 -->
+            <div class="stat-card rounded-xl p-5 shadow-sm flex items-center justify-between group">
+                <div>
+                    <p class="text-sm font-bold text-gray-500 mb-1">各階段審修中</p>
+                    <div class="flex items-baseline gap-2">
+                        <h3 class="text-3xl font-black text-amber-600" id="statReviewing">...</h3>
+                        <span class="text-sm text-gray-400">題</span>
+                    </div>
+                </div>
+                <div
+                    class="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center text-xl group-hover:scale-110 transition-transform">
+                    <i class="fa-solid fa-spinner fa-spin-pulse"></i>
+                </div>
+            </div>
+
+            <!-- 4. 退回/逾期警示 -->
+            <div
+                class="stat-card rounded-xl p-5 shadow-sm flex items-center justify-between group border-l-4 border-l-[var(--color-terracotta)]">
+                <div>
+                    <p class="text-sm font-bold text-[var(--color-terracotta)] mb-1">退回修題 / 嚴重落後</p>
+                    <div class="flex items-baseline gap-2">
+                        <h3 class="text-3xl font-black text-[var(--color-terracotta)]" id="statWarning">...</h3>
+                        <span class="text-sm text-gray-400">題</span>
+                    </div>
+                </div>
+                <div
+                    class="w-12 h-12 rounded-full bg-red-50 text-[var(--color-terracotta)] flex items-center justify-center text-xl group-hover:scale-110 transition-transform animate-pulse">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+
+            <!-- Left Chart: Doughnut (題型缺口分析) -->
+            <div class="stat-card rounded-xl shadow-sm p-6 lg:col-span-1 flex flex-col">
+                <h3 class="text-lg font-bold text-[var(--color-slate-main)] mb-1">題型缺口達成率</h3>
+                <p class="text-xs text-gray-500 mb-6">展示目前各題型「已產出」與「目標」比例。</p>
+                <div class="flex-grow flex items-center justify-center">
+                    <div class="chart-container" style="height: 250px;">
+                        <canvas id="doughnutChart"></canvas>
+                    </div>
+                </div>
+                <div class="mt-4 text-center">
+                    <span class="text-xs font-bold px-2 py-1 bg-gray-100 text-gray-600 rounded-lg"
+                        id="overallProgressText">整體達成率：--%</span>
+                </div>
+            </div>
+
+            <!-- Right Chart: Bar (各階段狀態分佈) -->
+            <div class="stat-card rounded-xl shadow-sm p-6 lg:col-span-2 flex flex-col">
+                <div class="flex justify-between items-start mb-6">
+                    <div>
+                        <h3 class="text-lg font-bold text-[var(--color-slate-main)] mb-1">依題型狀態分佈表</h3>
+                        <p class="text-xs text-gray-500">展示草稿、送審、審修、退回等不同狀態在各題型的分佈數量。</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <!-- Chart type toggle (fake functionality visually) -->
+                        <span
+                            class="text-xs bg-blue-50 text-[var(--color-morandi)] px-2 py-1 rounded font-bold border border-blue-100">堆疊長條圖
+                            (Stacked)</span>
+                    </div>
+                </div>
+                <div class="flex-grow">
+                    <div class="chart-container" style="height: 280px;">
+                        <canvas id="barChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Bottom Row: Alerts & Audits -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+            <!-- Left: Urgent Pending Tasks List -->
+            <div class="bg-white rounded-xl shadow-sm border border-red-100 overflow-hidden flex flex-col">
+                <div class="bg-red-50 px-5 py-3 border-b border-red-100 flex justify-between items-center">
+                    <h3 class="font-bold text-[var(--color-terracotta)] text-sm flex items-center gap-2">
+                        <i class="fa-regular fa-clock"></i> 逾期與緊急待辦 (Top 5)
+                    </h3>
+                    <button
+                        class="text-xs text-[var(--color-terracotta)] hover:underline hover:scale-105 active:scale-95 transition-transform origin-right font-medium focus:outline-none">查看全部</button>
+                </div>
+                <ul class="divide-y divide-gray-100 flex-grow" id="urgentTasksList">
+                    <!-- Javascript Data Injection -->
+                </ul>
+            </div>
+
+            <!-- Right: Audit Logs (Recent Activities) -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+                <div class="bg-gray-50 px-5 py-3 border-b border-gray-200 flex justify-between items-center">
+                    <h3 class="font-bold text-gray-700 text-sm flex items-center gap-2">
+                        <i class="fa-solid fa-list-ul text-gray-400"></i> 最新稽核歷程 (LOG)
+                    </h3>
+                </div>
+                <div class="p-4 flex-grow relative">
+                    <!-- Timeline style -->
+                    <div class="absolute left-7 top-6 bottom-6 w-px bg-gray-200"></div>
+                    <ul class="space-y-5" id="auditLogList">
+                        <!-- Javascript Data Injection -->
+                    </ul>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+
+
+    <!-- Scripts -->
+    <script src="./js/shared.js"></script>
+    <script src="./js/dashboard.js"></script>
+</body>
+
+</html>
