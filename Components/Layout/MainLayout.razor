@@ -1,23 +1,226 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@rendermode InteractiveServer
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+<!-- Top Navbar -->
+<nav class="bg-morandi shadow-md fixed top-0 w-full z-40 h-16 transition-all">
+    <div class="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 h-full">
+        <div class="flex justify-between items-center h-full gap-4">
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+            <!-- Left: Logo & Brand -->
+            <div class="flex-shrink-0 flex items-center lg:w-1/4">
+                <a href="/home" class="flex items-center gap-2 text-white hover:text-blue-100 transition-colors">
+                    <div class="w-8 h-8 bg-white/20 rounded-md flex items-center justify-center overflow-hidden">
+                        <img src="img/pencil.png" alt="CWT Logo" class="w-6 h-6 object-contain drop-shadow-sm">
+                    </div>
+                    <span class="font-bold text-lg hidden sm:block tracking-wide">CWT 命題工作平臺</span>
+                </a>
+            </div>
+
+            <!-- Center: Project Switcher -->
+            <div class="flex-grow flex justify-center items-center relative lg:w-2/4 max-w-2xl px-2 sm:px-4">
+                <button type="button" @onclick="ToggleProjectDropdown" @onclick:stopPropagation="true"
+                    class="flex items-center justify-between gap-1 sm:gap-2 px-3 sm:px-4 py-1.5 bg-white/10 border border-white/20 hover:bg-white/20 hover:border-white/30 rounded-full transition-all cursor-pointer focus:outline-none w-full shadow-sm group">
+                    <div class="flex items-center flex-1 min-w-0 overflow-hidden text-left gap-1.5 sm:gap-2">
+                        <span class="flex-shrink-0 bg-white text-morandi font-bold text-[10px] sm:text-xs px-2 py-0.5 rounded-full whitespace-nowrap shadow-sm">@currentProject.Year 年度</span>
+                        <span class="font-semibold text-[13px] sm:text-sm text-white truncate">@currentProject.Name</span>
+                    </div>
+                    <i class="fa-solid fa-chevron-down text-white/80 group-hover:text-white text-xs flex-shrink-0 transition-transform @(showProjectDropdown ? "rotate-180" : "")"></i>
+                </button>
+
+                <!-- Project Dropdown -->
+                @if (showProjectDropdown)
+                {
+                    <!-- Click-outside overlay -->
+                    <div class="fixed inset-0 z-40" @onclick="CloseProjectDropdown"></div>
+                    <div class="absolute top-full mt-2 w-full min-w-[300px] mx-auto bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden z-50 origin-top"
+                        style="animation: modalIn 0.2s ease-out;" @onclick:stopPropagation="true">
+                        <div class="p-3 border-b border-gray-100 bg-gray-50/50">
+                            <div class="relative">
+                                <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-gray-400 text-sm"></i>
+                                <input type="text" @bind="projectSearchQuery" @bind:event="oninput"
+                                    class="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-morandi focus:border-morandi focus:outline-none"
+                                    placeholder="搜尋專案梯次..." />
+                            </div>
+                        </div>
+                        <div class="max-h-[50vh] sm:max-h-[60vh] overflow-y-auto">
+                            @{
+                                var activeProjects = FilteredProjects.Where(p => p.Status != "closed").ToList();
+                                var closedProjects = FilteredProjects.Where(p => p.Status == "closed").ToList();
+                            }
+
+                            @if (activeProjects.Any())
+                            {
+                                <div class="px-3 py-1 bg-gray-100 border-y border-gray-200 text-xs font-bold text-gray-500">進行中 (包含準備中)</div>
+                                @foreach (var p in activeProjects)
+                                {
+                                    var isSelected = p.Id == currentProject.Id;
+                                    <button type="button" @onclick="() => SelectProject(p)"
+                                        class="w-full text-left px-4 py-2.5 text-sm hover:bg-morandi/5 border-b border-gray-50 last:border-0 flex items-center justify-between transition-colors @(isSelected ? "bg-blue-50/50" : "")">
+                                        <div class="flex flex-col">
+                                            <span class="@(isSelected ? "text-morandi font-bold" : "text-gray-700 font-medium")">@p.Name</span>
+                                            <span class="text-[10px] text-gray-400">ID: @p.Id</span>
+                                        </div>
+                                        @if (isSelected)
+                                        {
+                                            <i class="fa-solid fa-check text-morandi"></i>
+                                        }
+                                    </button>
+                                }
+                            }
+
+                            @if (closedProjects.Any())
+                            {
+                                <div class="px-3 py-1 bg-gray-100 border-y border-gray-200 text-xs font-bold text-gray-500">已結案 (歷史專案)</div>
+                                @foreach (var p in closedProjects)
+                                {
+                                    var isSelected = p.Id == currentProject.Id;
+                                    <button type="button" @onclick="() => SelectProject(p)"
+                                        class="w-full text-left px-4 py-2.5 text-sm hover:bg-morandi/5 border-b border-gray-50 last:border-0 flex items-center justify-between transition-colors @(isSelected ? "bg-blue-50/50" : "")">
+                                        <div class="flex flex-col">
+                                            <span class="@(isSelected ? "text-morandi font-bold" : "text-gray-700 font-medium")">@p.Name</span>
+                                            <span class="text-[10px] text-gray-400">ID: @p.Id</span>
+                                        </div>
+                                        @if (isSelected)
+                                        {
+                                            <i class="fa-solid fa-check text-morandi"></i>
+                                        }
+                                    </button>
+                                }
+                            }
+
+                            @if (!FilteredProjects.Any())
+                            {
+                                <div class="p-4 text-center text-sm text-gray-500">查無相符專案</div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <!-- Right: Bell + User Info -->
+            <div class="flex-shrink-0 flex items-center justify-end gap-3 lg:w-1/4">
+                <!-- Bell Icon (未來功能) -->
+                <button type="button" class="relative text-white/80 hover:text-white transition-colors focus:outline-none p-1" title="通知 (準備中)">
+                    <i class="fa-regular fa-bell text-lg"></i>
+                    @* 未來可加上未讀計數 Badge *@
+                    @* <span class="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">3</span> *@
+                </button>
+
+                <!-- User Menu -->
+                <div class="flex items-center gap-2 relative group cursor-pointer">
+                    <div class="w-8 h-8 rounded-full bg-sage text-white shadow-sm border border-white/20 flex items-center justify-center font-bold text-sm">
+                        @userName.FirstOrDefault()
+                    </div>
+                    <div class="hidden md:block text-sm text-right">
+                        <div class="font-bold text-white leading-none tracking-wide">@userName</div>
+                    </div>
+
+                    <!-- User Dropdown -->
+                    <div class="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                        <div class="py-1">
+                            <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-morandi">
+                                <i class="fa-solid fa-user-pen w-5 text-center mr-1"></i> 個人設定
+                            </a>
+                            <div class="border-t border-gray-100 my-1"></div>
+                            <button type="button" @onclick="Logout"
+                                class="w-full text-left block px-4 py-2 text-sm text-red-600 hover:bg-red-50">
+                                <i class="fa-solid fa-arrow-right-from-bracket w-5 text-center mr-1"></i> 登出系統
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </div>
+    </div>
+</nav>
 
-        <article class="content px-4">
-            @Body
-        </article>
-    </main>
+<!-- Spacer for fixed navbar -->
+<div class="h-16 w-full shrink-0"></div>
+
+<!-- Main Content -->
+<div class="flex-grow py-6 px-4 sm:px-6 lg:px-8 max-w-[1920px] mx-auto w-full">
+    @Body
 </div>
 
-<div id="blazor-error-ui" data-nosnippet>
-    An unhandled error has occurred.
-    <a href="." class="reload">Reload</a>
-    <span class="dismiss">🗙</span>
-</div>
+@code {
+    // --- 使用者資訊 (DEMO) ---
+    private string userName = "劉老師";
+
+    // --- 梯次切換器 ---
+    private bool showProjectDropdown = false;
+    private string projectSearchQuery = "";
+    private ProjectInfo currentProject = new();
+
+    private static readonly List<ProjectInfo> allProjects = new()
+    {
+        new() { Id = "P2026-01", Name = "115年度 春季全民中檢", Status = "active", Year = "115" },
+        new() { Id = "P2026-02", Name = "115年度 秋季全民中檢", Status = "preparing", Year = "115" },
+        new() { Id = "P2025-02", Name = "114年度 秋季全民中檢", Status = "closed", Year = "114" },
+        new() { Id = "P2025-01", Name = "114年度 春季全民中檢", Status = "closed", Year = "114" }
+    };
+
+    private IEnumerable<ProjectInfo> FilteredProjects =>
+        string.IsNullOrWhiteSpace(projectSearchQuery)
+            ? allProjects
+            : allProjects.Where(p =>
+                p.Name.Contains(projectSearchQuery, StringComparison.OrdinalIgnoreCase) ||
+                p.Year.Contains(projectSearchQuery, StringComparison.OrdinalIgnoreCase));
+
+    protected override void OnInitialized()
+    {
+        currentProject = allProjects.First();
+    }
+
+    private void ToggleProjectDropdown()
+    {
+        showProjectDropdown = !showProjectDropdown;
+        if (showProjectDropdown)
+        {
+            projectSearchQuery = "";
+        }
+    }
+
+    private void CloseProjectDropdown()
+    {
+        showProjectDropdown = false;
+    }
+
+    private async Task SelectProject(ProjectInfo project)
+    {
+        currentProject = project;
+        showProjectDropdown = false;
+
+        await JS.InvokeVoidAsync("swalInterop.fireToast", "info", "已切換梯次", $"目前工作專案：{project.Name}", 2000);
+    }
+
+    private async Task Logout()
+    {
+        var confirmed = await JS.InvokeAsync<bool>("swalInterop.confirm", new
+        {
+            title = "確認登出?",
+            text = "您將被引導回登入畫面。",
+            icon = "warning",
+            showCancelButton = true,
+            confirmButtonColor = "#6B8EAD",
+            cancelButtonColor = "#d33",
+            confirmButtonText = "是的，登出",
+            cancelButtonText = "取消"
+        });
+
+        if (confirmed)
+        {
+            Navigation.NavigateTo("/");
+        }
+    }
+
+    private sealed class ProjectInfo
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Status { get; set; } = "";
+        public string Year { get; set; } = "";
+    }
+}

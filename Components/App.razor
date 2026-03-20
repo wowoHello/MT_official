@@ -21,11 +21,11 @@
     <!-- Quill for Editor -->
     <link rel="stylesheet" href="@Assets["css/quill.snow.css"]" />
     <script src="@Assets["js/quill.js"]"></script>
-    <HeadOutlet />
+    <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 
 <body>
-    <Routes />
+    <Routes @rendermode="InteractiveServer" />
     <ReconnectModal />
     <script src="_framework/blazor.web.js"></script>
     <script src="@Assets["js/login-interop.js"]"></script>

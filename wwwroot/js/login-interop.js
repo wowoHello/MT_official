@@ -13,6 +13,15 @@ window.swalInterop = {
         return result;
     },
     /**
+     * 呼叫 SweetAlert2 確認彈窗，回傳是否確認 (boolean)
+     * @param {object} options - Swal 選項
+     * @returns {boolean}
+     */
+    confirm: async (options) => {
+        const result = await Swal.fire(options);
+        return result.isConfirmed;
+    },
+    /**
      * 呼叫 SweetAlert2 Toast 形式通知
      * @param {string} icon - icon 類型 (success, error, warning, info)
      * @param {string} title - 標題
