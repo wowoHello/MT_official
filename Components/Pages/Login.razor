@@ -10,7 +10,7 @@
 
 <PageTitle>CWT 命題工作平臺 - 登入</PageTitle>
 
-<body class="min-h-screen flex items-center justify-center relative overflow-hidden bg-[var(--color-oatmeal)]">
+<div class="min-h-screen flex items-center justify-center relative overflow-hidden bg-[var(--color-oatmeal)]">
 
     <!-- Background Decoration / Illustration Area -->
     <div class="absolute inset-0 z-0 flex md:flex-row flex-col">
@@ -49,7 +49,7 @@
             }
 
             <!-- Login Form -->
-            <form class="space-y-5" @onsubmit="HandleLogin" @onsubmit:preventDefault>
+            <EditForm Model="loginModel" OnValidSubmit="HandleLogin" FormName="loginForm" class="space-y-5">
                 <!-- Account -->
                 <div>
                     <label for="username" class="block text-sm font-medium mb-1">帳號</label>
@@ -57,9 +57,9 @@
                         <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
                             <i class="fa-regular fa-user"></i>
                         </span>
-                        <input type="text" id="username" @bind="username" disabled="@isLoading"
+                        <InputText id="username" @bind-Value="loginModel.Username" disabled="@isLoading"
                             class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 bg-white/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent transition-all"
-                            placeholder="請輸入帳號" required>
+                            placeholder="請輸入帳號" />
                     </div>
                 </div>
 
@@ -70,19 +70,19 @@
                         <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
                             <i class="fa-solid fa-lock"></i>
                         </span>
-                        <input type="@passwordInputType" id="password" @bind="password" disabled="@isLoading"
+                        <InputText type="@(showPassword ? "text" : "password")" id="password" @bind-Value="loginModel.Password" disabled="@isLoading"
                             class="w-full pl-10 pr-10 py-2.5 rounded-lg border border-gray-300 bg-white/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent transition-all"
-                            placeholder="請輸入密碼" required>
+                            placeholder="請輸入密碼" />
                         <button type="button" @onclick="TogglePasswordVisibility"
                             class="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600 focus:outline-none">
-                            <i class="fa-regular @eyeIconClass"></i>
+                            <i class="fa-regular @(showPassword ? "fa-eye" : "fa-eye-slash")"></i>
                         </button>
                     </div>
                     <!-- Remember Me & Forgot Password -->
                     <div class="flex items-center justify-between mt-2">
                         <label class="flex items-center gap-2 cursor-pointer group">
                             <div class="relative flex items-center justify-center">
-                                <input type="checkbox" @bind="rememberMe" class="peer sr-only">
+                                <InputCheckbox @bind-Value="loginModel.RememberMe" class="peer sr-only" />
                                 <div class="w-4 h-4 border border-gray-300 rounded flex items-center justify-center transition-colors peer-checked:bg-[var(--color-morandi)] peer-checked:border-[var(--color-morandi)] group-hover:border-[var(--color-morandi)]">
                                     <i class="fa-solid fa-check text-white text-[10px] opacity-0 peer-checked:opacity-100 transition-opacity"></i>
                                 </div>
@@ -98,9 +98,9 @@
                 <div>
                     <label for="captcha" class="block text-sm font-medium mb-1">驗證碼</label>
                     <div class="flex gap-3">
-                        <input type="text" id="captcha" @bind="captchaInput" disabled="@isLoading"
+                        <InputText id="captcha" @bind-Value="loginModel.CaptchaInput" disabled="@isLoading"
                             class="w-1/2 px-4 py-2.5 rounded-lg border border-gray-300 bg-white/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent transition-all uppercase"
-                            placeholder="輸入圖形碼" required autocomplete="off">
+                            placeholder="輸入圖形碼" autocomplete="off" />
                         <div class="w-1/2 flex items-center gap-2">
                             <img src="@captchaImage" @onclick="RefreshCaptcha"
                                 class="rounded border border-gray-200 cursor-pointer bg-white h-[42px] w-[140px]" title="點擊重新產生" />
@@ -129,7 +129,7 @@
                 <!-- Submit -->
                 <button type="submit" disabled="@isLoading"
                     class="w-full py-3 bg-[var(--color-morandi)] hover:bg-[#5b7a95] text-white rounded-lg font-medium transition-all shadow-md flex justify-center items-center gap-2 mt-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--color-morandi)] disabled:opacity-60 disabled:cursor-not-allowed">
-                    <span>@btnText</span>
+                    <span>@(isLoading ? "登入中..." : "登入系統")</span>
                     @if (isLoading)
                     {
                         <svg class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -142,7 +142,7 @@
                         <i class="fa-solid fa-arrow-right-to-bracket"></i>
                     }
                 </button>
-            </form>
+            </EditForm>
 
             <div class="mt-8 text-center text-xs text-gray-400">
                 &copy; @DateTime.Now.Year 全民中文檢定 CWT. All rights reserved.
@@ -197,21 +197,15 @@
         </div>
     }
 
-</body>
-
+</div>
 @code {
-    // --- 表單欄位 ---
-    private string username = "";
-    private string password = "";
-    private string captchaInput = "";
-    private bool rememberMe = false;
+    // --- 表單模型 ---
+    private LoginFormModel loginModel = new();
 
     // --- UI 控制 ---
     private string errorMessage = "";
     private bool isLoading = false;
-    private string btnText = "登入系統";
-    private string passwordInputType = "password";
-    private string eyeIconClass = "fa-eye-slash";
+    private bool showPassword = false;
 
     // --- 驗證碼 ---
     private string generatedCaptcha = "";
@@ -222,10 +216,10 @@
     private string resetEmail = "";
     private bool isSendingReset = false;
 
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
         // 初始化驗證碼 (C#)
-        RefreshCaptchaSync();
+        GenerateNewCaptcha();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -238,8 +232,8 @@
                 var result = await LocalStorage.GetAsync<string>("cwt_remembered_account");
                 if (result.Success && !string.IsNullOrEmpty(result.Value))
                 {
-                    username = result.Value;
-                    rememberMe = true;
+                    loginModel.Username = result.Value;
+                    loginModel.RememberMe = true;
                     StateHasChanged();
                 }
             }
@@ -251,32 +245,20 @@
     }
 
     /// <summary>密碼顯示/隱藏切換 (純 C#)</summary>
-    private void TogglePasswordVisibility()
-    {
-        if (passwordInputType == "password")
-        {
-            passwordInputType = "text";
-            eyeIconClass = "fa-eye";
-        }
-        else
-        {
-            passwordInputType = "password";
-            eyeIconClass = "fa-eye-slash";
-        }
-    }
+    private void TogglePasswordVisibility() => showPassword = !showPassword;
 
-    /// <summary>重新產生驗證碼 (使用 C# Service)</summary>
-    private void RefreshCaptchaSync()
+    /// <summary>產生新驗證碼 (使用 C# Service)</summary>
+    private void GenerateNewCaptcha()
     {
         var result = CaptchaService.GenerateCaptcha();
         generatedCaptcha = result.Text;
         captchaImage = result.ImageBase64;
     }
 
-    private async Task RefreshCaptcha()
+    private void RefreshCaptcha()
     {
-        RefreshCaptchaSync();
-        await Task.CompletedTask;
+        GenerateNewCaptcha();
+        loginModel.CaptchaInput = "";
     }
 
     /// <summary>處理登入流程 (DEMO)</summary>
@@ -285,32 +267,31 @@
         errorMessage = "";
 
         // 基本驗證
-        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+        if (string.IsNullOrWhiteSpace(loginModel.Username) || string.IsNullOrWhiteSpace(loginModel.Password))
         {
             errorMessage = "請輸入完整的帳號密碼。";
             return;
         }
 
         // 驗證碼比對 (不分大小寫)
-        if (!string.Equals(captchaInput?.Trim(), generatedCaptcha, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(loginModel.CaptchaInput?.Trim(), generatedCaptcha, StringComparison.OrdinalIgnoreCase))
         {
             errorMessage = "驗證碼錯誤，請重新輸入。";
-            captchaInput = "";
-            RefreshCaptchaSync();
+            loginModel.CaptchaInput = "";
+            GenerateNewCaptcha();
             return;
         }
 
         // 開始載入
         isLoading = true;
-        btnText = "登入中...";
         StateHasChanged();
 
         try
         {
             // 處理「記住帳號」
-            if (rememberMe)
+            if (loginModel.RememberMe)
             {
-                await LocalStorage.SetAsync("cwt_remembered_account", username);
+                await LocalStorage.SetAsync("cwt_remembered_account", loginModel.Username);
             }
             else
             {
@@ -330,7 +311,6 @@
         {
             errorMessage = "系統登入發生例外錯誤，請稍後再試。";
             isLoading = false;
-            btnText = "登入系統";
         }
     }
 
@@ -432,5 +412,14 @@
             isSendingReset = false;
             StateHasChanged();
         }
+    }
+
+    // --- 表單模型類別 ---
+    private sealed class LoginFormModel
+    {
+        public string Username { get; set; } = "";
+        public string Password { get; set; } = "";
+        public string CaptchaInput { get; set; } = "";
+        public bool RememberMe { get; set; } = false;
     }
 }
