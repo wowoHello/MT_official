@@ -1,0 +1,45 @@
+<div class="flex flex-col items-center justify-center p-12 text-center h-full min-h-[300px] w-full bg-white/50 rounded-2xl border border-dashed border-gray-200">
+    <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4 border border-gray-100 shadow-sm">
+        <i class="fa-solid @IconClass text-3xl text-gray-400"></i>
+    </div>
+    <h3 class="text-xl font-bold text-gray-500 mb-2">@Message</h3>
+    @if (!string.IsNullOrEmpty(SubMessage))
+    {
+        <p class="text-gray-400 text-sm max-w-md mb-6">@SubMessage</p>
+    }
+    
+    @if (ShowAction && !string.IsNullOrEmpty(ActionText))
+    {
+        <button type="button" @onclick="OnActionClick"
+                class="px-6 py-2.5 bg-morandi text-white font-medium rounded-lg shadow-sm hover:bg-slate-main transition-all flex items-center gap-2 transform hover:-translate-y-0.5">
+            @if (!string.IsNullOrEmpty(ActionIcon))
+            {
+                <i class="fa-solid @ActionIcon"></i>
+            }
+            @ActionText
+        </button>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string IconClass { get; set; } = "fa-folder-open";
+
+    [Parameter]
+    public string Message { get; set; } = "目前尚無資料";
+
+    [Parameter]
+    public string SubMessage { get; set; } = "";
+
+    [Parameter]
+    public bool ShowAction { get; set; } = false;
+
+    [Parameter]
+    public string ActionText { get; set; } = "";
+
+    [Parameter]
+    public string ActionIcon { get; set; } = "fa-plus";
+
+    [Parameter]
+    public EventCallback OnActionClick { get; set; }
+}

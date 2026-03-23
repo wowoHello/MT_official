@@ -5,6 +5,8 @@
 > **目標**：將 `MT_prototype` 中的 HTML/JS 前端原型，遷移至 Blazor Server (.NET 10) 架構
 > **注意事項**：此為正式環境，必須保持 Clear Code 編碼方式，能夠組件複用就要組件化，且目前已經有資料庫了，不需要再模擬延遲
 > **注意事項**：h1標籤的 CSS 都要加上 focus:outline-none，避免預設選取
+> **注意事項**：MT_prototype 是 Prototype，可以用來參考樣式與功能，去重時不要去刪掉
+
 ---
 
 ## 現況盤點

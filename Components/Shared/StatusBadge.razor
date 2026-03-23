@@ -1,0 +1,66 @@
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border @GetBadgeClass()">
+    @if (!string.IsNullOrEmpty(GetIconClass()))
+    {
+        <i class="fa-solid @GetIconClass() text-[10px]"></i>
+    }
+    @StatusText
+</span>
+
+@code {
+    [Parameter]
+    public string StatusText { get; set; } = "";
+
+    [Parameter]
+    public string BadgeType { get; set; } = "default"; // info, success, warning, danger, draft, default
+
+    /// <summary>
+    /// 自動根據文字判斷顏色，若有指定 BadgeType 則優先使用
+    /// </summary>
+    private string GetBadgeClass()
+    {
+        string type = BadgeType != "default" ? BadgeType : InferTypeFromStatus();
+
+        return type switch
+        {
+            "success" => "bg-emerald-50 text-emerald-700 border-emerald-200",
+            "warning" => "bg-amber-50 text-amber-700 border-amber-200",
+            "danger" => "bg-terracotta/10 text-terracotta border-terracotta/20",
+            "info" => "bg-blue-50 text-morandi border-blue-200",
+            "draft" => "bg-gray-100 text-gray-500 border-gray-200",
+            _ => "bg-gray-50 text-gray-600 border-gray-200"
+        };
+    }
+
+    private string InferTypeFromStatus()
+    {
+        if (string.IsNullOrEmpty(StatusText)) return "default";
+
+        var text = StatusText.Trim();
+        if (text.Contains("完成") || text.Contains("採用") || text.Contains("進行中") || text.Contains("啟用"))
+            return "success";
+        if (text.Contains("送審") || text.Contains("鎖定") || text.Contains("審查中"))
+            return "info";
+        if (text.Contains("退回") || text.Contains("修題") || text.Contains("待審"))
+            return "warning";
+        if (text.Contains("不採用") || text.Contains("停用") || text.Contains("失敗") || text.Contains("異常"))
+            return "danger";
+        if (text.Contains("草稿") || text.Contains("準備中") || text.Contains("下架") || text.Contains("關閉"))
+            return "draft";
+
+        return "default";
+    }
+
+    private string GetIconClass()
+    {
+        var type = BadgeType != "default" ? BadgeType : InferTypeFromStatus();
+        return type switch
+        {
+            "success" => "fa-circle-check",
+            "warning" => "fa-triangle-exclamation",
+            "danger" => "fa-circle-xmark",
+            "info" => "fa-circle-info",
+            "draft" => "fa-pen-ruler",
+            _ => "fa-circle-dot"
+        };
+    }
+}

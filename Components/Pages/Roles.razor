@@ -1,0 +1,117 @@
+@page "/roles"
+@using MT.Components.Shared
+
+<div class="flex-grow flex flex-col w-full max-w-[1920px] mx-auto h-[calc(100vh-4rem)] overflow-hidden">
+    <!-- Breadcrumb & Header Row -->
+    <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur border-b border-gray-200">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+                <nav class="flex text-sm text-gray-500 mb-2 font-medium" aria-label="Breadcrumb">
+                    <ol class="inline-flex items-center space-x-1 md:space-x-2">
+                        <li class="inline-flex items-center">
+                            <a href="/home" class="inline-flex items-center hover:text-morandi transition-colors">
+                                <i class="fa-solid fa-house mr-1"></i> 首頁
+                            </a>
+                        </li>
+                        <li>
+                            <div class="flex items-center">
+                                <i class="fa-solid fa-chevron-right text-xs mx-1"></i>
+                                <span class="text-slate-main">角色與權限管理</span>
+                            </div>
+                        </li>
+                    </ol>
+                </nav>
+                <h1 class="text-2xl font-bold flex items-center gap-2">
+                    <i class="fa-solid fa-users-gear text-morandi"></i> 角色與權限管理
+                </h1>
+                <p class="text-sm text-gray-500 mt-1">管理內部同仁帳號及定義內外部角色的系統功能權限。</p>
+            </div>
+            <div class="flex gap-2 text-sm">
+                <!-- User account toggle info if needed -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="px-4 sm:px-6 lg:px-8 py-4 shrink-0 border-b border-gray-100 bg-white flex justify-between items-center">
+        <div class="flex space-x-1 bg-gray-100 p-1 rounded-xl w-fit">
+            <button @onclick='() => currentTab = "accounts"' class="@(currentTab == "accounts" ? "bg-white text-morandi shadow-sm font-bold" : "text-gray-500 hover:text-gray-700 font-medium hover:bg-white/50") px-6 py-2 rounded-lg text-sm transition-all focus:outline-none">
+                人員帳號管理
+            </button>
+            <button @onclick='() => currentTab = "roles"' class="@(currentTab == "roles" ? "bg-white text-morandi shadow-sm font-bold" : "text-gray-500 hover:text-gray-700 font-medium hover:bg-white/50") px-6 py-2 rounded-lg text-sm transition-all focus:outline-none">
+                角色權限管理
+            </button>
+        </div>
+        
+        @if (currentTab == "accounts")
+        {
+            <button @onclick="() => showAccountModal = true" class="px-4 py-2 bg-sage text-white rounded-lg text-sm font-medium hover:bg-[#7b9c81] shadow-sm transition-all focus:outline-none flex items-center gap-2">
+                <i class="fa-solid fa-user-plus"></i> 新增人員
+            </button>
+        }
+        else
+        {
+            <button @onclick="() => showRoleModal = true" class="px-4 py-2 bg-morandi text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] shadow-sm transition-all focus:outline-none flex items-center gap-2">
+                <i class="fa-solid fa-circle-plus"></i> 新增角色
+            </button>
+        }
+    </div>
+
+    <!-- Tab Content -->
+    @if (currentTab == "accounts")
+    {
+        <!-- Split Layout for Accounts -->
+        <div class="flex-grow flex overflow-hidden">
+            <div class="w-full lg:w-1/3 xl:w-1/4 bg-gray-50 border-r border-gray-200 flex flex-col z-10 flex-shrink-0">
+                <div class="p-4 border-b border-gray-200 bg-white">
+                    <div class="relative">
+                        <i class="fa-solid fa-magnifying-glass left-3 top-2.5 absolute text-gray-400"></i>
+                        <input type="text" class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-morandi" placeholder="搜尋姓名 / 帳號 / 信箱...">
+                    </div>
+                </div>
+                <!-- Empty list content -->
+                <div class="flex-grow overflow-y-auto custom-scroll p-4">
+                    <EmptyState IconClass="fa-id-badge" Message="尚無人員帳號" SubMessage="點擊右上角新增內部管理人員。" />
+                </div>
+            </div>
+            
+            <div class="hidden lg:flex flex-col w-full lg:w-2/3 xl:w-3/4 bg-[var(--color-oatmeal)] overflow-hidden">
+                <div class="flex-grow flex flex-col items-center justify-center text-gray-400 p-8">
+                    <i class="fa-solid fa-address-card text-6xl mb-4 text-gray-300"></i>
+                    <p class="text-lg font-medium">請由左側列表選擇人員以查看詳情。</p>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- Roles Grid -->
+        <div class="flex-grow overflow-y-auto custom-scroll p-6 lg:p-8 bg-[var(--color-oatmeal)]">
+             <EmptyState IconClass="fa-unlock-keyhole" Message="尚無角色" SubMessage="點擊上方新增角色以定義權限。" />
+        </div>
+    }
+</div>
+
+<!-- Add Account Modal -->
+<CustomModal @bind-IsVisible="showAccountModal" Type="CustomModal.ModalType.SlideOver" Title="新增內部人員">
+    <ChildContent>
+        <div class="p-4 bg-gray-50 border border-gray-200 rounded text-center text-gray-500 mb-4">
+            表單內容建置中...
+        </div>
+    </ChildContent>
+</CustomModal>
+
+<!-- Add Role Modal -->
+<CustomModal @bind-IsVisible="showRoleModal" Type="CustomModal.ModalType.Center" Title="新增角色">
+     <ChildContent>
+        <div class="p-4 bg-gray-50 border border-gray-200 rounded text-center text-gray-500 mb-4">
+            表單內容建置中...
+        </div>
+    </ChildContent>
+</CustomModal>
+
+@code {
+    private string currentTab = "accounts";
+    private bool showAccountModal = false;
+    private bool showRoleModal = false;
+}

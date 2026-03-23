@@ -1,0 +1,146 @@
+@if (IsVisible)
+{
+    <!-- Backdrop -->
+    <div class="fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-50 transition-opacity" 
+         @onclick="HandleBackdropClick">
+    </div>
+
+    <!-- Modal Content -->
+    @if (Type == ModalType.Center)
+    {
+        <!-- Center Box Modal -->
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl pointer-events-auto flex flex-col max-h-[90vh] overflow-hidden" 
+                 style="animation: modalIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+                <div class="flex justify-between items-center p-5 border-b border-gray-100 bg-gray-50/50">
+                    <h3 class="text-xl font-bold text-slate-main">@Title</h3>
+                    <button type="button" @onclick="CloseAsync" class="text-gray-400 hover:text-red-500 hover:bg-red-50 w-8 h-8 rounded-full flex items-center justify-center transition-colors">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+                <div class="p-6 overflow-y-auto custom-scroll">
+                    @ChildContent
+                </div>
+                @if (FooterContent != null)
+                {
+                    <div class="p-5 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
+                        @FooterContent
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else if (Type == ModalType.SlideOver)
+    {
+        <!-- Slide Over (Right side) -->
+        <div class="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col origin-right pointer-events-auto"
+             style="animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+             
+            <div class="flex items-center justify-between p-5 border-b border-gray-100 bg-morandi text-white">
+                <h3 class="text-lg font-bold tracking-wide">@Title</h3>
+                <button type="button" @onclick="CloseAsync" class="text-white/70 hover:text-white w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
+                    <i class="fa-solid fa-xmark text-xl"></i>
+                </button>
+            </div>
+            
+            <div class="p-6 flex-grow overflow-y-auto custom-scroll bg-gray-50/30">
+                @ChildContent
+            </div>
+            
+            @if (FooterContent != null)
+            {
+                <div class="p-4 border-t border-gray-200 bg-gray-50/80 flex justify-end gap-3">
+                    @FooterContent
+                </div>
+            }
+        </div>
+    }
+    else if (Type == ModalType.FullScreen)
+    {
+        <!-- Full Screen Modal (For Tasks/Editing) -->
+        <div class="fixed inset-0 z-50 bg-gray-50 flex flex-col pointer-events-auto"
+             style="animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+            <div class="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10 shrink-0">
+                <div class="flex items-center gap-4 text-emerald-800">
+                    <div class="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center">
+                        <i class="fa-solid fa-pen-ruler text-xl"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-bold tracking-wide">@Title</h2>
+                    </div>
+                </div>
+                
+                <div class="flex items-center gap-3">
+                    @if (HeaderActions != null)
+                    {
+                        @HeaderActions
+                    }
+                    <div class="w-px h-6 bg-gray-300 mx-1"></div>
+                    <button type="button" @onclick="CloseAsync" 
+                            class="px-4 py-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg font-bold transition-colors flex items-center gap-2">
+                        <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                        回列表
+                    </button>
+                </div>
+            </div>
+            
+            <div class="flex-grow overflow-auto">
+                @ChildContent
+            </div>
+        </div>
+    }
+}
+
+@code {
+    public enum ModalType
+    {
+        Center,
+        SlideOver,
+        FullScreen
+    }
+
+    [Parameter]
+    public bool IsVisible { get; set; }
+
+    [Parameter]
+    public ModalType Type { get; set; } = ModalType.Center;
+
+    [Parameter]
+    public string Title { get; set; } = "";
+
+    [Parameter]
+    public bool CloseOnBackdropClick { get; set; } = true;
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? FooterContent { get; set; }
+
+    [Parameter]
+    public RenderFragment? HeaderActions { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> IsVisibleChanged { get; set; }
+
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+
+    private async Task CloseAsync()
+    {
+        IsVisible = false;
+        await IsVisibleChanged.InvokeAsync(IsVisible);
+        if (OnClose.HasDelegate)
+        {
+            await OnClose.InvokeAsync();
+        }
+    }
+
+    private async Task HandleBackdropClick()
+    {
+        if (CloseOnBackdropClick)
+        {
+            await CloseAsync();
+        }
+    }
+}

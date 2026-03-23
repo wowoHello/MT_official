@@ -5,88 +5,90 @@
 <PageTitle>CWT 命題工作平臺 - 首頁</PageTitle>
 
 <!-- Header -->
-<div class="mb-6 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-    <div>
-        <h1 class="text-2xl font-bold mb-1">功能總覽儀表板</h1>
-        <p class="text-gray-500 text-sm">請選擇您要執行的作業項目。若該梯次無您的任務，對應功能將無法進入。</p>
+<div class="py-6 px-4 sm:px-6 lg:px-8 w-full">
+    <div class="mb-6 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-bold mb-1 focus:outline-none">功能總覽儀表板</h1>
+            <p class="text-gray-500 text-sm">請選擇您要執行的作業項目。若該梯次無您的任務，對應功能將無法進入。</p>
+        </div>
+        <div class="text-sm font-medium text-morandi bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-100 flex items-center gap-2">
+            <i class="fa-regular fa-calendar"></i>
+            <span class="tracking-wide">@currentDateDisplay</span>
+        </div>
     </div>
-    <div class="text-sm font-medium text-morandi bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-100 flex items-center gap-2">
-        <i class="fa-regular fa-calendar"></i>
-        <span class="tracking-wide">@currentDateDisplay</span>
-    </div>
-</div>
 
-<div class="flex flex-col lg:flex-row gap-6">
+    <div class="flex flex-col lg:flex-row gap-6">
 
-    <!-- Left Grid: Function Cards -->
-    <div class="lg:w-2/3 xl:w-3/4">
-        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
-            @foreach (var (item, index) in menuItems.Select((v, i) => (v, i)))
-            {
-                var hasAccess = item.Roles.Contains("ADMIN") || item.Roles.Contains(userRole);
-                var delay = index * 50;
+        <!-- Left Grid: Function Cards -->
+        <div class="lg:w-2/3 xl:w-3/4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+                @foreach (var (item, index) in menuItems.Select((v, i) => (v, i)))
+                {
+                    var hasAccess = item.Roles.Contains("ADMIN") || item.Roles.Contains(userRole);
+                    var delay = index * 50;
 
-                <div class="@(hasAccess ? "bg-white cursor-pointer group menu-card" : "bg-gray-50 opacity-60 cursor-not-allowed border-transparent grayscale") rounded-2xl shadow-sm p-6 flex flex-col h-full relative overflow-hidden"
-                     style="animation: fadeIn 0.5s ease-out @(delay)ms both;"
-                     @onclick="() => NavigateToCard(item, hasAccess)">
+                    <div class="@(hasAccess ? "bg-white cursor-pointer group menu-card" : "bg-gray-50 opacity-60 cursor-not-allowed border-transparent grayscale") rounded-2xl shadow-sm p-6 flex flex-col h-full relative overflow-hidden"
+                        style="animation: fadeIn 0.5s ease-out @(delay)ms both;"
+                        @onclick="() => NavigateToCard(item, hasAccess)">
 
-                    @if (!hasAccess)
-                    {
-                        <div class="absolute top-3 right-3 text-xs font-bold text-gray-400 bg-gray-200 px-2 py-1 rounded">
-                            <i class="fa-solid fa-lock"></i> 無權限
+                        @if (!hasAccess)
+                        {
+                            <div class="absolute top-3 right-3 text-xs font-bold text-gray-400 bg-gray-200 px-2 py-1 rounded">
+                                <i class="fa-solid fa-lock"></i> 無權限
+                            </div>
+                        }
+
+                        <div class="w-12 h-12 rounded-xl flex items-center justify-center text-2xl mb-4 @(hasAccess ? item.BgColor : "bg-gray-200") @(hasAccess ? item.Color : "text-gray-400") @(hasAccess ? "group-hover:scale-110 transition-transform" : "")">
+                            <i class="fa-solid @item.Icon"></i>
                         </div>
-                    }
 
-                    <div class="w-12 h-12 rounded-xl flex items-center justify-center text-2xl mb-4 @(hasAccess ? item.BgColor : "bg-gray-200") @(hasAccess ? item.Color : "text-gray-400") @(hasAccess ? "group-hover:scale-110 transition-transform" : "")">
-                        <i class="fa-solid @item.Icon"></i>
+                        <h3 class="text-lg font-bold mb-2 @(hasAccess ? "text-slate-main group-hover:text-morandi transition-colors" : "text-gray-500")">@item.Title</h3>
+                        <p class="text-sm text-gray-500 flex-grow leading-relaxed">@item.Desc</p>
+
+                        @if (hasAccess)
+                        {
+                            <div class="mt-4 flex items-center text-xs font-medium text-morandi opacity-0 group-hover:opacity-100 transition-opacity">
+                                進入功能 <i class="fa-solid fa-arrow-right ml-1"></i>
+                            </div>
+                        }
                     </div>
-
-                    <h3 class="text-lg font-bold mb-2 @(hasAccess ? "text-slate-main group-hover:text-morandi transition-colors" : "text-gray-500")">@item.Title</h3>
-                    <p class="text-sm text-gray-500 flex-grow leading-relaxed">@item.Desc</p>
-
-                    @if (hasAccess)
-                    {
-                        <div class="mt-4 flex items-center text-xs font-medium text-morandi opacity-0 group-hover:opacity-100 transition-opacity">
-                            進入功能 <i class="fa-solid fa-arrow-right ml-1"></i>
-                        </div>
-                    }
-                </div>
-            }
-        </div>
-    </div>
-
-    <!-- Right Sidebar: Today's Reminders -->
-    <div class="lg:w-1/3 xl:w-1/4">
-        <div class="sticky-sidebar flex flex-col gap-4">
-            <h2 class="text-lg font-bold flex items-center gap-2 mb-1">
-                <i class="fa-regular fa-bell text-terracotta"></i> 今日提醒看板
-            </h2>
-
-            <!-- Urgent Alerts -->
-            <div class="bg-red-50 rounded-xl border border-red-100 overflow-hidden shadow-sm shadow-red-100/50">
-                <div class="bg-red-100 px-4 py-2 font-bold text-terracotta text-sm border-b border-red-200">
-                    急件 / 到期警示
-                </div>
-                <ul class="divide-y divide-red-100">
-                    <li class="px-4 py-3 text-sm text-gray-500 flex items-center gap-2">
-                        <i class="fa-regular fa-face-smile"></i> 目前尚無急件。
-                    </li>
-                </ul>
+                }
             </div>
+        </div>
 
-            <!-- Announcements -->
-            <div class="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col flex-grow overflow-hidden">
-                <div class="bg-gray-50 px-4 py-3 font-bold text-gray-700 text-sm border-b border-gray-200 flex justify-between items-center">
-                    <span>公告與通知</span>
-                    <span class="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">0</span>
+        <!-- Right Sidebar: Today's Reminders -->
+        <div class="lg:w-1/3 xl:w-1/4">
+            <div class="sticky-sidebar flex flex-col gap-4">
+                <h2 class="text-lg font-bold flex items-center gap-2 mb-1">
+                    <i class="fa-regular fa-bell text-terracotta"></i> 今日提醒看板
+                </h2>
+
+                <!-- Urgent Alerts -->
+                <div class="bg-red-50 rounded-xl border border-red-100 overflow-hidden shadow-sm shadow-red-100/50">
+                    <div class="bg-red-100 px-4 py-2 font-bold text-terracotta text-sm border-b border-red-200">
+                        急件 / 到期警示
+                    </div>
+                    <ul class="divide-y divide-red-100">
+                        <li class="px-4 py-3 text-sm text-gray-500 flex items-center gap-2">
+                            <i class="fa-regular fa-face-smile"></i> 目前尚無急件。
+                        </li>
+                    </ul>
                 </div>
-                <div class="overflow-y-auto custom-scroll max-h-[400px]">
-                    <div class="p-4 text-sm text-gray-500 text-center">無相關公告。</div>
+
+                <!-- Announcements -->
+                <div class="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col flex-grow overflow-hidden">
+                    <div class="bg-gray-50 px-4 py-3 font-bold text-gray-700 text-sm border-b border-gray-200 flex justify-between items-center">
+                        <span>公告與通知</span>
+                        <span class="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">0</span>
+                    </div>
+                    <div class="overflow-y-auto custom-scroll max-h-[400px]">
+                        <div class="p-4 text-sm text-gray-500 text-center">無相關公告。</div>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
 
+    </div>
 </div>
 
 @code {

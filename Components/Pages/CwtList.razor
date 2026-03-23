@@ -1,0 +1,186 @@
+@page "/cwt-list"
+@using MT.Components.Shared
+
+<div class="flex-grow flex flex-col w-full max-w-[1920px] mx-auto h-[calc(100vh-4rem)] overflow-hidden">
+    <!-- Breadcrumb & Header Row -->
+    <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur border-b border-gray-200">
+        <div class="mb-2 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
+            <div>
+                <nav class="flex text-sm text-gray-500 mb-2 font-medium" aria-label="Breadcrumb">
+                    <ol class="inline-flex items-center space-x-1 md:space-x-2">
+                        <li class="inline-flex items-center">
+                            <a href="/home" class="inline-flex items-center hover:text-morandi transition-colors focus:outline-none">
+                                <i class="fa-solid fa-house mr-1"></i> 首頁
+                            </a>
+                        </li>
+                        <li>
+                            <div class="flex items-center">
+                                <i class="fa-solid fa-chevron-right text-xs mx-1"></i>
+                                <span class="text-slate-main">命題任務</span>
+                            </div>
+                        </li>
+                    </ol>
+                </nav>
+                <h1 tabindex="-1" class="text-2xl font-bold flex items-center gap-2 focus:outline-none">
+                    <i class="fa-solid fa-pen-nib text-morandi"></i> 命題任務
+                </h1>
+                <p class="text-sm text-gray-500 mt-1">請查看分配給您的命題額度並進行命題與修編作業。本專案目前處於：<span class="font-bold text-morandi bg-blue-50 px-2 py-0.5 rounded border border-blue-100">命題階段</span></p>
+            </div>
+            <div class="flex gap-2 text-sm mt-4 sm:mt-0">
+                <div class="bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-100 flex items-center gap-2">
+                    <div class="text-gray-500 font-bold">一般單選題：</div>
+                    <div><span class="text-slate-main font-black">0</span> / 0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content wrapper -->
+    <div class="flex-grow p-4 sm:p-6 lg:p-8 flex flex-col overflow-hidden">
+
+    <!-- Tabs -->
+    <div class="flex space-x-1 bg-gray-200/50 p-1 rounded-xl mb-6 shrink-0 w-fit">
+        <button @onclick='() => currentTab = "compose"' class="@(currentTab == "compose" ? "bg-white text-morandi shadow-sm font-bold" : "text-gray-500 hover:text-gray-700 font-medium hover:bg-white/50") px-6 py-2.5 rounded-lg text-sm transition-all relative">
+            📝 命題作業區
+        </button>
+        <button @onclick='() => currentTab = "review"' class="@(currentTab == "review" ? "bg-white text-morandi shadow-sm font-bold" : "text-gray-500 hover:text-gray-700 font-medium hover:bg-white/50") px-6 py-2.5 rounded-lg text-sm transition-all relative">
+            🔄 審修作業區
+        </button>
+        <button @onclick='() => currentTab = "history"' class="@(currentTab == "history" ? "bg-white text-morandi shadow-sm font-bold" : "text-gray-500 hover:text-gray-700 font-medium hover:bg-white/50") px-6 py-2.5 rounded-lg text-sm transition-all relative">
+            📊 審核結果與歷史
+        </button>
+    </div>
+
+    <!-- Four Stat Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 shrink-0">
+        @if (currentTab == "compose")
+        {
+            @StatCard("命題總計", "0", "bg-gray-50", "text-slate-main")
+            @StatCard("命題草稿", "0", "bg-white", "text-slate-main")
+            @StatCard("命題完成", "0", "bg-white", "text-slate-main")
+            @StatCard("已送審", "0", "bg-white", "text-sage")
+        }
+        else if (currentTab == "review")
+        {
+            @StatCard("審題總計", "0", "bg-gray-50", "text-slate-main")
+            @StatCard("審查鎖定", "0", "bg-white border-l-4 border-l-morandi", "text-morandi")
+            @StatCard("解鎖修題", "0", "bg-white border-l-4 border-l-terracotta", "text-terracotta")
+        }
+        else
+        {
+            @StatCard("全部題目", "0", "bg-gray-50", "text-slate-main")
+            @StatCard("已採用", "0", "bg-white", "text-sage")
+            @StatCard("不採用", "0", "bg-white", "text-gray-400")
+        }
+    </div>
+
+    <!-- Main Table Container -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col flex-grow overflow-hidden relative">
+        <!-- Actions & Filters Bar -->
+        <div class="p-4 border-b border-gray-100 bg-gray-50 flex flex-col md:flex-row gap-3 items-center justify-between shrink-0">
+            <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                <button @onclick="OpenComposeModal" class="px-4 py-2 bg-sage text-white rounded-lg text-sm font-medium hover:bg-[#7b9c81] shadow-sm transition-colors flex items-center gap-2">
+                    <i class="fa-solid fa-plus"></i> 新增題目
+                </button>
+                <div class="w-px h-6 bg-gray-300 mx-1 hidden md:block"></div>
+                <div class="relative w-full md:w-64">
+                    <i class="fa-solid fa-magnifying-glass left-3 top-2.5 absolute text-gray-400"></i>
+                    <input type="text" class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi" placeholder="搜尋題號或摘要...">
+                </div>
+                <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white">
+                    <option value="all">所有題型</option>
+                </select>
+            </div>
+            <div class="text-sm text-gray-500 font-medium">
+                共 <span class="text-morandi font-bold">0</span> 題
+            </div>
+        </div>
+
+        <div class="grid grid-cols-12 gap-4 px-6 py-3 border-b border-gray-200 bg-white text-xs font-bold text-gray-500 uppercase tracking-wider shrink-0 shadow-sm">
+            <div class="col-span-2">題號</div>
+            <div class="col-span-1 text-center">等級</div>
+            <div class="col-span-1 text-center">難度</div>
+            <div class="col-span-1">題型</div>
+            <div class="col-span-3">題目內容摘要</div>
+            <div class="col-span-1 text-center">狀態</div>
+            <div class="col-span-3 text-center">操作</div>
+        </div>
+
+        <div class="flex-grow p-4">
+            <EmptyState IconClass="fa-folder-open" Message="尚無題目資料" SubMessage="點擊左上方「新增題目」開始命題。" />
+        </div>
+    </div>
+</div>
+</div>
+
+<!-- FullScreen Compose Modal -->
+<CustomModal @bind-IsVisible="showComposeModal" Type="CustomModal.ModalType.FullScreen" Title="@composeModalTitle" CloseOnBackdropClick="false">
+    <HeaderActions>
+        <button class="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 shadow-sm transition-colors">
+            <i class="fa-solid fa-eye mr-1"></i> 預覽試卷
+        </button>
+        <button class="px-5 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 shadow-sm transition-colors">
+            存為草稿
+        </button>
+        <button class="px-5 py-2 bg-sage text-white rounded-lg text-sm font-bold hover:bg-[#7b9c81] shadow-sm transition-colors">
+            命題完成
+        </button>
+    </HeaderActions>
+    <ChildContent>
+        <div class="max-w-[1400px] mx-auto p-6 md:p-8">
+            <div class="flex flex-col lg:flex-row gap-8">
+                <!-- Left Sidebar: Attributes -->
+                <div class="w-full lg:w-80 shrink-0">
+                    <div class="bg-gray-50 p-6 rounded-2xl border border-gray-200 sticky top-6">
+                        <h3 class="font-bold text-slate-main text-base mb-4 flex items-center gap-2 border-b border-gray-200 pb-3">
+                            <i class="fa-solid fa-tags text-morandi"></i> 試題屬性設定
+                        </h3>
+                        <div class="space-y-5">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">題型選擇</label>
+                                <select class="w-full border-gray-300 rounded-lg shadow-sm focus:ring-morandi focus:border-morandi text-sm">
+                                    <option value="single">一般單選題</option>
+                                    <option value="select">精選單選題</option>
+                                    <option value="readGroup">閱讀題組</option>
+                                    <option value="longText">長文題目</option>
+                                    <option value="shortGroup">短文題組</option>
+                                    <option value="listen">聽力測驗</option>
+                                    <option value="listenGroup">聽力題組</option>
+                                </select>
+                            </div>
+                            <div class="border-t border-gray-200 pt-4">
+                                <EmptyState IconClass="fa-gear" Message="選擇題型" SubMessage="表單屬性將隨題型連動" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Content: Form -->
+                <div class="flex-grow flex flex-col gap-6">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 flex-grow">
+                        <EmptyState IconClass="fa-pen-to-square" Message="編輯內容" SubMessage="請先在左側選擇題型，下方將展開對應的編輯表單。" />
+                    </div>
+                </div>
+            </div>
+        </div>
+    </ChildContent>
+</CustomModal>
+
+@code {
+    private string currentTab = "compose";
+    private bool showComposeModal = false;
+    private string composeModalTitle = "新增一般單選題 (命題草稿)";
+
+    private void OpenComposeModal()
+    {
+        showComposeModal = true;
+    }
+
+    private RenderFragment StatCard(string title, string value, string classExt, string valueColor) => __builder =>
+    {
+        <div class="rounded-xl shadow-sm border border-gray-200 p-4 transition duration-200 hover:shadow-md @classExt cursor-pointer">
+            <div class="text-gray-500 text-xs font-bold mb-1">@title</div>
+            <div class="text-2xl font-bold @valueColor">@value</div>
+        </div>
+    };
+}

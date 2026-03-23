@@ -1,0 +1,109 @@
+@page "/reviews"
+@using MT.Components.Shared
+
+<div class="flex-grow flex flex-col w-full max-w-[1920px] mx-auto h-[calc(100vh-4rem)] overflow-hidden">
+    <!-- Breadcrumb & Header Row -->
+    <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur border-b border-gray-200">
+        <div class="mb-2 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
+            <div>
+                <nav class="flex text-sm text-gray-500 mb-2 font-medium" aria-label="Breadcrumb">
+                    <ol class="inline-flex items-center space-x-1 md:space-x-2">
+                        <li class="inline-flex items-center">
+                            <a href="/home" class="inline-flex items-center hover:text-morandi transition-colors focus:outline-none">
+                                <i class="fa-solid fa-house mr-1"></i> 首頁
+                            </a>
+                        </li>
+                        <li>
+                            <div class="flex items-center">
+                                <i class="fa-solid fa-chevron-right text-xs mx-1"></i>
+                                <span class="text-slate-main">審題任務</span>
+                            </div>
+                        </li>
+                    </ol>
+                </nav>
+                <h1 tabindex="-1" class="text-2xl font-bold flex items-center gap-2 focus:outline-none">
+                    <i class="fa-solid fa-clipboard-check text-morandi"></i> 審題任務清單
+                </h1>
+                <p class="text-sm text-gray-500 mt-1">請審閱以下分配給您的試題。總召亦可於此檢視各階段的審查狀態。</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content wrapper -->
+    <div class="flex-grow p-4 sm:p-6 lg:p-8 flex flex-col overflow-hidden">
+
+    <!-- Tabs -->
+    <div class="flex space-x-1 bg-gray-200/50 p-1 rounded-xl mb-6 shrink-0 w-fit">
+        <button @onclick='() => currentTab = "pending"' class="@(currentTab == "pending" ? "bg-white text-morandi shadow-sm font-bold" : "text-gray-500 hover:text-gray-700 font-medium hover:bg-white/50") px-6 py-2.5 rounded-lg text-sm transition-all relative">
+            👀 審題作業區
+        </button>
+        <button @onclick='() => currentTab = "history"' class="@(currentTab == "history" ? "bg-white text-morandi shadow-sm font-bold" : "text-gray-500 hover:text-gray-700 font-medium hover:bg-white/50") px-6 py-2.5 rounded-lg text-sm transition-all relative">
+            📊 審核結果與歷史
+        </button>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 shrink-0">
+        @if (currentTab == "pending")
+        {
+            @StatCard("待審總計", "0", "bg-gray-50", "text-slate-main")
+            @StatCard("交互審題", "0", "bg-white border-l-4 border-l-blue-400", "text-blue-500")
+            @StatCard("專家審題", "0", "bg-white border-l-4 border-l-purple-400", "text-purple-500")
+            @StatCard("總召審題", "0", "bg-white border-l-4 border-l-pink-400", "text-pink-500")
+        }
+        else
+        {
+            @StatCard("全部題目", "0", "bg-gray-50", "text-slate-main")
+            @StatCard("已採用", "0", "bg-white border-l-4 border-l-sage", "text-sage")
+            @StatCard("不採用", "0", "bg-white border-l-4 border-l-gray-400", "text-gray-500")
+        }
+    </div>
+
+    <!-- Main Table Container -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col flex-grow overflow-hidden relative">
+        <div class="p-4 border-b border-gray-100 bg-gray-50 flex flex-col md:flex-row gap-3 items-center justify-between shrink-0">
+            <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                <div class="relative w-full md:w-64">
+                    <i class="fa-solid fa-magnifying-glass left-3 top-2.5 absolute text-gray-400"></i>
+                    <input type="text" class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi" placeholder="搜尋題號或摘要...">
+                </div>
+                <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white">
+                    <option value="all">所有題型</option>
+                </select>
+                <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white">
+                    <option value="all">所有狀態</option>
+                </select>
+            </div>
+            <div class="text-sm text-gray-500 font-medium">
+                共 <span class="text-morandi font-bold">0</span> 題
+            </div>
+        </div>
+
+        <div class="grid grid-cols-12 gap-4 px-6 py-3 border-b border-gray-200 bg-white text-xs font-bold text-gray-500 uppercase tracking-wider shrink-0 shadow-sm">
+            <div class="col-span-2">題號</div>
+            <div class="col-span-1 text-center">等級</div>
+            <div class="col-span-1 text-center">難度</div>
+            <div class="col-span-1">題型</div>
+            <div class="col-span-4">題目內容摘要</div>
+            <div class="col-span-1 text-center">狀態</div>
+            <div class="col-span-2 text-center">操作</div>
+        </div>
+
+        <div class="flex-grow p-4">
+            <EmptyState IconClass="fa-clipboard-check" Message="太棒了！目前無待審試題" SubMessage="您已經完成了所有審查任務。" />
+        </div>
+    </div>
+</div>
+</div>
+
+@code {
+    private string currentTab = "pending";
+
+    private RenderFragment StatCard(string title, string value, string classExt, string valueColor) => __builder =>
+    {
+        <div class="rounded-xl shadow-sm border border-gray-200 p-4 transition duration-200 hover:shadow-md @classExt cursor-pointer">
+            <div class="text-gray-500 text-xs font-bold mb-1">@title</div>
+            <div class="text-2xl font-bold @valueColor">@value</div>
+        </div>
+    };
+}

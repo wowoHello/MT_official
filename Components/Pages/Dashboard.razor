@@ -1,0 +1,135 @@
+@page "/dashboard"
+@using MT.Components.Shared
+
+<div class="flex-grow w-full max-w-[1920px] mx-auto flex flex-col">
+    <!-- Breadcrumb & Header -->
+    <div class="px-4 sm:px-6 lg:px-8 py-4 bg-white/50 backdrop-blur border-b border-gray-200 flex-shrink-0">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+                <!-- Breadcrumb -->
+                <nav class="flex text-sm text-gray-500 mb-2 font-medium" aria-label="Breadcrumb">
+                    <ol class="inline-flex items-center space-x-1 md:space-x-2">
+                        <li class="inline-flex items-center">
+                            <a href="/home" class="inline-flex items-center hover:text-[var(--color-morandi)] transition-colors focus:outline-none">
+                                <i class="fa-solid fa-house mr-1"></i> 首頁
+                            </a>
+                        </li>
+                        <li>
+                            <div class="flex items-center">
+                                <i class="fa-solid fa-chevron-right text-xs mx-1"></i>
+                                <span class="text-[var(--color-slate-main)]">命題儀表板</span>
+                            </div>
+                        </li>
+                    </ol>
+                </nav>
+                <h1 tabindex="-1" class="text-2xl font-bold flex items-center gap-2 focus:outline-none">
+                    <i class="fa-solid fa-chart-pie text-[var(--color-morandi)]"></i> 命題儀表板
+                </h1>
+                <p class="text-sm text-gray-500 mt-1">監控目前梯次的題目產出達成率、題型缺口與逾期狀態。資料會隨梯次切換動態更新。</p>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="flex gap-2">
+                <a href="/projects" class="px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50 hover:text-[var(--color-morandi)] hover:-translate-y-0.5 hover:shadow-md cursor-pointer active:scale-95 transition-all duration-200 shadow-sm focus:outline-none flex items-center">
+                    <i class="fa-solid fa-gear mr-1"></i> 專案設定
+                </a>
+                <a href="/overview" class="px-4 py-2 bg-[var(--color-morandi)] text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] hover:-translate-y-0.5 hover:shadow-md cursor-pointer active:scale-95 transition-all duration-200 shadow-sm focus:outline-none flex items-center">
+                    <i class="fa-solid fa-list-check mr-1"></i> 試題總覽
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="flex-grow p-4 sm:p-6 lg:p-8">
+
+    <!-- 4 Stat Cards (Empty State: 0) -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <StatCard Title="總目標題數" Value="0" Icon="fa-bullseye" ColorClass="text-slate-main" BgClass="bg-blue-50 text-morandi" />
+        <StatCard Title="已納入題庫 (採用)" Value="0" Icon="fa-check-double" ColorClass="text-sage" BgClass="bg-green-50 text-sage" />
+        <StatCard Title="各階段審修中" Value="0" Icon="fa-spinner fa-spin-pulse" ColorClass="text-amber-600" BgClass="bg-amber-50 text-amber-600" />
+        <div class="bg-white rounded-xl p-5 shadow-sm flex items-center justify-between border-l-4 border-l-terracotta hover:shadow-md transition-all">
+            <div>
+                <p class="text-sm font-bold text-terracotta mb-1">退回修題 / 嚴重落後</p>
+                <div class="flex items-baseline gap-2">
+                    <h3 class="text-3xl font-black text-terracotta">0</h3>
+                    <span class="text-sm text-gray-400">題</span>
+                </div>
+            </div>
+            <div class="w-12 h-12 rounded-full bg-red-50 text-terracotta flex items-center justify-center text-xl">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        <!-- Chart 1 -->
+        <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-1 flex flex-col h-[350px]">
+            <h3 class="text-lg font-bold text-slate-main mb-1">題型缺口達成率</h3>
+            <p class="text-xs text-gray-500 mb-2">展示目前各題型「已產出」與「目標」比例。</p>
+            <div class="flex-grow">
+                <EmptyState IconClass="fa-chart-pie" Message="尚無數據" SubMessage="目前梯次無資料可供分析" />
+            </div>
+        </div>
+
+        <!-- Chart 2 -->
+        <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-2 flex flex-col h-[350px]">
+            <div class="flex justify-between items-start mb-2">
+                <div>
+                    <h3 class="text-lg font-bold text-slate-main mb-1">依題型狀態分佈表</h3>
+                    <p class="text-xs text-gray-500">展示草稿、送審、審修、退回等不同狀態在各題型的分佈數量。</p>
+                </div>
+            </div>
+            <div class="flex-grow">
+                <EmptyState IconClass="fa-chart-column" Message="尚無數據" SubMessage="新增題目後將自動產生統計" />
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Row: Alerts & Audits -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12">
+        <!-- Urgent Tasks -->
+        <div class="bg-white rounded-xl shadow-sm border border-red-100 flex flex-col min-h-[300px]">
+            <div class="bg-red-50 px-5 py-3 border-b border-red-100 flex justify-between items-center">
+                <h3 class="font-bold text-terracotta text-sm flex items-center gap-2">
+                    <i class="fa-regular fa-clock"></i> 逾期與緊急待辦 (Top 5)
+                </h3>
+            </div>
+            <div class="flex-grow p-4">
+                <EmptyState IconClass="fa-face-smile-wink" Message="目前無急件" SubMessage="太棒了！所有任務皆在進度內完成。" />
+            </div>
+        </div>
+
+        <!-- Audit Logs -->
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col min-h-[300px]">
+            <div class="bg-gray-50 px-5 py-3 border-b border-gray-200 flex justify-between items-center">
+                <h3 class="font-bold text-gray-700 text-sm flex items-center gap-2">
+                    <i class="fa-solid fa-list-ul text-gray-400"></i> 最新稽核歷程 (LOG)
+                </h3>
+            </div>
+            <div class="flex-grow p-4">
+                <EmptyState IconClass="fa-clipboard-user" Message="暫無活動紀錄" SubMessage="當有操作發生時會顯示於此處。" />
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+
+@code {
+    private RenderFragment StatCard(string Title, string Value, string Icon, string ColorClass, string BgClass) => __builder =>
+    {
+        <div class="bg-white rounded-xl p-5 shadow-sm flex items-center justify-between border border-gray-100 hover:border-gray-200 hover:shadow-md transition-all">
+            <div>
+                <p class="text-sm font-bold text-gray-500 mb-1">@Title</p>
+                <div class="flex items-baseline gap-2">
+                    <h3 class="text-3xl font-black @ColorClass">@Value</h3>
+                    <span class="text-sm text-gray-400">題</span>
+                </div>
+            </div>
+            <div class="w-12 h-12 rounded-full @BgClass flex items-center justify-center text-xl">
+                <i class="fa-solid @Icon"></i>
+            </div>
+        </div>
+    };
+}
