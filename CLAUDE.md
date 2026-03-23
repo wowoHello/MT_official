@@ -4,7 +4,7 @@
 > **日期**：2026-03-20  
 > **目標**：將 `MT_prototype` 中的 HTML/JS 前端原型，遷移至 Blazor Server (.NET 10) 架構
 > **注意事項**：此為正式環境，必須保持 Clear Code 編碼方式，能夠組件複用就要組件化，且目前已經有資料庫了，不需要再模擬延遲
-
+> **注意事項**：h1標籤的 CSS 都要加上 focus:outline-none，避免預設選取
 ---
 
 ## 現況盤點
@@ -30,10 +30,10 @@
 
 | 技術 | 用途 | Blazor 替代方案 |
 |------|------|----------------|
-| Tailwind CSS v4 (CDN) | UI 樣式 | **Bootstrap 5** (遵守 user rule) |
-| Font Awesome 6 (CDN) | 圖示 | Font Awesome 6 (保留) |
-| SweetAlert2 (CDN) | 彈窗通知 | SweetAlert2 via JS Interop |
-| Quill Editor (CDN) | 富文本編輯 | Quill via JS Interop |
+| Tailwind CSS v4 (離線檔案) | UI 樣式 | **Tailwind CSS v4** (維持原樣) |
+| Font Awesome 6 (離線檔案) | 圖示 | Font Awesome 6 (保留) |
+| SweetAlert2 (離線檔案) | 彈窗通知 | SweetAlert2 via JS Interop |
+| Quill Editor (離線檔案) | 富文本編輯 | Quill via JS Interop |
 | Google Fonts (Noto Sans TC) | 字體 | 保留 |
 | localStorage | 狀態管理 (DEMO) | **EF Core + 真實 DB** |
 
@@ -42,7 +42,7 @@
 ## User Review Required
 
 > [!IMPORTANT]
-> **CSS 框架轉換**：原型使用 Tailwind CSS v4，依據您的規則設定，將統一改用 **Bootstrap 5 Utility Classes**。所有 UI 將重新以 Bootstrap 5 實作，視覺風格保持一致（Morandi 色系、glassmorphism 效果等）。
+> **CSS 框架轉換**：原型使用 **Tailwind CSS v4**，依據您的規則設定。所有 UI 將以 Tailwind CSS 實作，視覺風格保持一致（Morandi 色系、glassmorphism 效果等）。
 
 > [!IMPORTANT]
 > **認證機制**：原型使用 localStorage 模擬登入。Blazor 版本建議使用 **ASP.NET Core Identity** 或 **Cookie-based Authentication**（搭配資料庫 Users 表），請確認偏好的認證方案。
@@ -108,7 +108,7 @@ MT/
 │   │   └── quill.js         # Quill JS
 │   │   └── login-interop.js         # 登入頁面 JS
 │   ├── lib/
-│   │   └── bootstrap/               # Bootstrap 5 (已存在但不使用)
+│   │   └── bootstrap/               # Bootstrap 5 (存在但不使用)
 │   ├── webfonts                     # FontAwesome 6 靜態檔案
 │   └── images/                       # 靜態圖片
 ├── Program.cs                        # 應用程式進入點
