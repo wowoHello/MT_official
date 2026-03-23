@@ -5,8 +5,8 @@
 ## folders
 
 .agents/
-bin/
-obj/
+.bin/
+.obj/
 Refer/
 # dotenv files
 .env
