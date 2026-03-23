@@ -3,6 +3,7 @@
 > **文件版本**：v1.0  
 > **日期**：2026-03-20  
 > **目標**：將 `MT_prototype` 中的 HTML/JS 前端原型，遷移至 Blazor Server (.NET 10) 架構
+> **注意事項**：此為正式環境，必須保持 Clear Code 編碼方式，能夠組件複用就要組件化，且目前已經有資料庫了，不需要再模擬延遲
 
 ---
 
@@ -53,8 +54,9 @@
 
 ## 擬定架構
 
-### 專案結構 (Blazor Server)
-
+### 專案結構 (Blazor Server) -基礎結構
+> 若元件能組件化管理，務必使用組件化方式，不要全部寫在一個頁面
+> 組件化工具建立在 Components/Shared 內
 ```
 MT/
 ├── Components/
@@ -91,49 +93,27 @@ MT/
 │       ├── Project.cs
 │       ├── ...
 │       └── AuditLog.cs
-├── Services/                         # [新] 商業邏輯服務層
+├── Services/                         # 商業邏輯服務層
 │   ├── AuthService.cs               # 認證服務
 │   ├── ProjectService.cs            # 專案服務
 │   ├── QuestionService.cs           # 題目服務
 │   └── ...
 ├── wwwroot/
 │   ├── css/
-│   │   └── app.css                  # 自訂樣式 (CSS 變數、Morandi 色系)
+│   │   └── all.min.css                  # FontAwesome 6
+│   │   └── tailwind.css        # tailwind CSS
+│   │   └── quill.snow.css        # quill編輯器 CSS
 │   ├── js/
-│   │   ├── sweetalert-interop.js    # [新] SweetAlert2 JS Interop
-│   │   └── quill-interop.js         # [新] Quill JS Interop
+│   │   ├── sweetalert2@11.js    # SweetAlert2
+│   │   └── quill.js         # Quill JS
+│   │   └── login-interop.js         # 登入頁面 JS
 │   ├── lib/
-│   │   └── bootstrap/               # Bootstrap 5 (已存在)
+│   │   └── bootstrap/               # Bootstrap 5 (已存在但不使用)
+│   ├── webfonts                     # FontAwesome 6 靜態檔案
 │   └── images/                       # 靜態圖片
 ├── Program.cs                        # 應用程式進入點
 ├── appsettings.json                  # 設定檔
 └── MT.csproj                         # 專案檔
-```
-
-### 技術架構圖
-
-```mermaid
-graph TB
-    subgraph "Blazor Server (.NET 10)"
-        A[App.razor] --> B[MainLayout.razor]
-        A --> C[LoginLayout.razor]
-        B --> D[Pages/*.razor]
-        B --> E[Shared Components]
-        D --> F[Services Layer]
-        F --> G[EF Core DbContext]
-        G --> H[(SQL Server)]
-    end
-    
-    subgraph "JS Interop"
-        D -.-> I[SweetAlert2]
-        D -.-> J[Quill Editor]
-    end
-    
-    subgraph "Static Assets"
-        K[Bootstrap 5 CSS]
-        L[Font Awesome 6]
-        M[Google Fonts]
-    end
 ```
 
 ---
@@ -155,15 +135,14 @@ graph TB
 - 註冊 `DbContext`、`Authentication`、`Services`
 
 #### [MODIFY] [App.razor](file:///d:/IISWebSize/MT/Components/App.razor)
-- 引入 Font Awesome 6 CDN
+- 引入 Font Awesome 6 離線檔案
 - 引入 Google Fonts (Noto Sans TC)
-- 引入 SweetAlert2 CDN
-- 定義 CSS 變數 (Morandi 色系)
+- 引入 SweetAlert2 離線檔案
+- 引入 Quill 離線檔案
+- 引入 Tailwind CSS 離線檔案
 
 #### [MODIFY] [app.css](file:///d:/IISWebSize/MT/wwwroot/app.css)
-- 定義設計系統 CSS 變數：`--color-morandi`, `--color-sage`, `--color-oatmeal`, `--color-terracotta`
-- Bootstrap 5 主題客製化覆寫
-- 共用樣式 (glass-card, scrollbar 等)
+- 共用樣式
 
 ---
 

@@ -300,9 +300,6 @@
                 await LocalStorage.DeleteAsync("cwt_remembered_account");
             }
 
-            // 模擬 API 請求延遲
-            await Task.Delay(1200);
-
             // 登入成功 Toast (JS Interop 必要項目)
             await JS.InvokeVoidAsync("swalInterop.fireToast", "success", "登入成功", "即將進入命題工作平臺...", 1000);
 
