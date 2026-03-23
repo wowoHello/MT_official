@@ -76,7 +76,7 @@
                             class="w-full pl-10 pr-10 py-2.5 rounded-lg border border-gray-300 bg-white/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent transition-all"
                             placeholder="請輸入密碼" />
                         <button type="button" @onclick="TogglePasswordVisibility"
-                            class="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600 focus:outline-none">
+                            class="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer">
                             <i class="fa-regular @(showPassword ? "fa-eye" : "fa-eye-slash")"></i>
                         </button>
                     </div>
@@ -92,7 +92,7 @@
                             <span class="text-sm text-gray-600 group-hover:text-gray-800 transition-colors">記住登入狀態 (90天)</span>
                         </label>
                         <button type="button" @onclick="OpenForgotPwdModal"
-                            class="text-sm text-[var(--color-morandi)] hover:text-blue-700 hover:underline transition-colors focus:outline-none">忘記密碼？</button>
+                            class="text-sm text-[var(--color-morandi)] hover:text-blue-700 hover:underline transition-colors focus:outline-none cursor-pointer">忘記密碼？</button>
                     </div>
                 </div>
 
@@ -107,7 +107,7 @@
                             <img src="@captchaImage" @onclick="RefreshCaptcha"
                                 class="rounded border border-gray-200 cursor-pointer bg-white h-[42px] w-[140px]" title="點擊重新產生" />
                             <button type="button" @onclick="RefreshCaptcha"
-                                class="text-gray-400 hover:text-[var(--color-morandi)] focus:outline-none p-2 rounded-full hover:bg-gray-100 transition-colors"
+                                class="text-gray-400 hover:text-[var(--color-morandi)] focus:outline-none p-2 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
                                 title="重新產生">
                                 <i class="fa-solid fa-rotate-right"></i>
                             </button>
@@ -130,7 +130,7 @@
 
                 <!-- Submit -->
                 <button type="submit" disabled="@isLoading"
-                    class="w-full py-3 bg-[var(--color-morandi)] hover:bg-[#5b7a95] text-white rounded-lg font-medium transition-all shadow-md flex justify-center items-center gap-2 mt-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--color-morandi)] disabled:opacity-60 disabled:cursor-not-allowed">
+                    class="w-full py-3 bg-[var(--color-morandi)] hover:bg-[#5b7a95] text-white rounded-lg font-medium transition-all shadow-md flex justify-center items-center gap-2 mt-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--color-morandi)] disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer">
                     <span>@(isLoading ? "登入中..." : "登入系統")</span>
                     @if (isLoading)
                     {
@@ -166,7 +166,7 @@
                         <i class="fa-solid fa-key text-[var(--color-morandi)]"></i> 忘記密碼 / 重設密碼
                     </h2>
                     <button type="button" @onclick="CloseForgotPwdModal"
-                        class="text-gray-400 hover:text-gray-600 focus:outline-none w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors">
+                        class="text-gray-400 hover:text-gray-600 focus:outline-none w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center transition-colors cursor-pointer">
                         <i class="fa-solid fa-xmark"></i>
                     </button>
                 </div>
@@ -183,7 +183,7 @@
                             placeholder="example@school.edu.tw">
                     </div>
                     <button type="button" @onclick="SendResetLink" disabled="@isSendingReset"
-                        class="w-full py-2.5 bg-[var(--color-sage)] hover:bg-[#7b9c81] text-white rounded-lg font-medium transition-all shadow-sm flex justify-center items-center gap-2 focus:outline-none disabled:opacity-60">
+                        class="w-full py-2.5 bg-[var(--color-sage)] hover:bg-[#7b9c81] text-white rounded-lg font-medium transition-all shadow-sm flex justify-center items-center gap-2 focus:outline-none disabled:opacity-60 cursor-pointer">
                         @if (isSendingReset)
                         {
                             <i class="fa-solid fa-spinner fa-spin"></i>
