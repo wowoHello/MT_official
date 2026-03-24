@@ -8,7 +8,7 @@ builder.Services.AddRazorComponents()
 
 // 註冊自定義服務
 builder.Services.AddScoped<MT.Services.ICaptchaService, MT.Services.CaptchaService>();
-builder.Services.AddScoped<MT.Services.IEmailService, MT.Services.EmailService>();
+//builder.Services.AddScoped<MT.Services.IEmailService, MT.Services.EmailService>();
 // 註冊資料庫測試服務
 builder.Services.AddScoped<MT.Services.IDatabaseService, MT.Services.DatabaseService>();
 

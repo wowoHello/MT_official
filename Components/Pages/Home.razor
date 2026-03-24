@@ -1,3 +1,8 @@
+@* ====================================================================== *@
+@*  Home — 登入後首頁（功能總覽儀表板）                                     *@
+@*  路由：/home                                                            *@
+@*  功能：以卡片式捷徑展示各功能模組入口，依角色顯示權限；右側為今日提醒     *@
+@* ====================================================================== *@
 @page "/home"
 @inject NavigationManager Navigation
 @rendermode InteractiveServer
@@ -101,7 +106,7 @@
         new() { Title = "命題儀錶板", Desc = "監控各題型缺口與整體命題進度。", Icon = "fa-chart-pie", Color = "text-indigo-600", BgColor = "bg-indigo-50", Url = "/dashboard", Roles = ["ADMIN"] },
         new() { Title = "命題專案管理", Desc = "梯次設定、派發工作與階段時程管控。", Icon = "fa-box-archive", Color = "text-amber-600", BgColor = "bg-amber-50", Url = "/projects", Roles = ["ADMIN"] },
         new() { Title = "命題總覽", Desc = "全梯次試題列表、題目內容與審題全局結果檢視。", Icon = "fa-globe", Color = "text-emerald-600", BgColor = "bg-emerald-50", Url = "/overview", Roles = ["ADMIN"] },
-        new() { Title = "命題任務", Desc = "進行試題命製、修題，並檢視本人考題狀態。", Icon = "fa-pen-to-square", Color = "text-morandi", BgColor = "bg-blue-50", Url = "/tasks", Roles = ["ADMIN", "TEACHER"] },
+        new() { Title = "命題任務", Desc = "進行試題命製、修題，並檢視本人考題狀態。", Icon = "fa-pen-to-square", Color = "text-morandi", BgColor = "bg-blue-50", Url = "/cwt-list", Roles = ["ADMIN", "TEACHER"] },
         new() { Title = "審題任務", Desc = "互審、專審、總審工作區塊與處置辦理。", Icon = "fa-magnifying-glass-chart", Color = "text-terracotta", BgColor = "bg-red-50", Url = "/reviews", Roles = ["ADMIN", "TEACHER"] },
         new() { Title = "教師管理系統", Desc = "命審題人員庫維護、資歷檢視與過往命題歷程。", Icon = "fa-chalkboard-user", Color = "text-cyan-600", BgColor = "bg-cyan-50", Url = "/teachers", Roles = ["ADMIN"] },
         new() { Title = "角色與權限管理", Desc = "系統帳號新增、外部人員身份指派及功能開關。", Icon = "fa-id-card-clip", Color = "text-purple-600", BgColor = "bg-purple-50", Url = "/roles", Roles = ["ADMIN"] },

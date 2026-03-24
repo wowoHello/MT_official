@@ -1,3 +1,9 @@
+@* ====================================================================== *@
+@*  StatusBadge — 狀態標籤元件                                             *@
+@*  以圓角 pill 樣式顯示狀態文字與圖示，支援自動從中文文字推斷顏色類型      *@
+@*  參數：StatusText、BadgeType（info/success/warning/danger/draft）        *@
+@* ====================================================================== *@
+
 <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border @GetBadgeClass()">
     @if (!string.IsNullOrEmpty(GetIconClass()))
     {

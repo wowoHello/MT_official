@@ -1,10 +1,13 @@
+@* ====================================================================== *@
+@*  Login — 登入頁面                                                       *@
+@*  路由：/ | 使用 LoginLayout（無 Navbar）                                *@
+@*  功能：帳號密碼登入、圖形驗證碼、記住帳號、忘記密碼 Modal + 寄信重設     *@
+@* ====================================================================== *@
 @page "/"
 @layout LoginLayout
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
 @inject ICaptchaService CaptchaService
-@inject IEmailService EmailService
-@inject IConfiguration Configuration
 @inject ProtectedLocalStorage LocalStorage
 @rendermode InteractiveServer
 
@@ -326,7 +329,7 @@
         showForgotPwdModal = false;
     }
 
-    /// <summary>發送重設連結 (Dapper + 寄信)</summary>
+    /// <summary>發送重設連結 (TODO: 待 EmailService 建構完成後啟用)</summary>
     private async Task SendResetLink()
     {
         if (string.IsNullOrWhiteSpace(resetEmail))
@@ -344,67 +347,16 @@
         isSendingReset = true;
         StateHasChanged();
 
-        try 
+        try
         {
-            string connStr = Configuration.GetConnectionString("DefaultConnection") ?? "";
-            using var conn = new SqlConnection(connStr);
-            
-            // 由於尚未建立實體 DB 連線測試，這裡的 SQL 為照規格實作。如無法連線則會捕捉 Error
-            var sqlCheck = "SELECT TOP 1 Ter_Id, Ter_Name FROM GoS_Teacher WHERE Ter_Email = @Email"; 
-            var teacher = await conn.QueryFirstOrDefaultAsync(sqlCheck, new { Email = resetEmail.Trim() });
-
-            // 若要解除本地除錯沒 DB 報錯，可暫記：
-            // teacher = new { Ter_Id = 1, Ter_Name = "Demo Teacher" }; // Mock
-            
-            if (teacher != null)
-            {
-                // 1. 產生通行證 (GUID)
-                string token = Guid.NewGuid().ToString("N");
-                // 2. 設定有效期限 (例如 1 小時後)
-                DateTime expireDate = DateTime.Now.AddHours(1);
-
-                // 3. 更新至資料庫 (假設欄位名為 Ter_Token, Ter_TokenExpire)
-                var sqlUpdate = @"
-                    UPDATE GoS_Teacher 
-                    SET Ter_Token = @Token, Ter_TokenExpire = @Expire 
-                    WHERE Ter_Id = @Id";
-                
-                await conn.ExecuteAsync(sqlUpdate, new { Token = token, Expire = expireDate, Id = (int)teacher.Ter_Id });
-
-                // 4. 寄出重設信件
-                string resetLink = $"{Navigation.BaseUri}resetpassword?token={token}";
-                await EmailService.SendResetPWEmailAsync(resetEmail.Trim(), "CWT 命題工作平臺 - 密碼重設通知", Navigation.BaseUri, resetLink);
-
-                // 5. 通知使用者
-                await JS.InvokeVoidAsync("swalInterop.fire", new { 
-                    icon = "success", 
-                    title = "信件已發送", 
-                    text = "重設連結已發送至您的信箱！(請點開信件並點擊連結)", 
-                    timer = 2500, 
-                    showConfirmButton = false 
-                });
-                
-                await Task.Delay(2600);
-                CloseForgotPwdModal();
-            }
-            else
-            {
-                await JS.InvokeVoidAsync("swalInterop.fire", new { 
-                    icon = "error", 
-                    title = "發送失敗", 
-                    text = "找不到此電子信箱，請確認是否為系統帳號。",
-                    confirmButtonColor = "#6B8EAD"
-                });
-            }
-        }
-        catch (SqlException)
-        {
-            // 第一版開發期間，若資料庫尚未連線，則進行 Mock 成功假像，或報錯提示
-            await JS.InvokeVoidAsync("swalInterop.fire", new { icon = "info", title = "開發模式", text = "目前無法連線至 SQL Server，請確認連線字串。", confirmButtonColor = "#6B8EAD" });
-        }
-        catch (Exception)
-        {
-            await JS.InvokeVoidAsync("swalInterop.fire", new { icon = "error", title = "系統錯誤", text = "發生無法預期的錯誤，請聯絡系統確認。", confirmButtonColor = "#6B8EAD" });
+            // TODO: 待 EmailService 建構完成後，啟用 DB 查詢 + 寄信功能
+            await Task.Delay(800);
+            await JS.InvokeVoidAsync("swalInterop.fire", new {
+                icon = "info",
+                title = "功能尚未啟用",
+                text = "寄信功能尚在建置中，待所有頁面完成後將正式啟用。",
+                confirmButtonColor = "#6B8EAD"
+            });
         }
         finally
         {

@@ -1,108 +1,273 @@
+@* ====================================================================== *@
+@*  Reviews — 審題任務清單                                                  *@
+@*  路由：/reviews                                                         *@
+@*  功能：審題作業區/審核結果雙分頁、七階段時程燈號條、統計摘要、題目列表     *@
+@* ====================================================================== *@
 @page "/reviews"
 @using MT.Components.Shared
 
 <div class="flex-grow flex flex-col w-full max-w-[1920px] mx-auto h-[calc(100vh-4rem)] overflow-hidden">
-    <!-- Breadcrumb & Header Row -->
-    <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur border-b border-gray-200">
-        <div class="mb-2 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
+
+    <!-- Header: Breadcrumb + Title -->
+    <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur-sm border-b border-gray-200">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
-                <nav class="flex text-sm text-gray-500 mb-2 font-medium" aria-label="Breadcrumb">
-                    <ol class="inline-flex items-center space-x-1 md:space-x-2">
-                        <li class="inline-flex items-center">
-                            <a href="/home" class="inline-flex items-center hover:text-morandi transition-colors focus:outline-none">
+                <nav class="flex text-sm text-gray-500 mb-1 font-medium" aria-label="Breadcrumb">
+                    <ol class="inline-flex items-center space-x-1">
+                        <li>
+                            <a href="/home" class="hover:text-morandi transition-colors focus:outline-none">
                                 <i class="fa-solid fa-house mr-1"></i> 首頁
                             </a>
                         </li>
                         <li>
                             <div class="flex items-center">
-                                <i class="fa-solid fa-chevron-right text-xs mx-1"></i>
+                                <i class="fa-solid fa-chevron-right text-xs mx-1.5"></i>
                                 <span class="text-slate-main">審題任務</span>
                             </div>
                         </li>
                     </ol>
                 </nav>
-                <h1 tabindex="-1" class="text-2xl font-bold flex items-center gap-2 focus:outline-none">
-                    <i class="fa-solid fa-clipboard-check text-morandi"></i> 審題任務清單
-                </h1>
-                <p class="text-sm text-gray-500 mt-1">請審閱以下分配給您的試題。總召亦可於此檢視各階段的審查狀態。</p>
-            </div>
-        </div>
-    </div>
-
-    <!-- Main Content wrapper -->
-    <div class="flex-grow p-4 sm:p-6 lg:p-8 flex flex-col overflow-hidden">
-
-    <!-- Tabs -->
-    <div class="flex space-x-1 bg-gray-200/50 p-1 rounded-xl mb-6 shrink-0 w-fit">
-        <button @onclick='() => currentTab = "pending"' class="@(currentTab == "pending" ? "bg-white text-morandi shadow-sm font-bold" : "text-gray-500 hover:text-gray-700 font-medium hover:bg-white/50") px-6 py-2.5 rounded-lg text-sm transition-all relative">
-            👀 審題作業區
-        </button>
-        <button @onclick='() => currentTab = "history"' class="@(currentTab == "history" ? "bg-white text-morandi shadow-sm font-bold" : "text-gray-500 hover:text-gray-700 font-medium hover:bg-white/50") px-6 py-2.5 rounded-lg text-sm transition-all relative">
-            📊 審核結果與歷史
-        </button>
-    </div>
-
-    <!-- Stats -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 shrink-0">
-        @if (currentTab == "pending")
-        {
-            @StatCard("待審總計", "0", "bg-gray-50", "text-slate-main")
-            @StatCard("交互審題", "0", "bg-white border-l-4 border-l-blue-400", "text-blue-500")
-            @StatCard("專家審題", "0", "bg-white border-l-4 border-l-purple-400", "text-purple-500")
-            @StatCard("總召審題", "0", "bg-white border-l-4 border-l-pink-400", "text-pink-500")
-        }
-        else
-        {
-            @StatCard("全部題目", "0", "bg-gray-50", "text-slate-main")
-            @StatCard("已採用", "0", "bg-white border-l-4 border-l-sage", "text-sage")
-            @StatCard("不採用", "0", "bg-white border-l-4 border-l-gray-400", "text-gray-500")
-        }
-    </div>
-
-    <!-- Main Table Container -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col flex-grow overflow-hidden relative">
-        <div class="p-4 border-b border-gray-100 bg-gray-50 flex flex-col md:flex-row gap-3 items-center justify-between shrink-0">
-            <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
-                <div class="relative w-full md:w-64">
-                    <i class="fa-solid fa-magnifying-glass left-3 top-2.5 absolute text-gray-400"></i>
-                    <input type="text" class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi" placeholder="搜尋題號或摘要...">
+                <div class="flex items-center gap-3">
+                    <h1 tabindex="-1" class="text-2xl font-bold flex items-center gap-2 focus:outline-none">
+                        <i class="fa-solid fa-magnifying-glass-chart text-terracotta"></i> 審題任務
+                    </h1>
+                    <!-- 當前階段指示燈 -->
+                    @if (activeStage is not null)
+                    {
+                        <span class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full bg-terracotta/15 text-terracotta border border-terracotta/30">
+                            <span class="w-2 h-2 rounded-full bg-terracotta animate-pulse"></span>
+                            @activeStage.Label 階段進行中
+                        </span>
+                    }
                 </div>
-                <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white">
-                    <option value="all">所有題型</option>
-                </select>
-                <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white">
-                    <option value="all">所有狀態</option>
-                </select>
             </div>
-            <div class="text-sm text-gray-500 font-medium">
-                共 <span class="text-morandi font-bold">0</span> 題
-            </div>
-        </div>
-
-        <div class="grid grid-cols-12 gap-4 px-6 py-3 border-b border-gray-200 bg-white text-xs font-bold text-gray-500 uppercase tracking-wider shrink-0 shadow-sm">
-            <div class="col-span-2">題號</div>
-            <div class="col-span-1 text-center">等級</div>
-            <div class="col-span-1 text-center">難度</div>
-            <div class="col-span-1">題型</div>
-            <div class="col-span-4">題目內容摘要</div>
-            <div class="col-span-1 text-center">狀態</div>
-            <div class="col-span-2 text-center">操作</div>
-        </div>
-
-        <div class="flex-grow p-4">
-            <EmptyState IconClass="fa-clipboard-check" Message="太棒了！目前無待審試題" SubMessage="您已經完成了所有審查任務。" />
         </div>
     </div>
-</div>
+
+    <!-- Scrollable Body -->
+    <div class="flex-grow overflow-y-auto custom-scroll">
+
+        <!-- 二大 Tab 工作區 -->
+        <div class="px-4 sm:px-6 lg:px-8 py-5">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+
+                <!-- Tab Bar -->
+                <div class="flex border-b border-gray-200 bg-white sticky top-0 z-20 overflow-x-auto">
+                    <button @onclick='() => currentTab = "review"'
+                        class="@(currentTab == "review" ? "text-terracotta border-b-terracotta font-bold" : "text-gray-500 border-transparent") px-5 py-3 text-sm border-b-2 transition-colors hover:text-terracotta cursor-pointer focus:outline-none whitespace-nowrap">
+                        <i class="fa-solid fa-clipboard-check mr-1.5 text-terracotta"></i>審題作業區
+                        <span class="ml-2 text-xs bg-terracotta/15 text-terracotta px-2 py-0.5 rounded-full font-bold">0</span>
+                    </button>
+                    <button @onclick='() => currentTab = "history"'
+                        class="@(currentTab == "history" ? "text-morandi border-b-morandi font-bold" : "text-gray-500 border-transparent") px-5 py-3 text-sm border-b-2 transition-colors hover:text-morandi cursor-pointer focus:outline-none whitespace-nowrap">
+                        <i class="fa-solid fa-box-archive mr-1.5 text-morandi"></i>審核結果與歷史
+                        <span class="ml-2 text-xs bg-morandi/15 text-morandi px-2 py-0.5 rounded-full font-bold">0</span>
+                    </button>
+                </div>
+
+                <!-- Tab 內容區 -->
+                <div class="p-4 border-b border-gray-100 bg-gray-50/50 flex-shrink-0">
+                    @if (currentTab == "review")
+                    {
+                        <!-- 七階段時程燈號條 -->
+                        <div class="mb-4">
+                            <div class="stage-timeline relative" style="padding: 0 20px;">
+                                @for (int i = 0; i < stages.Count; i++)
+                                {
+                                    var stage = stages[i];
+                                    var icon = stage.State == "done" ? "fa-solid fa-check"
+                                             : stage.State == "active" ? stage.Icon
+                                             : "fa-solid fa-ellipsis";
+
+                                    <div class="stage-node">
+                                        @if (i > 0)
+                                        {
+                                            var prevState = stages[i - 1].State;
+                                            var lineClass = (prevState == "done" && (stage.State == "done" || stage.State == "active")) ? "done" : "upcoming";
+                                            <div class="stage-line @lineClass" style="left: calc(-50% + 14px); right: calc(50% + 14px);"></div>
+                                        }
+                                        <div class="stage-dot @stage.State" title="@stage.Label：@stage.Start.ToString("yyyy/MM/dd") ~ @stage.End.ToString("yyyy/MM/dd")">
+                                            <i class="@icon text-[11px]"></i>
+                                        </div>
+                                        <div class="stage-label @stage.State">@stage.Label</div>
+                                    </div>
+                                }
+                            </div>
+                            <div class="text-center text-xs text-gray-500 mt-3 font-medium">
+                                @if (activeStage is not null)
+                                {
+                                    if (activeStage.State == "active")
+                                    {
+                                        <span>
+                                            <i class="fa-solid fa-location-dot mr-1"></i> 目前階段：<strong>@activeStage.Label</strong>（剩餘 <strong class="text-terracotta">@daysRemaining</strong> 天）
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span>
+                                            <i class="fa-solid fa-circle-check mr-1 text-sage"></i> 所有審題階段已完成
+                                        </span>
+                                    }
+                                }
+                            </div>
+                        </div>
+
+                        <!-- 統計摘要條 -->
+                        <div class="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 bg-white rounded-xl border border-gray-200 px-5 py-3 text-sm font-medium shadow-sm">
+                            <div class="flex items-center gap-1.5 text-gray-700">
+                                <i class="fa-solid fa-list-check text-morandi"></i>
+                                本區題目
+                                <span class="text-lg font-bold text-slate-main ml-0.5">0</span>
+                            </div>
+                            <span class="text-gray-300">|</span>
+                            <div class="flex items-center gap-1.5 text-gray-700">
+                                <i class="fa-solid fa-hourglass-half text-terracotta"></i>
+                                待處理
+                                <span class="text-lg font-bold text-terracotta ml-0.5">0</span>
+                            </div>
+                            <span class="text-gray-300">|</span>
+                            <div class="flex items-center gap-1.5 text-gray-700">
+                                <i class="fa-solid fa-circle-check text-sage"></i>
+                                已決策
+                                <span class="text-lg font-bold text-sage ml-0.5">0</span>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <!-- 歷史 Tab 統計卡片 -->
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            @HistoryStatCard("全部題目", "0", "fa-layer-group", "text-morandi", "text-slate-main")
+                            @HistoryStatCard("已採用", "0", "fa-circle-check", "text-sage", "text-sage")
+                            @HistoryStatCard("不採用", "0", "fa-circle-xmark", "text-gray-400", "text-gray-400")
+                        </div>
+                    }
+                </div>
+
+                <!-- 篩選列 -->
+                <div class="p-4 border-b border-gray-100 bg-white flex flex-col xl:flex-row gap-3 items-start xl:items-center justify-between flex-shrink-0">
+                    <div class="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+                        <div class="relative w-full md:w-56">
+                            <i class="fa-solid fa-magnifying-glass left-3 top-2.5 absolute text-gray-400"></i>
+                            <input type="text" class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi" placeholder="搜尋題號或關鍵字...">
+                        </div>
+                        <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                            <option value="all">所有題型</option>
+                            <option value="single">一般單選題</option>
+                            <option value="select">精選單選題</option>
+                            <option value="readGroup">閱讀題組</option>
+                            <option value="longText">長文題目</option>
+                            <option value="shortGroup">短文題組</option>
+                            <option value="listen">聽力測驗</option>
+                            <option value="listenGroup">聽力題組</option>
+                        </select>
+                        <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                            <option value="all">所有等級</option>
+                            <option value="初級">初級</option>
+                            <option value="中級">中級</option>
+                            <option value="中高級">中高級</option>
+                            <option value="高級">高級</option>
+                            <option value="優級">優級</option>
+                        </select>
+                        <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                            <option value="all">所有狀態</option>
+                        </select>
+                    </div>
+                    <div class="flex flex-wrap items-center justify-between gap-3 w-full xl:w-auto xl:justify-end">
+                        <label class="flex items-center gap-2 text-sm text-gray-500 font-medium whitespace-nowrap">
+                            每頁顯示
+                            <select class="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                                <option value="12">12 題</option>
+                                <option value="24">24 題</option>
+                                <option value="48">48 題</option>
+                            </select>
+                        </label>
+                        <div class="text-sm text-gray-500 font-medium flex-shrink-0">
+                            共 <span class="text-morandi font-bold">0</span> 題
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 題目列表（空狀態） -->
+                <div class="p-8">
+                    <EmptyState IconClass="fa-clipboard-check" Message="目前無待審試題" SubMessage="當有試題分配給您審查時將顯示於此。" />
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 @code {
-    private string currentTab = "pending";
+    private string currentTab = "review";
 
-    private RenderFragment StatCard(string title, string value, string classExt, string valueColor) => __builder =>
+    /// <summary>七階段時程定義（未來由後端 API 專案管理模組提供）</summary>
+    private record StageInfo(string Key, string Label, string Icon, DateTime Start, DateTime End, string State);
+
+    private List<StageInfo> stages = new();
+    private StageInfo? activeStage;
+    private int daysRemaining;
+
+    protected override void OnInitialized()
     {
-        <div class="rounded-xl shadow-sm border border-gray-200 p-4 transition duration-200 hover:shadow-md @classExt cursor-pointer">
-            <div class="text-gray-500 text-xs font-bold mb-1">@title</div>
+        CalculateStages();
+    }
+
+    /// <summary>
+    /// 根據當前日期判定各階段狀態（done / active / upcoming）
+    /// TODO: 未來改為從資料庫讀取專案階段設定
+    /// </summary>
+    private void CalculateStages()
+    {
+        var stageDefinitions = new List<(string Key, string Label, string Icon, DateTime Start, DateTime End)>
+        {
+            ("proposing",    "命題", "fa-solid fa-pen-nib",        new(2026, 2, 1),  new(2026, 2, 28)),
+            ("peerReview",   "互審", "fa-solid fa-people-arrows",  new(2026, 3, 1),  new(2026, 3, 10)),
+            ("peerEdit",     "互修", "fa-solid fa-pen-to-square",  new(2026, 3, 11), new(2026, 3, 17)),
+            ("expertReview", "專審", "fa-solid fa-user-tie",       new(2026, 3, 18), new(2026, 3, 27)),
+            ("expertEdit",   "專修", "fa-solid fa-pen-to-square",  new(2026, 3, 28), new(2026, 4, 3)),
+            ("finalReview",  "總審", "fa-solid fa-crown",          new(2026, 4, 4),  new(2026, 4, 13)),
+            ("finalEdit",    "總修", "fa-solid fa-pen-to-square",  new(2026, 4, 14), new(2026, 4, 20))
+        };
+
+        var today = DateTime.Today;
+        activeStage = null;
+        daysRemaining = 0;
+
+        foreach (var (key, label, icon, start, end) in stageDefinitions)
+        {
+            string state;
+            if (today > end)
+            {
+                state = "done";
+            }
+            else if (today >= start && today <= end)
+            {
+                state = "active";
+                daysRemaining = (int)Math.Ceiling((end - today).TotalDays);
+            }
+            else
+            {
+                state = "upcoming";
+            }
+
+            stages.Add(new StageInfo(key, label, icon, start, end, state));
+        }
+
+        activeStage = stages.FirstOrDefault(s => s.State == "active");
+
+        // 若所有階段都已結束，標記最後一個為展示用
+        if (activeStage is null && stages.All(s => s.State == "done"))
+        {
+            activeStage = stages.Last();
+        }
+    }
+
+    private RenderFragment HistoryStatCard(string title, string value, string icon, string iconColor, string valueColor) => __builder =>
+    {
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 transition duration-200 hover:shadow-md">
+            <div class="text-gray-500 text-xs font-bold mb-1 flex items-center justify-between">
+                @title <i class="fa-solid @icon @iconColor opacity-50"></i>
+            </div>
             <div class="text-2xl font-bold @valueColor">@value</div>
         </div>
     };

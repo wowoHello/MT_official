@@ -1,8 +1,14 @@
-<div class="flex flex-col items-center justify-center p-12 text-center h-full min-h-[300px] w-full bg-white/50 rounded-2xl border border-dashed border-gray-200">
-    <div class="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4 border border-gray-100 shadow-sm">
-        <i class="fa-solid @IconClass text-3xl text-gray-400"></i>
+@* ====================================================================== *@
+@*  EmptyState — 空狀態佔位元件                                            *@
+@*  當列表或區塊無資料時顯示圖示、訊息文字，可選配操作按鈕                  *@
+@*  參數：IconClass、Message、SubMessage、ShowAction、ActionText、Compact   *@
+@* ====================================================================== *@
+
+<div class="flex flex-col items-center justify-center text-center h-full w-full bg-white/50 rounded-2xl border border-dashed border-gray-200 @(Compact ? "p-6" : "p-12 min-h-[300px]")">
+    <div class="@(Compact ? "w-14 h-14 mb-3" : "w-20 h-20 mb-4") bg-gray-50 rounded-full flex items-center justify-center border border-gray-100 shadow-sm">
+        <i class="fa-solid @IconClass @(Compact ? "text-2xl" : "text-3xl") text-gray-400"></i>
     </div>
-    <h3 class="text-xl font-bold text-gray-500 mb-2">@Message</h3>
+    <h3 class="@(Compact ? "text-base" : "text-xl") font-bold text-gray-500 mb-2">@Message</h3>
     @if (!string.IsNullOrEmpty(SubMessage))
     {
         <p class="text-gray-400 text-sm max-w-md mb-6">@SubMessage</p>
@@ -42,4 +48,8 @@
 
     [Parameter]
     public EventCallback OnActionClick { get; set; }
+
+    /// <summary>緊湊模式：縮小 padding 與圖示，移除 min-height，適用於固定高度容器內</summary>
+    [Parameter]
+    public bool Compact { get; set; } = false;
 }

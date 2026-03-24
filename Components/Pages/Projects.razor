@@ -1,3 +1,8 @@
+@* ====================================================================== *@
+@*  Projects — 命題專案（梯次）管理                                         *@
+@*  路由：/projects                                                        *@
+@*  功能：左右分割佈局，左側專案列表搜尋/篩選，右側詳情；SlideOver 新增表單  *@
+@* ====================================================================== *@
 @page "/projects"
 @using MT.Components.Shared
 
@@ -9,7 +14,7 @@
                 <nav class="flex text-sm text-gray-500 mb-1 font-medium" aria-label="Breadcrumb">
                     <ol class="inline-flex items-center space-x-1 md:space-x-2">
                         <li class="inline-flex items-center">
-                            <a href="/home" class="inline-flex items-center hover:text-morandi transition-colors">
+                            <a href="/home" class="inline-flex items-center hover:text-morandi transition-colors focus:outline-none">
                                 <i class="fa-solid fa-house mr-1"></i> 首頁
                             </a>
                         </li>
@@ -21,7 +26,7 @@
                         </li>
                     </ol>
                 </nav>
-                <h1 class="text-2xl font-bold flex items-center gap-2">
+                <h1 tabindex="-1" class="text-2xl font-bold flex items-center gap-2 focus:outline-none">
                     <i class="fa-solid fa-box-archive text-morandi"></i> 命題專案(梯次)管理
                 </h1>
             </div>
