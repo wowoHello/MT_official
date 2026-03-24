@@ -2,6 +2,7 @@ using System;
 using System.Net;
 using System.Net.Mail;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 
 namespace MT.Services
 {
@@ -13,20 +14,20 @@ namespace MT.Services
 
     public class EmailService : IEmailService
     {
-        public string _smtpServer;
-        public int _smtpPort;
-        public string _smtpUser;
-        public string _smtpPassword;
+        private readonly string _smtpServer;
+        private readonly int _smtpPort;
+        private readonly string _smtpUser;
+        private readonly string _smtpPassword;
 
         /// <summary>
         /// 建構函式，用於初始化 SMTP 設定
         /// </summary>
-        public EmailService()
+        public EmailService(IConfiguration configuration)
         {
-            _smtpServer = "smtp.gmail.com";
-            _smtpPort = 587;
-            _smtpUser = "chinhsien437@gmail.com";
-            _smtpPassword = "tohn hlaf xifp umdc";
+            _smtpServer = configuration["Smtp:Server"] ?? "smtp.gmail.com";
+            _smtpPort = int.TryParse(configuration["Smtp:Port"], out var port) ? port : 587;
+            _smtpUser = configuration["Smtp:User"] ?? throw new InvalidOperationException("未滿在appsettings.json設定SMTP User");
+            _smtpPassword = configuration["Smtp:Password"] ?? throw new InvalidOperationException("未滿在appsettings.json設定SMTP Password");
         }
 
         /// <summary>

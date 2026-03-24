@@ -48,16 +48,10 @@ public class DatabaseService : IDatabaseService
     }
     public async Task<IEnumerable<string>> GetTableListAsync()
     {
-        if (string.IsNullOrEmpty(_connectionString)) return Enumerable.Empty<string>();
+        if (string.IsNullOrEmpty(_connectionString))
+            throw new InvalidOperationException("連線字串為空，請檢查 appsettings.json。");
 
-        try
-        {
-            using var conn = new SqlConnection(_connectionString);
-            return await conn.QueryAsync<string>("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME");
-        }
-        catch
-        {
-            return Enumerable.Empty<string>();
-        }
+        using var conn = new SqlConnection(_connectionString);
+        return await conn.QueryAsync<string>("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME");
     }
 }

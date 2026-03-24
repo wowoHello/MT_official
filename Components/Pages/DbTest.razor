@@ -86,7 +86,14 @@
         
         if (result.Value.Success)
         {
-            tables = await DbService.GetTableListAsync();
+            try
+            {
+                tables = await DbService.GetTableListAsync();
+            }
+            catch (Exception ex)
+            {
+                result = (false, "連線雖然成功，但取得資料表清單發生錯誤：\n" + ex.Message);
+            }
         }
         
         isTesting = false;
