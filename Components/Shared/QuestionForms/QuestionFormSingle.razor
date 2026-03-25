@@ -16,12 +16,17 @@
         <QuillEditor @bind-Value="Stem" FieldLabel="題幹" Placeholder="請輸入題幹內容..." />
     </div>
 
-    <!-- 選項 A-D -->
+    <!-- 選項與答案 -->
     <div>
         <label class="block text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
-            <i class="fa-solid fa-list-ol text-morandi"></i> 選項 <span class="text-red-400">*</span>
+            <i class="fa-solid fa-list-ol text-morandi"></i> 選項與答案 <span class="text-red-400">*</span>
             <span class="text-xs text-gray-400 font-normal ml-1">（請點選正確答案）</span>
         </label>
+        <!-- 警示提醒 -->
+        <div class="mb-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700 flex items-center gap-2">
+            <i class="fa-solid fa-triangle-exclamation text-amber-500 flex-shrink-0"></i>
+            請避免選項長短、語氣明顯差異，以免影響鑑別度。
+        </div>
         <div class="space-y-3">
             @for (int i = 0; i < 4; i++)
             {

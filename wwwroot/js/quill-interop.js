@@ -25,7 +25,7 @@ window.QuillInterop = {
                 toolbar: {
                     container: [
                         [{ size: ['small', false, 'large'] }, { header: [2, 3] }, { font: Font.whitelist }],
-                        [{ color: [] }, { background: [] }, { align: [] }],
+                        [{ color: [] }, { align: [] }],
                         ['bold', 'underline', 'strike', 'link'],
                         [{ list: 'ordered' }, { list: 'bullet' }, { indent: '-1' }, { indent: '+1' }],
                         [{ script: 'sub' }, { script: 'super' }],
@@ -58,13 +58,17 @@ window.QuillInterop = {
             }
         });
 
-        // 字數統計回呼
+        // 字數統計回呼 (加上防抖 Debounce 避免癱瘓 Blazor Server)
+        let debounceTimer;
         quill.on('text-change', function () {
-            const text = quill.getText().trim();
-            const count = text.length;
-            if (dotNetRef) {
-                dotNetRef.invokeMethodAsync('OnWordCountChanged', count);
-            }
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(function () {
+                const text = quill.getText().trim();
+                const count = text.length;
+                if (dotNetRef) {
+                    dotNetRef.invokeMethodAsync('OnWordCountChanged', count);
+                }
+            }, 500); // 500毫秒防抖
         });
 
         this.instances[containerId] = { quill, dotNetRef };

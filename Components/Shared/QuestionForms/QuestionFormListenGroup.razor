@@ -72,7 +72,11 @@
                                 class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi">
                         </div>
 
-                        <!-- 選項 A-D -->
+                        <!-- 選項與答案 -->
+                        <div class="mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 flex items-center gap-2">
+                            <i class="fa-solid fa-triangle-exclamation text-amber-500 flex-shrink-0"></i>
+                            請避免選項長短、語氣明顯差異，以免影響鑑別度。
+                        </div>
                         <div class="grid grid-cols-2 gap-2">
                             @for (int j = 0; j < 4; j++)
                             {

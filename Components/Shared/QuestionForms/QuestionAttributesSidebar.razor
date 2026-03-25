@@ -41,6 +41,12 @@
                 <option value="難度四">難度四</option>
                 <option value="難度五">難度五</option>
             }
+            else if (QuestionType is "single" or "select")
+            {
+                <option value="初等">初等</option>
+                <option value="中等">中等</option>
+                <option value="中高等">中高等</option>
+            }
             else
             {
                 <option value="初級">初級</option>
@@ -56,32 +62,50 @@
     <div class="space-y-4">
         @if (QuestionType is "single" or "select")
         {
-            <!-- 主題 -->
-            <div>
-                <label class="block text-sm font-bold text-gray-700 mb-1.5">主題 <span class="text-red-400">*</span></label>
-                <select @bind="Topic" @bind:after="OnTopicChanged"
-                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                    <option value="">請選擇主題</option>
-                    @foreach (var t in SingleChoiceTopics)
-                    {
-                        <option value="@t">@t</option>
-                    }
-                </select>
-            </div>
-            <!-- 次類 -->
-            <div>
-                <label class="block text-sm font-bold text-gray-700 mb-1.5">次類</label>
-                <select @bind="Subtopic"
-                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                    <option value="">請選擇次類</option>
-                    @if (!string.IsNullOrEmpty(Topic) && SingleChoiceCategoryMap.ContainsKey(Topic))
-                    {
-                        @foreach (var sub in SingleChoiceCategoryMap[Topic])
-                        {
-                            <option value="@sub">@sub</option>
-                        }
-                    }
-                </select>
+            <!-- 一般/精選單選題分類 -->
+            <div class="bg-gray-50 rounded-lg border border-gray-200 p-3 space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-gray-500 flex items-center gap-1.5">
+                        <i class="fa-solid fa-tags text-morandi"></i>
+                        @(QuestionType == "single" ? "一般單選題" : "精選單選題")分類
+                    </span>
+                    <span class="text-[10px] text-gray-400 bg-white px-1.5 py-0.5 rounded border border-gray-100">
+                        適用等級：初～中高等
+                    </span>
+                </div>
+                <!-- 主題 + 次類 並排 -->
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">主題 <span class="text-red-400">*</span></label>
+                        <select @bind="Topic" @bind:after="OnTopicChanged"
+                            class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                            <option value="">請選擇</option>
+                            @foreach (var t in SingleChoiceTopics)
+                            {
+                                <option value="@t">@t</option>
+                            }
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">次類 <span class="text-red-400">*</span></label>
+                        <select @bind="Subtopic"
+                            class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer @(string.IsNullOrEmpty(Topic) ? "bg-gray-50 text-gray-300" : "")"
+                            disabled="@(string.IsNullOrEmpty(Topic))">
+                            <option value="">@(string.IsNullOrEmpty(Topic) ? "先選主題" : "請選擇")</option>
+                            @if (!string.IsNullOrEmpty(Topic) && SingleChoiceCategoryMap.ContainsKey(Topic))
+                            {
+                                @foreach (var sub in SingleChoiceCategoryMap[Topic])
+                                {
+                                    <option value="@sub">@sub</option>
+                                }
+                            }
+                        </select>
+                    </div>
+                </div>
+                <p class="text-[10px] text-gray-400 leading-relaxed">
+                    <i class="fa-solid fa-circle-info mr-0.5"></i>
+                    先選擇「主題」，「次類」會根據主題自動篩選對應選項。
+                </p>
             </div>
         }
         else if (QuestionType == "longText")
@@ -216,20 +240,16 @@
     }
 
     private static readonly string[] SingleChoiceTopics =
-        ["字形", "字音", "字義", "詞語", "成語", "文法", "修辭", "文意", "閱讀", "國學常識", "文化認知"];
+        ["文字", "語詞", "成語短語", "造句標點", "修辭技巧", "語文知識", "文意判讀"];
 
     private static readonly Dictionary<string, string[]> SingleChoiceCategoryMap = new()
     {
-        ["字形"] = ["形近字辨識", "同音異字", "正確用字"],
-        ["字音"] = ["多音字辨識", "破音字", "正確讀音"],
-        ["字義"] = ["一字多義", "字義辨析", "古今字義"],
-        ["詞語"] = ["詞義辨析", "近義詞", "詞語運用"],
-        ["成語"] = ["成語釋義", "成語運用", "成語辨正"],
-        ["文法"] = ["語法結構", "句型分析", "語病修正"],
-        ["修辭"] = ["修辭辨識", "修辭運用", "修辭效果"],
-        ["文意"] = ["主旨判讀", "文意推論", "文意理解"],
-        ["閱讀"] = ["閱讀理解", "訊息擷取", "推論判斷"],
-        ["國學常識"] = ["經典認識", "文學流變", "文體特徵"],
-        ["文化認知"] = ["傳統文化", "文化比較", "現代應用"]
+        ["文字"] = ["字音", "字型", "造字原則"],
+        ["語詞"] = ["辭義辨識", "詞彙辨析", "詞性分辨", "語詞應用"],
+        ["成語短語"] = ["短語辨識", "語詞使用", "文義取得"],
+        ["造句標點"] = ["句義", "句法辨析", "標點符號"],
+        ["修辭技巧"] = ["修辭類型", "語態變化"],
+        ["語文知識"] = ["語文知識"],
+        ["文意判讀"] = ["段義辨析"]
     };
 }

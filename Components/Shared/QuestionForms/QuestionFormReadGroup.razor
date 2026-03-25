@@ -57,7 +57,11 @@
                         <!-- 子題題幹 -->
                         <QuillEditor @bind-Value="sq.Stem" FieldLabel="@($"子題 {idx + 1} 題幹")" Placeholder="請輸入子題題幹..." />
 
-                        <!-- 子題選項 A-D -->
+                        <!-- 子題選項與答案 -->
+                        <div class="mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 flex items-center gap-2">
+                            <i class="fa-solid fa-triangle-exclamation text-amber-500 flex-shrink-0"></i>
+                            請避免選項長短、語氣明顯差異，以免影響鑑別度。
+                        </div>
                         <div class="space-y-2">
                             @for (int j = 0; j < 4; j++)
                             {
