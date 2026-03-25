@@ -9,6 +9,7 @@
 @inject NavigationManager Navigation
 @inject ICaptchaService CaptchaService
 @inject ProtectedLocalStorage LocalStorage
+@inject IWebHostEnvironment Env
 
 <PageTitle>CWT 命題工作平臺 - 登入</PageTitle>
 
@@ -42,6 +43,15 @@
                 </h1>
                 <p class="text-sm text-gray-500">歡迎回來，請登入您的帳號</p>
             </div>
+
+            <!-- Dev Mode Indicator -->
+            @if (IsDev)
+            {
+                <div class="mb-4 p-2.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs flex items-center gap-2">
+                    <i class="fa-solid fa-flask"></i>
+                    <span><strong>開發模式</strong>：帳密與驗證碼已自動填入，直接按登入即可。</span>
+                </div>
+            }
 
             <!-- Error Alert -->
             @if (!string.IsNullOrEmpty(errorMessage))
@@ -220,10 +230,20 @@
     private string resetEmail = "";
     private bool isSendingReset = false;
 
+    private bool IsDev => Env.IsDevelopment();
+
     protected override void OnInitialized()
     {
         // 初始化驗證碼 (C#)
         GenerateNewCaptcha();
+
+        // 測試環境自動填入帳密 + 驗證碼
+        if (IsDev)
+        {
+            loginModel.Username = "admin";
+            loginModel.Password = "admin123";
+            loginModel.CaptchaInput = generatedCaptcha;
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -262,7 +282,7 @@
     private void RefreshCaptcha()
     {
         GenerateNewCaptcha();
-        loginModel.CaptchaInput = "";
+        loginModel.CaptchaInput = IsDev ? generatedCaptcha : "";
     }
 
     /// <summary>處理登入流程 (DEMO)</summary>
