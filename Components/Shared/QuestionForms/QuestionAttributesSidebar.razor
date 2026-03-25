@@ -27,10 +27,10 @@
         </select>
     </div>
 
-    <!-- 等級 -->
-    <div>
+    <!-- 等級（聽力題組母題無等級） -->
+    <div class="@(QuestionType == "listenGroup" ? "hidden" : "")">
         <label class="block text-sm font-bold text-gray-700 mb-1.5">等級 <span class="text-red-400">*</span></label>
-        <select @bind="Level"
+        <select @bind="Level" @bind:after="OnLevelChanged"
             class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
             <option value="">請選擇等級</option>
             @if (IsListenType)
@@ -215,36 +215,143 @@
                 </p>
             </div>
         }
-        else if (QuestionType is "listen" or "listenGroup")
+        else if (QuestionType == "listen")
         {
-            <!-- 音檔類型 -->
-            <div>
-                <label class="block text-sm font-bold text-gray-700 mb-1.5">音檔類型 <span class="text-red-400">*</span></label>
-                <select @bind="AudioType"
-                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                    <option value="">請選擇</option>
-                    <option value="對話">對話</option>
-                    <option value="情境">情境</option>
-                    <option value="陳述">陳述</option>
-                </select>
+            <!-- 聽力測驗屬性 -->
+            <div class="bg-gray-50 rounded-lg border border-gray-200 p-3 space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-gray-500 flex items-center gap-1.5">
+                        <i class="fa-solid fa-headphones text-morandi"></i>
+                        聽力測驗屬性
+                    </span>
+                    <span class="text-[10px] text-gray-400 bg-white px-1.5 py-0.5 rounded border border-gray-100">
+                        難度一～五
+                    </span>
+                </div>
+
+                <!-- 核心能力（依等級自動帶入） -->
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">核心能力</label>
+                    @if (string.IsNullOrEmpty(Level) || !LevelCoreAbilityMap.ContainsKey(Level))
+                    {
+                        <input type="text" value="請先選擇等級" disabled
+                            class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-gray-100 text-gray-300">
+                    }
+                    else if (LevelCoreAbilityMap[Level].Length > 1)
+                    {
+                        <select @bind="CoreAbility" @bind:after="OnCoreAbilityChanged"
+                            class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                            <option value="">請選擇</option>
+                            @foreach (var ability in LevelCoreAbilityMap[Level])
+                            {
+                                <option value="@ability">@ability</option>
+                            }
+                        </select>
+                    }
+                    else
+                    {
+                        <input type="text" value="@CoreAbility" disabled
+                            class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-gray-100 text-gray-500 font-medium">
+                    }
+                </div>
+
+                <!-- 細目指標 -->
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">細目指標 <span class="text-red-400">*</span></label>
+                    <select @bind="DetailIndicator"
+                        class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer @(string.IsNullOrEmpty(CoreAbility) ? "bg-gray-50 text-gray-300" : "")"
+                        disabled="@(string.IsNullOrEmpty(CoreAbility))">
+                        <option value="">@(string.IsNullOrEmpty(CoreAbility) ? "先選等級" : "請選擇")</option>
+                        @if (!string.IsNullOrEmpty(CoreAbility) && CoreAbilityIndicatorMap.TryGetValue(GetIndicatorKey(CoreAbility), out var indicators))
+                        {
+                            @foreach (var ind in indicators)
+                            {
+                                <option value="@ind">@ind</option>
+                            }
+                        }
+                    </select>
+                </div>
+
+                <!-- 語音類型 + 素材分類 並排 -->
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">語音類型 <span class="text-red-400">*</span></label>
+                        <select @bind="AudioType"
+                            class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                            <option value="">請選擇</option>
+                            <option value="對話">對話</option>
+                            <option value="情境">情境</option>
+                            <option value="陳述">陳述</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">素材分類 <span class="text-red-400">*</span></label>
+                        <select @bind="Material"
+                            class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                            <option value="">請選擇</option>
+                            <option value="生活">生活</option>
+                            <option value="教育">教育</option>
+                            <option value="職場">職場</option>
+                            <option value="專業">專業</option>
+                        </select>
+                    </div>
+                </div>
+
+                <p class="text-[10px] text-gray-400 leading-relaxed">
+                    <i class="fa-solid fa-circle-info mr-0.5"></i>
+                    選擇等級後自動帶入核心能力，再依核心能力篩選細目指標。
+                </p>
             </div>
-            <!-- 語料素材 -->
-            <div>
-                <label class="block text-sm font-bold text-gray-700 mb-1.5">語料素材 <span class="text-red-400">*</span></label>
-                <select @bind="Material"
-                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                    <option value="">請選擇</option>
-                    <option value="生活">生活</option>
-                    <option value="教育">教育</option>
-                    <option value="職場">職場</option>
-                    <option value="專業">專業</option>
-                </select>
+        }
+        else if (QuestionType == "listenGroup")
+        {
+            <!-- 聽力題組屬性 -->
+            <div class="bg-gray-50 rounded-lg border border-gray-200 p-3 space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-gray-500 flex items-center gap-1.5">
+                        <i class="fa-solid fa-headphones text-morandi"></i>
+                        聽力題組屬性
+                    </span>
+                    <span class="text-[10px] text-gray-400 bg-white px-1.5 py-0.5 rounded border border-gray-100">
+                        母題無難度
+                    </span>
+                </div>
+
+                <!-- 語音類型 + 素材分類 並排 -->
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">語音類型 <span class="text-red-400">*</span></label>
+                        <select @bind="AudioType"
+                            class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                            <option value="">請選擇</option>
+                            <option value="對話">對話</option>
+                            <option value="情境">情境</option>
+                            <option value="陳述">陳述</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">素材分類 <span class="text-red-400">*</span></label>
+                        <select @bind="Material"
+                            class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                            <option value="">請選擇</option>
+                            <option value="生活">生活</option>
+                            <option value="教育">教育</option>
+                            <option value="職場">職場</option>
+                            <option value="專業">專業</option>
+                        </select>
+                    </div>
+                </div>
+
+                <p class="text-[10px] text-gray-400 leading-relaxed">
+                    <i class="fa-solid fa-circle-info mr-0.5"></i>
+                    母題不區分難度，子題各自設定難度、核心能力與細目指標。
+                </p>
             </div>
         }
     </div>
 
-    <!-- 難易度 -->
-    <div>
+    <!-- 難易度（聽力題組母題無難易度） -->
+    <div class="@(QuestionType == "listenGroup" ? "hidden" : "")">
         <label class="block text-sm font-bold text-gray-700 mb-1.5">難易度 <span class="text-red-400">*</span></label>
         <select @bind="Difficulty"
             class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
@@ -293,12 +400,37 @@
     [Parameter] public EventCallback<string> AudioTypeChanged { get; set; }
     [Parameter] public string Material { get; set; } = "";
     [Parameter] public EventCallback<string> MaterialChanged { get; set; }
+    [Parameter] public string CoreAbility { get; set; } = "";
+    [Parameter] public EventCallback<string> CoreAbilityChanged { get; set; }
+    [Parameter] public string DetailIndicator { get; set; } = "";
+    [Parameter] public EventCallback<string> DetailIndicatorChanged { get; set; }
 
     private bool IsListenType => QuestionType is "listen" or "listenGroup";
 
     private async Task OnTypeChanged()
     {
         await QuestionTypeChanged.InvokeAsync(QuestionType);
+    }
+
+    private async Task OnLevelChanged()
+    {
+        // 聽力題型：等級變更時自動帶入核心能力
+        if (IsListenType && !string.IsNullOrEmpty(Level) && LevelCoreAbilityMap.TryGetValue(Level, out var abilities))
+        {
+            // 只有一個核心能力時自動帶入，多個（難度五）讓使用者選
+            CoreAbility = abilities.Length == 1 ? abilities[0] : "";
+            DetailIndicator = "";
+            await CoreAbilityChanged.InvokeAsync(CoreAbility);
+            await DetailIndicatorChanged.InvokeAsync(DetailIndicator);
+        }
+        await LevelChanged.InvokeAsync(Level);
+    }
+
+    private async Task OnCoreAbilityChanged()
+    {
+        DetailIndicator = "";
+        await CoreAbilityChanged.InvokeAsync(CoreAbility);
+        await DetailIndicatorChanged.InvokeAsync(DetailIndicator);
     }
 
     private async Task OnTopicChanged()
@@ -330,4 +462,29 @@
         ["語文知識"] = ["語文知識"],
         ["文意判讀"] = ["段義辨析"]
     };
+
+    // === 聽力：等級 → 核心能力 ===
+    private static readonly Dictionary<string, string[]> LevelCoreAbilityMap = new()
+    {
+        ["難度一"] = ["提取訊息"],
+        ["難度二"] = ["理解訊息"],
+        ["難度三"] = ["推斷訊息"],
+        ["難度四"] = ["歸納分析訊息", "區辨詞語多義性"],
+        ["難度五"] = ["統整、闡述或評鑑訊息", "思辨、推衍訊息"]
+    };
+
+    // === 聽力：核心能力 → 細目指標 ===
+    private static readonly Dictionary<string, string[]> CoreAbilityIndicatorMap = new()
+    {
+        ["提取訊息"] = ["提取對話與訊息主旨", "回應訊息內容", "轉述訊息內容"],
+        ["理解訊息"] = ["理解訊息意圖或細節", "理解說話者語氣或態度變化", "理解慣用語的意義"],
+        ["推斷訊息"] = ["推斷訊息邏輯性", "能掌握語意轉折", "能推斷語意變化"],
+        ["歸納分析訊息"] = ["歸納或總結訊息內容", "分解或辨析訊息內容", "區辨詞語的多義性"],
+        ["區辨詞語多義性"] = ["歸納或總結訊息內容", "分解或辨析訊息內容", "區辨詞語的多義性"],
+        ["統整、闡述或評鑑訊息"] = ["摘要、條列、統整訊息關鍵字、要點、主旨", "闡述訊息涵義或評鑑訊息適切性", "思辨、推衍訊息言外意、抽象義"],
+        ["思辨、推衍訊息"] = ["摘要、條列、統整訊息關鍵字、要點、主旨", "闡述訊息涵義或評鑑訊息適切性", "思辨、推衍訊息言外意、抽象義"]
+    };
+
+    /// <summary>取得細目指標的查詢 key（思辨與統整共用同一組指標）</summary>
+    private static string GetIndicatorKey(string ability) => ability;
 }

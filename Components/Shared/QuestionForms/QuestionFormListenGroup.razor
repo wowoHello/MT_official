@@ -1,17 +1,18 @@
 @* ====================================================================== *@
 @*  QuestionFormListenGroup — 聽力題組 命題表單                             *@
 @*  結構：音檔上傳 + 語音內容（Quill）+ 固定 2 個子題（選擇題）            *@
-@*  屬性側欄：音檔類型 + 語料素材                                           *@
-@*  子題的等級/能力/指標為固定值（不可編輯）                                *@
+@*  屬性側欄：語音類型 + 素材分類（母題無難度）                             *@
+@*  子題難度固定：第1題=難度三、第2題=難度四                                *@
 @* ====================================================================== *@
 @using MT.Components.Shared
+@inject IJSRuntime JS
 
 <div class="p-6 lg:p-8 pb-16 max-w-4xl mx-auto space-y-6 min-h-full">
 
     <!-- 聽力音檔上傳 -->
     <div>
         <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-            <i class="fa-solid fa-headphones text-purple-500"></i> 聽力音檔 <span class="text-red-400">*</span>
+            <i class="fa-solid fa-headphones text-morandi"></i> 聽力音檔 <span class="text-red-400">*</span>
         </label>
         <div class="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-morandi hover:bg-morandi/5 transition-all cursor-pointer group">
             @if (string.IsNullOrEmpty(AudioFileName))
@@ -26,7 +27,7 @@
                     <i class="fa-solid fa-file-audio text-2xl text-morandi"></i>
                     <span class="text-sm font-medium text-slate-main">@AudioFileName</span>
                     <button type="button" @onclick="() => { AudioFileName = string.Empty; }"
-                        class="text-xs text-red-400 hover:text-red-600 ml-2">
+                        class="text-xs text-red-400 hover:text-red-600 ml-2 cursor-pointer">
                         <i class="fa-solid fa-xmark"></i> 移除
                     </button>
                 </div>
@@ -37,70 +38,126 @@
     <!-- 語音內容 -->
     <div>
         <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-            <i class="fa-solid fa-microphone text-sage"></i> 語音內容 <span class="text-red-400">*</span>
+            <i class="fa-solid fa-microphone text-morandi"></i> 語音內容 <span class="text-red-400">*</span>
         </label>
-        <QuillEditor @bind-Value="Passage" FieldLabel="語音內容" Placeholder="請輸入語音內容（逐字稿）..." />
+        <!-- 聽力題組提醒 -->
+        <div class="mb-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+            <p class="font-bold text-terracotta mb-1 flex items-center gap-1.5">
+                <i class="fa-solid fa-circle-info"></i> 聽力題組母題提醒
+            </p>
+            <p class="text-amber-700 text-xs leading-relaxed">
+                母題不區分難度，僅需上傳音檔與語音內容。底下固定 2 個子題，各有獨立的難度、核心能力與細目指標。
+            </p>
+        </div>
+        <QuillEditor @bind-Value="Passage" FieldLabel="語音內容" Placeholder="點擊此處開始輸入語音內容（逐字稿）..." />
     </div>
 
-    <!-- 固定 2 個子題 -->
+    <!-- 子題區（固定 2 題） -->
     <div>
-        <label class="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
-            <i class="fa-solid fa-list-check text-terracotta"></i> 子題（固定 2 題）
-        </label>
+        <div class="flex items-center justify-between mb-3">
+            <label class="text-sm font-bold text-gray-700 flex items-center gap-2">
+                <i class="fa-solid fa-layer-group text-morandi"></i> 子題區
+                <span class="text-xs text-gray-400 font-normal">（固定 2 題）</span>
+            </label>
+        </div>
 
         <div class="space-y-4">
-            @for (int i = 0; i < FixedSubConfigs.Length; i++)
+            @for (int i = 0; i < SubQuestions.Count; i++)
             {
                 var idx = i;
-                var cfg = FixedSubConfigs[idx];
                 var sq = SubQuestions[idx];
+                var subLevel = SubLevels[idx];
 
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <!-- 子題標頭 -->
                     <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
                         <span class="text-sm font-bold text-slate-main">第 @(idx + 1) 題</span>
-                        <div class="flex items-center gap-2 text-xs">
-                            <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-600 font-bold">@cfg.Level</span>
-                            <span class="px-2 py-0.5 rounded bg-purple-50 text-purple-600 font-bold">@cfg.Competency</span>
-                            <span class="px-2 py-0.5 rounded bg-amber-50 text-amber-600 font-bold">@cfg.Indicator</span>
-                        </div>
+                        <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-600 text-xs font-bold">@subLevel</span>
                     </div>
                     <div class="p-4 space-y-4">
-                        <!-- 子題題幹 -->
+                        <!-- 核心能力 + 細目指標 -->
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">核心能力 <span class="text-red-400">*</span></label>
+                                <select @bind="sq.CoreAbility" @bind:after="() => OnSubCoreAbilityChanged(sq)"
+                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                                    <option value="">請選擇</option>
+                                    @foreach (var ability in SubLevelCoreAbilityMap[subLevel])
+                                    {
+                                        <option value="@ability">@ability</option>
+                                    }
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">細目指標 <span class="text-red-400">*</span></label>
+                                <select @bind="sq.DetailIndicator"
+                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer @(string.IsNullOrEmpty(sq.CoreAbility) ? "bg-gray-50 text-gray-300" : "")"
+                                    disabled="@(string.IsNullOrEmpty(sq.CoreAbility))">
+                                    <option value="">@(string.IsNullOrEmpty(sq.CoreAbility) ? "先選核心能力" : "請選擇")</option>
+                                    @if (!string.IsNullOrEmpty(sq.CoreAbility) && SubCoreAbilityIndicatorMap.TryGetValue(sq.CoreAbility, out var indicators))
+                                    {
+                                        @foreach (var ind in indicators)
+                                        {
+                                            <option value="@ind">@ind</option>
+                                        }
+                                    }
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- 題目內容 -->
                         <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-1">題幹</label>
-                            <input type="text" @bind="sq.Stem" placeholder="請輸入子題題幹..."
-                                class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi">
+                            <label class="block text-sm font-bold text-gray-700 mb-2">
+                                題目內容 <span class="text-red-400">*</span>
+                            </label>
+                            <QuillEditor @bind-Value="sq.Stem" FieldLabel="@($"第 {idx + 1} 題 題目內容")"
+                                Placeholder="點擊此處開始編輯題目內容..." />
                         </div>
 
                         <!-- 選項與答案 -->
-                        <div class="mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 flex items-center gap-2">
-                            <i class="fa-solid fa-triangle-exclamation text-amber-500 flex-shrink-0"></i>
-                            請避免選項長短、語氣明顯差異，以免影響鑑別度。
-                        </div>
-                        <div class="grid grid-cols-2 gap-2">
-                            @for (int j = 0; j < 4; j++)
-                            {
-                                var optIdx = j;
-                                var optLabel = OptionLabels[optIdx];
-                                <div class="flex items-center gap-2">
-                                    <label class="flex items-center gap-1 cursor-pointer flex-shrink-0">
-                                        <input type="radio" name="@($"lg-answer-{idx}")" value="@optLabel"
-                                            checked="@(sq.Answer == optLabel)"
-                                            @onchange="() => sq.Answer = optLabel"
-                                            class="w-3.5 h-3.5 text-sage focus:ring-sage cursor-pointer">
-                                        <span class="text-xs font-bold @(sq.Answer == optLabel ? "text-sage" : "text-gray-400")">@optLabel</span>
-                                    </label>
-                                    <input type="text" @bind="sq.Options[optIdx]" placeholder="@($"選項 ({optLabel})")"
-                                        class="flex-grow px-2.5 py-1.5 text-sm border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-morandi">
-                                </div>
-                            }
+                        <div>
+                            <div class="flex items-center justify-between mb-2">
+                                <label class="text-sm font-bold text-gray-700">選項與答案</label>
+                                <span class="text-xs text-gray-400">請勾選正確答案，可點選內容插入圖片</span>
+                            </div>
+                            <div class="mb-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700 flex items-center gap-2">
+                                <i class="fa-solid fa-triangle-exclamation text-amber-500 flex-shrink-0"></i>
+                                請避免選項長短、語氣明顯差異，以免影響鑑別度。
+                            </div>
+                            <!-- ABCD 2×2 Grid -->
+                            <div class="grid grid-cols-2 gap-3">
+                                @for (int j = 0; j < 4; j++)
+                                {
+                                    var optIdx = j;
+                                    var optLabel = OptionLabels[optIdx];
+                                    <div class="flex items-start gap-2">
+                                        <label class="flex items-center gap-1.5 mt-3 cursor-pointer flex-shrink-0">
+                                            <input type="radio" name="@($"lg-answer-{idx}")" value="@optLabel"
+                                                checked="@(sq.Answer == optLabel)"
+                                                @onchange="() => sq.Answer = optLabel"
+                                                class="w-4 h-4 text-sage focus:ring-sage cursor-pointer">
+                                            <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold @(sq.Answer == optLabel ? "bg-sage text-white" : "bg-gray-100 text-gray-500") transition-colors">
+                                                @optLabel
+                                            </span>
+                                        </label>
+                                        <div class="flex-grow">
+                                            <QuillEditor @bind-Value="sq.Options[optIdx]"
+                                                FieldLabel="@($"第 {idx + 1} 題 選項 ({optLabel})")"
+                                                Placeholder="@($"點擊此處編輯選項 ({optLabel})...")" />
+                                        </div>
+                                    </div>
+                                }
+                            </div>
                         </div>
 
-                        <!-- 解析 -->
+                        <!-- 試題解析 -->
                         <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-1">解析</label>
-                            <textarea @bind="sq.Analysis" rows="2" placeholder="解析（選填）..."
-                                class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi resize-none"></textarea>
+                            <label class="block text-sm font-bold text-gray-700 mb-2">
+                                試題解析（紀錄答案理由） <span class="text-red-400">*</span>
+                            </label>
+                            <QuillEditor @bind-Value="sq.Analysis"
+                                FieldLabel="@($"第 {idx + 1} 題 解析")"
+                                Placeholder="點擊此處開始編輯解析..." />
                         </div>
                     </div>
                 </div>
@@ -121,12 +178,28 @@
 
     private static readonly string[] OptionLabels = ["A", "B", "C", "D"];
 
-    private record FixedConfig(string Level, string Competency, string Indicator);
-    private static readonly FixedConfig[] FixedSubConfigs =
-    [
-        new("難度三", "推斷訊息", "推斷訊息邏輯性"),
-        new("難度四", "歸納分析", "歸納或總結訊息內容")
-    ];
+    // 子題固定難度
+    private static readonly string[] SubLevels = ["難度三", "難度四"];
+
+    // 子題難度 → 核心能力
+    private static readonly Dictionary<string, string[]> SubLevelCoreAbilityMap = new()
+    {
+        ["難度三"] = ["推斷訊息"],
+        ["難度四"] = ["歸納分析訊息", "區辨詞語多義性"]
+    };
+
+    // 核心能力 → 細目指標
+    private static readonly Dictionary<string, string[]> SubCoreAbilityIndicatorMap = new()
+    {
+        ["推斷訊息"] = ["推斷訊息邏輯性", "能掌握語意轉折", "能推斷語意變化"],
+        ["歸納分析訊息"] = ["歸納或總結訊息內容", "分解或辨析訊息內容", "區辨詞語的多義性"],
+        ["區辨詞語多義性"] = ["歸納或總結訊息內容", "分解或辨析訊息內容", "區辨詞語的多義性"]
+    };
+
+    private void OnSubCoreAbilityChanged(ListenGroupSubQuestion sq)
+    {
+        sq.DetailIndicator = "";
+    }
 
     public class ListenGroupSubQuestion
     {
@@ -134,5 +207,7 @@
         public string[] Options { get; set; } = ["", "", "", ""];
         public string Answer { get; set; } = "";
         public string Analysis { get; set; } = "";
+        public string CoreAbility { get; set; } = "";
+        public string DetailIndicator { get; set; } = "";
     }
 }

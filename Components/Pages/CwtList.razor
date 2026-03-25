@@ -188,7 +188,8 @@
                 <QuestionAttributesSidebar @bind-QuestionType="selectedType" @bind-Level="selectedLevel" @bind-Difficulty="selectedDifficulty"
                     @bind-Topic="attrTopic" @bind-Subtopic="attrSubtopic"
                     @bind-WritingMode="attrWritingMode" @bind-Genre="attrGenre"
-                    @bind-AudioType="attrAudioType" @bind-Material="attrMaterial" />
+                    @bind-AudioType="attrAudioType" @bind-Material="attrMaterial"
+                    @bind-CoreAbility="attrCoreAbility" @bind-DetailIndicator="attrDetailIndicator" />
             </div>
 
             <!-- 伸縮標籤按鈕（浮動在邊欄邊緣） -->
@@ -247,6 +248,8 @@
     private string attrGenre = "";
     private string attrAudioType = "";
     private string attrMaterial = "";
+    private string attrCoreAbility = "";
+    private string attrDetailIndicator = "";
 
     private static readonly Dictionary<string, string> TypeLabels = new()
     {
