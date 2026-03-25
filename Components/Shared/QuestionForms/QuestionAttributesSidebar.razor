@@ -47,6 +47,13 @@
                 <option value="中等">中等</option>
                 <option value="中高等">中高等</option>
             }
+            else if (QuestionType == "longText")
+            {
+                <option value="初級">初級</option>
+                <option value="中級">中級</option>
+                <option value="中高級">中高級</option>
+                <option value="優級">優級</option>
+            }
             else
             {
                 <option value="初級">初級</option>
@@ -76,7 +83,7 @@
                 <!-- 主題 + 次類 並排 -->
                 <div class="grid grid-cols-2 gap-2">
                     <div>
-                        <label class="block text-xs font-medium text-gray-600 mb-1">主題 <span class="text-red-400">*</span></label>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">主類 <span class="text-red-400">*</span></label>
                         <select @bind="Topic" @bind:after="OnTopicChanged"
                             class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                             <option value="">請選擇</option>
@@ -91,7 +98,7 @@
                         <select @bind="Subtopic"
                             class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer @(string.IsNullOrEmpty(Topic) ? "bg-gray-50 text-gray-300" : "")"
                             disabled="@(string.IsNullOrEmpty(Topic))">
-                            <option value="">@(string.IsNullOrEmpty(Topic) ? "先選主題" : "請選擇")</option>
+                            <option value="">@(string.IsNullOrEmpty(Topic) ? "先選主類" : "請選擇")</option>
                             @if (!string.IsNullOrEmpty(Topic) && SingleChoiceCategoryMap.ContainsKey(Topic))
                             {
                                 @foreach (var sub in SingleChoiceCategoryMap[Topic])
@@ -104,47 +111,108 @@
                 </div>
                 <p class="text-[10px] text-gray-400 leading-relaxed">
                     <i class="fa-solid fa-circle-info mr-0.5"></i>
-                    先選擇「主題」，「次類」會根據主題自動篩選對應選項。
+                    先選擇「主類」，「次類」會根據主題自動篩選對應選項。
                 </p>
             </div>
         }
         else if (QuestionType == "longText")
         {
-            <!-- 寫作模式 -->
-            <div>
-                <label class="block text-sm font-bold text-gray-700 mb-1.5">寫作模式 <span class="text-red-400">*</span></label>
-                <select @bind="WritingMode"
-                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                    <option value="">請選擇</option>
-                    <option value="引導寫作">引導寫作</option>
-                    <option value="資訊整合">資訊整合</option>
-                </select>
+            <!-- 長文題目屬性 -->
+            <div class="bg-gray-50 rounded-lg border border-gray-200 p-3 space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-gray-500 flex items-center gap-1.5">
+                        <i class="fa-solid fa-pen-fancy text-morandi"></i>
+                        長文題目屬性
+                    </span>
+                    <span class="text-[10px] text-gray-400 bg-white px-1.5 py-0.5 rounded border border-gray-100">
+                        適用等級：初～優級（不含高級）
+                    </span>
+                </div>
+                <!-- 寫作模式 -->
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">寫作模式 <span class="text-red-400">*</span></label>
+                    <select @bind="WritingMode"
+                        class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                        <option value="">請選擇</option>
+                        <option value="引導寫作">引導寫作</option>
+                        <option value="資訊整合">資訊整合</option>
+                    </select>
+                </div>
+                <p class="text-[10px] text-gray-400 leading-relaxed">
+                    <i class="fa-solid fa-circle-info mr-0.5"></i>
+                    長文題目包含題目、文章內容與批閱說明。
+                </p>
             </div>
         }
-        else if (QuestionType is "readGroup" or "shortGroup")
+        else if (QuestionType == "readGroup")
         {
-            @if (QuestionType == "shortGroup")
-            {
+            <!-- 閱讀題組分類 -->
+            <div class="bg-gray-50 rounded-lg border border-gray-200 p-3 space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-gray-500 flex items-center gap-1.5">
+                        <i class="fa-solid fa-book-open text-morandi"></i>
+                        閱讀題組屬性
+                    </span>
+                    <span class="text-[10px] text-gray-400 bg-white px-1.5 py-0.5 rounded border border-gray-100">
+                        適用等級：初～優級
+                    </span>
+                </div>
+                <!-- 文體 -->
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">文體 <span class="text-red-400">*</span></label>
+                    <select @bind="Genre"
+                        class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                        <option value="">請選擇文體</option>
+                        <option value="文言文">文言文</option>
+                        <option value="應用文">應用文</option>
+                        <option value="語體文">語體文</option>
+                    </select>
+                </div>
+                <p class="text-[10px] text-gray-400 leading-relaxed">
+                    <i class="fa-solid fa-circle-info mr-0.5"></i>
+                    母題底下有複數子題，以子題代碼區分。
+                </p>
+            </div>
+        }
+        else if (QuestionType == "shortGroup")
+        {
+            <!-- 短文題組分類 -->
+            <div class="bg-gray-50 rounded-lg border border-gray-200 p-3 space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-gray-500 flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-lines text-morandi"></i>
+                        短文題組屬性
+                    </span>
+                    <span class="text-[10px] text-gray-400 bg-white px-1.5 py-0.5 rounded border border-gray-100">
+                        適用等級：初～優級
+                    </span>
+                </div>
                 <!-- 固定屬性：主類 / 次類 -->
-                <div>
-                    <label class="block text-sm font-bold text-gray-700 mb-1.5">主類</label>
-                    <input type="text" value="文義判讀" disabled class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-400">
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">主類</label>
+                        <input type="text" value="文義判讀" disabled class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-gray-100 text-gray-400">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">次類</label>
+                        <input type="text" value="篇章辨析" disabled class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-gray-100 text-gray-400">
+                    </div>
                 </div>
+                <!-- 文體 -->
                 <div>
-                    <label class="block text-sm font-bold text-gray-700 mb-1.5">次類</label>
-                    <input type="text" value="篇章辨析" disabled class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-400">
+                    <label class="block text-xs font-medium text-gray-600 mb-1">文體 <span class="text-red-400">*</span></label>
+                    <select @bind="Genre"
+                        class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                        <option value="">請選擇文體</option>
+                        <option value="文言文">文言文</option>
+                        <option value="應用文">應用文</option>
+                        <option value="語體文">語體文</option>
+                    </select>
                 </div>
-            }
-            <!-- 文體 -->
-            <div>
-                <label class="block text-sm font-bold text-gray-700 mb-1.5">文體 <span class="text-red-400">*</span></label>
-                <select @bind="Genre"
-                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                    <option value="">請選擇文體</option>
-                    <option value="文言文">文言文</option>
-                    <option value="應用文">應用文</option>
-                    <option value="語體文">語體文</option>
-                </select>
+                <p class="text-[10px] text-gray-400 leading-relaxed">
+                    <i class="fa-solid fa-circle-info mr-0.5"></i>
+                    主類/次類為固定值，母題底下有複數子題。
+                </p>
             </div>
         }
         else if (QuestionType is "listen" or "listenGroup")
@@ -235,8 +303,18 @@
 
     private async Task OnTopicChanged()
     {
-        Subtopic = "";
+        // 若該主題只有一個次類，自動帶入
+        if (!string.IsNullOrEmpty(Topic) && SingleChoiceCategoryMap.TryGetValue(Topic, out var subs) && subs.Length == 1)
+        {
+            Subtopic = subs[0];
+        }
+        else
+        {
+            Subtopic = "";
+        }
+
         await TopicChanged.InvokeAsync(Topic);
+        await SubtopicChanged.InvokeAsync(Subtopic);
     }
 
     private static readonly string[] SingleChoiceTopics =

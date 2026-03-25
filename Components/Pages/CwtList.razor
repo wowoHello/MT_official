@@ -183,12 +183,23 @@
     </HeaderActions>
     <ChildContent>
         <div class="flex-grow flex overflow-hidden relative min-h-0 h-full">
-            <!-- 左側邊欄：屬性設定 -->
-            <div class="w-60 lg:w-72 flex-shrink-0 bg-white border-r border-gray-200 overflow-hidden flex flex-col">
+            <!-- 左側邊欄：屬性設定（可收合） -->
+            <div class="@(sidebarCollapsed ? "w-0" : "w-60 lg:w-72") flex-shrink-0 bg-white border-r border-gray-200 overflow-hidden flex flex-col transition-all duration-300 ease-in-out">
                 <QuestionAttributesSidebar @bind-QuestionType="selectedType" @bind-Level="selectedLevel" @bind-Difficulty="selectedDifficulty"
                     @bind-Topic="attrTopic" @bind-Subtopic="attrSubtopic"
                     @bind-WritingMode="attrWritingMode" @bind-Genre="attrGenre"
                     @bind-AudioType="attrAudioType" @bind-Material="attrMaterial" />
+            </div>
+
+            <!-- 伸縮標籤按鈕（浮動在邊欄邊緣） -->
+            <div class="relative flex-shrink-0">
+                <button @onclick="() => sidebarCollapsed = !sidebarCollapsed"
+                    class="absolute top-1/2 -translate-y-1/2 -left-px z-10 bg-white border border-gray-200 border-l-0 rounded-r-lg shadow-sm px-1.5 py-3 flex flex-col items-center gap-1 text-gray-400 hover:text-morandi hover:bg-gray-50 transition-colors cursor-pointer focus:outline-none"
+                    title="@(sidebarCollapsed ? "展開屬性欄" : "收合屬性欄")">
+                    <i class="fa-solid @(sidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-[10px]"></i>
+                    <span class="text-[10px] font-bold writing-vertical">屬性</span>
+                    <i class="fa-solid @(sidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-[10px]"></i>
+                </button>
             </div>
 
             <!-- 右側：主要編輯區 -->
@@ -223,6 +234,7 @@
 @code {
     private string currentTab = "compose";
     private bool showComposeModal = false;
+    private bool sidebarCollapsed = false;
     private string composeModalTitle = "新增試題";
 
     // 題型表單屬性

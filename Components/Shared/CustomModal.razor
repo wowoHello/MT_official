@@ -20,7 +20,7 @@
                  style="animation: modalIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
                 <div class="flex justify-between items-center p-5 border-b border-gray-100 bg-gray-50/50">
                     <h3 class="text-xl font-bold text-slate-main">@Title</h3>
-                    <button type="button" @onclick="CloseAsync" class="text-gray-400 hover:text-red-500 hover:bg-red-50 w-8 h-8 rounded-full flex items-center justify-center transition-colors">
+                    <button type="button" @onclick="CloseAsync" class="text-gray-400 hover:text-red-500 hover:bg-red-50 w-8 h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer">
                         <i class="fa-solid fa-xmark text-lg"></i>
                     </button>
                 </div>
@@ -44,7 +44,7 @@
              
             <div class="flex items-center justify-between p-5 border-b border-gray-100 bg-morandi text-white">
                 <h3 class="text-lg font-bold tracking-wide">@Title</h3>
-                <button type="button" @onclick="CloseAsync" class="text-white/70 hover:text-white w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
+                <button type="button" @onclick="CloseAsync" class="text-white/70 hover:text-white w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors cursor-pointer">
                     <i class="fa-solid fa-xmark text-xl"></i>
                 </button>
             </div>
@@ -82,8 +82,8 @@
                         @HeaderActions
                     }
                     <div class="w-px h-6 bg-gray-300 mx-1"></div>
-                    <button type="button" @onclick="CloseAsync" 
-                            class="px-4 py-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg font-bold transition-colors flex items-center gap-2">
+                    <button type="button" @onclick="CloseAsync"
+                            class="px-4 py-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg font-bold transition-colors flex items-center gap-2 cursor-pointer">
                         <i class="fa-solid fa-arrow-right-from-bracket"></i>
                         回列表
                     </button>

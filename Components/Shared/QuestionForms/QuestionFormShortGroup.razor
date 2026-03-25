@@ -1,40 +1,48 @@
 @* ====================================================================== *@
 @*  QuestionFormShortGroup — 短文題組 命題表單                              *@
-@*  結構：題目（Quill）+ 文章內容（Quill）+ N 個子題（題幹+主向度+指標+解析）*@
+@*  結構：題目（Quill）+ 文章內容（Quill）+ N 個子題（題幹Quill+主向度+指標+解析Quill）*@
 @*  屬性側欄：文體（文言文 / 應用文 / 語體文）                              *@
 @*  固定屬性：主類 = 文義判讀、次類 = 篇章辨析                              *@
 @* ====================================================================== *@
 @using MT.Components.Shared
+@inject IJSRuntime JS
 
 <div class="p-6 lg:p-8 pb-16 max-w-4xl mx-auto space-y-6 min-h-full">
 
     <!-- 題目 -->
     <div>
         <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-            <i class="fa-solid fa-file-lines text-morandi"></i> 題目 <span class="text-red-400">*</span>
+            <i class="fa-solid fa-pen text-morandi"></i> 題目 <span class="text-red-400">*</span>
         </label>
-        <QuillEditor @bind-Value="Stem" FieldLabel="題目" Placeholder="請輸入題目..." />
+        <QuillEditor @bind-Value="Stem" FieldLabel="題目" Placeholder="點擊此處開始編輯題目..." />
     </div>
 
     <!-- 文章內容 -->
     <div>
         <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-            <i class="fa-solid fa-book-open text-sage"></i> 文章內容 <span class="text-red-400">*</span>
+            <i class="fa-solid fa-book-open text-morandi"></i> 文章內容 <span class="text-red-400">*</span>
         </label>
-        <p class="text-xs text-gray-400 mb-2"><i class="fa-solid fa-circle-info mr-1"></i>母題需要題目與文章內容，子題設定主向度及能力指標。</p>
-        <QuillEditor @bind-Value="Passage" FieldLabel="文章內容" Placeholder="請輸入短文內容..." />
+        <!-- 短文題組母題提醒 -->
+        <div class="mb-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+            <p class="font-bold text-terracotta mb-1 flex items-center gap-1.5">
+                <i class="fa-solid fa-circle-info"></i> 短文題組母題提醒
+            </p>
+            <p class="text-amber-700 text-xs leading-relaxed">
+                母題包含「題目」與「文章內容」，兩者皆為必填；文章內容可附圖。子題請補上主向度與能力指標，方便後續審題判讀。
+            </p>
+        </div>
+        <QuillEditor @bind-Value="Passage" FieldLabel="文章內容" Placeholder="點擊此處開始輸入文章內容..." />
     </div>
 
-    <!-- 子題列表（自由作答模式） -->
+    <!-- 子題區 -->
     <div>
         <div class="flex items-center justify-between mb-3">
             <label class="text-sm font-bold text-gray-700 flex items-center gap-2">
-                <i class="fa-solid fa-list-check text-terracotta"></i> 子題 <span class="text-red-400">*</span>
-                <span class="text-xs text-gray-400 font-normal">（共 @SubQuestions.Count 題）</span>
+                <i class="fa-solid fa-layer-group text-morandi"></i> 子題區
             </label>
             <button type="button" @onclick="AddSubQuestion"
-                class="px-3 py-1 text-xs font-bold text-sage bg-sage/10 rounded-lg hover:bg-sage/20 transition-colors cursor-pointer">
-                <i class="fa-solid fa-plus mr-1"></i> 新增子題
+                class="px-3 py-1.5 text-xs font-bold text-white bg-sage rounded-lg hover:bg-[#7a9a82] transition-colors cursor-pointer shadow-sm flex items-center gap-1">
+                <i class="fa-solid fa-plus"></i> 新增子題
             </button>
         </div>
 
@@ -44,29 +52,32 @@
                 var idx = i;
                 var sq = SubQuestions[idx];
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <!-- 子題標頭 -->
                     <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
                         <span class="text-sm font-bold text-slate-main">第 @(idx + 1) 題</span>
                         @if (SubQuestions.Count > 1)
                         {
                             <button type="button" @onclick="() => RemoveSubQuestion(idx)"
-                                class="text-xs text-red-400 hover:text-red-600 transition-colors cursor-pointer">
-                                <i class="fa-solid fa-trash-can mr-0.5"></i> 刪除
+                                class="text-xs text-red-400 hover:text-red-600 transition-colors cursor-pointer flex items-center gap-1">
+                                <i class="fa-solid fa-trash-can"></i> 刪除
                             </button>
                         }
                     </div>
                     <div class="p-4 space-y-4">
-                        <!-- 子題題幹 -->
+                        <!-- 題目內容 -->
                         <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-1">題幹</label>
-                            <input type="text" @bind="sq.Stem" placeholder="請輸入子題題幹..."
-                                class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi">
+                            <label class="block text-sm font-bold text-gray-700 mb-2">
+                                題目內容 <span class="text-red-400">*</span>
+                            </label>
+                            <QuillEditor @bind-Value="sq.Stem" FieldLabel="@($"第 {idx + 1} 題 題目內容")"
+                                Placeholder="點擊此處開始編輯題目內容..." />
                         </div>
 
                         <!-- 主向度 + 能力指標 -->
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="block text-xs font-medium text-gray-600 mb-1">主向度</label>
-                                <select @bind="sq.Dimension"
+                                <label class="block text-xs font-medium text-gray-600 mb-1">主向度 <span class="text-red-400">*</span></label>
+                                <select @bind="sq.Dimension" @bind:after="() => OnDimensionChanged(sq)"
                                     class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                                     <option value="">請選擇</option>
                                     @foreach (var dim in DimensionOptions)
@@ -76,10 +87,11 @@
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-gray-600 mb-1">能力指標</label>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">能力指標 <span class="text-red-400">*</span></label>
                                 <select @bind="sq.Indicator"
-                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                                    <option value="">請選擇</option>
+                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer @(string.IsNullOrEmpty(sq.Dimension) ? "bg-gray-50 text-gray-300" : "")"
+                                    disabled="@(string.IsNullOrEmpty(sq.Dimension))">
+                                    <option value="">@(string.IsNullOrEmpty(sq.Dimension) ? "先選主向度" : "請選擇")</option>
                                     @if (!string.IsNullOrEmpty(sq.Dimension) && DimensionIndicatorMap.ContainsKey(sq.Dimension))
                                     {
                                         @foreach (var ind in DimensionIndicatorMap[sq.Dimension])
@@ -91,11 +103,13 @@
                             </div>
                         </div>
 
-                        <!-- 解析 -->
+                        <!-- 試題解析 -->
                         <div>
-                            <label class="block text-xs font-medium text-gray-600 mb-1">解析</label>
-                            <textarea @bind="sq.Analysis" rows="2" placeholder="解析（選填）..."
-                                class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi resize-none"></textarea>
+                            <label class="block text-sm font-bold text-gray-700 mb-2">
+                                試題解析（紀錄答案理由） <span class="text-red-400">*</span>
+                            </label>
+                            <QuillEditor @bind-Value="sq.Analysis" FieldLabel="@($"第 {idx + 1} 題 解析")"
+                                Placeholder="點擊此處開始編輯解析..." />
                         </div>
                     </div>
                 </div>
@@ -114,24 +128,72 @@
     [Parameter] public List<SubQuestionFreeResponse> SubQuestions { get; set; } = [new()];
     [Parameter] public EventCallback<List<SubQuestionFreeResponse>> SubQuestionsChanged { get; set; }
 
-    private static readonly string[] DimensionOptions = ["條列敘述", "分析推理", "歸納統整"];
+    private static readonly string[] DimensionOptions = ["條列敘述", "歸納統整", "分析推理"];
 
     private static readonly Dictionary<string, string[]> DimensionIndicatorMap = new()
     {
-        ["條列敘述"] = ["擷取明確訊息", "辨識文本細節", "掌握段落大意", "理解字詞語意", "判斷語句語意", "指出篇章主旨", "概覽全文要點", "分析內容觀點"],
-        ["分析推理"] = ["分析文本架構", "推斷隱含意義", "辨析語氣語調", "評估立場觀點", "推論因果邏輯", "比較異同關係", "判斷修辭手法", "理解篇章脈絡"],
-        ["歸納統整"] = ["統整跨段訊息", "歸納中心思想", "評鑑寫作技巧", "綜合比較分析", "整合多元觀點", "建構全面理解", "評述整體架構", "提出綜合判斷"]
+        ["條列敘述"] = [
+            "1-1 條列敘述人、事、物特徵與特質",
+            "1-2 條列敘述起始原因、發生情況、結論等時空先後順序",
+            "1-3 條列敘述人、事、物的差異"
+        ],
+        ["歸納統整"] = [
+            "2-1 歸納作者主張",
+            "2-2 歸納文章主旨",
+            "2-3 歸納共同特點"
+        ],
+        ["分析推理"] = [
+            "3-1 分析線索",
+            "3-2 推論緣由",
+            "3-3 判斷結果",
+            "3-4 判斷詞性、主語",
+            "3-5 判斷字句的解釋、文意說明是否正確",
+            "3-6 推測行為的原因或用意",
+            "3-7 推測寫作手法的目的",
+            "3-8 判斷文體、格律、風格"
+        ]
     };
 
-    private void AddSubQuestion()
+    private void OnDimensionChanged(SubQuestionFreeResponse sq)
     {
-        SubQuestions.Add(new SubQuestionFreeResponse());
+        sq.Indicator = "";
     }
 
-    private void RemoveSubQuestion(int idx)
+    private async Task AddSubQuestion()
     {
-        if (SubQuestions.Count > 1)
+        var confirmed = await JS.InvokeAsync<bool>("swalInterop.confirm", new
+        {
+            title = "新增子題",
+            text = $"確定要新增第 {SubQuestions.Count + 1} 題嗎？",
+            icon = "question",
+            showCancelButton = true,
+            confirmButtonText = "新增",
+            cancelButtonText = "取消",
+            confirmButtonColor = "#8eab94"
+        });
+        if (confirmed)
+        {
+            SubQuestions.Add(new SubQuestionFreeResponse());
+        }
+    }
+
+    private async Task RemoveSubQuestion(int idx)
+    {
+        if (SubQuestions.Count <= 1) return;
+        var confirmed = await JS.InvokeAsync<bool>("swalInterop.confirm", new
+        {
+            title = "刪除子題",
+            text = $"確定要刪除第 {idx + 1} 題嗎？已填寫的內容將無法復原。",
+            icon = "warning",
+            showCancelButton = true,
+            confirmButtonText = "確定刪除",
+            cancelButtonText = "取消",
+            confirmButtonColor = "#d98a6c"
+        });
+        if (confirmed)
+        {
             SubQuestions.RemoveAt(idx);
+        }
     }
 
     public class SubQuestionFreeResponse

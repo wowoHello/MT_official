@@ -1,39 +1,47 @@
 @* ====================================================================== *@
 @*  QuestionFormReadGroup — 閱讀題組 命題表單                               *@
-@*  結構：標題（Quill）+ 文章內容（Quill）+ N 個子題（題幹+ABCD+解析）     *@
+@*  結構：標題（Quill）+ 文章內容（Quill）+ N 個子題（題目內容+ABCD+解析） *@
 @*  屬性側欄：文體（文言文 / 應用文 / 語體文）                              *@
 @* ====================================================================== *@
 @using MT.Components.Shared
+@inject IJSRuntime JS
 
 <div class="p-6 lg:p-8 pb-16 max-w-4xl mx-auto space-y-6 min-h-full">
 
     <!-- 標題 -->
     <div>
         <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-            <i class="fa-solid fa-heading text-morandi"></i> 題組標題 <span class="text-red-400">*</span>
+            <i class="fa-solid fa-pen text-morandi"></i> 標題 <span class="text-red-400">*</span>
         </label>
-        <QuillEditor @bind-Value="Stem" FieldLabel="題組標題" Placeholder="請輸入題組標題..." />
+        <QuillEditor @bind-Value="Stem" FieldLabel="標題" Placeholder="點擊此處開始編輯標題..." />
     </div>
 
     <!-- 文章內容 -->
     <div>
         <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-            <i class="fa-solid fa-book-open text-sage"></i> 文章內容 <span class="text-red-400">*</span>
+            <i class="fa-solid fa-book-open text-morandi"></i> 文章內容 <span class="text-red-400">*</span>
         </label>
-        <p class="text-xs text-gray-400 mb-2"><i class="fa-solid fa-circle-info mr-1"></i>母題需要標題與文章內容，兩者皆為必填。</p>
-        <QuillEditor @bind-Value="Passage" FieldLabel="文章內容" Placeholder="請輸入閱讀文章..." />
+        <!-- 閱讀題組母題提醒 -->
+        <div class="mb-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
+            <p class="font-bold text-terracotta mb-1 flex items-center gap-1.5">
+                <i class="fa-solid fa-circle-info"></i> 閱讀題組母題提醒
+            </p>
+            <p class="text-amber-700 text-xs leading-relaxed">
+                母題包含「標題」與「文章內容」，兩者皆為必填；文章內容可附圖。子題再補上選項、答案與解析即可。
+            </p>
+        </div>
+        <QuillEditor @bind-Value="Passage" FieldLabel="文章內容" Placeholder="點擊此處開始輸入文章內容..." />
     </div>
 
-    <!-- 子題列表 -->
+    <!-- 子題區 -->
     <div>
         <div class="flex items-center justify-between mb-3">
             <label class="text-sm font-bold text-gray-700 flex items-center gap-2">
-                <i class="fa-solid fa-list-check text-terracotta"></i> 子題 <span class="text-red-400">*</span>
-                <span class="text-xs text-gray-400 font-normal">（共 @SubQuestions.Count 題）</span>
+                <i class="fa-solid fa-layer-group text-morandi"></i> 子題區
             </label>
             <button type="button" @onclick="AddSubQuestion"
-                class="px-3 py-1 text-xs font-bold text-sage bg-sage/10 rounded-lg hover:bg-sage/20 transition-colors cursor-pointer">
-                <i class="fa-solid fa-plus mr-1"></i> 新增子題
+                class="px-3 py-1.5 text-xs font-bold text-white bg-sage rounded-lg hover:bg-[#7a9a82] transition-colors cursor-pointer shadow-sm flex items-center gap-1">
+                <i class="fa-solid fa-plus"></i> 新增子題
             </button>
         </div>
 
@@ -43,49 +51,73 @@
                 var idx = i;
                 var sq = SubQuestions[idx];
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <!-- 子題標頭 -->
                     <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
                         <span class="text-sm font-bold text-slate-main">第 @(idx + 1) 題</span>
                         @if (SubQuestions.Count > 1)
                         {
                             <button type="button" @onclick="() => RemoveSubQuestion(idx)"
-                                class="text-xs text-red-400 hover:text-red-600 transition-colors cursor-pointer">
-                                <i class="fa-solid fa-trash-can mr-0.5"></i> 刪除
+                                class="text-xs text-red-400 hover:text-red-600 transition-colors cursor-pointer flex items-center gap-1">
+                                <i class="fa-solid fa-trash-can"></i> 刪除
                             </button>
                         }
                     </div>
                     <div class="p-4 space-y-4">
-                        <!-- 子題題幹 -->
-                        <QuillEditor @bind-Value="sq.Stem" FieldLabel="@($"子題 {idx + 1} 題幹")" Placeholder="請輸入子題題幹..." />
-
-                        <!-- 子題選項與答案 -->
-                        <div class="mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 flex items-center gap-2">
-                            <i class="fa-solid fa-triangle-exclamation text-amber-500 flex-shrink-0"></i>
-                            請避免選項長短、語氣明顯差異，以免影響鑑別度。
+                        <!-- 題目內容 -->
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-2">
+                                題目內容 <span class="text-red-400">*</span>
+                            </label>
+                            <QuillEditor @bind-Value="sq.Stem" FieldLabel="@($"第 {idx + 1} 題 題目內容")"
+                                Placeholder="點擊此處開始編輯題目內容，可插入圖片..." />
                         </div>
-                        <div class="space-y-2">
-                            @for (int j = 0; j < 4; j++)
-                            {
-                                var optIdx = j;
-                                var optLabel = OptionLabels[optIdx];
-                                <div class="flex items-start gap-2 group">
-                                    <label class="flex items-center gap-1.5 mt-2.5 cursor-pointer flex-shrink-0">
-                                        <input type="radio" name="@($"sub-answer-{idx}")" value="@optLabel"
-                                            checked="@(sq.Answer == optLabel)"
-                                            @onchange="() => sq.Answer = optLabel"
-                                            class="w-3.5 h-3.5 text-sage focus:ring-sage cursor-pointer">
-                                        <span class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold @(sq.Answer == optLabel ? "bg-sage text-white" : "bg-gray-100 text-gray-500") transition-colors">
-                                            @optLabel
-                                        </span>
-                                    </label>
-                                    <div class="flex-grow">
-                                        <QuillEditor @bind-Value="sq.Options[optIdx]" FieldLabel="@($"子題 {idx + 1} 選項 ({optLabel})")" Placeholder="@($"選項 ({optLabel})")" />
+
+                        <!-- 選項與答案 -->
+                        <div>
+                            <div class="flex items-center justify-between mb-2">
+                                <label class="text-sm font-bold text-gray-700">選項與答案</label>
+                                <span class="text-xs text-gray-400">請勾選正確答案，可點選內容插入圖片</span>
+                            </div>
+                            <!-- 警示提醒 -->
+                            <div class="mb-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700 flex items-center gap-2">
+                                <i class="fa-solid fa-triangle-exclamation text-amber-500 flex-shrink-0"></i>
+                                請避免選項長短、語氣明顯差異，以免影響鑑別度。
+                            </div>
+                            <!-- ABCD 2×2 Grid -->
+                            <div class="grid grid-cols-2 gap-3">
+                                @for (int j = 0; j < 4; j++)
+                                {
+                                    var optIdx = j;
+                                    var optLabel = OptionLabels[optIdx];
+                                    <div class="flex items-start gap-2">
+                                        <label class="flex items-center gap-1.5 mt-3 cursor-pointer flex-shrink-0">
+                                            <input type="radio" name="@($"sub-answer-{idx}")" value="@optLabel"
+                                                checked="@(sq.Answer == optLabel)"
+                                                @onchange="() => sq.Answer = optLabel"
+                                                class="w-4 h-4 text-sage focus:ring-sage cursor-pointer">
+                                            <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold @(sq.Answer == optLabel ? "bg-sage text-white" : "bg-gray-100 text-gray-500 group-hover:bg-gray-200") transition-colors">
+                                                @optLabel
+                                            </span>
+                                        </label>
+                                        <div class="flex-grow">
+                                            <QuillEditor @bind-Value="sq.Options[optIdx]"
+                                                FieldLabel="@($"第 {idx + 1} 題 選項 ({optLabel})")"
+                                                Placeholder="@($"點擊此處開始編輯選項 ({optLabel})，可插入圖片...")" />
+                                        </div>
                                     </div>
-                                </div>
-                            }
+                                }
+                            </div>
                         </div>
 
-                        <!-- 子題解析 -->
-                        <QuillEditor @bind-Value="sq.Analysis" FieldLabel="@($"子題 {idx + 1} 解析")" Placeholder="解析（選填）..." />
+                        <!-- 試題解析 -->
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-2">
+                                試題解析（紀錄答案理由） <span class="text-red-400">*</span>
+                            </label>
+                            <QuillEditor @bind-Value="sq.Analysis"
+                                FieldLabel="@($"第 {idx + 1} 題 解析")"
+                                Placeholder="點擊此處開始編輯解析，可說明正確答案依據與其他選項錯誤原因..." />
+                        </div>
                     </div>
                 </div>
             }
@@ -105,15 +137,41 @@
 
     private static readonly string[] OptionLabels = ["A", "B", "C", "D"];
 
-    private void AddSubQuestion()
+    private async Task AddSubQuestion()
     {
-        SubQuestions.Add(new SubQuestionChoice());
+        var confirmed = await JS.InvokeAsync<bool>("swalInterop.confirm", new
+        {
+            title = "新增子題",
+            text = $"確定要新增第 {SubQuestions.Count + 1} 題嗎？",
+            icon = "question",
+            showCancelButton = true,
+            confirmButtonText = "新增",
+            cancelButtonText = "取消",
+            confirmButtonColor = "#8eab94"
+        });
+        if (confirmed)
+        {
+            SubQuestions.Add(new SubQuestionChoice());
+        }
     }
 
-    private void RemoveSubQuestion(int idx)
+    private async Task RemoveSubQuestion(int idx)
     {
-        if (SubQuestions.Count > 1)
+        if (SubQuestions.Count <= 1) return;
+        var confirmed = await JS.InvokeAsync<bool>("swalInterop.confirm", new
+        {
+            title = "刪除子題",
+            text = $"確定要刪除第 {idx + 1} 題嗎？已填寫的內容將無法復原。",
+            icon = "warning",
+            showCancelButton = true,
+            confirmButtonText = "確定刪除",
+            cancelButtonText = "取消",
+            confirmButtonColor = "#d98a6c"
+        });
+        if (confirmed)
+        {
             SubQuestions.RemoveAt(idx);
+        }
     }
 
     public class SubQuestionChoice

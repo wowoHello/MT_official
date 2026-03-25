@@ -158,6 +158,12 @@
 .ql-font-dfkai-sb { font-family: '標楷體', 'DFKai-SB', 'BiauKai', serif; }
 .ql-font-times-new-roman { font-family: 'Times New Roman', Times, serif; }
 
+/* --- 直書文字（屬性欄伸縮按鈕） --- */
+.writing-vertical {
+    writing-mode: vertical-rl;
+    letter-spacing: 0.15em;
+}
+
 /* --- 自訂捲軸 --- */
 .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
 .custom-scroll::-webkit-scrollbar-track { background: transparent; }
