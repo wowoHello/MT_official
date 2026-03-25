@@ -72,17 +72,17 @@
 
                 <!-- Tab Bar -->
                 <div class="flex border-b border-gray-200 bg-white sticky top-0 z-20 overflow-x-auto">
-                    <button @onclick='() => currentTab = "compose"'
+                    <button @onclick='() => { currentTab = "compose"; activeFilter = "all"; }'
                         class="@(currentTab == "compose" ? "text-sage border-b-sage font-bold" : "text-gray-500 border-transparent") px-5 py-3 text-sm border-b-2 transition-colors hover:text-sage cursor-pointer focus:outline-none whitespace-nowrap">
                         <i class="fa-solid fa-pen-nib mr-1.5 text-sage"></i>命題作業區
                         <span class="ml-2 text-xs bg-sage/15 text-sage px-2 py-0.5 rounded-full font-bold">0</span>
                     </button>
-                    <button @onclick='() => currentTab = "revision"'
+                    <button @onclick='() => { currentTab = "revision"; activeFilter = "all"; }'
                         class="@(currentTab == "revision" ? "text-terracotta border-b-terracotta font-bold" : "text-gray-500 border-transparent") px-5 py-3 text-sm border-b-2 transition-colors hover:text-terracotta cursor-pointer focus:outline-none whitespace-nowrap">
                         <i class="fa-solid fa-rotate-left mr-1.5 text-terracotta"></i>審修作業區
                         <span class="ml-2 text-xs bg-terracotta/15 text-terracotta px-2 py-0.5 rounded-full font-bold">0</span>
                     </button>
-                    <button @onclick='() => currentTab = "history"'
+                    <button @onclick='() => { currentTab = "history"; activeFilter = "all"; }'
                         class="@(currentTab == "history" ? "text-morandi border-b-morandi font-bold" : "text-gray-500 border-transparent") px-5 py-3 text-sm border-b-2 transition-colors hover:text-morandi cursor-pointer focus:outline-none whitespace-nowrap">
                         <i class="fa-solid fa-box-archive mr-1.5 text-morandi"></i>審核結果與歷史
                         <span class="ml-2 text-xs bg-morandi/15 text-morandi px-2 py-0.5 rounded-full font-bold">0</span>
@@ -94,22 +94,22 @@
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                         @if (currentTab == "compose")
                         {
-                            @StatCard("命題總計", "0", "fa-layer-group", "text-morandi", "text-slate-main")
-                            @StatCard("命題草稿", "0", "fa-file-pen", "text-gray-400", "text-slate-main")
-                            @StatCard("命題完成", "0", "fa-circle-check", "text-sage", "text-sage")
-                            @StatCard("已送審", "0", "fa-paper-plane", "text-morandi", "text-morandi")
+                            @StatCard("命題總計", "0", "fa-layer-group", "text-morandi", "text-slate-main", "all", "顯示全部題目")
+                            @StatCard("命題草稿", "0", "fa-file-pen", "text-gray-400", "text-slate-main", "draft", "點一下套用篩選")
+                            @StatCard("命題完成", "0", "fa-circle-check", "text-sage", "text-sage", "done", "點一下套用篩選")
+                            @StatCard("已送審", "0", "fa-paper-plane", "text-morandi", "text-morandi", "submitted", "點一下套用篩選")
                         }
                         else if (currentTab == "revision")
                         {
-                            @StatCard("審修總計", "0", "fa-layer-group", "text-terracotta", "text-slate-main")
-                            @StatCard("審查鎖定", "0", "fa-lock", "text-morandi", "text-morandi")
-                            @StatCard("解鎖修題", "0", "fa-lock-open", "text-terracotta", "text-terracotta")
+                            @StatCard("審題總計", "0", "fa-layer-group", "text-terracotta", "text-slate-main", "all", "顯示全部題目")
+                            @StatCard("審題鎖定", "0", "fa-lock", "text-morandi", "text-morandi", "locked", "點一下套用篩選")
+                            @StatCard("修題中", "0", "fa-lock-open", "text-terracotta", "text-terracotta", "editing", "點一下套用篩選")
                         }
                         else
                         {
-                            @StatCard("全部題目", "0", "fa-layer-group", "text-morandi", "text-slate-main")
-                            @StatCard("已採用", "0", "fa-circle-check", "text-sage", "text-sage")
-                            @StatCard("不採用", "0", "fa-circle-xmark", "text-gray-400", "text-gray-400")
+                            @StatCard("全部題目", "0", "fa-layer-group", "text-morandi", "text-slate-main", "all", "顯示全部題目")
+                            @StatCard("已採用", "0", "fa-circle-check", "text-sage", "text-sage", "adopted", "點一下套用篩選")
+                            @StatCard("不採用", "0", "fa-circle-xmark", "text-gray-400", "text-gray-400", "rejected", "點一下套用篩選")
                         }
                     </div>
                 </div>
@@ -271,13 +271,18 @@
         showComposeModal = true;
     }
 
-    private RenderFragment StatCard(string title, string value, string icon, string iconColor, string valueColor) => __builder =>
+    private string activeFilter = "all";
+
+    private RenderFragment StatCard(string title, string value, string icon, string iconColor, string valueColor, string filterKey, string subtitle) => __builder =>
     {
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 transition duration-200 hover:shadow-md">
+        var isActive = activeFilter == filterKey;
+        <div @onclick="() => activeFilter = filterKey"
+            class="@(isActive ? "ring-2 ring-morandi border-morandi bg-morandi/5" : "bg-white border-gray-200 hover:shadow-md") rounded-xl shadow-sm border p-4 transition duration-200 cursor-pointer select-none">
             <div class="text-gray-500 text-xs font-bold mb-1 flex items-center justify-between">
                 @title <i class="fa-solid @icon @iconColor opacity-50"></i>
             </div>
             <div class="text-2xl font-bold @valueColor">@value</div>
+            <div class="text-[11px] text-gray-400 mt-1">@subtitle</div>
         </div>
     };
 

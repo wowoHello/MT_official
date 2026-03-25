@@ -27,7 +27,7 @@
 
     <!-- Editor Sheet -->
     <div class="fixed inset-x-0 bottom-0 z-[150]" style="animation: @(isClosing ? "quillSlideDown 0.3s ease-in-out forwards" : "quillSlideUp 0.3s ease-in-out forwards");">
-        <div class="bg-white border-t-2 border-morandi shadow-[0_-8px_30px_rgba(0,0,0,0.12)] h-[25vh] flex flex-col rounded-t-2xl overflow-hidden">
+        <div class="bg-white border-t-2 border-morandi shadow-[0_-8px_30px_rgba(0,0,0,0.12)] h-[25vh] flex flex-col rounded-t-2xl overflow-visible">
 
             <!-- 標頭：欄位指示 + 中文標點 + 收起 -->
             <div class="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200 gap-2 flex-shrink-0">
@@ -173,6 +173,20 @@
     {
         wordCount = count;
         InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnContentChanged(string html)
+    {
+        if (html != Value)
+        {
+            Value = html;
+            await InvokeAsync(async () =>
+            {
+                await ValueChanged.InvokeAsync(Value);
+                StateHasChanged();
+            });
+        }
     }
 
     public async ValueTask DisposeAsync()

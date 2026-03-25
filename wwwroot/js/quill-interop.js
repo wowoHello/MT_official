@@ -13,9 +13,9 @@ window.QuillInterop = {
             return;
         }
 
-        // 註冊自訂字體
-        const Font = Quill.import('attributors/class/font');
-        Font.whitelist = ['serif', 'monospace', 'dfkai-sb', 'times-new-roman'];
+        // 註冊自訂字體（僅標楷體、Times New Roman）— Quill 2.x 路徑
+        const Font = Quill.import('formats/font');
+        Font.whitelist = ['dfkai-sb', 'times-new-roman'];
         Quill.register(Font, true);
 
         const quill = new Quill('#' + containerId, {
@@ -36,20 +36,23 @@ window.QuillInterop = {
                             const input = document.createElement('input');
                             input.setAttribute('type', 'file');
                             input.setAttribute('accept', 'image/png, image/jpeg, image/gif, image/webp');
-                            input.addEventListener('change', () => {
+                            input.addEventListener('change', async () => {
                                 const file = input.files?.[0];
                                 if (!file) return;
                                 if (file.size > 5 * 1024 * 1024) {
                                     alert('圖片大小不可超過 5MB');
                                     return;
                                 }
-                                const reader = new FileReader();
-                                reader.onload = (e) => {
+                                const formData = new FormData();
+                                formData.append('file', file);
+                                try {
+                                    const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                                    const data = await res.json();
+                                    if (!res.ok) { alert(data.error || '上傳失敗'); return; }
                                     const range = quill.getSelection(true);
-                                    quill.insertEmbed(range.index, 'image', e.target.result);
+                                    quill.insertEmbed(range.index, 'image', data.url);
                                     quill.setSelection(range.index + 1);
-                                };
-                                reader.readAsDataURL(file);
+                                } catch { alert('圖片上傳失敗，請稍後再試'); }
                             });
                             input.click();
                         }
@@ -58,7 +61,7 @@ window.QuillInterop = {
             }
         });
 
-        // 字數統計回呼 (加上防抖 Debounce 避免癱瘓 Blazor Server)
+        // 字數統計 + 即時內容同步回呼 (加上防抖 Debounce 避免癱瘓 Blazor Server)
         let debounceTimer;
         quill.on('text-change', function () {
             clearTimeout(debounceTimer);
@@ -67,6 +70,10 @@ window.QuillInterop = {
                 const count = text.length;
                 if (dotNetRef) {
                     dotNetRef.invokeMethodAsync('OnWordCountChanged', count);
+                    // 即時同步 HTML 內容到 Blazor
+                    const html = quill.root.innerHTML;
+                    const content = html === '<p><br></p>' ? '' : html;
+                    dotNetRef.invokeMethodAsync('OnContentChanged', content);
                 }
             }, 500); // 500毫秒防抖
         });
@@ -82,14 +89,15 @@ window.QuillInterop = {
         return html === '<p><br></p>' ? '' : html;
     },
 
-    /** 設定 HTML 內容 */
+    /** 設定 HTML 內容（使用 clipboard API 確保格式正確解析） */
     setHtml: function (containerId, html) {
         const inst = this.instances[containerId];
         if (!inst) return;
         if (!html || html === '<p><br></p>') {
             inst.quill.setText('');
         } else {
-            inst.quill.root.innerHTML = html;
+            const delta = inst.quill.clipboard.convert({ html: html });
+            inst.quill.setContents(delta, 'silent');
         }
     },
 

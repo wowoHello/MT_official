@@ -124,13 +124,15 @@
 .quill-editor-container {
     display: flex;
     flex-direction: column;
-    overflow: hidden;
 }
 .quill-editor-container .ql-toolbar.ql-snow {
     border: none !important;
     border-bottom: 1px solid #e5e7eb !important;
     background: #f9fafb;
     flex-shrink: 0;
+    overflow: visible;
+    position: relative;
+    z-index: 10;
 }
 .quill-editor-container .ql-container.ql-snow {
     border: none !important;
@@ -138,7 +140,7 @@
     font-size: 0.9rem;
     flex-grow: 1;
     min-height: 0;
-    overflow: hidden;
+    overflow: auto;
 }
 .quill-editor-container .ql-editor {
     height: 100%;
@@ -157,6 +159,22 @@
 /* --- 自訂字體 for Quill --- */
 .ql-font-dfkai-sb { font-family: '標楷體', 'DFKai-SB', 'BiauKai', serif; }
 .ql-font-times-new-roman { font-family: 'Times New Roman', Times, serif; }
+
+/* Quill 字體選單：預設項目顯示「預設字體」 */
+.ql-snow .ql-picker.ql-font .ql-picker-label::before,
+.ql-snow .ql-picker.ql-font .ql-picker-item::before { content: '預設字體'; }
+
+/* Quill 字體選單：自訂字體顯示名稱 */
+.ql-snow .ql-picker.ql-font .ql-picker-label[data-value="dfkai-sb"]::before,
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="dfkai-sb"]::before { content: '標楷體'; font-family: '標楷體', 'DFKai-SB', serif; }
+
+.ql-snow .ql-picker.ql-font .ql-picker-label[data-value="times-new-roman"]::before,
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="times-new-roman"]::before { content: 'Times New Roman'; font-family: 'Times New Roman', Times, serif; }
+
+/* Quill 字體選單：固定寬度避免溢出 */
+.ql-snow .ql-picker.ql-font { width: 80px; }
+.ql-snow .ql-picker.ql-font .ql-picker-label { overflow: hidden; }
+.ql-snow .ql-picker.ql-font .ql-picker-label::before { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* --- 直書文字（屬性欄伸縮按鈕） --- */
 .writing-vertical {
