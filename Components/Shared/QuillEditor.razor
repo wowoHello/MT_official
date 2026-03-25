@@ -1,0 +1,144 @@
+@* ====================================================================== *@
+@*  QuillEditor — Quill 富文本編輯器 Blazor 包裝元件                       *@
+@*  底部滑入面板式設計（手機友好）、含中文標點快速插入、字數統計             *@
+@*  參數：FieldLabel（欄位名稱）、Value（HTML 內容雙向綁定）               *@
+@* ====================================================================== *@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<!-- 可編輯欄位（點擊觸發底部編輯器） -->
+<div class="editable-field cursor-text border-[1.5px] border-gray-200 rounded-lg min-h-[80px] p-4 hover:border-blue-300 transition-all @(isEditing ? "border-morandi shadow-[0_0_0_3px_rgba(107,142,173,0.15)]" : "")"
+     @onclick="ActivateEditor">
+    @if (string.IsNullOrEmpty(Value))
+    {
+        <p class="text-gray-400 text-sm">@Placeholder</p>
+    }
+    else
+    {
+        @((MarkupString)Value)
+    }
+</div>
+
+<!-- 底部滑入式 Quill 面板 -->
+@if (isEditing)
+{
+    <!-- Backdrop -->
+    <div class="fixed inset-0 bg-slate-900/10 z-[150] transition-opacity" @onclick="CloseEditor"></div>
+
+    <!-- Editor Sheet -->
+    <div class="fixed inset-x-0 bottom-0 z-[150]" style="animation: quillSlideUp 0.3s ease-in-out forwards;">
+        <div class="bg-white border-t-2 border-morandi shadow-[0_-8px_30px_rgba(0,0,0,0.12)] max-h-[44vh] flex flex-col rounded-t-2xl overflow-hidden">
+
+            <!-- 標頭：欄位指示 + 中文標點 + 收起 -->
+            <div class="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200 gap-2">
+                <div class="flex items-center gap-2 text-sm text-gray-600 min-w-0 flex-wrap">
+                    <i class="fa-solid fa-pen-to-square text-morandi"></i>
+                    <span class="text-gray-500">正在編輯：</span>
+                    <span class="font-bold text-slate-main truncate">@FieldLabel</span>
+                    <span class="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                        字數：@wordCount
+                    </span>
+                </div>
+                <div class="flex items-center gap-1 overflow-x-auto custom-scroll flex-shrink">
+                    <span class="text-[10px] text-gray-400 mr-1 flex-shrink-0">快速插入</span>
+                    @foreach (var p in punctuations)
+                    {
+                        var punct = p;
+                        <button type="button" @onclick="() => InsertPunctuation(punct.Char, punct.IsPair)"
+                            class="punct-btn px-2 py-0.5 text-sm text-gray-500 border border-gray-200 rounded bg-white hover:bg-morandi hover:text-white hover:border-morandi transition-all cursor-pointer flex-shrink-0">
+                            @punct.Char
+                        </button>
+                    }
+                </div>
+                <button type="button" @onclick="CloseEditor"
+                    class="text-sm text-gray-400 hover:text-gray-600 font-medium transition-colors cursor-pointer flex items-center gap-1 flex-shrink-0 ml-2">
+                    <i class="fa-solid fa-chevron-down"></i> 收起
+                </button>
+            </div>
+
+            <!-- Quill 編輯器容器 -->
+            <div id="@containerId" class="quill-editor-container"></div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string FieldLabel { get; set; } = "內容";
+    [Parameter] public string Placeholder { get; set; } = "點擊此處開始編輯...";
+
+    private string containerId = $"quill-{Guid.NewGuid():N}";
+    private bool isEditing = false;
+    private int wordCount = 0;
+    private DotNetObjectReference<QuillEditor>? dotNetRef;
+    private bool quillInitialized = false;
+
+    private record PunctuationItem(string Char, bool IsPair);
+
+    private static readonly PunctuationItem[] punctuations = [
+        new("，", false), new("。", false), new("、", false),
+        new("；", false), new("：", false),
+        new("「」", true), new("『』", true), new("（）", true),
+        new("！", false), new("？", false),
+        new("——", false), new("……", false)
+    ];
+
+    private async Task ActivateEditor()
+    {
+        isEditing = true;
+        await InvokeAsync(StateHasChanged);
+
+        // 等待 DOM 渲染完成後初始化 Quill
+        await Task.Delay(50);
+        dotNetRef ??= DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("QuillInterop.init", containerId, dotNetRef);
+        quillInitialized = true;
+
+        if (!string.IsNullOrEmpty(Value))
+        {
+            await JS.InvokeVoidAsync("QuillInterop.setHtml", containerId, Value);
+        }
+        await JS.InvokeVoidAsync("QuillInterop.focus", containerId);
+    }
+
+    private async Task CloseEditor()
+    {
+        if (quillInitialized)
+        {
+            var html = await JS.InvokeAsync<string>("QuillInterop.getHtml", containerId);
+            if (html != Value)
+            {
+                Value = html;
+                await ValueChanged.InvokeAsync(Value);
+            }
+            await JS.InvokeVoidAsync("QuillInterop.dispose", containerId);
+            quillInitialized = false;
+        }
+        isEditing = false;
+    }
+
+    private async Task InsertPunctuation(string ch, bool isPair)
+    {
+        if (quillInitialized)
+        {
+            await JS.InvokeVoidAsync("QuillInterop.insertPunctuation", containerId, ch, isPair);
+        }
+    }
+
+    [JSInvokable]
+    public void OnWordCountChanged(int count)
+    {
+        wordCount = count;
+        InvokeAsync(StateHasChanged);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (quillInitialized)
+        {
+            await JS.InvokeVoidAsync("QuillInterop.dispose", containerId);
+        }
+        dotNetRef?.Dispose();
+    }
+}

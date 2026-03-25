@@ -1,0 +1,73 @@
+@* ====================================================================== *@
+@*  QuestionFormSingle — 一般單選題 / 精選單選題 命題表單                    *@
+@*  共用結構：題幹（Quill）+ 四選項（A-D radio + Quill）+ 解析（Quill）     *@
+@*  屬性側欄：主題 + 次類（cascading dropdown）                             *@
+@* ====================================================================== *@
+@using MT.Components.Shared
+
+<!-- 右側編輯區 -->
+<div class="p-6 lg:p-8 pb-16 max-w-4xl mx-auto space-y-6 min-h-full">
+
+    <!-- 題幹 -->
+    <div>
+        <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+            <i class="fa-solid fa-file-lines text-morandi"></i> 題幹 <span class="text-red-400">*</span>
+        </label>
+        <QuillEditor @bind-Value="Stem" FieldLabel="題幹" Placeholder="請輸入題幹內容..." />
+    </div>
+
+    <!-- 選項 A-D -->
+    <div>
+        <label class="block text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-list-ol text-morandi"></i> 選項 <span class="text-red-400">*</span>
+            <span class="text-xs text-gray-400 font-normal ml-1">（請點選正確答案）</span>
+        </label>
+        <div class="space-y-3">
+            @for (int i = 0; i < 4; i++)
+            {
+                var idx = i;
+                var optLabel = OptionLabels[idx];
+                <div class="flex items-start gap-3 group">
+                    <label class="flex items-center gap-2 mt-3 cursor-pointer flex-shrink-0">
+                        <input type="radio" name="@($"answer-{Id}")" value="@optLabel"
+                            checked="@(Answer == optLabel)"
+                            @onchange="() => { Answer = optLabel; AnswerChanged.InvokeAsync(optLabel); }"
+                            class="w-4 h-4 text-sage focus:ring-sage cursor-pointer">
+                        <span class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold @(Answer == optLabel ? "bg-sage text-white" : "bg-gray-100 text-gray-500 group-hover:bg-gray-200") transition-colors">
+                            @optLabel
+                        </span>
+                    </label>
+                    <div class="flex-grow">
+                        <QuillEditor @bind-Value="Options[idx]" FieldLabel="@($"選項 ({optLabel})")" Placeholder="@($"請輸入選項 ({optLabel}) 內容...")" />
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- 解析 -->
+    <div>
+        <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+            <i class="fa-solid fa-lightbulb text-amber-500"></i> 解析
+        </label>
+        <QuillEditor @bind-Value="Analysis" FieldLabel="解析" Placeholder="請輸入解析內容（選填）..." />
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Id { get; set; } = Guid.NewGuid().ToString("N")[..8];
+
+    [Parameter] public string Stem { get; set; } = "";
+    [Parameter] public EventCallback<string> StemChanged { get; set; }
+
+    [Parameter] public string[] Options { get; set; } = ["", "", "", ""];
+    [Parameter] public EventCallback<string[]> OptionsChanged { get; set; }
+
+    [Parameter] public string Answer { get; set; } = "";
+    [Parameter] public EventCallback<string> AnswerChanged { get; set; }
+
+    [Parameter] public string Analysis { get; set; } = "";
+    [Parameter] public EventCallback<string> AnalysisChanged { get; set; }
+
+    private static readonly string[] OptionLabels = ["A", "B", "C", "D"];
+}
