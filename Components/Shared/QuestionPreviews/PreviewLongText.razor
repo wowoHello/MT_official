@@ -14,9 +14,6 @@
 
     <!-- 文章內容 -->
     <PreviewPassage Content="@Passage" />
-
-    <!-- 批閱說明 -->
-    <PreviewAnalysis Content="@Analysis" Label="批閱說明" />
 </div>
 
 @code {
@@ -25,7 +22,7 @@
     [Parameter] public Dictionary<string, string>? Tags { get; set; }
     [Parameter] public string Stem { get; set; } = "";
     [Parameter] public string Passage { get; set; } = "";
-    [Parameter] public string Analysis { get; set; } = "";
+
 
     private bool HasContent(string? html)
     {

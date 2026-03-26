@@ -1,7 +1,7 @@
 @* 預覽：聽力題組（音檔 + 語音內容 + 2子題） *@
 @using MT.Components.Shared.QuestionPreviews
 
-<PreviewHeader QuestionType="聽力題組" Level="" Difficulty="" Tags="@Tags" />
+<PreviewHeader QuestionType="聽力題組" HideLevel="true" Tags="@Tags" />
 
 <div class="max-w-2xl mx-auto font-serif">
     <!-- 音檔 -->
@@ -50,7 +50,6 @@
             </div>
 
             <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer" />
-            <PreviewAnalysis Content="@sq.Analysis" />
         </div>
     }
 </div>
@@ -69,7 +68,7 @@
         public string Stem { get; set; } = "";
         public string[] Options { get; set; } = new string[4];
         public string Answer { get; set; } = "";
-        public string Analysis { get; set; } = "";
+
     }
 
     private bool HasContent(string? html)

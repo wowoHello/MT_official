@@ -49,11 +49,9 @@
             </div>
 
             <!-- 自由作答區 -->
-            <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50/50 text-center text-sm text-gray-400 mb-3">
+            <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50/50 text-center text-sm text-gray-400">
                 <i class="fa-solid fa-pen-to-square mr-1"></i> 自由作答區
             </div>
-
-            <PreviewAnalysis Content="@sq.Analysis" />
         </div>
     }
 
@@ -76,7 +74,7 @@
         public string Stem { get; set; } = "";
         public string Dimension { get; set; } = "";
         public string Indicator { get; set; } = "";
-        public string Analysis { get; set; } = "";
+
     }
 
     private bool HasContent(string? html)

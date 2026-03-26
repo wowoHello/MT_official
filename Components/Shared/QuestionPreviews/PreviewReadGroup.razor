@@ -33,7 +33,6 @@
                 }
             </div>
             <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer" />
-            <PreviewAnalysis Content="@sq.Analysis" />
         </div>
     }
 
@@ -56,7 +55,7 @@
         public string Stem { get; set; } = "";
         public string[] Options { get; set; } = new string[4];
         public string Answer { get; set; } = "";
-        public string Analysis { get; set; } = "";
+
     }
 
     private bool HasContent(string? html)

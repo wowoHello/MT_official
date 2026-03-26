@@ -1,24 +1,33 @@
 @* 預覽共用：試卷標題 + 題型 + 等級/難度 + metadata tags *@
 
 <div class="text-center mb-8">
-    <h2 class="text-xl font-bold text-gray-800 mb-1">全民中文檢定 - 模擬試卷</h2>
-    <p class="text-sm text-gray-500 mb-3">@QuestionType &middot; @Level / 難度：@Difficulty</p>
-    @if (Tags?.Count > 0)
-    {
-        <div class="flex flex-wrap justify-center gap-2">
+    <h2 class="text-xl font-bold text-gray-800 mb-1 focus:outline-none">全民中文檢定 - 模擬試卷</h2>
+    <p class="text-sm text-gray-500 mb-3">
+        @QuestionType
+        @if (!HideLevel)
+        {
+            <span>&middot; @(string.IsNullOrEmpty(Level) ? "未設定" : Level) / 難度：@(string.IsNullOrEmpty(Difficulty) ? "未設定" : Difficulty)</span>
+        }
+    </p>
+    <div class="flex flex-wrap justify-center gap-2">
+        @if (Tags != null)
+        {
             @foreach (var tag in Tags)
             {
-                <span class="px-3 py-1 text-xs font-medium rounded-full bg-[var(--color-morandi)]/10 text-[var(--color-morandi)] border border-[var(--color-morandi)]/20">
+                var isUnset = tag.Value == "未設定";
+                <span class="px-3 py-1 text-xs font-medium rounded-full border
+                             @(isUnset ? "bg-gray-100 text-gray-400 border-gray-200" : "bg-[var(--color-morandi)]/10 text-[var(--color-morandi)] border-[var(--color-morandi)]/20")">
                     @tag.Key：@tag.Value
                 </span>
             }
-        </div>
-    }
+        }
+    </div>
 </div>
 
 @code {
     [Parameter] public string QuestionType { get; set; } = "";
     [Parameter] public string Level { get; set; } = "";
     [Parameter] public string Difficulty { get; set; } = "";
+    [Parameter] public bool HideLevel { get; set; } = false;
     [Parameter] public Dictionary<string, string>? Tags { get; set; }
 }

@@ -21,9 +21,6 @@
 
     <!-- ABCD 選項 -->
     <PreviewChoiceOptions Options="@Options" Answer="@Answer" />
-
-    <!-- 解析 -->
-    <PreviewAnalysis Content="@Analysis" />
 </div>
 
 @code {
@@ -34,7 +31,7 @@
     [Parameter] public string Stem { get; set; } = "";
     [Parameter] public string[] Options { get; set; } = new string[4];
     [Parameter] public string Answer { get; set; } = "";
-    [Parameter] public string Analysis { get; set; } = "";
+
 
     private bool HasContent(string? html)
     {

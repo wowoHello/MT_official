@@ -240,31 +240,31 @@
         case "single":
         case "select":
             <PreviewSingle QuestionType="@(TypeLabels.GetValueOrDefault(selectedType, ""))" Level="@selectedLevel" Difficulty="@selectedDifficulty"
-                Tags="@GetPreviewTags()" Stem="@formStem" Options="@formOptions" Answer="@formAnswer" Analysis="@formAnalysis" />
+                Tags="@GetPreviewTags()" Stem="@formStem" Options="@formOptions" Answer="@formAnswer" />
             break;
         case "readGroup":
             <PreviewReadGroup Level="@selectedLevel" Difficulty="@selectedDifficulty" Tags="@GetPreviewTags()"
                 Stem="@formStem" Passage="@formPassage"
-                SubQuestions="@formReadSubQuestions.Select(sq => new PreviewReadGroup.SubQuestionData { Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer, Analysis = sq.Analysis }).ToList()" />
+                SubQuestions="@formReadSubQuestions.Select(sq => new PreviewReadGroup.SubQuestionData { Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer }).ToList()" />
             break;
         case "longText":
             <PreviewLongText Level="@selectedLevel" Difficulty="@selectedDifficulty" Tags="@GetPreviewTags()"
-                Stem="@formStem" Passage="@formPassage" Analysis="@formAnalysis" />
+                Stem="@formStem" Passage="@formPassage" />
             break;
         case "shortGroup":
             <PreviewShortGroup Level="@selectedLevel" Difficulty="@selectedDifficulty" Tags="@GetPreviewTags()"
                 Stem="@formStem" Passage="@formPassage"
-                SubQuestions="@formShortSubQuestions.Select(sq => new PreviewShortGroup.SubQuestionData { Stem = sq.Stem, Dimension = sq.Dimension, Indicator = sq.Indicator, Analysis = sq.Analysis }).ToList()" />
+                SubQuestions="@formShortSubQuestions.Select(sq => new PreviewShortGroup.SubQuestionData { Stem = sq.Stem, Dimension = sq.Dimension, Indicator = sq.Indicator }).ToList()" />
             break;
         case "listen":
             <PreviewListen Level="@selectedLevel" Difficulty="@selectedDifficulty" Tags="@GetPreviewTags()"
-                AudioFileName="@formAudioFileName" Stem="@formStem" Options="@formOptions" Answer="@formAnswer" Analysis="@formAnalysis" />
+                AudioFileName="@formAudioFileName" Stem="@formStem" Options="@formOptions" Answer="@formAnswer" />
             break;
         case "listenGroup":
             <PreviewListenGroup Tags="@GetPreviewTags()" AudioFileName="@formAudioFileName" Passage="@formPassage"
                 SubQuestions="@formListenGroupSubQuestions.Select((sq, i) => new PreviewListenGroup.SubQuestionData {
                     Level = i == 0 ? "難度三" : "難度四", CoreAbility = sq.CoreAbility, DetailIndicator = sq.DetailIndicator,
-                    Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer, Analysis = sq.Analysis }).ToList()" />
+                    Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer }).ToList()" />
             break;
     }
 </QuestionPreviewModal>
@@ -336,12 +336,37 @@
     private Dictionary<string, string> GetPreviewTags()
     {
         var tags = new Dictionary<string, string>();
-        if (!string.IsNullOrEmpty(attrTopic)) tags["主題"] = attrTopic;
-        if (!string.IsNullOrEmpty(attrSubtopic)) tags["次類"] = attrSubtopic;
-        if (!string.IsNullOrEmpty(attrWritingMode)) tags["題型"] = attrWritingMode;
-        if (!string.IsNullOrEmpty(attrGenre)) tags["文體"] = attrGenre;
-        if (!string.IsNullOrEmpty(attrAudioType)) tags["語音類型"] = attrAudioType;
-        if (!string.IsNullOrEmpty(attrMaterial)) tags["素材分類"] = attrMaterial;
+        var fallback = "未設定";
+
+        switch (selectedType)
+        {
+            case "single":
+            case "select":
+                tags["主題"] = string.IsNullOrEmpty(attrTopic) ? fallback : attrTopic;
+                tags["次類"] = string.IsNullOrEmpty(attrSubtopic) ? fallback : attrSubtopic;
+                break;
+            case "longText":
+                tags["寫作模式"] = string.IsNullOrEmpty(attrWritingMode) ? fallback : attrWritingMode;
+                break;
+            case "readGroup":
+                tags["文體"] = string.IsNullOrEmpty(attrGenre) ? fallback : attrGenre;
+                break;
+            case "shortGroup":
+                tags["主類"] = string.IsNullOrEmpty(attrTopic) ? "文義判讀" : attrTopic;
+                tags["次類"] = string.IsNullOrEmpty(attrSubtopic) ? "篇章辨析" : attrSubtopic;
+                tags["文體"] = string.IsNullOrEmpty(attrGenre) ? fallback : attrGenre;
+                break;
+            case "listen":
+                tags["核心能力"] = string.IsNullOrEmpty(attrCoreAbility) ? fallback : attrCoreAbility;
+                tags["細目指標"] = string.IsNullOrEmpty(attrDetailIndicator) ? fallback : attrDetailIndicator;
+                tags["語音類型"] = string.IsNullOrEmpty(attrAudioType) ? fallback : attrAudioType;
+                tags["素材分類"] = string.IsNullOrEmpty(attrMaterial) ? fallback : attrMaterial;
+                break;
+            case "listenGroup":
+                tags["語音類型"] = string.IsNullOrEmpty(attrAudioType) ? fallback : attrAudioType;
+                tags["素材分類"] = string.IsNullOrEmpty(attrMaterial) ? fallback : attrMaterial;
+                break;
+        }
         return tags;
     }
 
