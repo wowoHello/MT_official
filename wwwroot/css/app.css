@@ -152,17 +152,23 @@
 }
 
 /* --- Quill 預覽區：移除文字背景填色 --- */
+/* 預覽欄位：與 Quill 編輯器一致的字體與樣式 */
+.editable-field { font-family: '標楷體', 'DFKai-SB', 'BiauKai', serif; }
+.ql-size-small { font-size: 0.75em; }
+.ql-size-large { font-size: 1.5em; }
 .editable-field span[style*="background-color"] {
     background-color: transparent !important;
 }
 
 /* --- 自訂字體 for Quill --- */
+/* Quill 編輯器預設使用標楷體 */
+.ql-editor { font-family: '標楷體', 'DFKai-SB', 'BiauKai', serif; }
 .ql-font-dfkai-sb { font-family: '標楷體', 'DFKai-SB', 'BiauKai', serif; }
 .ql-font-times-new-roman { font-family: 'Times New Roman', Times, serif; }
 
 /* Quill 字體選單：預設項目顯示「預設字體」 */
 .ql-snow .ql-picker.ql-font .ql-picker-label::before,
-.ql-snow .ql-picker.ql-font .ql-picker-item::before { content: '預設字體'; }
+.ql-snow .ql-picker.ql-font .ql-picker-item::before { content: '標楷體'; font-family: '標楷體', 'DFKai-SB', serif; }
 
 /* Quill 字體選單：自訂字體顯示名稱 */
 .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="dfkai-sb"]::before,
