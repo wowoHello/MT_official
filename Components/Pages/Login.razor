@@ -13,7 +13,7 @@
 
 <PageTitle>CWT 命題工作平臺 - 登入</PageTitle>
 
-<div class="min-h-screen flex items-center justify-center relative overflow-hidden bg-[var(--color-oatmeal)]">
+<div class="h-screen flex items-center justify-center relative overflow-hidden bg-[var(--color-oatmeal)]">
 
     <!-- Background Decoration / Illustration Area -->
     <div class="absolute inset-0 z-0 flex md:flex-row flex-col">
@@ -29,16 +29,16 @@
     </div>
 
     <!-- Main Content Container -->
-    <div class="container mx-auto px-4 z-10 flex md:justify-end justify-center items-center min-h-screen">
+    <div class="container mx-auto px-4 py-8 z-10 flex md:justify-end justify-center items-center h-full overflow-y-auto">
         <!-- Login Card -->
-        <div class="glass-card w-full max-w-md p-8 sm:p-10 rounded-2xl shadow-xl md:mr-[10%] xl:mr-[15%]">
+        <div class="glass-card w-full max-w-md p-6 sm:p-8 rounded-2xl shadow-xl md:mr-[10%] xl:mr-[15%]">
 
             <!-- Logo & Title -->
-            <div class="text-center mb-8">
-                <div class="w-16 h-16 bg-[var(--color-morandi)]/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <img src="img/pencil.png" alt="CWT Logo" class="w-10 h-10 object-contain">
+            <div class="text-center mb-5">
+                <div class="w-14 h-14 bg-[var(--color-morandi)]/10 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <img src="img/pencil.png" alt="CWT Logo" class="w-9 h-9 object-contain">
                 </div>
-                <h1 tabindex="-1" class="text-2xl font-bold text-slate-main mb-2 focus:outline-none">
+                <h1 tabindex="-1" class="text-2xl font-bold text-slate-main mb-1 focus:outline-none">
                   CWT 命題工作平臺
                 </h1>
                 <p class="text-sm text-gray-500">歡迎回來，請登入您的帳號</p>
@@ -63,7 +63,7 @@
             }
 
             <!-- Login Form -->
-            <EditForm Model="loginModel" OnValidSubmit="HandleLogin" FormName="loginForm" class="space-y-5">
+            <EditForm Model="loginModel" OnValidSubmit="HandleLogin" FormName="loginForm" class="space-y-4">
                 <!-- Account -->
                 <div>
                     <label for="username" class="block text-sm font-medium mb-1">帳號</label>

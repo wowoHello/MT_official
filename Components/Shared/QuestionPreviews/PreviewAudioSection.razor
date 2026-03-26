@@ -1,0 +1,24 @@
+@* 預覽共用：音檔區塊（藍底） *@
+
+<div class="bg-blue-50 border border-blue-200 rounded-lg p-4 my-4 flex items-center gap-3">
+    <div class="flex-shrink-0 w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+        <i class="fa-solid fa-headphones text-blue-500"></i>
+    </div>
+    <div>
+        <p class="font-medium text-blue-800 text-sm">聽力音檔</p>
+        @if (!string.IsNullOrEmpty(AudioFileName))
+        {
+            <p class="text-xs text-blue-600 mt-0.5">
+                <i class="fa-solid fa-file-audio mr-1"></i> @AudioFileName
+            </p>
+        }
+        else
+        {
+            <p class="text-xs text-blue-400 mt-0.5 italic">尚未上傳音檔（正式版將於此載入音檔播放器）</p>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string AudioFileName { get; set; } = "";
+}

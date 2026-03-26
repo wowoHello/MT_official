@@ -8,6 +8,27 @@
 
 ---
 
+## 核心開發原則
+
+1. **零依賴優先 (Vanilla First)** - 除非我明確要求使用特定套件，否則一律優先使用 C# ，若 C# 無法實現再使用原生 JavaScript (ES6+)。
+   - 禁止隨意引入第三方 npm 套件（如 jQuery、Lodash 等）。
+2. **極致效能 (Performance Driven)**
+   - 程式碼必須以效能最佳化為前提。
+   - 不建立不需要的檔案文件或引用
+   - 減少不必要的 DOM 操作，避免記憶體洩漏 (Memory Leaks)，並採用高效的演算法與資料結構。
+   - 遵守 Clear Code 編碼方式，保持程式碼整潔好維護
+3. **樣式規範 (Tailwind CSS Only)**
+   - 所有 UI 樣式一律使用 Tailwind CSS 實作。
+   - 除非 Tailwind 無法達成需求，否則禁止撰寫自訂 CSS 類別或 Inline Styles。
+4. **符合規則**
+   - 須符合 Blazor 設計準則（例如：常常引用的位址寫在\_Imports.razor內、檔案該放該放的地方如Services、Componets/Models等...）
+   - 所有的 form 都要改為使用 Blazor 專屬的 **EditForm**
+5. **誠實與精確 (No Hallucination)**
+   - 如果查不到相關資料、缺乏上下文，或沒有權限存取特定資訊，請直接回答「我不知道」或「我無法取得該資訊」。
+   - 絕對禁止猜測、捏造 API 參數或給出模糊不清的答案。
+
+---
+
 ## 現況盤點
 
 ### 原型參考

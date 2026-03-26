@@ -57,7 +57,7 @@
                                 {
                                     var isSelected = p.Id == currentProject.Id;
                                     <button type="button" @onclick="() => SelectProject(p)"
-                                        class="w-full text-left px-4 py-2.5 text-sm hover:bg-morandi/5 border-b border-gray-50 last:border-0 flex items-center justify-between transition-colors @(isSelected ? "bg-blue-50/50" : "")">
+                                        class="w-full text-left px-4 py-2.5 text-sm hover:bg-morandi/5 border-b border-gray-50 last:border-0 flex items-center justify-between transition-colors cursor-pointer @(isSelected ? "bg-blue-50/50" : "")">
                                         <div class="flex flex-col">
                                             <span class="@(isSelected ? "text-morandi font-bold" : "text-gray-700 font-medium")">@p.Name</span>
                                             <span class="text-[10px] text-gray-400">ID: @p.Id</span>
@@ -77,7 +77,7 @@
                                 {
                                     var isSelected = p.Id == currentProject.Id;
                                     <button type="button" @onclick="() => SelectProject(p)"
-                                        class="w-full text-left px-4 py-2.5 text-sm hover:bg-morandi/5 border-b border-gray-50 last:border-0 flex items-center justify-between transition-colors @(isSelected ? "bg-blue-50/50" : "")">
+                                        class="w-full text-left px-4 py-2.5 text-sm hover:bg-morandi/5 border-b border-gray-50 last:border-0 flex items-center justify-between transition-colors cursor-pointer @(isSelected ? "bg-blue-50/50" : "")">
                                         <div class="flex flex-col">
                                             <span class="@(isSelected ? "text-morandi font-bold" : "text-gray-700 font-medium")">@p.Name</span>
                                             <span class="text-[10px] text-gray-400">ID: @p.Id</span>
@@ -102,7 +102,7 @@
             <!-- Right: Bell + User Info -->
             <div class="flex-shrink-0 flex items-center justify-end gap-3 lg:w-1/4">
                 <!-- Bell Icon (未來功能) -->
-                <button type="button" class="relative text-white/80 hover:text-white transition-colors focus:outline-none p-1" title="通知 (準備中)">
+                <button type="button" class="relative text-white/80 hover:text-white transition-colors focus:outline-none p-1 cursor-pointer" title="通知 (準備中)">
                     <i class="fa-regular fa-bell text-lg"></i>
                     @* 未來可加上未讀計數 Badge *@
                     @* <span class="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">3</span> *@
@@ -120,12 +120,12 @@
                     <!-- User Dropdown -->
                     <div class="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
                         <div class="py-1">
-                            <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-morandi">
+                            <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-morandi cursor-pointer">
                                 <i class="fa-solid fa-user-pen w-5 text-center mr-1"></i> 個人設定
                             </a>
                             <div class="border-t border-gray-100 my-1"></div>
                             <button type="button" @onclick="Logout"
-                                class="w-full text-left block px-4 py-2 text-sm text-red-600 hover:bg-red-50">
+                                class="w-full text-left block px-4 py-2 text-sm text-red-600 hover:bg-red-50 cursor-pointer">
                                 <i class="fa-solid fa-arrow-right-from-bracket w-5 text-center mr-1"></i> 登出系統
                             </button>
                         </div>
@@ -144,6 +144,9 @@
 <div class="flex-grow max-w-[1920px] mx-auto w-full">
     @Body
 </div>
+
+<!-- 字體縮放浮動控制器 -->
+<FontController />
 
 @code {
     // --- 使用者資訊 (DEMO) ---

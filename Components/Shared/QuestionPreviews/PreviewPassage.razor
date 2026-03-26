@@ -1,0 +1,32 @@
+@* 預覽共用：文章/段落內容區塊（灰底） *@
+
+<div class="bg-gray-50 border border-gray-200 rounded-lg p-5 my-4">
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <p class="font-bold text-gray-600 text-sm mb-3">
+            <i class="fa-solid fa-book-open mr-1"></i> @Label
+        </p>
+    }
+    <div class="prose prose-sm max-w-none leading-relaxed text-gray-800">
+        @if (HasContent(Content))
+        {
+            @((MarkupString)Content)
+        }
+        else
+        {
+            <p class="text-gray-400 italic">內容尚未填寫</p>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Content { get; set; } = "";
+    [Parameter] public string Label { get; set; } = "文章內容";
+
+    private bool HasContent(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return false;
+        var stripped = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]*>", "").Trim();
+        return !string.IsNullOrEmpty(stripped) || html.Contains("<img");
+    }
+}

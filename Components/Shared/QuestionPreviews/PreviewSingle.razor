@@ -1,0 +1,42 @@
+@* 預覽：一般單選題 / 精選單選題 *@
+@using MT.Components.Shared.QuestionPreviews
+
+<PreviewHeader QuestionType="@QuestionType" Level="@Level" Difficulty="@Difficulty" Tags="@Tags" />
+
+<div class="max-w-2xl mx-auto font-serif">
+    <!-- 題幹 -->
+    <div class="mb-6 prose prose-sm max-w-none leading-relaxed text-gray-800">
+        @if (HasContent(Stem))
+        {
+            @((MarkupString)Stem)
+        }
+        else
+        {
+            <p class="text-gray-400">題幹尚未填寫</p>
+        }
+    </div>
+
+    <!-- ABCD 選項 -->
+    <PreviewChoiceOptions Options="@Options" Answer="@Answer" />
+
+    <!-- 解析 -->
+    <PreviewAnalysis Content="@Analysis" />
+</div>
+
+@code {
+    [Parameter] public string QuestionType { get; set; } = "";
+    [Parameter] public string Level { get; set; } = "";
+    [Parameter] public string Difficulty { get; set; } = "";
+    [Parameter] public Dictionary<string, string>? Tags { get; set; }
+    [Parameter] public string Stem { get; set; } = "";
+    [Parameter] public string[] Options { get; set; } = new string[4];
+    [Parameter] public string Answer { get; set; } = "";
+    [Parameter] public string Analysis { get; set; } = "";
+
+    private bool HasContent(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return false;
+        var stripped = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]*>", "").Trim();
+        return !string.IsNullOrEmpty(stripped) || html.Contains("<img");
+    }
+}

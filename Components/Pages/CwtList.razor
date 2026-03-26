@@ -6,6 +6,7 @@
 @page "/cwt-list"
 @using MT.Components.Shared
 @using MT.Components.Shared.QuestionForms
+@using MT.Components.Shared.QuestionPreviews
 
 <div class="flex-grow flex flex-col w-full max-w-[1920px] mx-auto h-[calc(100vh-4rem)] overflow-hidden">
 
@@ -171,7 +172,7 @@
 <CustomModal @bind-IsVisible="showComposeModal" Type="CustomModal.ModalType.FullScreen" Title="@composeModalTitle" CloseOnBackdropClick="false">
     <HeaderActions>
         <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-bold border border-gray-200">草稿</span>
-        <button class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer">
+        <button @onclick="() => showPreviewModal = true" class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer">
             <i class="fa-solid fa-eye mr-1"></i> 預覽
         </button>
         <button class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer">
@@ -209,22 +210,22 @@
                 {
                     case "single":
                     case "select":
-                        <QuestionFormSingle />
+                        <QuestionFormSingle @bind-Stem="formStem" @bind-Options="formOptions" @bind-Answer="formAnswer" @bind-Analysis="formAnalysis" />
                         break;
                     case "longText":
-                        <QuestionFormLongText />
+                        <QuestionFormLongText @bind-Stem="formStem" @bind-Passage="formPassage" @bind-Analysis="formAnalysis" />
                         break;
                     case "readGroup":
-                        <QuestionFormReadGroup />
+                        <QuestionFormReadGroup @bind-Stem="formStem" @bind-Passage="formPassage" @bind-SubQuestions="formReadSubQuestions" />
                         break;
                     case "shortGroup":
-                        <QuestionFormShortGroup />
+                        <QuestionFormShortGroup @bind-Stem="formStem" @bind-Passage="formPassage" @bind-SubQuestions="formShortSubQuestions" />
                         break;
                     case "listen":
-                        <QuestionFormListen />
+                        <QuestionFormListen @bind-AudioFileName="formAudioFileName" @bind-Stem="formStem" @bind-Options="formOptions" @bind-Answer="formAnswer" @bind-Analysis="formAnalysis" />
                         break;
                     case "listenGroup":
-                        <QuestionFormListenGroup />
+                        <QuestionFormListenGroup @bind-AudioFileName="formAudioFileName" @bind-Passage="formPassage" @bind-SubQuestions="formListenGroupSubQuestions" />
                         break;
                 }
             </div>
@@ -232,11 +233,50 @@
     </ChildContent>
 </CustomModal>
 
+<!-- 考卷預覽 Modal -->
+<QuestionPreviewModal Visible="showPreviewModal" OnClose="() => showPreviewModal = false">
+    @switch (selectedType)
+    {
+        case "single":
+        case "select":
+            <PreviewSingle QuestionType="@(TypeLabels.GetValueOrDefault(selectedType, ""))" Level="@selectedLevel" Difficulty="@selectedDifficulty"
+                Tags="@GetPreviewTags()" Stem="@formStem" Options="@formOptions" Answer="@formAnswer" Analysis="@formAnalysis" />
+            break;
+        case "readGroup":
+            <PreviewReadGroup Level="@selectedLevel" Difficulty="@selectedDifficulty" Tags="@GetPreviewTags()"
+                Stem="@formStem" Passage="@formPassage"
+                SubQuestions="@formReadSubQuestions.Select(sq => new PreviewReadGroup.SubQuestionData { Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer, Analysis = sq.Analysis }).ToList()" />
+            break;
+        case "longText":
+            <PreviewLongText Level="@selectedLevel" Difficulty="@selectedDifficulty" Tags="@GetPreviewTags()"
+                Stem="@formStem" Passage="@formPassage" Analysis="@formAnalysis" />
+            break;
+        case "shortGroup":
+            <PreviewShortGroup Level="@selectedLevel" Difficulty="@selectedDifficulty" Tags="@GetPreviewTags()"
+                Stem="@formStem" Passage="@formPassage"
+                SubQuestions="@formShortSubQuestions.Select(sq => new PreviewShortGroup.SubQuestionData { Stem = sq.Stem, Dimension = sq.Dimension, Indicator = sq.Indicator, Analysis = sq.Analysis }).ToList()" />
+            break;
+        case "listen":
+            <PreviewListen Level="@selectedLevel" Difficulty="@selectedDifficulty" Tags="@GetPreviewTags()"
+                AudioFileName="@formAudioFileName" Stem="@formStem" Options="@formOptions" Answer="@formAnswer" Analysis="@formAnalysis" />
+            break;
+        case "listenGroup":
+            <PreviewListenGroup Tags="@GetPreviewTags()" AudioFileName="@formAudioFileName" Passage="@formPassage"
+                SubQuestions="@formListenGroupSubQuestions.Select((sq, i) => new PreviewListenGroup.SubQuestionData {
+                    Level = i == 0 ? "難度三" : "難度四", CoreAbility = sq.CoreAbility, DetailIndicator = sq.DetailIndicator,
+                    Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer, Analysis = sq.Analysis }).ToList()" />
+            break;
+    }
+</QuestionPreviewModal>
+
 @code {
     private string currentTab = "compose";
     private bool showComposeModal = false;
     private bool sidebarCollapsed = false;
     private string composeModalTitle = "新增試題";
+
+    // 預覽 Modal
+    private bool showPreviewModal = false;
 
     // 題型表單屬性
     private string selectedType = "single";
@@ -250,6 +290,17 @@
     private string attrMaterial = "";
     private string attrCoreAbility = "";
     private string attrDetailIndicator = "";
+
+    // 表單資料（所有題型共用欄位）
+    private string formStem = "";
+    private string formPassage = "";
+    private string formAnalysis = "";
+    private string[] formOptions = ["", "", "", ""];
+    private string formAnswer = "";
+    private string formAudioFileName = "";
+    private List<QuestionFormReadGroup.SubQuestionChoice> formReadSubQuestions = [new()];
+    private List<QuestionFormShortGroup.SubQuestionFreeResponse> formShortSubQuestions = [new()];
+    private List<QuestionFormListenGroup.ListenGroupSubQuestion> formListenGroupSubQuestions = [new(), new()];
 
     private static readonly Dictionary<string, string> TypeLabels = new()
     {
@@ -267,8 +318,31 @@
         selectedType = "single";
         selectedLevel = "";
         selectedDifficulty = "";
+        attrTopic = ""; attrSubtopic = "";
+        attrWritingMode = ""; attrGenre = "";
+        attrAudioType = ""; attrMaterial = "";
+        attrCoreAbility = ""; attrDetailIndicator = "";
+        // 重置表單資料
+        formStem = ""; formPassage = ""; formAnalysis = "";
+        formOptions = ["", "", "", ""];
+        formAnswer = ""; formAudioFileName = "";
+        formReadSubQuestions = [new()];
+        formShortSubQuestions = [new()];
+        formListenGroupSubQuestions = [new(), new()];
         composeModalTitle = "新增試題";
         showComposeModal = true;
+    }
+
+    private Dictionary<string, string> GetPreviewTags()
+    {
+        var tags = new Dictionary<string, string>();
+        if (!string.IsNullOrEmpty(attrTopic)) tags["主題"] = attrTopic;
+        if (!string.IsNullOrEmpty(attrSubtopic)) tags["次類"] = attrSubtopic;
+        if (!string.IsNullOrEmpty(attrWritingMode)) tags["題型"] = attrWritingMode;
+        if (!string.IsNullOrEmpty(attrGenre)) tags["文體"] = attrGenre;
+        if (!string.IsNullOrEmpty(attrAudioType)) tags["語音類型"] = attrAudioType;
+        if (!string.IsNullOrEmpty(attrMaterial)) tags["素材分類"] = attrMaterial;
+        return tags;
     }
 
     private string activeFilter = "all";

@@ -1,0 +1,37 @@
+@* 考卷預覽 Modal 外殼 *@
+
+@if (Visible)
+{
+    <div class="fixed inset-0 z-[120] flex items-center justify-center">
+        <!-- 背景遮罩 -->
+        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" @onclick="Close"></div>
+
+        <!-- Modal 本體 -->
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 relative z-10 flex flex-col max-h-[90vh]">
+            <!-- Header -->
+            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center flex-shrink-0">
+                <h2 class="text-lg font-bold text-gray-800 flex items-center gap-2 focus:outline-none">
+                    <i class="fa-solid fa-file-lines text-[var(--color-morandi)]"></i>
+                    考卷預覽
+                </h2>
+                <button @onclick="Close"
+                        class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer focus:outline-none">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Content -->
+            <div class="p-8 overflow-y-auto custom-scroll">
+                @ChildContent
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private async Task Close() => await OnClose.InvokeAsync();
+}

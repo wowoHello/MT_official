@@ -1,0 +1,41 @@
+@* 預覽共用：ABCD 選項 2×2 grid + 正確答案標示 *@
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-3 my-4">
+    @for (int i = 0; i < Labels.Length; i++)
+    {
+        var label = Labels[i];
+        var content = i < Options.Length ? Options[i] : "";
+        var isAnswer = Answer == label;
+
+        <div class="flex items-start gap-3 p-3 rounded-lg border @(isAnswer ? "border-[var(--color-sage)] bg-[var(--color-sage)]/5" : "border-gray-200 bg-white")">
+            <span class="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold
+                         @(isAnswer ? "bg-[var(--color-sage)] text-white" : "bg-gray-100 text-gray-500")">
+                @label
+            </span>
+            <div class="flex-1 prose prose-sm max-w-none leading-relaxed">
+                @if (HasContent(content))
+                {
+                    @((MarkupString)content)
+                }
+                else
+                {
+                    <p class="text-gray-400 italic">尚未輸入選項內容</p>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string[] Options { get; set; } = Array.Empty<string>();
+    [Parameter] public string Answer { get; set; } = "";
+
+    private static readonly string[] Labels = { "A", "B", "C", "D" };
+
+    private bool HasContent(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return false;
+        var stripped = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]*>", "").Trim();
+        return !string.IsNullOrEmpty(stripped) || html.Contains("<img");
+    }
+}

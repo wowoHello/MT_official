@@ -1,0 +1,131 @@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<!-- 字體縮放浮動控制器 (Speed Dial + 拖拽) -->
+<div id="cwtFontController" class="fixed z-[9999] group touch-none flex justify-center bottom-6 right-6" style="transition: opacity 0.5s ease;">
+    <!-- 展開按鈕群（向上展開） -->
+    <div class="absolute bottom-full mb-4 flex flex-col items-center gap-3
+                opacity-0 invisible translate-y-4
+                group-hover:opacity-100 group-hover:visible group-hover:translate-y-0
+                transition-all duration-300 ease-out">
+
+        <!-- 留言通知（未來擴充） -->
+        <div class="relative group/tooltip flex justify-center items-center">
+            <button class="w-10 h-10 rounded-full flex items-center justify-center bg-gray-100 text-gray-400 shadow-md cursor-not-allowed border border-gray-200"
+                    title="留言通知 (未來擴充)">
+                <i class="fa-solid fa-comment-dots text-sm"></i>
+            </button>
+            <div class="absolute right-full mr-3 px-2 py-1 bg-gray-800 text-white text-xs rounded
+                        opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible
+                        whitespace-nowrap transition-all shadow">
+                留言通知 (準備中)
+                <div class="absolute top-1/2 -right-1 -translate-y-1/2 border-4 border-transparent border-l-gray-800"></div>
+            </div>
+        </div>
+
+        <!-- 放大字體 -->
+        <div class="relative group/tooltip flex justify-center items-center">
+            <button @onclick="IncreaseFont" @onclick:stopPropagation="true"
+                    class="w-10 h-10 rounded-full flex items-center justify-center bg-white text-gray-600
+                           hover:text-[var(--color-morandi)] hover:bg-gray-50 shadow-md border border-gray-200
+                           transition-colors focus:outline-none cursor-pointer">
+                <i class="fa-solid fa-plus text-[10px] mr-0.5"></i><span class="text-xs font-bold">A</span>
+            </button>
+            <div class="absolute right-full mr-3 px-2 py-1 bg-gray-800 text-white text-xs rounded
+                        opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible
+                        whitespace-nowrap transition-all shadow">
+                放大字體
+                <div class="absolute top-1/2 -right-1 -translate-y-1/2 border-4 border-transparent border-l-gray-800"></div>
+            </div>
+        </div>
+
+        <!-- 恢復預設 -->
+        <div class="relative group/tooltip flex justify-center items-center">
+            <button @onclick="ResetFont" @onclick:stopPropagation="true"
+                    class="w-10 h-10 rounded-full flex items-center justify-center bg-white shadow-md border border-gray-200
+                           transition-colors focus:outline-none cursor-pointer text-xs font-bold
+                           @(currentScale == 100 ? "text-[var(--color-morandi)] bg-[var(--color-morandi)]/10" : "text-gray-700 hover:text-[var(--color-morandi)] hover:bg-gray-50")">
+                @(currentScale)%
+            </button>
+            <div class="absolute right-full mr-3 px-2 py-1 bg-gray-800 text-white text-xs rounded
+                        opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible
+                        whitespace-nowrap transition-all shadow">
+                預設大小
+                <div class="absolute top-1/2 -right-1 -translate-y-1/2 border-4 border-transparent border-l-gray-800"></div>
+            </div>
+        </div>
+
+        <!-- 縮小字體 -->
+        <div class="relative group/tooltip flex justify-center items-center">
+            <button @onclick="DecreaseFont" @onclick:stopPropagation="true"
+                    class="w-10 h-10 rounded-full flex items-center justify-center bg-white text-gray-600
+                           hover:text-[var(--color-morandi)] hover:bg-gray-50 shadow-md border border-gray-200
+                           transition-colors focus:outline-none cursor-pointer">
+                <i class="fa-solid fa-minus text-[10px] mr-0.5"></i><span class="text-xs font-bold">A</span>
+            </button>
+            <div class="absolute right-full mr-3 px-2 py-1 bg-gray-800 text-white text-xs rounded
+                        opacity-0 invisible group-hover/tooltip:opacity-100 group-hover/tooltip:visible
+                        whitespace-nowrap transition-all shadow">
+                縮小字體
+                <div class="absolute top-1/2 -right-1 -translate-y-1/2 border-4 border-transparent border-l-gray-800"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主觸發按鈕（十字，hover 旋轉 45°） -->
+    <button id="fontToggleMain"
+            class="cursor-move w-14 h-14 rounded-full bg-[var(--color-morandi)] shadow-lg shadow-blue-900/20
+                   flex items-center justify-center text-white hover:bg-[#5a7a96] hover:shadow-xl
+                   transition-all duration-300 focus:outline-none z-10 active:scale-95">
+        <i class="fa-solid fa-plus text-2xl transition-transform duration-300 group-hover:rotate-45"></i>
+    </button>
+</div>
+
+@code {
+    private int currentScale = 100;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // 從 localStorage 讀取上次的縮放比例
+            var saved = await JS.InvokeAsync<string?>("localStorage.getItem", "cwt_font_scale");
+            if (int.TryParse(saved, out var scale))
+                currentScale = scale;
+
+            // 套用縮放 + 初始化拖拽
+            await JS.InvokeVoidAsync("FontController.init", currentScale);
+            StateHasChanged();
+        }
+    }
+
+    private async Task IncreaseFont()
+    {
+        currentScale = Math.Min(currentScale + 5, 130);
+        await ApplyScale();
+    }
+
+    private async Task DecreaseFont()
+    {
+        currentScale = Math.Max(currentScale - 5, 90);
+        await ApplyScale();
+    }
+
+    private async Task ResetFont()
+    {
+        currentScale = 100;
+        await ApplyScale();
+    }
+
+    private async Task ApplyScale()
+    {
+        await JS.InvokeVoidAsync("FontController.applyScale", currentScale);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("FontController.dispose"); }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
+    }
+}

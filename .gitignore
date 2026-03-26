@@ -8,6 +8,8 @@
 .bin/
 .obj/
 Refer/
+wwwroot/uploads/
+
 # dotenv files
 .env
 
