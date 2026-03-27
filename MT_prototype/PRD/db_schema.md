@@ -167,7 +167,6 @@ Table MT_Projects {
   ProjectCode nvarchar(20) [not null, unique, note: '專案代碼']
   Name nvarchar(100) [not null, note: '專案名稱']
   Year int [not null, note: '專案年度']
-  Semester tinyint [note: '學期 (1:上學期, 2:下學期, 3:暑假)']
   School nvarchar(100) [note: '合作學校']
   Status tinyint [not null, default: 0, note: '專案狀態 (0:準備中, 1:進行中, 2:已結案)']
   StartDate date [not null, note: '計畫開始日']
@@ -202,7 +201,7 @@ Table MT_ProjectTargets {
   Id int [pk, increment, note: '唯一識別碼']
   ProjectId int [not null, ref: > MT_Projects.Id, note: '專案 ID']
   QuestionTypeId int [not null, ref: > MT_QuestionTypes.Id, note: '題型 ID']
-  Level tinyint [not null, note: '等級 (1:基礎, 2:進階, 3:挑戰)']
+  Level tinyint [not null, note: '等級 (0:初等/難度一, 1:中等/難度二, 2:中高等/難度三, 3:高等/難度四, 4:優等/難度五)']
   TargetCount int [not null, default: 0, note: '目標命題數']
 
   note: '各專案對各題型、等級的命題數量總體需求'
@@ -232,7 +231,7 @@ Table MT_MemberQuotas {
   Id int [pk, increment, note: '唯一識別碼']
   ProjectMemberId int [not null, ref: > MT_ProjectMembers.Id, note: '成員 ID']
   QuestionTypeId int [not null, ref: > MT_QuestionTypes.Id, note: '題型 ID']
-  Level tinyint [not null, note: '等級 (1:基礎, 2:進階, 3:挑戰)']
+  Level tinyint [not null, note: '等級 (0:初等/難度一, 1:中等/難度二, 2:中高等/難度三, 3:高等/難度四, 4:優等/難度五)']
   QuotaCount int [not null, default: 0, note: '指派數']
 
   note: '指派給特定人員的命題配額數量'
@@ -266,7 +265,7 @@ Table MT_Questions {
   QuestionCode nvarchar(30) [not null, unique, note: '試題系統編號']
   CreatorId int [not null, ref: > MT_Users.Id, note: '命題人 ID']
   Status tinyint [not null, default: 0, note: '試題狀態數值 (0~13，共14種流轉狀態)']
-  Level tinyint [note: '等級 (1:基礎, 2:進階)']
+  Level tinyint [note: '等級 (0:初等/難度一, 1:中等/難度二, 2:中高等/難度三, 3:高等/難度四, 4:優等/難度五)']
   Difficulty tinyint [note: '難度感 (1:易, 2:中, 3:難)']
   Stem nvarchar(MAX) [note: '題幹 (HTML)']
   Analysis nvarchar(MAX) [note: '試題解析 (HTML)']
@@ -295,8 +294,8 @@ Table MT_Questions {
 Table MT_QuestionAttributes {
   Id int [pk, increment, note: '唯一識別碼']
   QuestionId int [not null, ref: > MT_Questions.Id, note: '試題 ID']
-  AttributeKey tinyint [not null, note: '屬性鍵 (0:主類, 1:次類, 2:文體, 3:素材來源)']
-  AttributeValue nvarchar(200) [not null, note: '屬性值']
+  AttributeKey tinyint [not null, note: '屬性鍵 (0:主類, 1:次類, 2:文體, 3:素材來源, 4:寫作模式, 5:語音類型, 6:核心能力, 7:細目指標)']
+  AttributeValue tinyint [not null, note: '屬性對應數值 (對應前端 Enum)']
 
   note: '儲存試題的動態屬性（如主次類、文體、素材等）'
 }

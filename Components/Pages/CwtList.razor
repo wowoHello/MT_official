@@ -214,7 +214,7 @@
                         <QuestionFormSingle @bind-Stem="formStem" @bind-Options="formOptions" @bind-Answer="formAnswer" @bind-Analysis="formAnalysis" />
                         break;
                     case "longText":
-                        <QuestionFormLongText @bind-Stem="formStem" @bind-Passage="formPassage" @bind-Analysis="formAnalysis" />
+                        <QuestionFormLongText @bind-Stem="formStem" @bind-Passage="formPassage" @bind-GradingNote="formGradingNote" />
                         break;
                     case "readGroup":
                         <QuestionFormReadGroup @bind-Stem="formStem" @bind-Passage="formPassage" @bind-SubQuestions="formReadSubQuestions" />
@@ -255,7 +255,7 @@
         case "shortGroup":
             <PreviewShortGroup Level="@selectedLevel" Difficulty="@selectedDifficulty" Tags="@GetPreviewTags()"
                 Stem="@formStem" Passage="@formPassage"
-                SubQuestions="@formShortSubQuestions.Select(sq => new PreviewShortGroup.SubQuestionData { Stem = sq.Stem, Dimension = sq.Dimension, Indicator = sq.Indicator }).ToList()" />
+                SubQuestions="@formShortSubQuestions.Select(sq => new PreviewShortGroup.SubQuestionData { Stem = sq.Stem, Dimension = sq.CoreAbility, Indicator = sq.Indicator }).ToList()" />
             break;
         case "listen":
             <PreviewListen Level="@selectedLevel" Difficulty="@selectedDifficulty" Tags="@GetPreviewTags()"
@@ -296,6 +296,7 @@
     private string formStem = "";
     private string formPassage = "";
     private string formAnalysis = "";
+    private string formGradingNote = "";
     private string[] formOptions = ["", "", "", ""];
     private string formAnswer = "";
     private string formAudioFileName = "";
@@ -335,12 +336,12 @@
         attrAudioType = ""; attrMaterial = "";
         attrCoreAbility = ""; attrDetailIndicator = "";
         // 重置表單資料
-        formStem = ""; formPassage = ""; formAnalysis = "";
+        formStem = ""; formPassage = ""; formAnalysis = ""; formGradingNote = "";
         formOptions = ["", "", "", ""];
         formAnswer = ""; formAudioFileName = "";
         formReadSubQuestions = [new()];
         formShortSubQuestions = [new()];
-        formListenGroupSubQuestions = [new(), new()];
+        formListenGroupSubQuestions = [new() { FixedDifficulty = 3 }, new() { FixedDifficulty = 4 }];
         composeModalTitle = "新增試題";
         showComposeModal = true;
     }

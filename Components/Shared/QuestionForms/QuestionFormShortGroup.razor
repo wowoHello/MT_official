@@ -77,10 +77,10 @@
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <label class="block text-xs font-medium text-gray-600 mb-1">主向度 <span class="text-red-400">*</span></label>
-                                <select @bind="sq.Dimension" @bind:after="() => OnDimensionChanged(sq)"
+                                <select @bind="sq.CoreAbility" @bind:after="() => OnCoreAbilityChanged(sq)"
                                     class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                                     <option value="">請選擇</option>
-                                    @foreach (var dim in DimensionOptions)
+                                    @foreach (var dim in CoreAbilityOptions)
                                     {
                                         <option value="@dim">@dim</option>
                                     }
@@ -89,12 +89,12 @@
                             <div>
                                 <label class="block text-xs font-medium text-gray-600 mb-1">能力指標 <span class="text-red-400">*</span></label>
                                 <select @bind="sq.Indicator"
-                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer @(string.IsNullOrEmpty(sq.Dimension) ? "bg-gray-50 text-gray-300" : "")"
-                                    disabled="@(string.IsNullOrEmpty(sq.Dimension))">
-                                    <option value="">@(string.IsNullOrEmpty(sq.Dimension) ? "先選主向度" : "請選擇")</option>
-                                    @if (!string.IsNullOrEmpty(sq.Dimension) && DimensionIndicatorMap.ContainsKey(sq.Dimension))
+                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer @(string.IsNullOrEmpty(sq.CoreAbility) ? "bg-gray-50 text-gray-300" : "")"
+                                    disabled="@(string.IsNullOrEmpty(sq.CoreAbility))">
+                                    <option value="">@(string.IsNullOrEmpty(sq.CoreAbility) ? "先選主向度" : "請選擇")</option>
+                                    @if (!string.IsNullOrEmpty(sq.CoreAbility) && CoreAbilityIndicatorMap.ContainsKey(sq.CoreAbility))
                                     {
-                                        @foreach (var ind in DimensionIndicatorMap[sq.Dimension])
+                                        @foreach (var ind in CoreAbilityIndicatorMap[sq.CoreAbility])
                                         {
                                             <option value="@ind">@ind</option>
                                         }
@@ -128,9 +128,9 @@
     [Parameter] public List<SubQuestionFreeResponse> SubQuestions { get; set; } = [new()];
     [Parameter] public EventCallback<List<SubQuestionFreeResponse>> SubQuestionsChanged { get; set; }
 
-    private static readonly string[] DimensionOptions = ["條列敘述", "歸納統整", "分析推理"];
+    private static readonly string[] CoreAbilityOptions = ["條列敘述", "歸納統整", "分析推理"];
 
-    private static readonly Dictionary<string, string[]> DimensionIndicatorMap = new()
+    private static readonly Dictionary<string, string[]> CoreAbilityIndicatorMap = new()
     {
         ["條列敘述"] = [
             "1-1 條列敘述人、事、物特徵與特質",
@@ -154,7 +154,7 @@
         ]
     };
 
-    private void OnDimensionChanged(SubQuestionFreeResponse sq)
+    private void OnCoreAbilityChanged(SubQuestionFreeResponse sq)
     {
         sq.Indicator = "";
     }
@@ -199,7 +199,7 @@
     public class SubQuestionFreeResponse
     {
         public string Stem { get; set; } = "";
-        public string Dimension { get; set; } = "";
+        public string CoreAbility { get; set; } = "";
         public string Indicator { get; set; } = "";
         public string Analysis { get; set; } = "";
     }

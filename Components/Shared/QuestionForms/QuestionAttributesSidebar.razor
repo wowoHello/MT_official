@@ -35,32 +35,32 @@
             <option value="">請選擇等級</option>
             @if (IsListenType)
             {
-                <option value="難度一">難度一</option>
-                <option value="難度二">難度二</option>
-                <option value="難度三">難度三</option>
-                <option value="難度四">難度四</option>
-                <option value="難度五">難度五</option>
+                <option value="1">難度一</option>
+                <option value="2">難度二</option>
+                <option value="3">難度三</option>
+                <option value="4">難度四</option>
+                <option value="5">難度五</option>
             }
             else if (QuestionType is "single" or "select")
             {
-                <option value="初等">初等</option>
-                <option value="中等">中等</option>
-                <option value="中高等">中高等</option>
+                <option value="0">初等</option>
+                <option value="1">中等</option>
+                <option value="2">中高等</option>
             }
             else if (QuestionType == "longText")
             {
-                <option value="初級">初級</option>
-                <option value="中級">中級</option>
-                <option value="中高級">中高級</option>
-                <option value="優級">優級</option>
+                <option value="0">初等</option>
+                <option value="1">中等</option>
+                <option value="2">中高等</option>
+                <option value="4">優等</option>
             }
             else
             {
-                <option value="初級">初級</option>
-                <option value="中級">中級</option>
-                <option value="中高級">中高級</option>
-                <option value="高級">高級</option>
-                <option value="優級">優級</option>
+                <option value="0">初等</option>
+                <option value="1">中等</option>
+                <option value="2">中高等</option>
+                <option value="3">高等</option>
+                <option value="4">優等</option>
             }
         </select>
     </div>
@@ -356,9 +356,9 @@
         <select @bind="Difficulty" @bind:after="() => DifficultyChanged.InvokeAsync(Difficulty)"
             class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
             <option value="">請選擇</option>
-            <option value="易">易</option>
-            <option value="中">中</option>
-            <option value="難">難</option>
+            <option value="1">易</option>
+            <option value="2">中</option>
+            <option value="3">難</option>
         </select>
     </div>
 
@@ -466,11 +466,11 @@
     // === 聽力：等級 → 核心能力 ===
     private static readonly Dictionary<string, string[]> LevelCoreAbilityMap = new()
     {
-        ["難度一"] = ["提取訊息"],
-        ["難度二"] = ["理解訊息"],
-        ["難度三"] = ["推斷訊息"],
-        ["難度四"] = ["歸納分析訊息", "區辨詞語多義性"],
-        ["難度五"] = ["統整、闡述或評鑑訊息", "思辨、推衍訊息"]
+        ["1"] = ["提取訊息"],
+        ["2"] = ["理解訊息"],
+        ["3"] = ["推斷訊息"],
+        ["4"] = ["歸納分析訊息", "區辨詞語多義性"],
+        ["5"] = ["統整、闡述或評鑑訊息", "思辨、推衍訊息"]
     };
 
     // === 聽力：核心能力 → 細目指標 ===

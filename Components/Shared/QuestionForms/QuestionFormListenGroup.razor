@@ -142,7 +142,7 @@
     [Parameter] public string Passage { get; set; } = "";
     [Parameter] public EventCallback<string> PassageChanged { get; set; }
 
-    [Parameter] public List<ListenGroupSubQuestion> SubQuestions { get; set; } = [new(), new()];
+    [Parameter] public List<ListenGroupSubQuestion> SubQuestions { get; set; } = [new() { FixedDifficulty = 3 }, new() { FixedDifficulty = 4 }];
     [Parameter] public EventCallback<List<ListenGroupSubQuestion>> SubQuestionsChanged { get; set; }
 
     // 子題固定難度
@@ -170,6 +170,7 @@
 
     public class ListenGroupSubQuestion
     {
+        public byte FixedDifficulty { get; set; }
         public string Stem { get; set; } = "";
         public string[] Options { get; set; } = ["", "", "", ""];
         public string Answer { get; set; } = "";

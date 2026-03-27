@@ -259,7 +259,6 @@ Id INT IDENTITY(1,1) PRIMARY KEY,
 ProjectCode NVARCHAR(20) NOT NULL UNIQUE,
 Name NVARCHAR(100) NOT NULL,
 Year INT NOT NULL,
-Semester TINYINT,
 School NVARCHAR(100),
 Status TINYINT NOT NULL DEFAULT 0,
 StartDate DATE NOT NULL,
@@ -276,7 +275,6 @@ EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'唯一識別�
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'專案代碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Projects', @level2type=N'COLUMN', @level2name=N'ProjectCode';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'專案名稱', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Projects', @level2type=N'COLUMN', @level2name=N'Name';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'專案年度', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Projects', @level2type=N'COLUMN', @level2name=N'Year';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'學期 (1:上學期, 2:下學期, 3:暑假)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Projects', @level2type=N'COLUMN', @level2name=N'Semester';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'合作學校', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Projects', @level2type=N'COLUMN', @level2name=N'School';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'專案狀態 (0:準備中, 1:進行中, 2:已結案)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Projects', @level2type=N'COLUMN', @level2name=N'Status';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'計畫開始日', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Projects', @level2type=N'COLUMN', @level2name=N'StartDate';
@@ -321,7 +319,7 @@ EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'各專案對�
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'唯一識別碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_ProjectTargets', @level2type=N'COLUMN', @level2name=N'Id';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'專案 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_ProjectTargets', @level2type=N'COLUMN', @level2name=N'ProjectId';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'題型 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_ProjectTargets', @level2type=N'COLUMN', @level2name=N'QuestionTypeId';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'等級 (1:基礎, 2:進階, 3:挑戰)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_ProjectTargets', @level2type=N'COLUMN', @level2name=N'Level';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'等級 (0:初等/難度一, 1:中等/難度二, 2:中高等/難度三, 3:高等/難度四, 4:優等/難度五)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_ProjectTargets', @level2type=N'COLUMN', @level2name=N'Level';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'目標命題數', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_ProjectTargets', @level2type=N'COLUMN', @level2name=N'TargetCount';
 GO
 
@@ -364,7 +362,7 @@ EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'指派給特�
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'唯一識別碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_MemberQuotas', @level2type=N'COLUMN', @level2name=N'Id';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'成員 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_MemberQuotas', @level2type=N'COLUMN', @level2name=N'ProjectMemberId';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'題型 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_MemberQuotas', @level2type=N'COLUMN', @level2name=N'QuestionTypeId';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'等級 (1:基礎, 2:進階, 3:挑戰)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_MemberQuotas', @level2type=N'COLUMN', @level2name=N'Level';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'等級 (0:初等/難度一, 1:中等/難度二, 2:中高等/難度三, 3:高等/難度四, 4:優等/難度五)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_MemberQuotas', @level2type=N'COLUMN', @level2name=N'Level';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'指派數', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_MemberQuotas', @level2type=N'COLUMN', @level2name=N'QuotaCount';
 GO
 
@@ -435,7 +433,7 @@ EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'題型 ID', @l
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'試題系統編號', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Questions', @level2type=N'COLUMN', @level2name=N'QuestionCode';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'命題人 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Questions', @level2type=N'COLUMN', @level2name=N'CreatorId';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'試題狀態數值 (0~13，共14種流轉狀態)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Questions', @level2type=N'COLUMN', @level2name=N'Status';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'等級 (1:基礎, 2:進階)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Questions', @level2type=N'COLUMN', @level2name=N'Level';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'等級 (0:初等/難度一, 1:中等/難度二, 2:中高等/難度三, 3:高等/難度四, 4:優等/難度五)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Questions', @level2type=N'COLUMN', @level2name=N'Level';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'難度感 (1:易, 2:中, 3:難)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Questions', @level2type=N'COLUMN', @level2name=N'Difficulty';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'題幹 (HTML)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Questions', @level2type=N'COLUMN', @level2name=N'Stem';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'試題解析 (HTML)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Questions', @level2type=N'COLUMN', @level2name=N'Analysis';
@@ -458,14 +456,14 @@ CREATE TABLE dbo.MT_QuestionAttributes (
 Id INT IDENTITY(1,1) PRIMARY KEY,
 QuestionId INT NOT NULL FOREIGN KEY REFERENCES dbo.MT_Questions(Id),
 AttributeKey TINYINT NOT NULL,
-AttributeValue NVARCHAR(200) NOT NULL
+AttributeValue TINYINT NOT NULL
 );
 GO
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'儲存試題的動態屬性（如主次類、文體、素材等）', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_QuestionAttributes';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'唯一識別碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_QuestionAttributes', @level2type=N'COLUMN', @level2name=N'Id';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'試題 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_QuestionAttributes', @level2type=N'COLUMN', @level2name=N'QuestionId';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'屬性鍵 (0:主類, 1:次類, 2:文體, 3:素材來源)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_QuestionAttributes', @level2type=N'COLUMN', @level2name=N'AttributeKey';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'屬性值', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_QuestionAttributes', @level2type=N'COLUMN', @level2name=N'AttributeValue';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'屬性鍵 (0:主類, 1:次類, 2:文體, 3:素材來源, 4:寫作模式, 5:語音類型, 6:核心能力, 7:細目指標)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_QuestionAttributes', @level2type=N'COLUMN', @level2name=N'AttributeKey';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'屬性對應數值 (對應前端 Enum)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_QuestionAttributes', @level2type=N'COLUMN', @level2name=N'AttributeValue';
 GO
 
 CREATE TABLE dbo.MT_SubQuestions (
@@ -594,7 +592,7 @@ EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'儲存 AI 或�
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'來源題目 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_SimilarityChecks', @level2type=N'COLUMN', @level2name=N'SourceQuestionId';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'比對目標 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_SimilarityChecks', @level2type=N'COLUMN', @level2name=N'ComparedQuestionId';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'相似度分數', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_SimilarityChecks', @level2type=N'COLUMN', @level2name=N'SimilarityScore';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'查重結果判定 (1:安全, 2:疑似抄襲, 3:確認重複)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_SimilarityChecks', @level2type=N'COLUMN', @level2name=N'Determination';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'查重結果判定 (1:安全, 2:相似度高, 3:確認重複)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_SimilarityChecks', @level2type=N'COLUMN', @level2name=N'Determination';
 GO
 
 ---

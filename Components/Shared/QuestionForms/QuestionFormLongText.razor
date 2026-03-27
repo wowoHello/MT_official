@@ -37,7 +37,7 @@
         <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
             <i class="fa-solid fa-lightbulb text-amber-500"></i> 批閱說明
         </label>
-        <QuillEditor Value="@Analysis" ValueChanged="v => { Analysis = v; AnalysisChanged.InvokeAsync(v); }" FieldLabel="批閱說明" Placeholder="請簡要說明長文題目的批閱說明..." />
+        <QuillEditor Value="@GradingNote" ValueChanged="v => { GradingNote = v; GradingNoteChanged.InvokeAsync(v); }" FieldLabel="批閱說明" Placeholder="請簡要說明長文題目的批閱說明..." />
     </div>
 </div>
 
@@ -48,6 +48,6 @@
     [Parameter] public string Passage { get; set; } = "";
     [Parameter] public EventCallback<string> PassageChanged { get; set; }
 
-    [Parameter] public string Analysis { get; set; } = "";
-    [Parameter] public EventCallback<string> AnalysisChanged { get; set; }
+    [Parameter] public string GradingNote { get; set; } = "";
+    [Parameter] public EventCallback<string> GradingNoteChanged { get; set; }
 }
