@@ -117,18 +117,18 @@ GO
 CREATE TABLE dbo.MT_RolePermissions (
 Id INT IDENTITY(1,1) PRIMARY KEY,
 RoleId INT NOT NULL FOREIGN KEY REFERENCES dbo.MT_Roles(Id),
-ModuleKey NVARCHAR(50) NOT NULL,
+ModuleId INT NOT NULL FOREIGN KEY REFERENCES dbo.MT_Modules(Id),
 IsEnabled BIT NOT NULL DEFAULT 0,
 AnnouncementPerm TINYINT NOT NULL DEFAULT 1,
 CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
 UpdatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
-CONSTRAINT UQ_MT_RolePermissions_RoleId_ModuleKey UNIQUE (RoleId, ModuleKey)
+CONSTRAINT UQ_MT_RolePermissions_RoleId_ModuleId UNIQUE (RoleId, ModuleId)
 );
 GO
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'定義各角色對不同功能模組的存取權限', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_RolePermissions';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'唯一識別碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_RolePermissions', @level2type=N'COLUMN', @level2name=N'Id';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'關聯角色 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_RolePermissions', @level2type=N'COLUMN', @level2name=N'RoleId';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'模組識別碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_RolePermissions', @level2type=N'COLUMN', @level2name=N'ModuleKey';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'模組 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_RolePermissions', @level2type=N'COLUMN', @level2name=N'ModuleId';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'是否啟用該模組', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_RolePermissions', @level2type=N'COLUMN', @level2name=N'IsEnabled';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'公告權限 (0:無, 1:檢視, 2:編輯)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_RolePermissions', @level2type=N'COLUMN', @level2name=N'AnnouncementPerm';
 GO
@@ -210,8 +210,8 @@ GO
 CREATE TABLE dbo.MT_AuditLogs (
 Id INT IDENTITY(1,1) PRIMARY KEY,
 UserId INT FOREIGN KEY REFERENCES dbo.MT_Users(Id),
-Action NVARCHAR(100) NOT NULL,
-TargetType NVARCHAR(50) NOT NULL,
+Action TINYINT NOT NULL,
+TargetType TINYINT NOT NULL,
 TargetId INT,
 OldValue NVARCHAR(MAX),
 NewValue NVARCHAR(MAX),
@@ -222,8 +222,8 @@ GO
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'系統層級稽核記錄，追蹤關鍵資料變動', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_AuditLogs';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'唯一識別碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_AuditLogs', @level2type=N'COLUMN', @level2name=N'Id';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'執行人 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_AuditLogs', @level2type=N'COLUMN', @level2name=N'UserId';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'操作描述', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_AuditLogs', @level2type=N'COLUMN', @level2name=N'Action';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'目標表類型', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_AuditLogs', @level2type=N'COLUMN', @level2name=N'TargetType';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'操作類型 (0:建立, 1:修改, 2:刪除, 3:登入, 4:登出)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_AuditLogs', @level2type=N'COLUMN', @level2name=N'Action';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'目標表類型 (0:Users, 1:Roles, 2:Projects, 3:Questions, 4:Announcements, 5:Teachers, 6:Reviews)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_AuditLogs', @level2type=N'COLUMN', @level2name=N'TargetType';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'目標資料主鍵', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_AuditLogs', @level2type=N'COLUMN', @level2name=N'TargetId';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'原始資料 (JSON)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_AuditLogs', @level2type=N'COLUMN', @level2name=N'OldValue';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'新資料 (JSON)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_AuditLogs', @level2type=N'COLUMN', @level2name=N'NewValue';
@@ -457,14 +457,14 @@ GO
 CREATE TABLE dbo.MT_QuestionAttributes (
 Id INT IDENTITY(1,1) PRIMARY KEY,
 QuestionId INT NOT NULL FOREIGN KEY REFERENCES dbo.MT_Questions(Id),
-AttributeKey NVARCHAR(50) NOT NULL,
+AttributeKey TINYINT NOT NULL,
 AttributeValue NVARCHAR(200) NOT NULL
 );
 GO
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'儲存試題的動態屬性（如主次類、文體、素材等）', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_QuestionAttributes';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'唯一識別碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_QuestionAttributes', @level2type=N'COLUMN', @level2name=N'Id';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'試題 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_QuestionAttributes', @level2type=N'COLUMN', @level2name=N'QuestionId';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'屬性鍵', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_QuestionAttributes', @level2type=N'COLUMN', @level2name=N'AttributeKey';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'屬性鍵 (0:主類, 1:次類, 2:文體, 3:素材來源)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_QuestionAttributes', @level2type=N'COLUMN', @level2name=N'AttributeKey';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'屬性值', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_QuestionAttributes', @level2type=N'COLUMN', @level2name=N'AttributeValue';
 GO
 
