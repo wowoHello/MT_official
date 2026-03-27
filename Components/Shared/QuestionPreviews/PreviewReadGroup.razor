@@ -5,41 +5,49 @@
 
 <div class="max-w-2xl mx-auto font-serif">
     <!-- 標題 -->
-    @if (HasContent(Stem))
-    {
-        <div class="mb-4 prose prose-sm max-w-none leading-relaxed text-gray-800 font-bold">
+    <PreviewSection Title="題組標題" Icon="fa-solid fa-heading">
+        @if (HasContent(Stem))
+        {
             @((MarkupString)Stem)
-        </div>
-    }
+        }
+        else
+        {
+            <p class="text-gray-400 italic">標題尚未填寫</p>
+        }
+    </PreviewSection>
 
     <!-- 文章內容 -->
-    <PreviewPassage Content="@Passage" />
+    <PreviewSection Title="閱讀文章" Icon="fa-solid fa-book-open">
+        <PreviewPassage Content="@Passage" Label="" />
+    </PreviewSection>
 
     <!-- 子題 -->
-    @for (int i = 0; i < SubQuestions.Count; i++)
-    {
-        var sq = SubQuestions[i];
-        var num = i + 1;
-        <div class="@(i > 0 ? "border-t border-gray-200 pt-5 mt-5" : "mt-6")">
-            <p class="font-bold text-gray-700 mb-2">第 @num 題</p>
-            <div class="prose prose-sm max-w-none leading-relaxed text-gray-800 mb-3">
-                @if (HasContent(sq.Stem))
-                {
-                    @((MarkupString)sq.Stem)
-                }
-                else
-                {
-                    <p class="text-gray-400">子題題幹尚未填寫</p>
-                }
+    <PreviewSection Title="子題" Icon="fa-solid fa-layer-group">
+        @for (int i = 0; i < SubQuestions.Count; i++)
+        {
+            var sq = SubQuestions[i];
+            var num = i + 1;
+            <div class="@(i > 0 ? "border-t border-gray-200 pt-5 mt-5" : "")">
+                <p class="font-bold text-gray-700 mb-2">第 @num 題</p>
+                <div class="mb-3">
+                    @if (HasContent(sq.Stem))
+                    {
+                        @((MarkupString)sq.Stem)
+                    }
+                    else
+                    {
+                        <p class="text-gray-400 italic">子題題幹尚未填寫</p>
+                    }
+                </div>
+                <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer" />
             </div>
-            <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer" />
-        </div>
-    }
+        }
 
-    @if (SubQuestions.Count == 0)
-    {
-        <p class="text-gray-400 italic mt-6 text-center">尚未新增子題</p>
-    }
+        @if (SubQuestions.Count == 0)
+        {
+            <p class="text-gray-400 italic text-center">尚未新增子題</p>
+        }
+    </PreviewSection>
 </div>
 
 @code {
@@ -55,7 +63,6 @@
         public string Stem { get; set; } = "";
         public string[] Options { get; set; } = new string[4];
         public string Answer { get; set; } = "";
-
     }
 
     private bool HasContent(string? html)

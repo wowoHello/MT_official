@@ -186,7 +186,8 @@
         <div class="flex-grow flex overflow-hidden relative min-h-0 h-full">
             <!-- 左側邊欄：屬性設定（可收合） -->
             <div class="@(sidebarCollapsed ? "w-0" : "w-60 lg:w-72") flex-shrink-0 bg-white border-r border-gray-200 overflow-hidden flex flex-col transition-all duration-300 ease-in-out">
-                <QuestionAttributesSidebar @bind-QuestionType="selectedType" @bind-Level="selectedLevel" @bind-Difficulty="selectedDifficulty"
+                <QuestionAttributesSidebar QuestionType="@selectedType" QuestionTypeChanged="OnQuestionTypeChanged"
+                    @bind-Level="selectedLevel" @bind-Difficulty="selectedDifficulty"
                     @bind-Topic="attrTopic" @bind-Subtopic="attrSubtopic"
                     @bind-WritingMode="attrWritingMode" @bind-Genre="attrGenre"
                     @bind-AudioType="attrAudioType" @bind-Material="attrMaterial"
@@ -312,6 +313,17 @@
         ["listen"] = "聽力測驗",
         ["listenGroup"] = "聽力題組"
     };
+
+    private void OnQuestionTypeChanged(string newType)
+    {
+        selectedType = newType;
+        selectedLevel = "";
+        selectedDifficulty = "";
+        attrTopic = ""; attrSubtopic = "";
+        attrWritingMode = ""; attrGenre = "";
+        attrAudioType = ""; attrMaterial = "";
+        attrCoreAbility = ""; attrDetailIndicator = "";
+    }
 
     private void OpenComposeModal()
     {

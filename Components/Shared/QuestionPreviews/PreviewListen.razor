@@ -1,26 +1,30 @@
-@* 預覽：聽力測驗（音檔 + 題幹 + ABCD + 解析） *@
+@* 預覽：聽力測驗（音檔 + 題幹 + ABCD） *@
 @using MT.Components.Shared.QuestionPreviews
 
 <PreviewHeader QuestionType="聽力測驗" Level="@Level" Difficulty="@Difficulty" Tags="@Tags" />
 
 <div class="max-w-2xl mx-auto font-serif">
     <!-- 音檔 -->
-    <PreviewAudioSection AudioFileName="@AudioFileName" />
+    <PreviewSection Title="聽力音檔" Icon="fa-solid fa-headphones">
+        <PreviewAudioSection AudioFileName="@AudioFileName" />
+    </PreviewSection>
 
     <!-- 題幹 -->
-    <div class="mb-4 prose prose-sm max-w-none leading-relaxed text-gray-800">
+    <PreviewSection Title="題幹" Icon="fa-solid fa-file-lines">
         @if (HasContent(Stem))
         {
             @((MarkupString)Stem)
         }
         else
         {
-            <p class="text-gray-400">題幹尚未填寫</p>
+            <p class="text-gray-400 italic">題幹尚未填寫</p>
         }
-    </div>
+    </PreviewSection>
 
     <!-- ABCD 選項 -->
-    <PreviewChoiceOptions Options="@Options" Answer="@Answer" />
+    <PreviewSection Title="選項" Icon="fa-solid fa-list-ol">
+        <PreviewChoiceOptions Options="@Options" Answer="@Answer" />
+    </PreviewSection>
 </div>
 
 @code {
@@ -31,7 +35,6 @@
     [Parameter] public string Stem { get; set; } = "";
     [Parameter] public string[] Options { get; set; } = new string[4];
     [Parameter] public string Answer { get; set; } = "";
-
 
     private bool HasContent(string? html)
     {

@@ -5,15 +5,21 @@
 
 <div class="max-w-2xl mx-auto font-serif">
     <!-- 題目 -->
-    @if (HasContent(Stem))
-    {
-        <div class="mb-4 prose prose-sm max-w-none leading-relaxed text-gray-800">
+    <PreviewSection Title="題目" Icon="fa-solid fa-pen">
+        @if (HasContent(Stem))
+        {
             @((MarkupString)Stem)
-        </div>
-    }
+        }
+        else
+        {
+            <p class="text-gray-400 italic">題目尚未填寫</p>
+        }
+    </PreviewSection>
 
     <!-- 文章內容 -->
-    <PreviewPassage Content="@Passage" />
+    <PreviewSection Title="文章內容" Icon="fa-solid fa-book-open">
+        <PreviewPassage Content="@Passage" Label="" />
+    </PreviewSection>
 </div>
 
 @code {
@@ -22,7 +28,6 @@
     [Parameter] public Dictionary<string, string>? Tags { get; set; }
     [Parameter] public string Stem { get; set; } = "";
     [Parameter] public string Passage { get; set; } = "";
-
 
     private bool HasContent(string? html)
     {

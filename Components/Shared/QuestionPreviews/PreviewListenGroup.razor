@@ -5,53 +5,59 @@
 
 <div class="max-w-2xl mx-auto font-serif">
     <!-- 音檔 -->
-    <PreviewAudioSection AudioFileName="@AudioFileName" />
+    <PreviewSection Title="聽力音檔" Icon="fa-solid fa-headphones">
+        <PreviewAudioSection AudioFileName="@AudioFileName" />
+    </PreviewSection>
 
     <!-- 語音內容 -->
-    <PreviewPassage Content="@Passage" Label="語音內容" />
+    <PreviewSection Title="語音內容" Icon="fa-solid fa-microphone">
+        <PreviewPassage Content="@Passage" Label="" />
+    </PreviewSection>
 
     <!-- 子題 -->
-    @for (int i = 0; i < SubQuestions.Count; i++)
-    {
-        var sq = SubQuestions[i];
-        var num = i + 1;
-        <div class="@(i > 0 ? "border-t border-gray-200 pt-5 mt-5" : "mt-6")">
-            <div class="flex items-center gap-2 mb-3 flex-wrap">
-                <p class="font-bold text-gray-700">第 @num 題</p>
-                @if (!string.IsNullOrEmpty(sq.Level))
-                {
-                    <span class="px-2 py-0.5 text-xs rounded-full bg-purple-50 text-purple-600 border border-purple-200">
-                        @sq.Level
-                    </span>
-                }
-                @if (!string.IsNullOrEmpty(sq.CoreAbility))
-                {
-                    <span class="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200">
-                        @sq.CoreAbility
-                    </span>
-                }
-                @if (!string.IsNullOrEmpty(sq.DetailIndicator))
-                {
-                    <span class="px-2 py-0.5 text-xs rounded-full bg-teal-50 text-teal-600 border border-teal-200">
-                        @sq.DetailIndicator
-                    </span>
-                }
-            </div>
+    <PreviewSection Title="子題" Icon="fa-solid fa-layer-group">
+        @for (int i = 0; i < SubQuestions.Count; i++)
+        {
+            var sq = SubQuestions[i];
+            var num = i + 1;
+            <div class="@(i > 0 ? "border-t border-gray-200 pt-5 mt-5" : "")">
+                <div class="flex items-center gap-2 mb-3 flex-wrap">
+                    <p class="font-bold text-gray-700">第 @num 題</p>
+                    @if (!string.IsNullOrEmpty(sq.Level))
+                    {
+                        <span class="px-2 py-0.5 text-xs rounded-full bg-purple-50 text-purple-600 border border-purple-200">
+                            @sq.Level
+                        </span>
+                    }
+                    @if (!string.IsNullOrEmpty(sq.CoreAbility))
+                    {
+                        <span class="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200">
+                            @sq.CoreAbility
+                        </span>
+                    }
+                    @if (!string.IsNullOrEmpty(sq.DetailIndicator))
+                    {
+                        <span class="px-2 py-0.5 text-xs rounded-full bg-teal-50 text-teal-600 border border-teal-200">
+                            @sq.DetailIndicator
+                        </span>
+                    }
+                </div>
 
-            <div class="prose prose-sm max-w-none leading-relaxed text-gray-800 mb-3">
-                @if (HasContent(sq.Stem))
-                {
-                    @((MarkupString)sq.Stem)
-                }
-                else
-                {
-                    <p class="text-gray-400">子題題幹尚未填寫</p>
-                }
-            </div>
+                <div class="mb-3">
+                    @if (HasContent(sq.Stem))
+                    {
+                        @((MarkupString)sq.Stem)
+                    }
+                    else
+                    {
+                        <p class="text-gray-400 italic">子題題幹尚未填寫</p>
+                    }
+                </div>
 
-            <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer" />
-        </div>
-    }
+                <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer" />
+            </div>
+        }
+    </PreviewSection>
 </div>
 
 @code {
@@ -68,7 +74,6 @@
         public string Stem { get; set; } = "";
         public string[] Options { get; set; } = new string[4];
         public string Answer { get; set; } = "";
-
     }
 
     private bool HasContent(string? html)

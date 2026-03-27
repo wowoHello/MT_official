@@ -5,60 +5,68 @@
 
 <div class="max-w-2xl mx-auto font-serif">
     <!-- 題目 -->
-    @if (HasContent(Stem))
-    {
-        <div class="mb-4 prose prose-sm max-w-none leading-relaxed text-gray-800">
+    <PreviewSection Title="題目" Icon="fa-solid fa-pen">
+        @if (HasContent(Stem))
+        {
             @((MarkupString)Stem)
-        </div>
-    }
+        }
+        else
+        {
+            <p class="text-gray-400 italic">題目尚未填寫</p>
+        }
+    </PreviewSection>
 
     <!-- 文章內容 -->
-    <PreviewPassage Content="@Passage" />
+    <PreviewSection Title="文章內容" Icon="fa-solid fa-book-open">
+        <PreviewPassage Content="@Passage" Label="" />
+    </PreviewSection>
 
     <!-- 子題 -->
-    @for (int i = 0; i < SubQuestions.Count; i++)
-    {
-        var sq = SubQuestions[i];
-        var num = i + 1;
-        <div class="@(i > 0 ? "border-t border-gray-200 pt-5 mt-5" : "mt-6")">
-            <div class="flex items-center gap-2 mb-3">
-                <p class="font-bold text-gray-700">第 @num 題</p>
-                @if (!string.IsNullOrEmpty(sq.Dimension))
-                {
-                    <span class="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200">
-                        向度：@sq.Dimension
-                    </span>
-                }
-                @if (!string.IsNullOrEmpty(sq.Indicator))
-                {
-                    <span class="px-2 py-0.5 text-xs rounded-full bg-teal-50 text-teal-600 border border-teal-200">
-                        指標：@sq.Indicator
-                    </span>
-                }
-            </div>
+    <PreviewSection Title="子題" Icon="fa-solid fa-layer-group">
+        @for (int i = 0; i < SubQuestions.Count; i++)
+        {
+            var sq = SubQuestions[i];
+            var num = i + 1;
+            <div class="@(i > 0 ? "border-t border-gray-200 pt-5 mt-5" : "")">
+                <div class="flex items-center gap-2 mb-3 flex-wrap">
+                    <p class="font-bold text-gray-700">第 @num 題</p>
+                    @if (!string.IsNullOrEmpty(sq.Dimension))
+                    {
+                        <span class="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200">
+                            向度：@sq.Dimension
+                        </span>
+                    }
+                    @if (!string.IsNullOrEmpty(sq.Indicator))
+                    {
+                        <span class="px-2 py-0.5 text-xs rounded-full bg-teal-50 text-teal-600 border border-teal-200">
+                            指標：@sq.Indicator
+                        </span>
+                    }
+                </div>
 
-            <div class="prose prose-sm max-w-none leading-relaxed text-gray-800 mb-3">
-                @if (HasContent(sq.Stem))
-                {
-                    @((MarkupString)sq.Stem)
-                }
-                else
-                {
-                    <p class="text-gray-400">子題題幹尚未填寫</p>
-                }
-            </div>
+                <div class="mb-3">
+                    @if (HasContent(sq.Stem))
+                    {
+                        @((MarkupString)sq.Stem)
+                    }
+                    else
+                    {
+                        <p class="text-gray-400 italic">子題題幹尚未填寫</p>
+                    }
+                </div>
 
-            <!-- 自由作答區 -->
-            <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50/50 text-center text-sm text-gray-400">
-                <i class="fa-solid fa-pen-to-square mr-1"></i> 自由作答區
+                <!-- 自由作答區 -->
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50/50 text-center text-sm text-gray-400">
+                    <i class="fa-solid fa-pen-to-square mr-1"></i> 自由作答區
+                </div>
             </div>
-        </div>
-    }
+        }
 
-    @if (SubQuestions.Count == 0)
-    {
-        <p class="text-gray-400 italic mt-6 text-center">尚未新增子題</p>
-    }
+        @if (SubQuestions.Count == 0)
+        {
+            <p class="text-gray-400 italic text-center">尚未新增子題</p>
+        }
+    </PreviewSection>
 </div>
 
 @code {
@@ -74,7 +82,6 @@
         public string Stem { get; set; } = "";
         public string Dimension { get; set; } = "";
         public string Indicator { get; set; } = "";
-
     }
 
     private bool HasContent(string? html)

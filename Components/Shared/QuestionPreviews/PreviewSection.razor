@@ -1,0 +1,23 @@
+@* 預覽共用：區段容器（標題 + 內容），統一各區塊的視覺分隔 *@
+
+<div class="mb-6">
+    @if (!string.IsNullOrEmpty(Title))
+    {
+        <div class="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
+            @if (!string.IsNullOrEmpty(Icon))
+            {
+                <i class="@Icon text-sm text-gray-400"></i>
+            }
+            <span class="text-sm font-semibold text-gray-500 tracking-wide">@Title</span>
+        </div>
+    }
+    <div class="prose prose-sm max-w-none leading-relaxed text-gray-800">
+        @ChildContent
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string Icon { get; set; } = "";
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}
