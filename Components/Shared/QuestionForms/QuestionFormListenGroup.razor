@@ -49,7 +49,7 @@
                 母題不區分難度，僅需上傳音檔與語音內容。底下固定 2 個子題，各有獨立的難度、核心能力與細目指標。
             </p>
         </div>
-        <QuillEditor @bind-Value="Passage" FieldLabel="語音內容" Placeholder="點擊此處開始輸入語音內容（逐字稿）..." />
+        <QuillEditor Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }" FieldLabel="語音內容" Placeholder="點擊此處開始輸入語音內容（逐字稿）..." />
     </div>
 
     <!-- 子題區（固定 2 題） -->
@@ -110,52 +110,21 @@
                             <label class="block text-sm font-bold text-gray-700 mb-2">
                                 題目內容 <span class="text-red-400">*</span>
                             </label>
-                            <QuillEditor @bind-Value="sq.Stem" FieldLabel="@($"第 {idx + 1} 題 題目內容")"
+                            <QuillEditor Value="@sq.Stem" ValueChanged="v => { sq.Stem = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }" FieldLabel="@($"第 {idx + 1} 題 題目內容")"
                                 Placeholder="點擊此處開始編輯題目內容..." />
                         </div>
 
                         <!-- 選項與答案 -->
-                        <div>
-                            <div class="flex items-center justify-between mb-2">
-                                <label class="text-sm font-bold text-gray-700">選項與答案</label>
-                                <span class="text-xs text-gray-400">請勾選正確答案，可點選內容插入圖片</span>
-                            </div>
-                            <div class="mb-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700 flex items-center gap-2">
-                                <i class="fa-solid fa-triangle-exclamation text-amber-500 flex-shrink-0"></i>
-                                請避免選項長短、語氣明顯差異，以免影響鑑別度。
-                            </div>
-                            <!-- ABCD 2×2 Grid -->
-                            <div class="grid grid-cols-2 gap-3">
-                                @for (int j = 0; j < 4; j++)
-                                {
-                                    var optIdx = j;
-                                    var optLabel = OptionLabels[optIdx];
-                                    <div class="flex items-start gap-2">
-                                        <label class="flex items-center gap-1.5 mt-3 cursor-pointer flex-shrink-0">
-                                            <input type="radio" name="@($"lg-answer-{idx}")" value="@optLabel"
-                                                checked="@(sq.Answer == optLabel)"
-                                                @onchange="() => sq.Answer = optLabel"
-                                                class="w-4 h-4 text-sage focus:ring-sage cursor-pointer">
-                                            <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold @(sq.Answer == optLabel ? "bg-sage text-white" : "bg-gray-100 text-gray-500") transition-colors">
-                                                @optLabel
-                                            </span>
-                                        </label>
-                                        <div class="flex-grow">
-                                            <QuillEditor @bind-Value="sq.Options[optIdx]"
-                                                FieldLabel="@($"第 {idx + 1} 題 選項 ({optLabel})")"
-                                                Placeholder="@($"點擊此處編輯選項 ({optLabel})...")" />
-                                        </div>
-                                    </div>
-                                }
-                            </div>
-                        </div>
+                        <OptionGroup Options="@sq.Options" OptionsChanged="v => SubQuestionsChanged.InvokeAsync(SubQuestions)"
+                            Answer="@sq.Answer" AnswerChanged="v => { sq.Answer = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }"
+                            RadioName="@($"lg-answer-{idx}")" Layout="OptionGroup.OptionLayout.Grid" />
 
                         <!-- 試題解析 -->
                         <div>
                             <label class="block text-sm font-bold text-gray-700 mb-2">
                                 試題解析（紀錄答案理由） <span class="text-red-400">*</span>
                             </label>
-                            <QuillEditor @bind-Value="sq.Analysis"
+                            <QuillEditor Value="@sq.Analysis" ValueChanged="v => { sq.Analysis = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }"
                                 FieldLabel="@($"第 {idx + 1} 題 解析")"
                                 Placeholder="點擊此處開始編輯解析..." />
                         </div>
@@ -175,8 +144,6 @@
 
     [Parameter] public List<ListenGroupSubQuestion> SubQuestions { get; set; } = [new(), new()];
     [Parameter] public EventCallback<List<ListenGroupSubQuestion>> SubQuestionsChanged { get; set; }
-
-    private static readonly string[] OptionLabels = ["A", "B", "C", "D"];
 
     // 子題固定難度
     private static readonly string[] SubLevels = ["難度三", "難度四"];

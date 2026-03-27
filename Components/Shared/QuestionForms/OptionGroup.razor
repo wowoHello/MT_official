@@ -1,0 +1,80 @@
+@* ====================================================================== *@
+@*  OptionGroup — ABCD 四選項共用元件                                     *@
+@*  支援兩種佈局：vertical（垂直排列）、grid（2×2 格狀排列）              *@
+@*  用於：Single、Listen、ReadGroup 子題、ListenGroup 子題               *@
+@* ====================================================================== *@
+@using MT.Components.Shared
+
+<div>
+    <div class="flex items-center justify-between mb-2">
+        <label class="text-sm font-bold text-gray-700 flex items-center gap-2">
+            <i class="fa-solid fa-list-ol text-morandi"></i> 選項與答案 <span class="text-red-400">*</span>
+            @if (Layout == OptionLayout.Vertical)
+            {
+                <span class="text-xs text-gray-400 font-normal ml-1">（請點選正確答案）</span>
+            }
+        </label>
+        @if (Layout == OptionLayout.Grid)
+        {
+            <span class="text-xs text-gray-400">請勾選正確答案，可點選內容插入圖片</span>
+        }
+    </div>
+
+    <!-- 警示提醒 -->
+    <div class="mb-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700 flex items-center gap-2">
+        <i class="fa-solid fa-triangle-exclamation text-amber-500 flex-shrink-0"></i>
+        請避免選項長短、語氣明顯差異，以免影響鑑別度。
+    </div>
+
+    <div class="@(Layout == OptionLayout.Grid ? "grid grid-cols-2 gap-3" : "space-y-3")">
+        @for (int i = 0; i < 4; i++)
+        {
+            var idx = i;
+            var optLabel = Labels[idx];
+            <div class="flex items-start gap-@(Layout == OptionLayout.Grid ? "2" : "3") @(Layout == OptionLayout.Vertical ? "group" : "")">
+                <label class="flex items-center gap-@(Layout == OptionLayout.Grid ? "1.5" : "2") mt-3 cursor-pointer flex-shrink-0">
+                    <input type="radio" name="@RadioName" value="@optLabel"
+                        checked="@(Answer == optLabel)"
+                        @onchange="() => OnAnswerSelect(optLabel)"
+                        class="w-4 h-4 text-sage focus:ring-sage cursor-pointer">
+                    <span class="w-@(Layout == OptionLayout.Grid ? "6" : "7") h-@(Layout == OptionLayout.Grid ? "6" : "7") rounded-full flex items-center justify-center text-xs font-bold @(Answer == optLabel ? "bg-sage text-white" : "bg-gray-100 text-gray-500 group-hover:bg-gray-200") transition-colors">
+                        @optLabel
+                    </span>
+                </label>
+                <div class="flex-grow">
+                    <QuillEditor Value="@Options[idx]"
+                        ValueChanged="v => OnOptionChange(idx, v)"
+                        FieldLabel="@($"選項 ({optLabel})")"
+                        Placeholder="@($"請輸入選項 ({optLabel}) 內容...")" />
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string[] Options { get; set; } = ["", "", "", ""];
+    [Parameter] public EventCallback<string[]> OptionsChanged { get; set; }
+
+    [Parameter] public string Answer { get; set; } = "";
+    [Parameter] public EventCallback<string> AnswerChanged { get; set; }
+
+    [Parameter] public string RadioName { get; set; } = Guid.NewGuid().ToString("N")[..8];
+    [Parameter] public OptionLayout Layout { get; set; } = OptionLayout.Vertical;
+
+    private static readonly string[] Labels = ["A", "B", "C", "D"];
+
+    private async Task OnAnswerSelect(string label)
+    {
+        Answer = label;
+        await AnswerChanged.InvokeAsync(label);
+    }
+
+    private async Task OnOptionChange(int idx, string value)
+    {
+        Options[idx] = value;
+        await OptionsChanged.InvokeAsync(Options);
+    }
+
+    public enum OptionLayout { Vertical, Grid }
+}

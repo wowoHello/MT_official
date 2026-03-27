@@ -38,54 +38,20 @@
         <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
             <i class="fa-solid fa-pen text-morandi"></i> 題幹 <span class="text-red-400">*</span>
         </label>
-        <QuillEditor @bind-Value="Stem" FieldLabel="題幹" Placeholder="點擊此處開始編輯題幹內容..." />
+        <QuillEditor Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="題幹" Placeholder="點擊此處開始編輯題幹內容..." />
     </div>
 
     <!-- 選項與答案 -->
-    <div>
-        <div class="flex items-center justify-between mb-2">
-            <label class="text-sm font-bold text-gray-700 flex items-center gap-2">
-                <i class="fa-solid fa-list-ol text-morandi"></i> 選項與答案 <span class="text-red-400">*</span>
-            </label>
-            <span class="text-xs text-gray-400">請勾選正確答案，可點選內容插入圖片</span>
-        </div>
-        <!-- 警示提醒 -->
-        <div class="mb-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700 flex items-center gap-2">
-            <i class="fa-solid fa-triangle-exclamation text-amber-500 flex-shrink-0"></i>
-            請避免選項長短、語氣明顯差異，以免影響鑑別度。
-        </div>
-        <!-- ABCD 2×2 Grid -->
-        <div class="grid grid-cols-2 gap-3">
-            @for (int i = 0; i < 4; i++)
-            {
-                var idx = i;
-                var optLabel = OptionLabels[idx];
-                <div class="flex items-start gap-2">
-                    <label class="flex items-center gap-1.5 mt-3 cursor-pointer flex-shrink-0">
-                        <input type="radio" name="@($"listen-answer-{Id}")" value="@optLabel"
-                            checked="@(Answer == optLabel)"
-                            @onchange="() => { Answer = optLabel; AnswerChanged.InvokeAsync(optLabel); }"
-                            class="w-4 h-4 text-sage focus:ring-sage cursor-pointer">
-                        <span class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold @(Answer == optLabel ? "bg-sage text-white" : "bg-gray-100 text-gray-500") transition-colors">
-                            @optLabel
-                        </span>
-                    </label>
-                    <div class="flex-grow">
-                        <QuillEditor @bind-Value="Options[idx]"
-                            FieldLabel="@($"選項 ({optLabel})")"
-                            Placeholder="@($"點擊此處開始編輯選項 ({optLabel})，可插入圖片...")" />
-                    </div>
-                </div>
-            }
-        </div>
-    </div>
+    <OptionGroup Options="@Options" OptionsChanged="OptionsChanged"
+        Answer="@Answer" AnswerChanged="AnswerChanged"
+        RadioName="@($"listen-answer-{Id}")" Layout="OptionGroup.OptionLayout.Grid" />
 
     <!-- 試題解析 -->
     <div>
         <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
             <i class="fa-solid fa-lightbulb text-amber-500"></i> 試題解析（紀錄答案理由） <span class="text-red-400">*</span>
         </label>
-        <QuillEditor @bind-Value="Analysis" FieldLabel="解析" Placeholder="點擊此處開始編輯解析，可說明正確答案依據與其他選項錯誤原因..." />
+        <QuillEditor Value="@Analysis" ValueChanged="v => { Analysis = v; AnalysisChanged.InvokeAsync(v); }" FieldLabel="解析" Placeholder="點擊此處開始編輯解析，可說明正確答案依據與其他選項錯誤原因..." />
     </div>
 </div>
 
@@ -107,5 +73,4 @@
     [Parameter] public string Analysis { get; set; } = "";
     [Parameter] public EventCallback<string> AnalysisChanged { get; set; }
 
-    private static readonly string[] OptionLabels = ["A", "B", "C", "D"];
 }
