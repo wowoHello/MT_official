@@ -1,16 +1,14 @@
-@* 預覽：聽力測驗（音檔 + 題幹 + ABCD） *@
+@* 預覽：聽力測驗 — 模擬考生實際看到的試卷 *@
 @using MT.Components.Shared.QuestionPreviews
 
 <PreviewHeader QuestionType="聽力測驗" Level="@Level" Difficulty="@Difficulty" Tags="@Tags" />
 
 <div class="max-w-2xl mx-auto font-serif">
-    <!-- 音檔 -->
-    <PreviewSection Title="聽力音檔" Icon="fa-solid fa-headphones">
-        <PreviewAudioSection AudioFileName="@AudioFileName" />
-    </PreviewSection>
+    <!-- 音檔播放器 -->
+    <PreviewAudioSection AudioFileName="@AudioFileName" />
 
     <!-- 題幹 -->
-    <PreviewSection Title="題幹" Icon="fa-solid fa-file-lines">
+    <div class="mb-5 prose prose-sm max-w-none leading-relaxed text-gray-800">
         @if (HasContent(Stem))
         {
             @((MarkupString)Stem)
@@ -19,12 +17,10 @@
         {
             <p class="text-gray-400 italic">題幹尚未填寫</p>
         }
-    </PreviewSection>
+    </div>
 
     <!-- ABCD 選項 -->
-    <PreviewSection Title="選項" Icon="fa-solid fa-list-ol">
-        <PreviewChoiceOptions Options="@Options" Answer="@Answer" />
-    </PreviewSection>
+    <PreviewChoiceOptions Options="@Options" Answer="@Answer" />
 </div>
 
 @code {

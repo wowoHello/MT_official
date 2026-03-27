@@ -1,63 +1,45 @@
-@* 預覽：聽力題組（音檔 + 語音內容 + 2子題） *@
+@* 預覽：聽力題組 — 模擬考生實際看到的試卷 *@
 @using MT.Components.Shared.QuestionPreviews
 
 <PreviewHeader QuestionType="聽力題組" HideLevel="true" Tags="@Tags" />
 
 <div class="max-w-2xl mx-auto font-serif">
-    <!-- 音檔 -->
-    <PreviewSection Title="聽力音檔" Icon="fa-solid fa-headphones">
-        <PreviewAudioSection AudioFileName="@AudioFileName" />
-    </PreviewSection>
+    <!-- 音檔播放器 -->
+    <PreviewAudioSection AudioFileName="@AudioFileName" />
 
-    <!-- 語音內容 -->
-    <PreviewSection Title="語音內容" Icon="fa-solid fa-microphone">
-        <PreviewPassage Content="@Passage" Label="" />
-    </PreviewSection>
+    <!-- 語音內容（考生看不到，但命題者預覽用） -->
+    @if (HasContent(Passage))
+    {
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-4 my-4 text-sm">
+            <p class="font-medium text-amber-700 mb-2">
+                <i class="fa-solid fa-eye mr-1"></i> 語音內容（僅命題者可見）
+            </p>
+            <div class="prose prose-sm max-w-none leading-relaxed text-gray-700">
+                @((MarkupString)Passage)
+            </div>
+        </div>
+    }
 
     <!-- 子題 -->
-    <PreviewSection Title="子題" Icon="fa-solid fa-layer-group">
-        @for (int i = 0; i < SubQuestions.Count; i++)
-        {
-            var sq = SubQuestions[i];
-            var num = i + 1;
-            <div class="@(i > 0 ? "border-t border-gray-200 pt-5 mt-5" : "")">
-                <div class="flex items-center gap-2 mb-3 flex-wrap">
-                    <p class="font-bold text-gray-700">第 @num 題</p>
-                    @if (!string.IsNullOrEmpty(sq.Level))
-                    {
-                        <span class="px-2 py-0.5 text-xs rounded-full bg-purple-50 text-purple-600 border border-purple-200">
-                            @sq.Level
-                        </span>
-                    }
-                    @if (!string.IsNullOrEmpty(sq.CoreAbility))
-                    {
-                        <span class="px-2 py-0.5 text-xs rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200">
-                            @sq.CoreAbility
-                        </span>
-                    }
-                    @if (!string.IsNullOrEmpty(sq.DetailIndicator))
-                    {
-                        <span class="px-2 py-0.5 text-xs rounded-full bg-teal-50 text-teal-600 border border-teal-200">
-                            @sq.DetailIndicator
-                        </span>
-                    }
-                </div>
-
-                <div class="mb-3">
-                    @if (HasContent(sq.Stem))
-                    {
-                        @((MarkupString)sq.Stem)
-                    }
-                    else
-                    {
-                        <p class="text-gray-400 italic">子題題幹尚未填寫</p>
-                    }
-                </div>
-
-                <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer" />
+    @for (int i = 0; i < SubQuestions.Count; i++)
+    {
+        var sq = SubQuestions[i];
+        var num = i + 1;
+        <div class="@(i > 0 ? "border-t border-gray-200 pt-5 mt-5" : "mt-6")">
+            <p class="font-bold text-gray-700 mb-2">@num.</p>
+            <div class="prose prose-sm max-w-none leading-relaxed text-gray-800 mb-3">
+                @if (HasContent(sq.Stem))
+                {
+                    @((MarkupString)sq.Stem)
+                }
+                else
+                {
+                    <p class="text-gray-400 italic">子題題幹尚未填寫</p>
+                }
             </div>
-        }
-    </PreviewSection>
+            <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer" />
+        </div>
+    }
 </div>
 
 @code {

@@ -1,11 +1,11 @@
-@* 預覽：一般單選題 / 精選單選題 *@
+@* 預覽：一般單選題 / 精選單選題 — 模擬考生實際看到的試卷 *@
 @using MT.Components.Shared.QuestionPreviews
 
 <PreviewHeader QuestionType="@QuestionType" Level="@Level" Difficulty="@Difficulty" Tags="@Tags" />
 
 <div class="max-w-2xl mx-auto font-serif">
     <!-- 題幹 -->
-    <PreviewSection Title="題幹" Icon="fa-solid fa-file-lines">
+    <div class="mb-8 prose prose-sm max-w-none leading-relaxed text-gray-800">
         @if (HasContent(Stem))
         {
             @((MarkupString)Stem)
@@ -14,12 +14,10 @@
         {
             <p class="text-gray-400 italic">題幹尚未填寫</p>
         }
-    </PreviewSection>
+    </div>
 
     <!-- ABCD 選項 -->
-    <PreviewSection Title="選項" Icon="fa-solid fa-list-ol">
-        <PreviewChoiceOptions Options="@Options" Answer="@Answer" />
-    </PreviewSection>
+    <PreviewChoiceOptions Options="@Options" Answer="@Answer" />
 </div>
 
 @code {

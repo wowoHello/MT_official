@@ -151,6 +151,10 @@ html { font-size: 112.5%; }
     overflow-y: auto;
     line-height: 1.7;
 }
+/* 聚焦時隱藏 placeholder，避免中文 IME 組字時 placeholder 擋住文字 */
+.quill-editor-container .ql-editor.ql-blank:focus::before {
+    opacity: 0;
+}
 .quill-editor-container .ql-editor:focus {
     outline: none;
 }
@@ -160,7 +164,8 @@ html { font-size: 112.5%; }
 .editable-field { font-family: '標楷體', 'DFKai-SB', 'BiauKai', serif; }
 .ql-size-small { font-size: 0.75em; }
 .ql-size-large { font-size: 1.5em; }
-.editable-field span[style*="background-color"] {
+.editable-field span[style*="background-color"],
+.prose span[style*="background-color"] {
     background-color: transparent !important;
 }
 

@@ -1,25 +1,26 @@
-@* 預覽：長文題目（題目 + 文章 + 批閱說明） *@
+@* 預覽：長文題目 — 模擬考生實際看到的試卷 *@
 @using MT.Components.Shared.QuestionPreviews
 
 <PreviewHeader QuestionType="長文題目" Level="@Level" Difficulty="@Difficulty" Tags="@Tags" />
 
 <div class="max-w-2xl mx-auto font-serif">
-    <!-- 題目 -->
-    <PreviewSection Title="題目" Icon="fa-solid fa-pen">
-        @if (HasContent(Stem))
-        {
-            @((MarkupString)Stem)
-        }
-        else
-        {
-            <p class="text-gray-400 italic">題目尚未填寫</p>
-        }
-    </PreviewSection>
-
-    <!-- 文章內容 -->
-    <PreviewSection Title="文章內容" Icon="fa-solid fa-book-open">
-        <PreviewPassage Content="@Passage" Label="" />
-    </PreviewSection>
+    <div class="border-l-4 border-gray-300 pl-5 py-3 rounded-r-lg bg-gray-50/50">
+        <!-- 題目 -->
+        <div class="prose prose-sm max-w-none leading-relaxed text-gray-800 mb-3">
+            <strong>題目：</strong>@if (HasContent(Stem)) { @((MarkupString)Stem) } else { <span class="text-gray-400">未填寫題目</span> }
+        </div>
+        <!-- 文章內容 -->
+        <div class="prose prose-sm max-w-none leading-relaxed text-gray-600">
+            @if (HasContent(Passage))
+            {
+                @((MarkupString)Passage)
+            }
+            else
+            {
+                <span class="text-gray-400">內容尚未填寫</span>
+            }
+        </div>
+    </div>
 </div>
 
 @code {
