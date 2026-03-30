@@ -14,7 +14,6 @@ GO
 
 CREATE TABLE dbo.MT_Roles (
 Id INT IDENTITY(1,1) PRIMARY KEY,
-Code TINYINT NOT NULL UNIQUE,
 Name NVARCHAR(50) NOT NULL UNIQUE,
 Category TINYINT NOT NULL,
 Description NVARCHAR(500),
@@ -23,10 +22,9 @@ CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
 UpdatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME()
 );
 GO
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'定義系統中的使用者職務與權限分類', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Roles';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'定義系統中可自訂的使用者身分別', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Roles';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'唯一識別碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Roles', @level2type=N'COLUMN', @level2name=N'Id';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'角色代碼 (0:ADMIN, 1:STAFF, 2:TEACHER, 3:REVIEWER)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Roles', @level2type=N'COLUMN', @level2name=N'Code';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'角色顯示名稱', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Roles', @level2type=N'COLUMN', @level2name=N'Name';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'身分別名稱（可自訂）', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Roles', @level2type=N'COLUMN', @level2name=N'Name';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'角色分類 (0:內部, 1:外部)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Roles', @level2type=N'COLUMN', @level2name=N'Category';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'角色功能描述', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Roles', @level2type=N'COLUMN', @level2name=N'Description';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'是否為系統預設角色', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Roles', @level2type=N'COLUMN', @level2name=N'IsDefault';
@@ -75,34 +73,32 @@ GO
 ---
 
 CREATE TABLE dbo.MT_Users (
-Id INT IDENTITY(1,1) PRIMARY KEY,
+UserId INT IDENTITY(1,1) PRIMARY KEY,
 Username NVARCHAR(100) NOT NULL UNIQUE,
 DisplayName NVARCHAR(50) NOT NULL,
 Email NVARCHAR(200),
-PasswordHash NVARCHAR(500) NOT NULL,
+PasswordHash BINARY(32) NOT NULL,
 RoleId INT NOT NULL FOREIGN KEY REFERENCES dbo.MT_Roles(Id),
 Status TINYINT NOT NULL DEFAULT 1,
 CompanyTitle NVARCHAR(100),
 Note NVARCHAR(500),
 IsFirstLogin BIT NOT NULL DEFAULT 1,
-RememberToken NVARCHAR(500),
 LastLoginAt DATETIME2,
 CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
 UpdatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME()
 );
 GO
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'儲存所有系統使用者，包含內部職員與外部教師', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'唯一識別碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'Id';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'唯一識別碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'UserId';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'登入帳號', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'Username';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'使用者姓名', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'DisplayName';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'電子信箱', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'Email';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'密碼雜湊值', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'PasswordHash';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'密碼雜湊值 (SHA2_256, 32 Bytes)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'PasswordHash';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'所屬角色 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'RoleId';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'帳號狀態 (0:停用, 1:啟用, 2:鎖定)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'Status';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'內部人員職稱', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'CompanyTitle';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'管理備註', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'Note';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'是否首次登入', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'IsFirstLogin';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'記住我 Token', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'RememberToken';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'最後登入時間', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'LastLoginAt';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'帳號建立時間', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'CreatedAt';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'資料更新時間', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'UpdatedAt';
