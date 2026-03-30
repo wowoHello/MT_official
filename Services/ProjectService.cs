@@ -1,8 +1,8 @@
+using System.Data;
+using System.Text.Json;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using MT.Models;
-using System.Data;
-using System.Text.Json;
 
 namespace MT.Services;
 
@@ -11,11 +11,27 @@ public interface IProjectService
     Task<int> CreateProjectAsync(CreateProjectRequest request);
     Task<List<ProjectListItem>> GetProjectListAsync();
     Task<ProjectDetailDto?> GetProjectDetailAsync(int projectId);
+    Task<List<ProjectTalentPoolItem>> GetTalentPoolAsync();
     Task SoftDeleteProjectAsync(int projectId, int deletedBy);
 }
 
 public class ProjectService : IProjectService
 {
+    private const byte PropositionTeacherRoleCode = 1;
+    private const byte CrossReviewTeacherRoleCode = 2;
+    private const byte ExpertReviewerRoleCode = 3;
+    private const byte ChiefCoordinatorRoleCode = 4;
+    private const byte ExpertScholarRoleCode = 5;
+
+    private static readonly IReadOnlyDictionary<string, byte> RoleCodeByName = new Dictionary<string, byte>(StringComparer.Ordinal)
+    {
+        ["命題教師"] = PropositionTeacherRoleCode,
+        ["互審教師"] = CrossReviewTeacherRoleCode,
+        ["專審委員"] = ExpertReviewerRoleCode,
+        ["總召(專員)"] = ChiefCoordinatorRoleCode,
+        ["專家學者"] = ExpertScholarRoleCode
+    };
+
     private readonly IConfiguration _config;
     private readonly ILogger<ProjectService> _logger;
 
@@ -25,85 +41,109 @@ public class ProjectService : IProjectService
         _logger = logger;
     }
 
-    /// <summary>取得所有專案列表（含建立者名稱與參與人數）</summary>
     public async Task<List<ProjectListItem>> GetProjectListAsync()
     {
         using var conn = new SqlConnection(_config.GetConnectionString("DefaultConnection"));
-        var sql = @"
+
+        const string sql = """
             SELECT
-                p.Id, p.ProjectCode, p.Name, p.Year, p.School, p.Status,
-                p.StartDate, p.EndDate,
+                p.Id,
+                p.ProjectCode,
+                p.Name,
+                p.Year,
+                p.School,
+                p.Status,
+                p.StartDate,
+                p.EndDate,
                 ISNULL(u.DisplayName, N'系統') AS CreatorName,
                 (SELECT COUNT(*) FROM dbo.MT_ProjectMembers pm WHERE pm.ProjectId = p.Id) AS MemberCount
             FROM dbo.MT_Projects p
             LEFT JOIN dbo.MT_Users u ON u.UserId = p.CreatedBy
             WHERE p.IsDeleted = 0
-            ORDER BY p.Year DESC, p.Id DESC";
+            ORDER BY p.Year DESC, p.Id DESC;
+            """;
 
         var result = await conn.QueryAsync<ProjectListItem>(sql);
         return result.ToList();
     }
 
-    /// <summary>取得單一專案詳情（含時程、題型目標、成員）</summary>
     public async Task<ProjectDetailDto?> GetProjectDetailAsync(int projectId)
     {
         using var conn = new SqlConnection(_config.GetConnectionString("DefaultConnection"));
         var detailParams = new { ProjectId = projectId };
 
-        // 主檔
-        var mainSql = @"
-            SELECT p.Id, p.ProjectCode, p.Name, p.Year, p.School, p.Status,
-                   p.StartDate, p.EndDate, p.ClosedAt,
-                   ISNULL(u.DisplayName, N'系統') AS CreatorName
+        const string mainSql = """
+            SELECT
+                p.Id,
+                p.ProjectCode,
+                p.Name,
+                p.Year,
+                p.School,
+                p.Status,
+                p.StartDate,
+                p.EndDate,
+                p.ClosedAt,
+                ISNULL(u.DisplayName, N'系統') AS CreatorName
             FROM dbo.MT_Projects p
             LEFT JOIN dbo.MT_Users u ON u.UserId = p.CreatedBy
-            WHERE p.Id = @ProjectId AND p.IsDeleted = 0";
+            WHERE p.Id = @ProjectId AND p.IsDeleted = 0;
+            """;
+
         var detail = await conn.QueryFirstOrDefaultAsync<ProjectDetailDto>(mainSql, detailParams);
-        if (detail == null) return null;
+        if (detail is null)
+        {
+            return null;
+        }
 
         try
         {
-            // 時程
-            var phasesSql = @"
+            const string phasesSql = """
                 SELECT PhaseCode, PhaseName, StartDate, EndDate
                 FROM dbo.MT_ProjectPhases
                 WHERE ProjectId = @ProjectId
-                ORDER BY SortOrder";
+                ORDER BY SortOrder;
+                """;
+
             detail.Phases = (await conn.QueryAsync<PhaseDetailDto>(phasesSql, detailParams)).ToList();
 
-            // 題型目標數量
-            var targetsSql = @"
+            const string targetsSql = """
                 SELECT pt.QuestionTypeId, qt.Name AS TypeName, pt.TargetCount
                 FROM dbo.MT_ProjectTargets pt
                 INNER JOIN dbo.MT_QuestionTypes qt ON qt.Id = pt.QuestionTypeId
                 WHERE pt.ProjectId = @ProjectId
-                ORDER BY pt.QuestionTypeId";
+                ORDER BY pt.QuestionTypeId;
+                """;
+
             detail.Targets = (await conn.QueryAsync<TargetDetailDto>(targetsSql, detailParams)).ToList();
 
-            // 成員（為了相容較舊 SQL Server 版本，改用 FOR XML PATH 組字串）
-            var membersSql = @"
-                SELECT pm.UserId,
-                       ISNULL(u.DisplayName, N'未知') AS DisplayName,
-                       COALESCE(t.TeacherCode, u.Username) AS TeacherCode,
-                       ISNULL(r.RoleName, N'未指定') AS RoleName
+            const string membersSql = """
+                SELECT
+                    pm.UserId,
+                    ISNULL(u.DisplayName, N'未知') AS DisplayName,
+                    t.TeacherCode,
+                    ISNULL(roleCodes.RoleCodes, N'') AS RoleCodes
                 FROM dbo.MT_ProjectMembers pm
                 LEFT JOIN dbo.MT_Users u ON u.UserId = pm.UserId
                 LEFT JOIN dbo.MT_Teachers t ON t.UserId = u.UserId
                 LEFT JOIN (
-                    SELECT pmr.ProjectMemberId,
-                           STUFF((
-                               SELECT N', ' + ISNULL(ro2.Name, N'')
-                               FROM dbo.MT_ProjectMemberRoles pmr2
-                               LEFT JOIN dbo.MT_Roles ro2 ON ro2.Id = pmr2.RoleCode
-                               WHERE pmr2.ProjectMemberId = pmr.ProjectMemberId
-                               FOR XML PATH(''), TYPE
-                           ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS RoleName
+                    SELECT
+                        pmr.ProjectMemberId,
+                        STUFF((
+                            SELECT N',' + CONVERT(NVARCHAR(10), pmr2.RoleCode)
+                            FROM dbo.MT_ProjectMemberRoles pmr2
+                            WHERE pmr2.ProjectMemberId = pmr.ProjectMemberId
+                            ORDER BY pmr2.RoleCode
+                            FOR XML PATH(''), TYPE
+                        ).value('.', 'NVARCHAR(MAX)'), 1, 1, '') AS RoleCodes
                     FROM dbo.MT_ProjectMemberRoles pmr
                     GROUP BY pmr.ProjectMemberId
-                ) r ON r.ProjectMemberId = pm.Id
+                ) roleCodes ON roleCodes.ProjectMemberId = pm.Id
                 WHERE pm.ProjectId = @ProjectId
-                ORDER BY pm.Id";
-            detail.Members = (await conn.QueryAsync<MemberDetailDto>(membersSql, detailParams)).ToList();
+                ORDER BY pm.Id;
+                """;
+
+            var members = await conn.QueryAsync<ProjectMemberRow>(membersSql, detailParams);
+            detail.Members = members.Select(MapMemberDetail).ToList();
         }
         catch (Exception ex)
         {
@@ -113,174 +153,204 @@ public class ProjectService : IProjectService
         return detail;
     }
 
-    /// <summary>軟刪除專案（設 IsDeleted = 1）</summary>
+    public async Task<List<ProjectTalentPoolItem>> GetTalentPoolAsync()
+    {
+        using var conn = new SqlConnection(_config.GetConnectionString("DefaultConnection"));
+
+        const string sql = """
+            SELECT
+                u.UserId,
+                u.DisplayName AS Name,
+                t.TeacherCode AS Identifier
+            FROM dbo.MT_Teachers t
+            INNER JOIN dbo.MT_Users u ON u.UserId = t.UserId
+            WHERE u.Status = 1
+            ORDER BY t.TeacherCode, u.DisplayName;
+            """;
+
+        var result = await conn.QueryAsync<ProjectTalentPoolItem>(sql);
+        return result.ToList();
+    }
+
     public async Task SoftDeleteProjectAsync(int projectId, int deletedBy)
     {
         using var conn = new SqlConnection(_config.GetConnectionString("DefaultConnection"));
-        var sql = @"
-            UPDATE dbo.MT_Projects
-            SET IsDeleted = 1, DeletedAt = GETDATE()
-            WHERE Id = @Id";
-        await conn.ExecuteAsync(sql, new { Id = projectId });
 
-        // 寫入稽核日誌
-        var auditSql = @"
+        const string sql = """
+            UPDATE dbo.MT_Projects
+            SET IsDeleted = 1,
+                DeletedAt = GETDATE()
+            WHERE Id = @ProjectId;
+            """;
+
+        await conn.ExecuteAsync(sql, new { ProjectId = projectId });
+
+        const string auditSql = """
             INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue)
-            VALUES (@UserId, 2, 2, @TargetId, N'軟刪除專案')";
+            VALUES (@UserId, 2, 2, @TargetId, N'刪除專案');
+            """;
+
         await conn.ExecuteAsync(auditSql, new { UserId = deletedBy, TargetId = projectId });
     }
 
     public async Task<int> CreateProjectAsync(CreateProjectRequest req)
     {
-        // 取得連線
         using var conn = new SqlConnection(_config.GetConnectionString("DefaultConnection"));
         await conn.OpenAsync();
-        
-        using var trans = conn.BeginTransaction();
+
+        using var trans = conn.BeginTransaction(IsolationLevel.Serializable);
+
         try
         {
-            // 1. 自動產生 ProjectCode (例如: P2026001)
+            const string latestCodeSql = """
+                SELECT TOP 1 ProjectCode
+                FROM dbo.MT_Projects WITH (UPDLOCK, HOLDLOCK)
+                WHERE Year = @Year
+                ORDER BY Id DESC;
+                """;
+
+            var year = int.Parse(req.Year);
             var latestCode = await conn.QueryFirstOrDefaultAsync<string>(
-                "SELECT TOP 1 ProjectCode FROM dbo.MT_Projects WHERE Year = @Year ORDER BY Id DESC",
-                new { Year = int.Parse(req.Year) }, transaction: trans);
+                latestCodeSql,
+                new { Year = year },
+                transaction: trans);
 
-            int seq = 1;
-            if (!string.IsNullOrEmpty(latestCode) && latestCode.Length >= 8)
-            {
-                if (int.TryParse(latestCode.Substring(latestCode.Length - 3), out int lastSeq))
-                    seq = lastSeq + 1;
-            }
-            string projectCode = $"P{req.Year}{seq:D3}";
+            var projectCode = BuildNextProjectCode(req.Year, latestCode);
 
-            // 2. 新增 MT_Projects
-            var projectSql = @"
+            const string projectSql = """
                 INSERT INTO dbo.MT_Projects (ProjectCode, Name, Year, School, Status, StartDate, EndDate, CreatedBy)
                 OUTPUT INSERTED.Id
-                VALUES (@ProjectCode, @Name, @Year, @School, 0, @StartDate, @EndDate, @CreatedBy)";
+                VALUES (@ProjectCode, @Name, @Year, @School, 0, @StartDate, @EndDate, @CreatedBy);
+                """;
 
-            DateTime projectStartDate = req.Phases.FirstOrDefault(p => p.PhaseCode == 1)?.StartDate ?? DateTime.Today;
-            DateTime projectEndDate = req.Phases.OrderByDescending(p => p.PhaseCode).FirstOrDefault()?.EndDate ?? DateTime.Today.AddMonths(2);
+            var projectStartDate = req.Phases.FirstOrDefault(p => p.PhaseCode == 1)?.StartDate ?? DateTime.Today;
+            var projectEndDate = req.Phases.OrderByDescending(p => p.PhaseCode).FirstOrDefault()?.EndDate ?? DateTime.Today.AddMonths(2);
 
-            int projectId = await conn.QuerySingleAsync<int>(projectSql, new
-            {
-                ProjectCode = projectCode,
-                Name = req.Name,
-                Year = int.Parse(req.Year),
-                School = req.School,
-                StartDate = projectStartDate,
-                EndDate = projectEndDate,
-                CreatedBy = req.CreatedBy
-            }, transaction: trans);
+            var projectId = await conn.QuerySingleAsync<int>(
+                projectSql,
+                new
+                {
+                    ProjectCode = projectCode,
+                    Name = req.Name,
+                    Year = year,
+                    School = req.School,
+                    StartDate = projectStartDate,
+                    EndDate = projectEndDate,
+                    CreatedBy = req.CreatedBy
+                },
+                transaction: trans);
 
-            // 3. 新增 MT_ProjectPhases
-            var phaseSql = @"
+            const string phaseSql = """
                 INSERT INTO dbo.MT_ProjectPhases (ProjectId, PhaseCode, PhaseName, StartDate, EndDate, SortOrder)
-                VALUES (@ProjectId, @PhaseCode, @Name, @StartDate, @EndDate, @PhaseCode)";
-            
+                VALUES (@ProjectId, @PhaseCode, @Name, @StartDate, @EndDate, @PhaseCode);
+                """;
+
             foreach (var phase in req.Phases)
             {
-                await conn.ExecuteAsync(phaseSql, new
-                {
-                    ProjectId = projectId,
-                    PhaseCode = phase.PhaseCode,
-                    Name = phase.Name,
-                    StartDate = phase.StartDate,
-                    EndDate = phase.EndDate
-                }, transaction: trans);
-            }
-
-            // 4. 新增 MT_ProjectTargets
-            if (req.Targets.Any())
-            {
-                var targetSql = @"
-                    INSERT INTO dbo.MT_ProjectTargets (ProjectId, QuestionTypeId, TargetCount)
-                    VALUES (@ProjectId, @QuestionTypeId, @TargetCount)";
-                
-                foreach (var target in req.Targets)
-                {
-                    await conn.ExecuteAsync(targetSql, new
+                await conn.ExecuteAsync(
+                    phaseSql,
+                    new
                     {
                         ProjectId = projectId,
-                        QuestionTypeId = target.QuestionTypeId,
-                        TargetCount = target.TargetCount
-                    }, transaction: trans);
+                        PhaseCode = phase.PhaseCode,
+                        Name = phase.Name,
+                        StartDate = phase.StartDate,
+                        EndDate = phase.EndDate
+                    },
+                    transaction: trans);
+            }
+
+            if (req.Targets.Any())
+            {
+                const string targetSql = """
+                    INSERT INTO dbo.MT_ProjectTargets (ProjectId, QuestionTypeId, TargetCount)
+                    VALUES (@ProjectId, @QuestionTypeId, @TargetCount);
+                    """;
+
+                foreach (var target in req.Targets)
+                {
+                    await conn.ExecuteAsync(
+                        targetSql,
+                        new
+                        {
+                            ProjectId = projectId,
+                            QuestionTypeId = target.QuestionTypeId,
+                            TargetCount = target.TargetCount
+                        },
+                        transaction: trans);
                 }
             }
 
-            // 5. 新增 MT_ProjectMembers 與關聯 Roles/Quotas
-            var memberSql = @"
+            const string memberSql = """
                 INSERT INTO dbo.MT_ProjectMembers (ProjectId, UserId)
                 OUTPUT INSERTED.Id
-                VALUES (@ProjectId, @UserId)";
-            
-            var roleSql = @"
+                VALUES (@ProjectId, @UserId);
+                """;
+
+            const string roleSql = """
                 INSERT INTO dbo.MT_ProjectMemberRoles (ProjectMemberId, RoleCode)
-                VALUES (@ProjectMemberId, @RoleCode)";
-            
-            var quotaSql = @"
+                VALUES (@ProjectMemberId, @RoleCode);
+                """;
+
+            const string quotaSql = """
                 INSERT INTO dbo.MT_MemberQuotas (ProjectMemberId, QuestionTypeId, QuotaCount)
-                VALUES (@ProjectMemberId, @QuestionTypeId, @QuotaCount)";
+                VALUES (@ProjectMemberId, @QuestionTypeId, @QuotaCount);
+                """;
 
-            // 暫時的角色名稱轉代碼邏輯 (這應該參考 MT_Roles，為求此處順利運作先做 Mapping)
-            byte MapRoleCode(string roleName)
+            foreach (var alloc in req.MemberAllocations.Where(x => x.UserId > 0))
             {
-                return roleName switch
-                {
-                    "命題教師" => 1,
-                    "互審教師" => 2,
-                    "專家學者" => 3,
-                    "總召(專員)" => 4,
-                    _ => 0
-                };
-            }
+                var memberId = await conn.QuerySingleAsync<int>(
+                    memberSql,
+                    new
+                    {
+                        ProjectId = projectId,
+                        UserId = alloc.UserId
+                    },
+                    transaction: trans);
 
-            foreach (var alloc in req.MemberAllocations)
-            {
-                // 先插入 MT_ProjectMembers
-                int memberId = await conn.QuerySingleAsync<int>(memberSql, new
-                {
-                    ProjectId = projectId,
-                    UserId = alloc.UserId
-                }, transaction: trans);
-
-                // 插入 MT_ProjectMemberRoles
-                byte roleCode = MapRoleCode(alloc.RoleName);
+                var roleCode = ResolveRoleCode(alloc.RoleName);
                 if (roleCode > 0)
                 {
-                    await conn.ExecuteAsync(roleSql, new
-                    {
-                        ProjectMemberId = memberId,
-                        RoleCode = roleCode
-                    }, transaction: trans);
+                    await conn.ExecuteAsync(
+                        roleSql,
+                        new
+                        {
+                            ProjectMemberId = memberId,
+                            RoleCode = roleCode
+                        },
+                        transaction: trans);
                 }
 
-                // 插入 MT_MemberQuotas
-                foreach (var quota in alloc.Quotas)
+                foreach (var quota in alloc.Quotas.Where(x => x.QuotaCount > 0))
                 {
-                    if (quota.QuotaCount > 0)
-                    {
-                        await conn.ExecuteAsync(quotaSql, new
+                    await conn.ExecuteAsync(
+                        quotaSql,
+                        new
                         {
                             ProjectMemberId = memberId,
                             QuestionTypeId = quota.QuestionTypeId,
                             QuotaCount = quota.QuotaCount
-                        }, transaction: trans);
-                    }
+                        },
+                        transaction: trans);
                 }
             }
 
-            // 6. 新增 AuditLog
             var jsonValue = JsonSerializer.Serialize(new { ProjectId = projectId, Name = req.Name, ProjectCode = projectCode });
-            var auditSql = @"
+
+            const string auditSql = """
                 INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue)
-                VALUES (@UserId, 0, 2, @TargetId, @NewValue)"; // Action 0:建立 = 0, TargetType 2:Projects = 2
-            
-            await conn.ExecuteAsync(auditSql, new
-            {
-                UserId = req.CreatedBy,
-                TargetId = projectId,
-                NewValue = jsonValue
-            }, transaction: trans);
+                VALUES (@UserId, 0, 2, @TargetId, @NewValue);
+                """;
+
+            await conn.ExecuteAsync(
+                auditSql,
+                new
+                {
+                    UserId = req.CreatedBy,
+                    TargetId = projectId,
+                    NewValue = jsonValue
+                },
+                transaction: trans);
 
             trans.Commit();
             return projectId;
@@ -288,8 +358,66 @@ public class ProjectService : IProjectService
         catch (Exception ex)
         {
             trans.Rollback();
-            _logger.LogError(ex, "儲存專案發生錯誤");
-            throw; // 讓前端接住錯誤並顯示
+            _logger.LogError(ex, "建立專案失敗");
+            throw;
         }
+    }
+
+    private static string BuildNextProjectCode(string rocYear, string? latestCode)
+    {
+        var seq = 1;
+        if (!string.IsNullOrWhiteSpace(latestCode) &&
+            latestCode.Length >= 8 &&
+            int.TryParse(latestCode[^3..], out var lastSeq))
+        {
+            seq = lastSeq + 1;
+        }
+
+        return $"P{rocYear}{seq:D3}";
+    }
+
+    private static byte ResolveRoleCode(string roleName)
+    {
+        return RoleCodeByName.TryGetValue(roleName, out var roleCode)
+            ? roleCode
+            : (byte)0;
+    }
+
+    private static string ResolveRoleName(byte roleCode)
+    {
+        return roleCode switch
+        {
+            PropositionTeacherRoleCode => "命題教師",
+            CrossReviewTeacherRoleCode => "互審教師",
+            ExpertReviewerRoleCode => "專審委員",
+            ChiefCoordinatorRoleCode => "總召(專員)",
+            ExpertScholarRoleCode => "專家學者",
+            _ => "未指定"
+        };
+    }
+
+    private static MemberDetailDto MapMemberDetail(ProjectMemberRow row)
+    {
+        var roleNames = row.RoleCodes
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(code => byte.TryParse(code, out var parsedCode) ? ResolveRoleName(parsedCode) : "未指定")
+            .Distinct()
+            .ToList();
+
+        return new MemberDetailDto
+        {
+            UserId = row.UserId,
+            DisplayName = row.DisplayName,
+            TeacherCode = row.TeacherCode,
+            RoleName = roleNames.Count > 0 ? string.Join(", ", roleNames) : "未指定"
+        };
+    }
+
+    private sealed class ProjectMemberRow
+    {
+        public int UserId { get; set; }
+        public string DisplayName { get; set; } = string.Empty;
+        public string? TeacherCode { get; set; }
+        public string RoleCodes { get; set; } = string.Empty;
     }
 }

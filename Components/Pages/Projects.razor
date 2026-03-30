@@ -66,18 +66,39 @@
                 @{ var filtered = GetFilteredProjects(); }
                 @if (filtered.Count == 0)
                 {
-                    <div class="p-6 text-center text-sm text-gray-400">
+                    <div class="flex flex-col items-center justify-center py-12 px-6">
                         @if (allProjects.Count == 0)
                         {
-                            <div class="flex flex-col items-center gap-2 py-8">
-                                <i class="fa-solid fa-folder-open text-4xl text-gray-300"></i>
-                                <p class="font-medium">目前尚無專案梯次</p>
-                                <p class="text-xs">請點擊右上方「新增梯次」來建立第一批資料。</p>
+                            <!-- 全空狀態：歡迎風格 -->
+                            <div class="w-20 h-20 rounded-full bg-gradient-to-br from-morandi/20 to-sage/20 flex items-center justify-center mb-4 animate-[bounce_3s_ease-in-out_infinite]">
+                                <i class="fa-solid fa-folder-plus text-3xl text-morandi/60"></i>
                             </div>
+                            <p class="text-sm font-bold text-gray-500 mb-1">目前尚無專案梯次</p>
+                            <p class="text-xs text-gray-400 mb-4 text-center leading-relaxed">
+                                還沒有建立任何命題專案，<br/>點擊下方按鈕開始第一個梯次吧！
+                            </p>
+                            <button type="button" @onclick="OpenNewProjectModal"
+                                class="cursor-pointer px-4 py-2 bg-sage text-white rounded-lg text-xs font-bold hover:bg-[#7b9c81] transition-all shadow-sm flex items-center gap-1.5">
+                                <i class="fa-solid fa-plus"></i> 建立第一個梯次
+                            </button>
                         }
                         else
                         {
-                            <span>查無命題專案</span>
+                            <!-- 搜尋/篩選後查無結果 -->
+                            <div class="w-16 h-16 rounded-full bg-gradient-to-br from-terracotta/10 to-amber-100 flex items-center justify-center mb-4">
+                                <i class="fa-solid fa-magnifying-glass text-2xl text-terracotta/50"></i>
+                            </div>
+                            <p class="text-sm font-bold text-gray-500 mb-1">找不到符合的專案</p>
+                            <p class="text-xs text-gray-400 text-center leading-relaxed">
+                                目前的搜尋條件或篩選沒有對應的專案，<br/>請嘗試調整關鍵字或切換篩選條件。
+                            </p>
+                            @if (!string.IsNullOrWhiteSpace(searchKeyword))
+                            {
+                                <button type="button" @onclick="() => searchKeyword = string.Empty"
+                                    class="cursor-pointer mt-3 px-3 py-1.5 bg-white border border-gray-200 text-gray-500 rounded-lg text-xs font-medium hover:bg-gray-50 transition-colors flex items-center gap-1.5">
+                                    <i class="fa-solid fa-xmark"></i> 清除搜尋
+                                </button>
+                            }
                         }
                     </div>
                 }
@@ -217,7 +238,8 @@
                                 </h3>
                                 @if (selectedDetail.Targets.Count == 0)
                                 {
-                                    <p class="text-sm text-gray-400 text-center py-4">尚未設定題型目標</p>
+                                    <EmptyState IconClass="fa-bullseye" Message="尚未設定題型目標"
+                                        SubMessage="請透過編輯專案來設定各題型的目標數量。" Compact="true" />
                                 }
                                 else
                                 {
@@ -243,7 +265,8 @@
                                 </div>
                                 @if (selectedDetail.Members.Count == 0)
                                 {
-                                    <p class="text-sm text-gray-400 text-center py-4">尚未指派任何人員。</p>
+                                    <EmptyState IconClass="fa-user-plus" Message="尚未指派人員"
+                                        SubMessage="請先至「教師管理系統」建立教師名單，再透過編輯專案指派人員。" Compact="true" />
                                 }
                                 else
                                 {
@@ -411,7 +434,7 @@
                                             class="w-4 h-4 text-morandi rounded border-gray-300 focus:ring-morandi mt-0.5 cursor-pointer" />
                                         <div class="flex flex-col w-20">
                                             <span class="text-sm font-bold text-gray-700">@person.Name</span>
-                                            <span class="text-[10px] text-gray-500">@person.Id</span>
+                                            <span class="text-[10px] text-gray-500">@person.Identifier</span>
                                         </div>
                                     </label>
                                     <div class="flex-grow">
@@ -591,6 +614,7 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadProjectsAsync();
+        await LoadTalentPoolAsync();
         ResetForm();
     }
 
@@ -611,6 +635,28 @@
     // ──── 列表篩選邏輯 ────
 
     /// <summary>依關鍵字與狀態篩選專案</summary>
+    private async Task LoadTalentPoolAsync()
+    {
+        try
+        {
+            var members = await ProjectService.GetTalentPoolAsync();
+            talentPool = members
+                .Select(member => new PersonItem
+                {
+                    Id = member.Identifier,
+                    UserId = member.UserId,
+                    Name = member.Name,
+                    Identifier = member.Identifier
+                })
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入教師管理系統失敗");
+            talentPool = new();
+        }
+    }
+
     private List<ProjectListItem> GetFilteredProjects()
     {
         IEnumerable<ProjectListItem> result = allProjects;
@@ -652,12 +698,12 @@
     }
 
     /// <summary>軟刪除專案（SweetAlert 確認後執行）</summary>
-    private async Task HandleDeleteProject()
-    {
+    private Task HandleDeleteProjectLegacy() => Task.CompletedTask;
+    /*
         if (selectedDetail == null) return;
 
-        var confirmed = await JS.InvokeAsync<bool>("eval",
-            "Swal.fire({" +
+        var confirmed = await JS.InvokeAsync<bool>("swalInterop.confirm", new
+        {
             "title:'確定刪除專案？'," +
             $"text:'刪除後專案「{selectedDetail.Name}」將不會再出現在列表中。'," +
             "icon:'warning'," +
@@ -687,7 +733,7 @@
         {
             await JS.InvokeVoidAsync("Swal.fire", "刪除失敗", $"錯誤：{ex.Message}", "error");
         }
-    }
+    */
 
     /// <summary>依狀態碼取得對應 Badge 文字與樣式</summary>
     private static (string Text, string CssClass) GetStatusBadge(byte status) => status switch
@@ -773,7 +819,7 @@
     {
         if (string.IsNullOrWhiteSpace(personSearchKeyword)) return talentPool;
         var kw = personSearchKeyword.Trim().ToLower();
-        return talentPool.Where(p => p.Name.ToLower().Contains(kw) || p.Id.ToLower().Contains(kw)).ToList();
+        return talentPool.Where(p => p.Name.ToLower().Contains(kw) || p.Identifier.ToLower().Contains(kw)).ToList();
     }
 
     /// <summary>勾選/取消勾選人員 → 同步更新配額表</summary>
@@ -796,7 +842,7 @@
 
         foreach (var p in talentPool.Where(p => p.IsSelected && p.SelectedRole == "命題教師"))
         {
-            var existing = allocationTeachers.FirstOrDefault(a => a.Id == p.Id);
+            var existing = allocationTeachers.FirstOrDefault(a => a.UserId == p.UserId);
             if (existing != null)
             {
                 newList.Add(existing); // 保留舊配額
@@ -806,7 +852,9 @@
                 newList.Add(new AllocationItem
                 {
                     Id = p.Id,
+                    UserId = p.UserId,
                     Name = p.Name,
+                    Identifier = p.Identifier,
                     Quotas = new int[questionTypes.Count]
                 });
             }
@@ -879,8 +927,8 @@
         showProjectModal = true;
     }
 
-    private async Task SaveProject()
-    {
+    private Task SaveProjectLegacy() => Task.CompletedTask;
+    /*
         // 1. 必填驗證：Year 與 Name
         if (string.IsNullOrWhiteSpace(formModel.Year) || string.IsNullOrWhiteSpace(formModel.Name))
         {
@@ -1000,9 +1048,188 @@
         {
             await JS.InvokeVoidAsync("Swal.fire", "系統錯誤", $"新增專案失敗：{ex.Message}", "error");
         }
-    }
+    */
 
     // ──── 內部模型類別 ────
+
+    private async Task HandleDeleteProject()
+    {
+        if (selectedDetail == null)
+        {
+            return;
+        }
+
+        var confirmed = await JS.InvokeAsync<bool>("swalInterop.confirm", new
+        {
+            title = "確認刪除專案？",
+            text = $"刪除「{selectedDetail.Name}」後將無法復原。",
+            icon = "warning",
+            showCancelButton = true,
+            confirmButtonColor = "#ef4444",
+            cancelButtonColor = "#6B8EAD",
+            confirmButtonText = "確認刪除",
+            cancelButtonText = "取消"
+        });
+
+        if (!confirmed)
+        {
+            return;
+        }
+
+        try
+        {
+            var userId = await GetCurrentUserIdAsync();
+            if (userId is null)
+            {
+                return;
+            }
+
+            await ProjectService.SoftDeleteProjectAsync(selectedDetail.Id, userId.Value);
+            await ShowAlertAsync("success", "已刪除", "專案已成功移除。");
+
+            selectedDetail = null;
+            selectedProjectId = null;
+            await LoadProjectsAsync();
+        }
+        catch (Exception ex)
+        {
+            await ShowAlertAsync("error", "刪除失敗", $"錯誤：{ex.Message}");
+        }
+    }
+
+    private async Task SaveProject()
+    {
+        if (string.IsNullOrWhiteSpace(formModel.Year) || string.IsNullOrWhiteSpace(formModel.Name))
+        {
+            await ShowAlertAsync("warning", "驗證未通過", "「專案年度」與「專案名稱」為必填項目");
+            return;
+        }
+
+        if (stages[0].Start == null || stages[0].End == null)
+        {
+            await ShowAlertAsync("warning", "驗證未通過", "請設定產學計畫區間的起訖日期");
+            return;
+        }
+
+        for (var i = 0; i < questionTypes.Count; i++)
+        {
+            var target = questionTypes[i].Count ?? 0;
+            if (target > 0 && GetAllocatedSum(i) != target)
+            {
+                await ShowAlertAsync("warning", "驗證未通過", "題型數量的分配不符合專案需求題數，請重新配置");
+                return;
+            }
+        }
+
+        var currentUserId = await GetCurrentUserIdAsync();
+        if (currentUserId is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var req = new CreateProjectRequest
+            {
+                Year = formModel.Year.Trim(),
+                Name = formModel.Name.Trim(),
+                School = formModel.School?.Trim(),
+                CreatedBy = currentUserId.Value
+            };
+
+            for (var i = 0; i < stages.Length; i++)
+            {
+                if (stages[i].Start.HasValue && stages[i].End.HasValue)
+                {
+                    req.Phases.Add(new ProjectPhaseDto
+                    {
+                        PhaseCode = i + 1,
+                        Name = stages[i].Name,
+                        StartDate = stages[i].Start!.Value,
+                        EndDate = stages[i].End!.Value
+                    });
+                }
+            }
+
+            for (var i = 0; i < questionTypes.Count; i++)
+            {
+                var count = questionTypes[i].Count ?? 0;
+                if (count > 0)
+                {
+                    req.Targets.Add(new ProjectTargetDto
+                    {
+                        QuestionTypeId = i + 1,
+                        TargetCount = count
+                    });
+                }
+            }
+
+            foreach (var person in talentPool.Where(x => x.IsSelected && x.UserId > 0))
+            {
+                var allocDto = new ProjectMemberAllocationDto
+                {
+                    UserId = person.UserId,
+                    RoleName = person.SelectedRole
+                };
+
+                if (person.SelectedRole == "命題教師")
+                {
+                    var allocation = allocationTeachers.FirstOrDefault(a => a.UserId == person.UserId);
+                    if (allocation != null)
+                    {
+                        for (var i = 0; i < allocation.Quotas.Length; i++)
+                        {
+                            if (allocation.Quotas[i] > 0)
+                            {
+                                allocDto.Quotas.Add(new ProjectMemberQuotaDto
+                                {
+                                    QuestionTypeId = i + 1,
+                                    QuotaCount = allocation.Quotas[i]
+                                });
+                            }
+                        }
+                    }
+                }
+
+                req.MemberAllocations.Add(allocDto);
+            }
+
+            await ProjectService.CreateProjectAsync(req);
+            await ShowAlertAsync("success", "新增成功", "專案與所有設定已寫入資料庫！");
+
+            showProjectModal = false;
+            await LoadProjectsAsync();
+        }
+        catch (Exception ex)
+        {
+            await ShowAlertAsync("error", "系統錯誤", $"新增專案失敗：{ex.Message}");
+        }
+    }
+
+    private async Task<int?> GetCurrentUserIdAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var userIdStr = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (int.TryParse(userIdStr, out var userId) && userId > 0)
+        {
+            return userId;
+        }
+
+        await ShowAlertAsync("error", "登入狀態已失效", "請重新登入後再操作。");
+        return null;
+    }
+
+    private Task ShowAlertAsync(string icon, string title, string text)
+    {
+        return JS.InvokeVoidAsync("swalInterop.fire", new
+        {
+            icon,
+            title,
+            text,
+            confirmButtonColor = "#6B8EAD"
+        }).AsTask();
+    }
 
     private sealed class ProjectFormModel
     {
@@ -1029,7 +1256,9 @@
     private sealed class PersonItem
     {
         public string Id { get; set; } = "";
+        public int UserId { get; set; }
         public string Name { get; set; } = "";
+        public string Identifier { get; set; } = "";
         public bool IsSelected { get; set; }
         public string SelectedRole { get; set; } = "";
     }
@@ -1037,7 +1266,9 @@
     private sealed class AllocationItem
     {
         public string Id { get; set; } = "";
+        public int UserId { get; set; }
         public string Name { get; set; } = "";
+        public string Identifier { get; set; } = "";
         public int[] Quotas { get; set; } = [];
     }
 }
