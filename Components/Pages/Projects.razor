@@ -30,7 +30,7 @@
                     <i class="fa-solid fa-box-archive text-morandi"></i> 命題專案(梯次)管理
                 </h1>
             </div>
-            <button type="button" @onclick="() => showProjectModal = true"
+            <button type="button" @onclick="OpenNewProjectModal"
                 class="cursor-pointer px-5 py-2.5 bg-sage text-white rounded-lg text-sm font-medium hover:bg-[#7b9c81] transition-all shadow-sm focus:outline-none flex items-center gap-2">
                 <i class="fa-solid fa-plus"></i> 新增梯次
             </button>
@@ -61,7 +61,6 @@
 
         <!-- Right Panel: Project Details -->
         <div class="hidden lg:flex flex-col w-full lg:w-2/3 xl:w-3/4 bg-[var(--color-oatmeal)] overflow-hidden">
-            <!-- Fallback empty state -->
             <div class="flex-grow flex flex-col items-center justify-center text-gray-400 p-8">
                 <i class="fa-solid fa-folder-open text-6xl mb-4 text-gray-300"></i>
                 <p class="text-lg font-medium">請由左側列表選擇專案，或建立新梯次。</p>
@@ -71,10 +70,12 @@
 </div>
 
 <!-- Slide-over panel: 新增 / 編輯專案 -->
-<CustomModal @bind-IsVisible="showProjectModal" Type="CustomModal.ModalType.SlideOver" Title="新增專案 (梯次)" CloseOnBackdropClick="false">
+<CustomModal @bind-IsVisible="showProjectModal" Type="CustomModal.ModalType.SlideOver" Title="新增專案 (梯次)"
+    MaxWidth="max-w-2xl" HeaderIcon="fa-solid fa-layer-group" CloseOnBackdropClick="true">
     <ChildContent>
         <form class="space-y-8" @onsubmit="SaveProject">
-            <!-- 區塊 1: 基本資料 -->
+
+            <!-- ═══ 區塊 1: 基本資料 ═══ -->
             <div class="space-y-4">
                 <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
                     <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span>
@@ -83,63 +84,252 @@
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm font-medium mb-1 text-gray-700">所屬年度 <span class="text-red-500">*</span></label>
-                        <input type="text" required placeholder="如: 115" class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:outline-none text-sm">
+                        <input type="text" @bind="formModel.Year" required placeholder="如: 115"
+                            class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:outline-none text-sm">
                     </div>
                     <div class="col-span-2">
                         <label class="block text-sm font-medium mb-1 text-gray-700">專案名稱 <span class="text-red-500">*</span></label>
-                        <input type="text" required placeholder="如: 春季全民中檢" class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:outline-none text-sm">
+                        <input type="text" @bind="formModel.Name" required placeholder="如: 春季全民中檢"
+                            class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:outline-none text-sm">
                     </div>
                     <div class="col-span-2">
                         <label class="block text-sm font-medium mb-1 text-gray-700">合作學校 (非必填)</label>
-                        <input type="text" placeholder="留白表示為本局自辦梯次" class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:outline-none text-sm">
+                        <input type="text" @bind="formModel.School" placeholder="留白表示為本局自辦梯次"
+                            class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:outline-none text-sm">
                     </div>
                 </div>
             </div>
 
-            <!-- 區塊 2: 8大階段連動時程 -->
+            <!-- ═══ 區塊 2: 8 大階段連動時程 ═══ -->
             <div class="space-y-4 pt-2">
-                <div class="flex justify-between items-end border-b border-morandi/30 pb-2 mb-4">
+                <div class="border-b border-morandi/30 pb-2 mb-2">
                     <h3 class="text-base font-bold text-gray-800 flex items-center gap-2">
                         <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">2</span>
                         時程規劃設定
                     </h3>
                 </div>
-                <!-- Empty list for dynamic dates since MVP frontend -->
-                <div class="space-y-2 text-center text-gray-400 py-6 bg-gray-50 rounded border border-gray-100 text-sm">
-                    時程資料將於後端介接後產生...
+
+                <!-- 操作提示 -->
+                <div class="text-xs text-morandi bg-blue-50/50 p-2 rounded border border-blue-100 font-medium">
+                    <i class="fa-solid fa-lightbulb mr-1"></i>
+                    只要設定第一階段「產學計畫區間」的「開始日」，系統就自動推算半年內的 7 階段日程！<br />
+                    此外，手動變更任一階段日期的「結束日」，皆會自動將「下一階段的開始日」連動推進為隔天。
+                </div>
+
+                <!-- 8 階段日期列表 -->
+                <div class="space-y-2">
+                    @for (int i = 0; i < stages.Length; i++)
+                    {
+                        var idx = i;
+                        var isMain = idx == 0;
+                        var bgClass = isMain ? "bg-morandi/5 border-morandi/20" : "bg-white border-gray-200";
+                        var numClass = isMain ? "bg-morandi" : "bg-gray-300";
+
+                        <div class="@bgClass border p-3 rounded flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 transition-colors">
+                            <div class="w-full sm:w-5/12 flex items-center gap-2">
+                                <span class="w-5 h-5 rounded-full @numClass text-white flex justify-center items-center text-xs flex-shrink-0">@(idx + 1)</span>
+                                <div class="flex flex-col">
+                                    <span class="font-bold text-sm text-slate-main">@stages[idx].Name</span>
+                                    <span class="text-[10px] text-gray-500 leading-none mt-0.5">@stages[idx].Hint</span>
+                                </div>
+                            </div>
+                            <div class="flex-grow flex items-center gap-2 w-full">
+                                <input type="date" value="@stages[idx].Start?.ToString("yyyy-MM-dd")"
+                                    @onchange="(e) => OnStageStartChanged(idx, e)"
+                                    class="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-morandi" />
+                                <span class="text-gray-400 text-xs text-center"><i class="fa-solid fa-arrow-right"></i></span>
+                                <input type="date" value="@stages[idx].End?.ToString("yyyy-MM-dd")"
+                                    @onchange="(e) => OnStageEndChanged(idx, e)"
+                                    class="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-morandi" />
+                            </div>
+                        </div>
+                    }
                 </div>
             </div>
 
-            <!-- 區塊 3: 目標題數與配額 -->
+            <!-- ═══ 區塊 3: 目標題數與人員指派 ═══ -->
             <div class="space-y-4 pt-2">
                 <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
                     <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">3</span>
                     目標題數與人員指派
                 </h3>
+
+                <!-- 專案需求題數 -->
                 <div class="bg-gray-50 p-3 rounded border border-gray-200">
                     <label class="block text-sm font-bold text-gray-700 mb-2">專案需求題數</label>
-                    <div class="text-center text-gray-400 py-2 text-sm">
-                        尚無題型資料...
+                    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-sm">
+                        @foreach (var qt in questionTypes)
+                        {
+                            <div>
+                                <label class="text-[10px] text-gray-500 mb-0.5 block truncate" title="@qt.Label">@qt.Label</label>
+                                <input type="number" min="0" @bind="qt.Count" placeholder="0"
+                                    class="w-full px-1 py-1 border border-gray-300 rounded focus:outline-none text-sm text-center" />
+                            </div>
+                        }
                     </div>
                 </div>
+
+                <!-- 指派人員（來源：教師管理系統人才庫） -->
                 <div>
-                    <label class="block text-sm font-bold text-gray-700 mb-2">指派人員 (命審題教師/委員列表)</label>
-                    <div class="text-center text-gray-400 py-6 bg-gray-50 rounded border border-gray-100 text-sm">
-                        尚無人員資料...
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="block text-sm font-bold text-gray-700">指派人員 (命審題教師/委員列表)</label>
+                    </div>
+                    <!-- 搜尋框 -->
+                    <div class="relative mb-2">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-2 text-gray-400 text-sm"></i>
+                        <input type="text" @bind="personSearchKeyword" @bind:event="oninput"
+                            placeholder="搜尋姓名或編號..."
+                            class="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-morandi" />
+                    </div>
+                    <!-- 人員列表容器 -->
+                    <div class="border border-gray-300 rounded h-56 overflow-y-auto custom-scroll bg-white divide-y divide-gray-100">
+                        @{ var filteredPersons = GetFilteredPersons(); }
+                        @if (filteredPersons.Count == 0)
+                        {
+                            <div class="flex flex-col items-center justify-center h-full text-gray-400">
+                                <i class="fa-solid fa-users-slash text-3xl mb-2 text-gray-300"></i>
+                                <p class="text-sm font-medium">尚無人員資料</p>
+                                <p class="text-[10px] mt-1">請先至「教師管理系統」新增教師名單</p>
+                            </div>
+                        }
+                        else
+                        {
+                            @foreach (var person in filteredPersons)
+                            {
+                                <div class="flex items-start gap-3 p-3 hover:bg-gray-50 transition-colors">
+                                    <label class="flex items-center gap-3 cursor-pointer mt-1">
+                                        <input type="checkbox" checked="@person.IsSelected"
+                                            @onchange="() => TogglePersonSelection(person)"
+                                            class="w-4 h-4 text-morandi rounded border-gray-300 focus:ring-morandi mt-0.5 cursor-pointer" />
+                                        <div class="flex flex-col w-20">
+                                            <span class="text-sm font-bold text-gray-700">@person.Name</span>
+                                            <span class="text-[10px] text-gray-500">@person.Id</span>
+                                        </div>
+                                    </label>
+                                    <div class="flex-grow">
+                                        <select @bind="person.SelectedRole" disabled="@(!person.IsSelected)"
+                                            class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:ring-morandi focus:border-morandi bg-white disabled:bg-gray-100 disabled:text-gray-400">
+                                            <option value="">請選派主要身分...</option>
+                                            @foreach (var role in availableRoles)
+                                            {
+                                                <option value="@role">@role</option>
+                                            }
+                                        </select>
+                                    </div>
+                                </div>
+                            }
+                        }
+                    </div>
+                    <p class="text-[10px] text-gray-400 mt-1 flex justify-between">
+                        <span>人員清單擷取自「教師管理系統」人才庫</span>
+                        <span>身份別來源為「角色與權限管理」</span>
+                    </p>
+                </div>
+            </div>
+
+            <!-- ═══ 區塊 4: 人員命題數量配置 ═══ -->
+            <div class="space-y-4 pt-2 border-t border-gray-100">
+                <div class="flex justify-between items-center border-b border-morandi/30 pb-2">
+                    <h3 class="text-base font-bold text-gray-800 flex items-center gap-2">
+                        <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">4</span>
+                        人員命題數量配置
+                    </h3>
+                    <button type="button" @onclick="HandleAutoDistribute"
+                        class="text-xs bg-white border border-morandi text-morandi px-3 py-1 rounded hover:bg-blue-50 transition-colors font-bold flex items-center gap-1 shadow-sm cursor-pointer">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> 依命題教師人數平均分配
+                    </button>
+                </div>
+
+                <p class="text-xs text-gray-500 mb-2">
+                    <i class="fa-solid fa-circle-info text-morandi mr-1"></i>
+                    系統會自動帶入具備「命題教師」身分的人員。配額總數須與「專案需求題數」相符。
+                </p>
+
+                <!-- 教師配額列表 -->
+                <div class="space-y-3 max-h-96 overflow-y-auto custom-scroll pr-2 -mr-2">
+                    @if (allocationTeachers.Count == 0)
+                    {
+                        <div class="text-sm text-center text-gray-400 py-4 bg-gray-50 rounded border border-gray-100">
+                            請先由上方勾選「命題教師」以進行數量配置...
+                        </div>
+                    }
+                    else
+                    {
+                        @for (int i = 0; i < allocationTeachers.Count; i++)
+                        {
+                            var idx = i;
+                            var teacher = allocationTeachers[idx];
+                            <div class="bg-white border border-gray-200 rounded p-3 flex flex-col md:flex-row gap-4 items-start md:items-center">
+                                <div class="flex items-center gap-2 w-full md:w-32 flex-shrink-0">
+                                    <div class="w-8 h-8 rounded-full bg-morandi text-white flex items-center justify-center font-bold text-xs">@(idx + 1)</div>
+                                    <div class="font-bold text-sm text-slate-main truncate">@teacher.Name</div>
+                                </div>
+                                <div class="flex-grow grid grid-cols-4 sm:grid-cols-7 gap-2 w-full">
+                                    @for (int j = 0; j < questionTypes.Count; j++)
+                                    {
+                                        var qIdx = j;
+                                        <div>
+                                            <label class="block text-[10px] text-gray-500 mb-0.5 truncate" title="@questionTypes[qIdx].Label">@questionTypes[qIdx].Label</label>
+                                            <input type="number" min="0" value="@teacher.Quotas[qIdx]"
+                                                @onchange="(e) => OnQuotaChanged(idx, qIdx, e)"
+                                                class="w-full px-1 py-1 border border-gray-300 rounded text-xs text-center focus:ring-1 focus:ring-morandi focus:outline-none" />
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+
+                <!-- 分配狀態檢核 -->
+                <div class="bg-gray-50 rounded border border-gray-200 p-3 mt-4">
+                    <div class="text-[11px] font-bold text-gray-500 mb-2 flex items-center justify-between">
+                        <span>分配狀態檢核：(已分配 / 需分配)</span>
+                        <span>@GetValidationMessage()</span>
+                    </div>
+                    <div class="grid grid-cols-4 sm:grid-cols-7 gap-1">
+                        @for (int i = 0; i < questionTypes.Count; i++)
+                        {
+                            var qt = questionTypes[i];
+                            var target = qt.Count ?? 0;
+                            var allocated = GetAllocatedSum(i);
+                            var isExact = allocated == target;
+                            var bgColor = isExact
+                                ? (target > 0 ? "bg-sage/10 border-sage/30" : "bg-gray-100 border-gray-200")
+                                : "bg-terracotta/10 border-terracotta/50";
+                            var textColor = isExact
+                                ? (target > 0 ? "text-sage" : "text-gray-400")
+                                : "text-terracotta";
+
+                            <div class="flex flex-col items-center justify-center border rounded p-1 @bgColor">
+                                <span class="text-[9px] text-gray-500 mb-0.5 whitespace-nowrap overflow-hidden text-ellipsis w-full text-center">@qt.Label.Replace("題", "")</span>
+                                <span class="text-xs font-bold flex items-center gap-1 @textColor">
+                                    @allocated / @target
+                                    @if (isExact && target > 0)
+                                    {
+                                        <i class="fa-solid fa-check text-[9px]"></i>
+                                    }
+                                    else if (!isExact && target > 0)
+                                    {
+                                        <i class="fa-solid fa-xmark text-[9px]"></i>
+                                    }
+                                </span>
+                            </div>
+                        }
                     </div>
                 </div>
             </div>
-            
+
             <button type="submit" class="hidden" id="submitBtn"></button>
         </form>
     </ChildContent>
     <FooterContent>
         <button type="button" @onclick="() => showProjectModal = false"
-            class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors shadow-sm">
+            class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors focus:outline-none shadow-sm">
             取消
         </button>
         <button type="button" @onclick="TriggerSubmit"
-            class="cursor-pointer px-6 py-2 bg-morandi text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] transition-colors shadow-sm flex items-center gap-2">
+            class="cursor-pointer px-6 py-2 bg-morandi text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] transition-colors focus:outline-none shadow-sm flex items-center gap-2">
             <i class="fa-solid fa-floppy-disk"></i> 儲存專案
         </button>
     </FooterContent>
@@ -147,15 +337,267 @@
 
 @code {
     private bool showProjectModal = false;
+    private string personSearchKeyword = "";
+
+    // --- 表單模型 ---
+    private ProjectFormModel formModel = new();
+
+    // --- 8 階段時程定義 ---
+    private StageItem[] stages = [];
+
+    // --- 7 種題型 ---
+    private List<QuestionTypeTarget> questionTypes = new()
+    {
+        new() { Key = "single",      Label = "一般單選題" },
+        new() { Key = "select",      Label = "精選單選題" },
+        new() { Key = "readGroup",   Label = "閱讀題組" },
+        new() { Key = "longText",    Label = "長文題目" },
+        new() { Key = "shortGroup",  Label = "短文題組" },
+        new() { Key = "listen",      Label = "聽力測驗" },
+        new() { Key = "listenGroup", Label = "聽力題組" },
+    };
+
+    // --- 可選身份 ---
+    private static readonly string[] availableRoles = ["命題教師", "互審教師", "專審委員", "總召(專員)", "專家學者"];
+
+    // --- 人才庫（來源：教師管理系統，目前尚未建構 TeacherService，故為空） ---
+    private List<PersonItem> talentPool = new();
+
+    // --- 命題教師配額表（區塊 4：僅含被勾選且身分為「命題教師」的人員） ---
+    private List<AllocationItem> allocationTeachers = new();
+
+    protected override void OnInitialized()
+    {
+        // TODO: 未來由 TeacherService 注入人才庫資料
+        // talentPool = await TeacherService.GetAllTeachersAsync();
+        ResetForm();
+    }
+
+    private void ResetForm()
+    {
+        formModel = new();
+        personSearchKeyword = "";
+        foreach (var qt in questionTypes) qt.Count = null;
+        foreach (var p in talentPool) { p.IsSelected = false; p.SelectedRole = ""; }
+        allocationTeachers.Clear();
+        InitStages();
+    }
+
+    /// <summary>初始化 8 階段時程（空白日期）</summary>
+    private void InitStages()
+    {
+        stages =
+        [
+            new() { Name = "產學計畫區間", Hint = "［預設約100天］" },
+            new() { Name = "命題階段",     Hint = "［預設30天］［倒數5天提醒］" },
+            new() { Name = "交互審題",     Hint = "［命題階段後7天］" },
+            new() { Name = "互審修題",     Hint = "［交互審題後7天］［倒數5天提醒］" },
+            new() { Name = "專家審題",     Hint = "［互審修題後14天］" },
+            new() { Name = "專審修題",     Hint = "［專家審題後14天］［倒數5天提醒］" },
+            new() { Name = "總召審題",     Hint = "［專審修題後14天］" },
+            new() { Name = "總召修題",     Hint = "［總召審題後14天］［倒數5天提醒］" },
+        ];
+    }
+
+    // 預設各階段天數
+    private static readonly int[] DefaultDays = [100, 30, 7, 7, 14, 14, 14, 14];
+
+    // ──── 時程連動引擎 ────
+
+    /// <summary>第一階段開始日變更時，自動推算後續所有階段</summary>
+    private void OnStageStartChanged(int idx, ChangeEventArgs e)
+    {
+        if (!DateTimeOffset.TryParse(e.Value?.ToString(), out var dt)) return;
+        var date = dt.Date;
+        stages[idx].Start = date;
+
+        if (idx == 0)
+        {
+            // 產學計畫區間的結束日自動設為所有階段結束後
+            var cursor = date.AddDays(14); // 命題階段在產學開始後 14 天
+            for (int i = 1; i < stages.Length; i++)
+            {
+                stages[i].Start = cursor;
+                stages[i].End = cursor.AddDays(DefaultDays[i]);
+                cursor = stages[i].End!.Value.AddDays(1);
+            }
+            // 產學計畫結束日 = 最後一個階段的結束日
+            stages[0].End = stages[^1].End;
+        }
+    }
+
+    /// <summary>結束日變更 → 下一階段的開始日自動推進為隔天</summary>
+    private void OnStageEndChanged(int idx, ChangeEventArgs e)
+    {
+        if (!DateTimeOffset.TryParse(e.Value?.ToString(), out var dt)) return;
+        stages[idx].End = dt.Date;
+
+        if (idx + 1 < stages.Length)
+        {
+            stages[idx + 1].Start = dt.Date.AddDays(1);
+        }
+    }
+
+    // ──── 人員指派 ────
+
+    /// <summary>依搜尋關鍵字過濾人員列表</summary>
+    private List<PersonItem> GetFilteredPersons()
+    {
+        if (string.IsNullOrWhiteSpace(personSearchKeyword)) return talentPool;
+        var kw = personSearchKeyword.Trim().ToLower();
+        return talentPool.Where(p => p.Name.ToLower().Contains(kw) || p.Id.ToLower().Contains(kw)).ToList();
+    }
+
+    /// <summary>勾選/取消勾選人員 → 同步更新配額表</summary>
+    private void TogglePersonSelection(PersonItem person)
+    {
+        person.IsSelected = !person.IsSelected;
+
+        if (!person.IsSelected)
+        {
+            person.SelectedRole = "";
+        }
+
+        RebuildAllocationTeachers();
+    }
+
+    /// <summary>重建「命題教師」配額列表（保留已填入的配額數值）</summary>
+    private void RebuildAllocationTeachers()
+    {
+        var newList = new List<AllocationItem>();
+
+        foreach (var p in talentPool.Where(p => p.IsSelected && p.SelectedRole == "命題教師"))
+        {
+            var existing = allocationTeachers.FirstOrDefault(a => a.Id == p.Id);
+            if (existing != null)
+            {
+                newList.Add(existing); // 保留舊配額
+            }
+            else
+            {
+                newList.Add(new AllocationItem
+                {
+                    Id = p.Id,
+                    Name = p.Name,
+                    Quotas = new int[questionTypes.Count]
+                });
+            }
+        }
+
+        allocationTeachers = newList;
+    }
+
+    // ──── 配額引擎 ────
+
+    /// <summary>配額數值變更</summary>
+    private void OnQuotaChanged(int teacherIdx, int qtIdx, ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var val))
+            allocationTeachers[teacherIdx].Quotas[qtIdx] = Math.Max(0, val);
+        else
+            allocationTeachers[teacherIdx].Quotas[qtIdx] = 0;
+    }
+
+    /// <summary>平均分配配額給所有命題教師</summary>
+    private void HandleAutoDistribute()
+    {
+        // 重建確保名單最新
+        RebuildAllocationTeachers();
+
+        if (allocationTeachers.Count == 0) return;
+
+        var count = allocationTeachers.Count;
+
+        for (int q = 0; q < questionTypes.Count; q++)
+        {
+            var target = questionTypes[q].Count ?? 0;
+            var baseQuota = target / count;
+            var remainder = target % count;
+
+            for (int t = 0; t < count; t++)
+            {
+                allocationTeachers[t].Quotas[q] = baseQuota + (t < remainder ? 1 : 0);
+            }
+        }
+    }
+
+    /// <summary>計算某題型的已分配總和</summary>
+    private int GetAllocatedSum(int qtIdx)
+    {
+        return allocationTeachers.Sum(t => t.Quotas[qtIdx]);
+    }
+
+    /// <summary>驗證訊息</summary>
+    private MarkupString GetValidationMessage()
+    {
+        if (allocationTeachers.Count == 0)
+            return new("<span class=\"text-gray-400\">尚未分配</span>");
+
+        for (int i = 0; i < questionTypes.Count; i++)
+        {
+            var target = questionTypes[i].Count ?? 0;
+            if (target > 0 && GetAllocatedSum(i) != target)
+                return new("<span class=\"text-terracotta bg-terracotta/10 px-2 py-0.5 rounded font-bold\"><i class=\"fa-solid fa-triangle-exclamation\"></i> 檢查未通過，數量不符</span>");
+        }
+
+        return new("<span class=\"text-sage bg-sage/10 px-2 py-0.5 rounded font-bold\"><i class=\"fa-solid fa-circle-check\"></i> 數量驗證正確</span>");
+    }
+
+    // ──── Modal 控制 ────
+
+    private void OpenNewProjectModal()
+    {
+        ResetForm();
+        showProjectModal = true;
+    }
 
     private void TriggerSubmit()
     {
-        // Actually save logic goes here
+        // TODO: 真正的儲存邏輯（呼叫 ProjectService）
         showProjectModal = false;
     }
 
     private void SaveProject()
     {
         showProjectModal = false;
+    }
+
+    // ──── 內部模型類別 ────
+
+    private sealed class ProjectFormModel
+    {
+        public string Year { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string School { get; set; } = "";
+    }
+
+    private sealed class StageItem
+    {
+        public string Name { get; set; } = "";
+        public string Hint { get; set; } = "";
+        public DateTime? Start { get; set; }
+        public DateTime? End { get; set; }
+    }
+
+    private sealed class QuestionTypeTarget
+    {
+        public string Key { get; set; } = "";
+        public string Label { get; set; } = "";
+        public int? Count { get; set; }
+    }
+
+    private sealed class PersonItem
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public bool IsSelected { get; set; }
+        public string SelectedRole { get; set; } = "";
+    }
+
+    private sealed class AllocationItem
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public int[] Quotas { get; set; } = [];
     }
 }
