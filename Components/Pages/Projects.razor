@@ -5,6 +5,8 @@
 @* ====================================================================== *@
 @page "/projects"
 @inject IProjectService ProjectService
+@inject ILogger<Projects> Logger
+
 <div class="flex-grow flex flex-col w-full max-w-[1920px] mx-auto h-[calc(100vh-4rem)] overflow-hidden">
     <!-- Breadcrumb & Header Row -->
     <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur border-b border-gray-200">
@@ -44,26 +46,230 @@
             <div class="p-4 border-b border-gray-100 bg-gray-50 flex flex-col gap-3 flex-shrink-0">
                 <div class="relative">
                     <i class="fa-solid fa-magnifying-glass left-3 top-2.5 absolute text-gray-400"></i>
-                    <input type="text" class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi" placeholder="搜尋專案名稱 / 年度...">
+                    <input type="text" @bind="searchKeyword" @bind:event="oninput"
+                        class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi"
+                        placeholder="搜尋專案名稱 / 年度...">
                 </div>
                 <div class="flex gap-2">
-                    <button class="flex-1 py-1 text-xs font-bold rounded bg-morandi text-white">全部</button>
-                    <button class="flex-1 py-1 text-xs font-bold border border-gray-200 text-gray-500 rounded hover:bg-gray-100">進行中</button>
-                    <button class="flex-1 py-1 text-xs font-bold border border-gray-200 text-gray-500 rounded hover:bg-gray-100">已結案</button>
+                    @foreach (var f in filterOptions)
+                    {
+                        var isActive = currentFilter == f.Key;
+                        var btnClass = isActive
+                            ? "flex-1 py-1 text-xs font-bold rounded bg-morandi text-white cursor-pointer"
+                            : "flex-1 py-1 text-xs font-bold border border-gray-200 text-gray-500 rounded hover:bg-gray-100 cursor-pointer";
+                        <button type="button" class="@btnClass" @onclick="() => currentFilter = f.Key">@f.Label</button>
+                    }
                 </div>
             </div>
-            <!-- List (Empty State) -->
-            <div class="flex-grow overflow-y-auto custom-scroll p-4">
-                <EmptyState IconClass="fa-folder-open" Message="目前尚無專案梯次" SubMessage="請點擊右上方「新增梯次」來建立第一批資料。" />
+            <!-- List -->
+            <div class="flex-grow overflow-y-auto custom-scroll">
+                @{ var filtered = GetFilteredProjects(); }
+                @if (filtered.Count == 0)
+                {
+                    <div class="p-6 text-center text-sm text-gray-400">
+                        @if (allProjects.Count == 0)
+                        {
+                            <div class="flex flex-col items-center gap-2 py-8">
+                                <i class="fa-solid fa-folder-open text-4xl text-gray-300"></i>
+                                <p class="font-medium">目前尚無專案梯次</p>
+                                <p class="text-xs">請點擊右上方「新增梯次」來建立第一批資料。</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <span>查無命題專案</span>
+                        }
+                    </div>
+                }
+                else
+                {
+                    @foreach (var p in filtered)
+                    {
+                        var isSelected = selectedProjectId == p.Id;
+                        var itemClass = isSelected
+                            ? "px-5 py-4 cursor-pointer border-b border-gray-100 flex flex-col gap-1 transition-colors bg-[#f0f4f8] border-l-4 border-l-morandi"
+                            : "px-5 py-4 cursor-pointer border-b border-gray-100 hover:bg-gray-50 flex flex-col gap-1 transition-colors";
+                        var nameClass = isSelected ? "text-sm font-bold text-morandi line-clamp-1" : "text-sm font-bold text-gray-800 line-clamp-1";
+                        var chevronClass = isSelected ? "fa-solid fa-chevron-right text-[10px] text-morandi" : "fa-solid fa-chevron-right text-[10px] text-gray-300";
+
+                        <div class="@itemClass" @onclick="async () => await SelectProject(p.Id)">
+                            <div class="flex justify-between items-start">
+                                <span class="@nameClass">@p.Name</span>
+                                @{ var (badgeText, badgeClass) = GetStatusBadge(p.Status); }
+                                <span class="@badgeClass">@badgeText</span>
+                            </div>
+                            <div class="flex justify-between items-center mt-1">
+                                <span class="text-xs text-gray-500">@(p.Year)年度 / @(string.IsNullOrEmpty(p.School) ? "無 (自辦)" : p.School)</span>
+                                <i class="@chevronClass"></i>
+                            </div>
+                        </div>
+                    }
+                }
             </div>
         </div>
 
         <!-- Right Panel: Project Details -->
         <div class="hidden lg:flex flex-col w-full lg:w-2/3 xl:w-3/4 bg-[var(--color-oatmeal)] overflow-hidden">
-            <div class="flex-grow flex flex-col items-center justify-center text-gray-400 p-8">
-                <i class="fa-solid fa-folder-open text-6xl mb-4 text-gray-300"></i>
-                <p class="text-lg font-medium">請由左側列表選擇專案，或建立新梯次。</p>
-            </div>
+            @if (selectedDetail == null)
+            {
+                <!-- 空狀態 -->
+                <div class="flex-grow flex flex-col items-center justify-center text-gray-400 p-8">
+                    <i class="fa-solid fa-folder-open text-6xl mb-4 text-gray-300"></i>
+                    <p class="text-lg font-medium">請由左側列表選擇專案，或建立新梯次。</p>
+                </div>
+            }
+            else
+            {
+                <!-- 詳情內容 -->
+                <div class="flex-grow overflow-y-auto custom-scroll">
+                    <!-- 頂部資訊列 -->
+                    <div class="px-8 pt-6 pb-4 flex flex-col lg:flex-row justify-between items-start gap-4">
+                        <div class="flex flex-col gap-1">
+                            <div class="flex items-center gap-2 mb-1">
+                                @{ var (sBadge, sClass) = GetStatusBadge(selectedDetail.Status); }
+                                <span class="@sClass">@sBadge</span>
+                                <span class="text-xs text-gray-500">@(selectedDetail.Year)年度</span>
+                            </div>
+                            <h2 class="text-2xl font-black text-slate-main">@selectedDetail.Name</h2>
+                            <div class="flex flex-col gap-0.5 text-sm text-gray-500 mt-1">
+                                <span><i class="fa-solid fa-school w-4 text-center"></i> 合作學校：@(string.IsNullOrEmpty(selectedDetail.School) ? "無 (自辦)" : selectedDetail.School)</span>
+                                <span><i class="fa-solid fa-user-gear w-4 text-center"></i> 建立者：@selectedDetail.CreatorName</span>
+                            </div>
+                        </div>
+                        <!-- 操作按鈕 -->
+                        <div class="flex flex-col gap-2 items-end flex-shrink-0">
+                            @if (selectedDetail.Status != 2)
+                            {
+                                <button type="button" @onclick="() => { /* TODO: 編輯邏輯 */ }"
+                                    class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors shadow-sm flex items-center gap-2">
+                                    <i class="fa-solid fa-pen-to-square text-morandi"></i> 編輯專案
+                                </button>
+                                <button type="button" @onclick="() => { /* TODO: 結案邏輯 */ }"
+                                    class="cursor-pointer px-4 py-2 bg-terracotta text-white rounded-lg text-sm font-bold hover:bg-[#c67a5c] transition-colors shadow-sm flex items-center gap-2">
+                                    <i class="fa-solid fa-box-archive"></i> 結案入庫
+                                </button>
+                            }
+                            <button type="button" @onclick="HandleDeleteProject"
+                                class="cursor-pointer px-4 py-2 bg-white border border-red-300 text-red-500 rounded-lg text-sm font-bold hover:bg-red-50 transition-colors shadow-sm flex items-center gap-2">
+                                <i class="fa-solid fa-trash-can"></i> 刪除專案
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 主要內容：時程 + 題型 + 成員 -->
+                    <div class="px-8 pb-8 grid grid-cols-1 xl:grid-cols-2 gap-6">
+                        <!-- 時程規劃設定 -->
+                        <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+                            <h3 class="text-base font-black text-slate-main mb-1 flex items-center gap-2">
+                                <i class="fa-solid fa-clock text-morandi"></i> 時程規劃設定
+                            </h3>
+                            <p class="text-xs text-gray-400 mb-4">深色標記為當前進行中之階段。</p>
+
+                            @if (selectedDetail.Phases.Count == 0)
+                            {
+                                <p class="text-sm text-gray-400 text-center py-4">尚未設定時程</p>
+                            }
+                            else
+                            {
+                                <div class="relative">
+                                    @for (int i = 0; i < selectedDetail.Phases.Count; i++)
+                                    {
+                                        var phase = selectedDetail.Phases[i];
+                                        var isLast = i == selectedDetail.Phases.Count - 1;
+                                        var today = DateTime.Today;
+                                        var isPast = phase.EndDate < today;
+                                        var isCurrent = !isPast && phase.StartDate <= today;
+
+                                        // 節點顏色
+                                        var nodeColor = isPast ? "bg-sage" : (isCurrent ? "bg-morandi ring-4 ring-blue-50" : "bg-gray-200");
+                                        var lineColor = isPast ? "border-sage" : "border-gray-200 border-dashed";
+                                        var textColor = isCurrent ? "text-morandi font-bold" : (isPast ? "text-gray-500" : "text-gray-400");
+                                        var dateColor = isCurrent ? "text-morandi font-bold" : (isPast ? "text-gray-400" : "text-gray-400");
+
+                                        <div class="relative pb-6">
+                                            @if (!isLast)
+                                            {
+                                                <div class="absolute top-4 left-[5px] -ml-px h-full w-0.5 @lineColor border-l-[2px]"></div>
+                                            }
+                                            <div class="relative flex items-center space-x-3">
+                                                <div>
+                                                    <span class="h-3 w-3 rounded-full flex items-center justify-center ring-8 ring-white @nodeColor"></span>
+                                                </div>
+                                                <div class="flex justify-between w-full pr-4">
+                                                    <span class="text-sm @textColor">@(i + 1). @phase.PhaseName</span>
+                                                    <span class="text-xs @dateColor">@phase.StartDate.ToString("yyyy-MM-dd") ~ @phase.EndDate.ToString("yyyy-MM-dd")</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <!-- 右側：題型目標 + 成員 -->
+                        <div class="flex flex-col gap-6">
+                            <!-- 題型目標數量 -->
+                            <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+                                <h3 class="text-base font-black text-slate-main mb-3 flex items-center gap-2">
+                                    <i class="fa-solid fa-bullseye text-terracotta"></i> 題型目標數量
+                                </h3>
+                                @if (selectedDetail.Targets.Count == 0)
+                                {
+                                    <p class="text-sm text-gray-400 text-center py-4">尚未設定題型目標</p>
+                                }
+                                else
+                                {
+                                    <div class="grid grid-cols-3 gap-2">
+                                        @foreach (var t in selectedDetail.Targets)
+                                        {
+                                            <div class="bg-gray-50 border border-gray-100 rounded-lg p-3 text-center">
+                                                <div class="text-xs text-gray-500 mb-1">@t.TypeName</div>
+                                                <div class="text-lg font-black text-slate-main">@t.TargetCount</div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+
+                            <!-- 指派人員 -->
+                            <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+                                <div class="flex justify-between items-center mb-3">
+                                    <h3 class="text-base font-black text-slate-main flex items-center gap-2">
+                                        <i class="fa-solid fa-users text-morandi"></i> 指派人員
+                                    </h3>
+                                    <span class="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full font-bold">共 @selectedDetail.Members.Count 人</span>
+                                </div>
+                                @if (selectedDetail.Members.Count == 0)
+                                {
+                                    <p class="text-sm text-gray-400 text-center py-4">尚未指派任何人員。</p>
+                                }
+                                else
+                                {
+                                    <div class="divide-y divide-gray-50">
+                                        @foreach (var m in selectedDetail.Members)
+                                        {
+                                            <div class="flex items-center justify-between p-3 hover:bg-gray-50 transition-colors">
+                                                <div class="flex items-center gap-2">
+                                                    <div class="w-8 h-8 rounded-full bg-morandi/10 text-morandi flex items-center justify-center font-bold text-xs">
+                                                        @(m.DisplayName.Length > 0 ? m.DisplayName[0].ToString() : "?")
+                                                    </div>
+                                                    <div>
+                                                        <div class="text-sm font-bold text-gray-700">@m.DisplayName</div>
+                                                        <div class="text-[10px] text-gray-500">@(m.TeacherCode ?? "")</div>
+                                                    </div>
+                                                </div>
+                                                <span class="text-[10px] px-2 py-0.5 rounded bg-[var(--color-oatmeal)] border border-gray-200 text-gray-600 font-bold whitespace-nowrap">
+                                                    @m.RoleName
+                                                </span>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
         </div>
     </div>
 </div>
@@ -338,6 +544,21 @@
     private bool showProjectModal = false;
     private string personSearchKeyword = "";
 
+    // ──── 專案列表狀態 ────
+    private List<ProjectListItem> allProjects = new();
+    private string searchKeyword = "";
+    private string currentFilter = "all";
+    private int? selectedProjectId;
+    private ProjectDetailDto? selectedDetail;
+
+    // 篩選按鈕定義
+    private static readonly (string Key, string Label)[] filterOptions =
+    [
+        ("all", "全部"),
+        ("active", "進行中"),
+        ("closed", "已結案")
+    ];
+
     // --- 表單模型 ---
     private ProjectFormModel formModel = new();
 
@@ -365,12 +586,115 @@
     // --- 命題教師配額表（區塊 4：僅含被勾選且身分為「命題教師」的人員） ---
     private List<AllocationItem> allocationTeachers = new();
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        // TODO: 未來由 TeacherService 注入人才庫資料
-        // talentPool = await TeacherService.GetAllTeachersAsync();
+        await LoadProjectsAsync();
         ResetForm();
     }
+
+    /// <summary>從資料庫載入全部專案列表</summary>
+    private async Task LoadProjectsAsync()
+    {
+        try
+        {
+            allProjects = await ProjectService.GetProjectListAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入專案列表失敗");
+            allProjects = new();
+        }
+    }
+
+    // ──── 列表篩選邏輯 ────
+
+    /// <summary>依關鍵字與狀態篩選專案</summary>
+    private List<ProjectListItem> GetFilteredProjects()
+    {
+        IEnumerable<ProjectListItem> result = allProjects;
+
+        // 狀態篩選
+        result = currentFilter switch
+        {
+            "active" => result.Where(p => p.Status == 1),
+            "closed" => result.Where(p => p.Status == 2),
+            _ => result // "all" 包含所有狀態
+        };
+
+        // 關鍵字模糊比對（名稱 / 年度）
+        if (!string.IsNullOrWhiteSpace(searchKeyword))
+        {
+            var kw = searchKeyword.Trim();
+            result = result.Where(p =>
+                p.Name.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
+                p.Year.ToString().Contains(kw) ||
+                p.Year.ToString().Contains(kw)); // 支援民國年搜尋
+        }
+
+        return result.ToList();
+    }
+
+    /// <summary>選取左側列表的專案，並載入詳情</summary>
+    private async Task SelectProject(int projectId)
+    {
+        selectedProjectId = projectId;
+        try
+        {
+            selectedDetail = await ProjectService.GetProjectDetailAsync(projectId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入專案詳情失敗 (Id={ProjectId})", projectId);
+            selectedDetail = null;
+        }
+    }
+
+    /// <summary>軟刪除專案（SweetAlert 確認後執行）</summary>
+    private async Task HandleDeleteProject()
+    {
+        if (selectedDetail == null) return;
+
+        var confirmed = await JS.InvokeAsync<bool>("eval",
+            "Swal.fire({" +
+            "title:'確定刪除專案？'," +
+            $"text:'刪除後專案「{selectedDetail.Name}」將不會再出現在列表中。'," +
+            "icon:'warning'," +
+            "showCancelButton:true," +
+            "confirmButtonColor:'#ef4444'," +
+            "cancelButtonColor:'#6B8EAD'," +
+            "confirmButtonText:'確定刪除'," +
+            "cancelButtonText:'取消'" +
+            "}).then(r => r.isConfirmed)");
+
+        if (!confirmed) return;
+
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var userIdStr = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            int userId = int.TryParse(userIdStr, out var id) ? id : 1;
+
+            await ProjectService.SoftDeleteProjectAsync(selectedDetail.Id, userId);
+            await JS.InvokeVoidAsync("Swal.fire", "已刪除", "專案已成功移除。", "success");
+
+            selectedDetail = null;
+            selectedProjectId = null;
+            await LoadProjectsAsync();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "刪除失敗", $"錯誤：{ex.Message}", "error");
+        }
+    }
+
+    /// <summary>依狀態碼取得對應 Badge 文字與樣式</summary>
+    private static (string Text, string CssClass) GetStatusBadge(byte status) => status switch
+    {
+        0 => ("準備中", "text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-700 whitespace-nowrap"),
+        1 => ("進行中", "text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-700 whitespace-nowrap"),
+        2 => ("已結案", "text-[10px] font-bold px-2 py-0.5 rounded bg-gray-200 text-gray-600 whitespace-nowrap"),
+        _ => ("未知",   "text-[10px] font-bold px-2 py-0.5 rounded bg-gray-100 text-gray-400 whitespace-nowrap")
+    };
 
     private void ResetForm()
     {
@@ -666,6 +990,9 @@
 
             await JS.InvokeVoidAsync("Swal.fire", "新增成功", "專案與所有設定已寫入資料庫！", "success");
             showProjectModal = false;
+
+            // 重新載入列表以顯示新建的專案
+            await LoadProjectsAsync();
         }
         catch (Exception ex)
         {

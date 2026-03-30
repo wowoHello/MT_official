@@ -50,3 +50,63 @@ public class ProjectMemberQuotaDto
     public int QuestionTypeId { get; set; }
     public int QuotaCount { get; set; }
 }
+
+/// <summary>
+/// 專案列表項目 DTO（左側列表顯示用）
+/// </summary>
+public class ProjectListItem
+{
+    public int Id { get; set; }
+    public string ProjectCode { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public int Year { get; set; }
+    public string? School { get; set; }
+    public byte Status { get; set; } // 0:準備中, 1:進行中, 2:已結案
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+    public string CreatorName { get; set; } = string.Empty;
+    public int MemberCount { get; set; }
+}
+
+/// <summary>
+/// 專案詳情 DTO（右側面板顯示用，包含時程、題型目標、成員）
+/// </summary>
+public class ProjectDetailDto
+{
+    public int Id { get; set; }
+    public string ProjectCode { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public int Year { get; set; }
+    public string? School { get; set; }
+    public byte Status { get; set; }
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+    public DateTime? ClosedAt { get; set; }
+    public string CreatorName { get; set; } = string.Empty;
+    public List<PhaseDetailDto> Phases { get; set; } = new();
+    public List<TargetDetailDto> Targets { get; set; } = new();
+    public List<MemberDetailDto> Members { get; set; } = new();
+}
+
+public class PhaseDetailDto
+{
+    public int PhaseCode { get; set; }
+    public string PhaseName { get; set; } = string.Empty;
+    public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
+}
+
+public class TargetDetailDto
+{
+    public int QuestionTypeId { get; set; }
+    public string TypeName { get; set; } = string.Empty;
+    public int TargetCount { get; set; }
+}
+
+public class MemberDetailDto
+{
+    public int UserId { get; set; }
+    public string DisplayName { get; set; } = string.Empty;
+    public string? TeacherCode { get; set; }
+    public string RoleName { get; set; } = string.Empty;
+}
