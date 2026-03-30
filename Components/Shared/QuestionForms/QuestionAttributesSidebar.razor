@@ -463,7 +463,6 @@
         ["文意判讀"] = ["段義辨析"]
     };
 
-    // === 聽力：等級 → 核心能力 ===
     private static readonly Dictionary<string, string[]> LevelCoreAbilityMap = new()
     {
         ["1"] = ["提取訊息"],
@@ -473,7 +472,6 @@
         ["5"] = ["統整、闡述或評鑑訊息", "思辨、推衍訊息"]
     };
 
-    // === 聽力：核心能力 → 細目指標 ===
     private static readonly Dictionary<string, string[]> CoreAbilityIndicatorMap = new()
     {
         ["提取訊息"] = ["提取對話與訊息主旨", "回應訊息內容", "轉述訊息內容"],
@@ -485,6 +483,5 @@
         ["思辨、推衍訊息"] = ["摘要、條列、統整訊息關鍵字、要點、主旨", "闡述訊息涵義或評鑑訊息適切性", "思辨、推衍訊息言外意、抽象義"]
     };
 
-    /// <summary>取得細目指標的查詢 key（思辨與統整共用同一組指標）</summary>
     private static string GetIndicatorKey(string ability) => ability;
 }

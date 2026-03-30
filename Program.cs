@@ -1,4 +1,8 @@
 using MT.Components;
+using MT.Services;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -6,12 +10,23 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+// Cookie 認證
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.LoginPath = "/";
+        options.LogoutPath = "/";
+        options.ExpireTimeSpan = TimeSpan.FromDays(90);
+        options.SlidingExpiration = true;
+    });
+builder.Services.AddAuthorization();
+builder.Services.AddCascadingAuthenticationState();
+builder.Services.AddHttpContextAccessor();
 
 // 註冊自定義服務
-builder.Services.AddScoped<MT.Services.ICaptchaService, MT.Services.CaptchaService>();
-//builder.Services.AddScoped<MT.Services.IEmailService, MT.Services.EmailService>();
-// 註冊資料庫測試服務
-builder.Services.AddScoped<MT.Services.IDatabaseService, MT.Services.DatabaseService>();
+builder.Services.AddScoped<ICaptchaService, CaptchaService>();
+builder.Services.AddScoped<IDatabaseService, DatabaseService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 var app = builder.Build();
 
@@ -19,17 +34,66 @@ var app = builder.Build();
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
 
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+// ====== Auth API Endpoints ======
+
+// 登入：驗證 + 寫入 Cookie + 導向首頁（接收隱藏表單 POST）
+app.MapPost("/api/auth/login", async (HttpContext context) =>
+{
+    var form = await context.Request.ReadFormAsync();
+
+    if (!int.TryParse(form["userId"], out var userId))
+        return Results.BadRequest();
+
+    var username = form["username"].ToString();
+    var displayName = form["displayName"].ToString();
+    var roleName = form["roleName"].ToString();
+    _ = int.TryParse(form["roleId"], out var roleId);
+    var rememberMe = string.Equals(form["rememberMe"], "true", StringComparison.OrdinalIgnoreCase);
+
+    var claims = new List<Claim>
+    {
+        new(ClaimTypes.NameIdentifier, userId.ToString()),
+        new(ClaimTypes.Name, username),
+        new("DisplayName", displayName),
+        new(ClaimTypes.Role, roleName),
+        new("RoleId", roleId.ToString())
+    };
+
+    var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+    var principal = new ClaimsPrincipal(identity);
+
+    await context.SignInAsync(
+        CookieAuthenticationDefaults.AuthenticationScheme,
+        principal,
+        new AuthenticationProperties
+        {
+            IsPersistent = rememberMe,
+            ExpiresUtc = rememberMe ? DateTimeOffset.UtcNow.AddDays(90) : null
+        });
+
+    // 設定 Cookie 後直接導向首頁
+    return Results.Redirect("/home");
+});
+
+// 登出：清除 Cookie 並導回登入頁
+app.MapGet("/api/auth/logout", async (HttpContext context) =>
+{
+    await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+    context.Response.Redirect("/");
+});
 
 // Quill 編輯器圖片上傳 API
 app.MapPost("/api/upload", async (HttpRequest request, IWebHostEnvironment env) =>

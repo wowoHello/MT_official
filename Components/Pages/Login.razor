@@ -10,6 +10,7 @@
 @inject ICaptchaService CaptchaService
 @inject ProtectedLocalStorage LocalStorage
 @inject IWebHostEnvironment Env
+@inject IAuthService AuthService
 
 <PageTitle>CWT 命題工作平臺 - 登入</PageTitle>
 
@@ -234,14 +235,12 @@
 
     protected override void OnInitialized()
     {
-        // 初始化驗證碼 (C#)
         GenerateNewCaptcha();
 
-        // 測試環境自動填入帳密 + 驗證碼
         if (IsDev)
         {
-            loginModel.Username = "admin";
-            loginModel.Password = "admin123";
+            loginModel.Username = "jay";
+            loginModel.Password = "01024304";
             loginModel.CaptchaInput = generatedCaptcha;
         }
     }
@@ -250,8 +249,7 @@
     {
         if (firstRender)
         {
-            // 讀取「記住帳號」狀態
-            try 
+            try
             {
                 var result = await LocalStorage.GetAsync<string>("cwt_remembered_account");
                 if (result.Success && !string.IsNullOrEmpty(result.Value))
@@ -261,17 +259,15 @@
                     StateHasChanged();
                 }
             }
-            catch 
+            catch
             {
                 // 忽略 Pre-rendering 期間的錯誤
             }
         }
     }
 
-    /// <summary>密碼顯示/隱藏切換 (純 C#)</summary>
     private void TogglePasswordVisibility() => showPassword = !showPassword;
 
-    /// <summary>產生新驗證碼 (使用 C# Service)</summary>
     private void GenerateNewCaptcha()
     {
         var result = CaptchaService.GenerateCaptcha();
@@ -285,7 +281,7 @@
         loginModel.CaptchaInput = IsDev ? generatedCaptcha : "";
     }
 
-    /// <summary>處理登入流程 (DEMO)</summary>
+    /// <summary>處理登入流程（正式 DB 驗證）</summary>
     private async Task HandleLogin()
     {
         errorMessage = "";
@@ -297,7 +293,7 @@
             return;
         }
 
-        // 驗證碼比對 (不分大小寫)
+        // 驗證碼比對
         if (!string.Equals(loginModel.CaptchaInput?.Trim(), generatedCaptcha, StringComparison.OrdinalIgnoreCase))
         {
             errorMessage = "驗證碼錯誤，請重新輸入。";
@@ -306,31 +302,54 @@
             return;
         }
 
-        // 開始載入
         isLoading = true;
         StateHasChanged();
 
         try
         {
+            // 呼叫 AuthService 驗證帳密（DI 注入，伺服器端直接查 DB）
+            var (success, message, user) = await AuthService.ValidateLoginAsync(
+                loginModel.Username.Trim(), loginModel.Password);
+
+            if (!success || user is null)
+            {
+                errorMessage = message;
+                loginModel.CaptchaInput = "";
+                GenerateNewCaptcha();
+                isLoading = false;
+
+                // 記錄失敗日誌
+                await AuthService.LogLoginAttemptAsync(null, loginModel.Username, false, message, null, null);
+                return;
+            }
+
+            // 登入成功 — 記錄日誌 + 更新最後登入時間
+            await AuthService.LogLoginAttemptAsync(user.Id, user.Username, true, null, null, null);
+            await AuthService.UpdateLastLoginAsync(user.Id);
+
             // 處理「記住帳號」
             if (loginModel.RememberMe)
-            {
                 await LocalStorage.SetAsync("cwt_remembered_account", loginModel.Username);
-            }
             else
-            {
                 await LocalStorage.DeleteAsync("cwt_remembered_account");
-            }
 
-            // 登入成功 Toast (JS Interop 必要項目)
-            await JS.InvokeVoidAsync("swalInterop.fireToast", "success", "登入成功", "即將進入命題工作平臺...", 1000);
-
-            // 導航至首頁
-            Navigation.NavigateTo("/home");
+            // 透過 JS 導航至登入 API endpoint（標準 HTTP POST 設定 Cookie）
+            // 使用隱藏表單 POST 提交，確保 Cookie 正確設定在瀏覽器
+            await JS.InvokeVoidAsync("authInterop.postLogin", new
+            {
+                userId = user.Id,
+                username = user.Username,
+                displayName = user.DisplayName,
+                roleName = user.RoleName,
+                roleId = user.RoleId,
+                rememberMe = loginModel.RememberMe
+            });
         }
-        catch
+        catch (Exception ex)
         {
-            errorMessage = "系統登入發生例外錯誤，請稍後再試。";
+            errorMessage = IsDev
+                ? $"[DEV] {ex.GetType().Name}: {ex.Message}"
+                : "系統登入發生例外錯誤，請稍後再試。";
             isLoading = false;
         }
     }
@@ -368,9 +387,9 @@
 
         try
         {
-            // TODO: 待 EmailService 建構完成後，啟用 DB 查詢 + 寄信功能
             await Task.Delay(800);
-            await JS.InvokeVoidAsync("swalInterop.fire", new {
+            await JS.InvokeVoidAsync("swalInterop.fire", new
+            {
                 icon = "info",
                 title = "功能尚未啟用",
                 text = "寄信功能尚在建置中，待所有頁面完成後將正式啟用。",
