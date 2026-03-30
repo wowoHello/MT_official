@@ -73,7 +73,7 @@
 <CustomModal @bind-IsVisible="showProjectModal" Type="CustomModal.ModalType.SlideOver" Title="新增專案 (梯次)"
     MaxWidth="max-w-2xl" HeaderIcon="fa-solid fa-layer-group" CloseOnBackdropClick="true">
     <ChildContent>
-        <form class="space-y-8" @onsubmit="SaveProject">
+        <EditForm Model="formModel" OnValidSubmit="SaveProject" class="space-y-8">
 
             <!-- ═══ 區塊 1: 基本資料 ═══ -->
             <div class="space-y-4">
@@ -84,8 +84,9 @@
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm font-medium mb-1 text-gray-700">所屬年度 <span class="text-red-500">*</span></label>
-                        <input type="text" @bind="formModel.Year" required placeholder="如: 115"
-                            class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:outline-none text-sm">
+                        <input type="text" value="@formModel.Year" readonly
+                            placeholder="由產學計畫區間自動帶入"
+                            class="w-full px-3 py-2 border border-gray-200 rounded bg-gray-50 text-sm text-gray-600 cursor-not-allowed">
                     </div>
                     <div class="col-span-2">
                         <label class="block text-sm font-medium mb-1 text-gray-700">專案名稱 <span class="text-red-500">*</span></label>
@@ -320,15 +321,14 @@
                 </div>
             </div>
 
-            <button type="submit" class="hidden" id="submitBtn"></button>
-        </form>
+        </EditForm>
     </ChildContent>
     <FooterContent>
         <button type="button" @onclick="() => showProjectModal = false"
             class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors focus:outline-none shadow-sm">
             取消
         </button>
-        <button type="button" @onclick="TriggerSubmit"
+        <button type="button" @onclick="SaveProject"
             class="cursor-pointer px-6 py-2 bg-morandi text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] transition-colors focus:outline-none shadow-sm flex items-center gap-2">
             <i class="fa-solid fa-floppy-disk"></i> 儲存專案
         </button>
@@ -413,6 +413,9 @@
 
         if (idx == 0)
         {
+            // 自動帶入所屬年度（民國年 = 西元年 - 1911）
+            formModel.Year = (date.Year - 1911).ToString();
+
             // 產學計畫區間的結束日自動設為所有階段結束後
             var cursor = date.AddDays(14); // 命題階段在產學開始後 14 天
             for (int i = 1; i < stages.Length; i++)
@@ -551,14 +554,9 @@
         showProjectModal = true;
     }
 
-    private void TriggerSubmit()
-    {
-        // TODO: 真正的儲存邏輯（呼叫 ProjectService）
-        showProjectModal = false;
-    }
-
     private void SaveProject()
     {
+        // TODO: 真正的儲存邏輯（呼叫 ProjectService）
         showProjectModal = false;
     }
 
