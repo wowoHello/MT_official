@@ -48,6 +48,7 @@ public class ProjectService : IProjectService
     public async Task<ProjectDetailDto?> GetProjectDetailAsync(int projectId)
     {
         using var conn = new SqlConnection(_config.GetConnectionString("DefaultConnection"));
+        var detailParams = new { ProjectId = projectId };
 
         // 主檔
         var mainSql = @"
@@ -56,45 +57,58 @@ public class ProjectService : IProjectService
                    ISNULL(u.DisplayName, N'系統') AS CreatorName
             FROM dbo.MT_Projects p
             LEFT JOIN dbo.MT_Users u ON u.UserId = p.CreatedBy
-            WHERE p.Id = @Id AND p.IsDeleted = 0";
-        var detail = await conn.QueryFirstOrDefaultAsync<ProjectDetailDto>(mainSql, new { Id = projectId });
+            WHERE p.Id = @ProjectId AND p.IsDeleted = 0";
+        var detail = await conn.QueryFirstOrDefaultAsync<ProjectDetailDto>(mainSql, detailParams);
         if (detail == null) return null;
 
-        // 時程
-        var phasesSql = @"
-            SELECT PhaseCode, PhaseName, StartDate, EndDate
-            FROM dbo.MT_ProjectPhases
-            WHERE ProjectId = @Id
-            ORDER BY SortOrder";
-        detail.Phases = (await conn.QueryAsync<PhaseDetailDto>(phasesSql, new { Id = projectId })).ToList();
+        try
+        {
+            // 時程
+            var phasesSql = @"
+                SELECT PhaseCode, PhaseName, StartDate, EndDate
+                FROM dbo.MT_ProjectPhases
+                WHERE ProjectId = @ProjectId
+                ORDER BY SortOrder";
+            detail.Phases = (await conn.QueryAsync<PhaseDetailDto>(phasesSql, detailParams)).ToList();
 
-        // 題型目標數量
-        var targetsSql = @"
-            SELECT pt.QuestionTypeId, qt.Name AS TypeName, pt.TargetCount
-            FROM dbo.MT_ProjectTargets pt
-            INNER JOIN dbo.MT_QuestionTypes qt ON qt.Id = pt.QuestionTypeId
-            WHERE pt.ProjectId = @Id
-            ORDER BY pt.QuestionTypeId";
-        detail.Targets = (await conn.QueryAsync<TargetDetailDto>(targetsSql, new { Id = projectId })).ToList();
+            // 題型目標數量
+            var targetsSql = @"
+                SELECT pt.QuestionTypeId, qt.Name AS TypeName, pt.TargetCount
+                FROM dbo.MT_ProjectTargets pt
+                INNER JOIN dbo.MT_QuestionTypes qt ON qt.Id = pt.QuestionTypeId
+                WHERE pt.ProjectId = @ProjectId
+                ORDER BY pt.QuestionTypeId";
+            detail.Targets = (await conn.QueryAsync<TargetDetailDto>(targetsSql, detailParams)).ToList();
 
-        // 成員
-        var membersSql = @"
-            SELECT pm.UserId,
-                   ISNULL(u.DisplayName, N'未知') AS DisplayName,
-                   u.Account AS TeacherCode,
-                   ISNULL(r.RoleName, N'未指定') AS RoleName
-            FROM dbo.MT_ProjectMembers pm
-            LEFT JOIN dbo.MT_Users u ON u.UserId = pm.UserId
-            LEFT JOIN (
-                SELECT pmr.ProjectMemberId,
-                       STRING_AGG(ro.Name, N', ') AS RoleName
-                FROM dbo.MT_ProjectMemberRoles pmr
-                LEFT JOIN dbo.MT_Roles ro ON ro.Id = pmr.RoleCode
-                GROUP BY pmr.ProjectMemberId
-            ) r ON r.ProjectMemberId = pm.Id
-            WHERE pm.ProjectId = @Id
-            ORDER BY pm.Id";
-        detail.Members = (await conn.QueryAsync<MemberDetailDto>(membersSql, new { Id = projectId })).ToList();
+            // 成員（為了相容較舊 SQL Server 版本，改用 FOR XML PATH 組字串）
+            var membersSql = @"
+                SELECT pm.UserId,
+                       ISNULL(u.DisplayName, N'未知') AS DisplayName,
+                       COALESCE(t.TeacherCode, u.Username) AS TeacherCode,
+                       ISNULL(r.RoleName, N'未指定') AS RoleName
+                FROM dbo.MT_ProjectMembers pm
+                LEFT JOIN dbo.MT_Users u ON u.UserId = pm.UserId
+                LEFT JOIN dbo.MT_Teachers t ON t.UserId = u.UserId
+                LEFT JOIN (
+                    SELECT pmr.ProjectMemberId,
+                           STUFF((
+                               SELECT N', ' + ISNULL(ro2.Name, N'')
+                               FROM dbo.MT_ProjectMemberRoles pmr2
+                               LEFT JOIN dbo.MT_Roles ro2 ON ro2.Id = pmr2.RoleCode
+                               WHERE pmr2.ProjectMemberId = pmr.ProjectMemberId
+                               FOR XML PATH(''), TYPE
+                           ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS RoleName
+                    FROM dbo.MT_ProjectMemberRoles pmr
+                    GROUP BY pmr.ProjectMemberId
+                ) r ON r.ProjectMemberId = pm.Id
+                WHERE pm.ProjectId = @ProjectId
+                ORDER BY pm.Id";
+            detail.Members = (await conn.QueryAsync<MemberDetailDto>(membersSql, detailParams)).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "載入專案詳情子資料失敗 (Id={ProjectId})", projectId);
+        }
 
         return detail;
     }

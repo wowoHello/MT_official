@@ -122,37 +122,39 @@
             {
                 <!-- 詳情內容 -->
                 <div class="flex-grow overflow-y-auto custom-scroll">
-                    <!-- 頂部資訊列 -->
-                    <div class="px-8 pt-6 pb-4 flex flex-col lg:flex-row justify-between items-start gap-4">
-                        <div class="flex flex-col gap-1">
-                            <div class="flex items-center gap-2 mb-1">
-                                @{ var (sBadge, sClass) = GetStatusBadge(selectedDetail.Status); }
-                                <span class="@sClass">@sBadge</span>
-                                <span class="text-xs text-gray-500">@(selectedDetail.Year)年度</span>
+                    <!-- 頂部資訊卡 -->
+                    <div class="px-8 pt-6 pb-2">
+                        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 flex flex-col lg:flex-row justify-between items-start gap-4">
+                            <div class="flex flex-col gap-1">
+                                <div class="flex items-center gap-2 mb-1">
+                                    @{ var (sBadge, sClass) = GetStatusBadge(selectedDetail.Status); }
+                                    <span class="@sClass">@sBadge</span>
+                                    <span class="text-xs text-gray-500">@(selectedDetail.Year)年度</span>
+                                </div>
+                                <h2 class="text-2xl font-black text-slate-main">@selectedDetail.Name</h2>
+                                <div class="flex flex-col gap-0.5 text-sm text-gray-500 mt-1">
+                                    <span><i class="fa-solid fa-school w-4 text-center"></i> 合作學校：@(string.IsNullOrEmpty(selectedDetail.School) ? "無 (自辦)" : selectedDetail.School)</span>
+                                    <span><i class="fa-solid fa-user-gear w-4 text-center"></i> 建立者：@selectedDetail.CreatorName</span>
+                                </div>
                             </div>
-                            <h2 class="text-2xl font-black text-slate-main">@selectedDetail.Name</h2>
-                            <div class="flex flex-col gap-0.5 text-sm text-gray-500 mt-1">
-                                <span><i class="fa-solid fa-school w-4 text-center"></i> 合作學校：@(string.IsNullOrEmpty(selectedDetail.School) ? "無 (自辦)" : selectedDetail.School)</span>
-                                <span><i class="fa-solid fa-user-gear w-4 text-center"></i> 建立者：@selectedDetail.CreatorName</span>
+                            <!-- 操作按鈕 -->
+                            <div class="flex flex-col gap-2 items-end flex-shrink-0">
+                                @if (selectedDetail.Status != 2)
+                                {
+                                    <button type="button" @onclick="() => { /* TODO: 編輯邏輯 */ }"
+                                        class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors shadow-sm flex items-center gap-2">
+                                        <i class="fa-solid fa-pen-to-square text-morandi"></i> 編輯專案
+                                    </button>
+                                    <button type="button" @onclick="() => { /* TODO: 結案邏輯 */ }"
+                                        class="cursor-pointer px-4 py-2 bg-slate-main text-white rounded-lg text-sm font-bold hover:opacity-90 transition-colors shadow-sm flex items-center gap-2">
+                                        <i class="fa-solid fa-box-archive"></i> 結案入庫
+                                    </button>
+                                }
+                                <button type="button" @onclick="HandleDeleteProject"
+                                    class="cursor-pointer px-4 py-2 bg-white border border-red-300 text-red-500 rounded-lg text-sm font-bold hover:bg-red-50 transition-colors shadow-sm flex items-center gap-2">
+                                    <i class="fa-solid fa-trash-can"></i> 刪除專案
+                                </button>
                             </div>
-                        </div>
-                        <!-- 操作按鈕 -->
-                        <div class="flex flex-col gap-2 items-end flex-shrink-0">
-                            @if (selectedDetail.Status != 2)
-                            {
-                                <button type="button" @onclick="() => { /* TODO: 編輯邏輯 */ }"
-                                    class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors shadow-sm flex items-center gap-2">
-                                    <i class="fa-solid fa-pen-to-square text-morandi"></i> 編輯專案
-                                </button>
-                                <button type="button" @onclick="() => { /* TODO: 結案邏輯 */ }"
-                                    class="cursor-pointer px-4 py-2 bg-terracotta text-white rounded-lg text-sm font-bold hover:bg-[#c67a5c] transition-colors shadow-sm flex items-center gap-2">
-                                    <i class="fa-solid fa-box-archive"></i> 結案入庫
-                                </button>
-                            }
-                            <button type="button" @onclick="HandleDeleteProject"
-                                class="cursor-pointer px-4 py-2 bg-white border border-red-300 text-red-500 rounded-lg text-sm font-bold hover:bg-red-50 transition-colors shadow-sm flex items-center gap-2">
-                                <i class="fa-solid fa-trash-can"></i> 刪除專案
-                            </button>
                         </div>
                     </div>
 

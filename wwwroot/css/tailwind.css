@@ -1988,6 +1988,9 @@
       background-color: color-mix(in oklab, var(--color-slate-900) 10%, transparent);
     }
   }
+  .bg-slate-main {
+    background-color: var(--color-slate-main);
+  }
   .bg-teal-50 {
     background-color: var(--color-teal-50);
   }
