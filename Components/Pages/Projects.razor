@@ -4,8 +4,7 @@
 @*  功能：左右分割佈局，左側專案列表搜尋/篩選，右側詳情；SlideOver 新增表單  *@
 @* ====================================================================== *@
 @page "/projects"
-@using MT.Components.Shared
-
+@inject IProjectService ProjectService
 <div class="flex-grow flex flex-col w-full max-w-[1920px] mx-auto h-[calc(100vh-4rem)] overflow-hidden">
     <!-- Breadcrumb & Header Row -->
     <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur border-b border-gray-200">
@@ -554,10 +553,124 @@
         showProjectModal = true;
     }
 
-    private void SaveProject()
+    private async Task SaveProject()
     {
-        // TODO: 真正的儲存邏輯（呼叫 ProjectService）
-        showProjectModal = false;
+        // 1. 必填驗證：Year 與 Name
+        if (string.IsNullOrWhiteSpace(formModel.Year) || string.IsNullOrWhiteSpace(formModel.Name))
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "「專案年度」與「專案名稱」為必填項目", "warning");
+            return;
+        }
+
+        // 2. 時程驗證：確保產學計畫區間(階段 1)有設定起訖日期
+        if (stages[0].Start == null || stages[0].End == null)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "請設定產學計畫區間的起訖日期", "warning");
+            return;
+        }
+
+        // 3. 數量配額驗證
+        var isValid = true;
+        for (int i = 0; i < questionTypes.Count; i++)
+        {
+            var target = questionTypes[i].Count ?? 0;
+            if (target > 0 && GetAllocatedSum(i) != target)
+            {
+                isValid = false;
+                break;
+            }
+        }
+
+        if (!isValid)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "題型數量的分配不符合專案需求題數，請重新配置", "warning");
+            return;
+        }
+
+        try
+        {
+            // 取登入者 ID
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var user = authState.User;
+            var userIdStr = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            int currentUserId = int.TryParse(userIdStr, out var id) ? id : 1; // 預防轉型失敗
+
+            // 4. 準備 DTO
+            var req = new CreateProjectRequest
+            {
+                Year = formModel.Year.Trim(),
+                Name = formModel.Name.Trim(),
+                School = formModel.School?.Trim(),
+                CreatedBy = currentUserId
+            };
+
+            for (int i = 0; i < stages.Length; i++)
+            {
+                if (stages[i].Start.HasValue && stages[i].End.HasValue)
+                {
+                    req.Phases.Add(new ProjectPhaseDto
+                    {
+                        PhaseCode = i + 1,
+                        Name = stages[i].Name,
+                        StartDate = stages[i].Start!.Value,
+                        EndDate = stages[i].End!.Value
+                    });
+                }
+            }
+
+            for (int i = 0; i < questionTypes.Count; i++)
+            {
+                var count = questionTypes[i].Count ?? 0;
+                if (count > 0)
+                {
+                    req.Targets.Add(new ProjectTargetDto
+                    {
+                        QuestionTypeId = i + 1,
+                        TargetCount = count
+                    });
+                }
+            }
+
+            foreach (var p in talentPool.Where(x => x.IsSelected))
+            {
+                var allocDto = new ProjectMemberAllocationDto
+                {
+                    UserId = int.TryParse(p.Id.Replace("T", ""), out var uid) ? uid : 0,
+                    RoleName = p.SelectedRole
+                };
+
+                if (p.SelectedRole == "命題教師")
+                {
+                    var allocVm = allocationTeachers.FirstOrDefault(a => a.Id == p.Id);
+                    if (allocVm != null)
+                    {
+                        for (int i = 0; i < allocVm.Quotas.Length; i++)
+                        {
+                            if (allocVm.Quotas[i] > 0)
+                            {
+                                allocDto.Quotas.Add(new ProjectMemberQuotaDto
+                                {
+                                    QuestionTypeId = i + 1,
+                                    QuotaCount = allocVm.Quotas[i]
+                                });
+                            }
+                        }
+                    }
+                }
+                
+                req.MemberAllocations.Add(allocDto);
+            }
+
+            // 5. 呼叫 Service
+            await ProjectService.CreateProjectAsync(req);
+
+            await JS.InvokeVoidAsync("Swal.fire", "新增成功", "專案與所有設定已寫入資料庫！", "success");
+            showProjectModal = false;
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "系統錯誤", $"新增專案失敗：{ex.Message}", "error");
+        }
     }
 
     // ──── 內部模型類別 ────

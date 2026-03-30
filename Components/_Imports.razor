@@ -12,6 +12,9 @@
 @using MT.Components.Shared
 @using MT.Components.Shared.QuestionPreviews
 @using MT.Services
+@using MT.Models
 @using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage
 @using Microsoft.AspNetCore.Components.Authorization
 @using System.Security.Claims
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider AuthStateProvider
