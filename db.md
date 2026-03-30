@@ -1,6 +1,6 @@
 -- =============================================================================
 -- CWT 命題工作平臺 — 統一資料庫架構 (MSSQL)
--- 版本：完整版 (TINYINT 數值化優化 + 100% 完整擴充屬性備註)
+-- 版本：完整版 (TINYINT 數值化優化 + 100% 完整擴充屬性備註 + UI邏輯防呆修正版)
 -- =============================================================================
 
 USE MT; -- DB 名稱
@@ -8,9 +8,7 @@ GO
 
 ---
 
--- 1. 基礎表 (無外鍵依賴)
-
----
+## -- 1. 基礎表 (無外鍵依賴)
 
 CREATE TABLE dbo.MT_Roles (
 Id INT IDENTITY(1,1) PRIMARY KEY,
@@ -68,9 +66,7 @@ GO
 
 ---
 
--- 2. 核心使用者表
-
----
+## -- 2. 核心使用者表
 
 CREATE TABLE dbo.MT_Users (
 UserId INT IDENTITY(1,1) PRIMARY KEY,
@@ -106,9 +102,7 @@ GO
 
 ---
 
--- 3. 依賴 MT_Users 的延伸表
-
----
+## -- 3. 依賴 MT_Users 的延伸表
 
 CREATE TABLE dbo.MT_RolePermissions (
 Id INT IDENTITY(1,1) PRIMARY KEY,
@@ -133,6 +127,7 @@ CREATE TABLE dbo.MT_PasswordResetTokens (
 Id INT IDENTITY(1,1) PRIMARY KEY,
 UserId INT NOT NULL FOREIGN KEY REFERENCES dbo.MT_Users(Id),
 Token NVARCHAR(500) NOT NULL UNIQUE,
+RequestIp NVARCHAR(50),
 ExpiresAt DATETIME2 NOT NULL,
 IsUsed BIT NOT NULL DEFAULT 0,
 CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME()
@@ -142,6 +137,7 @@ EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'管理忘記�
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'唯一識別碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_PasswordResetTokens', @level2type=N'COLUMN', @level2name=N'Id';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'使用者 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_PasswordResetTokens', @level2type=N'COLUMN', @level2name=N'UserId';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'重設識別碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_PasswordResetTokens', @level2type=N'COLUMN', @level2name=N'Token';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'請求來源 IP', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_PasswordResetTokens', @level2type=N'COLUMN', @level2name=N'RequestIp';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'截止時間', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_PasswordResetTokens', @level2type=N'COLUMN', @level2name=N'ExpiresAt';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'是否已使用', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_PasswordResetTokens', @level2type=N'COLUMN', @level2name=N'IsUsed';
 GO
@@ -246,9 +242,7 @@ GO
 
 ---
 
--- 4. 專案管理群組
-
----
+## -- 4. 專案管理群組
 
 CREATE TABLE dbo.MT_Projects (
 Id INT IDENTITY(1,1) PRIMARY KEY,
@@ -262,6 +256,8 @@ EndDate DATE NOT NULL,
 ClosedAt DATETIME2,
 CreatedBy INT FOREIGN KEY REFERENCES dbo.MT_Users(Id),
 Description NVARCHAR(500),
+IsDeleted BIT NOT NULL DEFAULT 0,
+DeletedAt DATETIME2,
 CreatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
 UpdatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME()
 );
@@ -278,6 +274,8 @@ EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'計畫結束�
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'實際結案時間', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Projects', @level2type=N'COLUMN', @level2name=N'ClosedAt';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'建立人 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Projects', @level2type=N'COLUMN', @level2name=N'CreatedBy';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'專案描述', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Projects', @level2type=N'COLUMN', @level2name=N'Description';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'是否刪除/作廢 (0:正常, 1:作廢)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Projects', @level2type=N'COLUMN', @level2name=N'IsDeleted';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'作廢/刪除時間', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Projects', @level2type=N'COLUMN', @level2name=N'DeletedAt';
 GO
 
 CREATE TABLE dbo.MT_ProjectPhases (
@@ -307,7 +305,7 @@ CREATE TABLE dbo.MT_ProjectTargets (
 Id INT IDENTITY(1,1) PRIMARY KEY,
 ProjectId INT NOT NULL FOREIGN KEY REFERENCES dbo.MT_Projects(Id),
 QuestionTypeId INT NOT NULL FOREIGN KEY REFERENCES dbo.MT_QuestionTypes(Id),
-Level TINYINT NOT NULL,
+Level TINYINT,
 TargetCount INT NOT NULL DEFAULT 0
 );
 GO
@@ -315,7 +313,7 @@ EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'各專案對�
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'唯一識別碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_ProjectTargets', @level2type=N'COLUMN', @level2name=N'Id';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'專案 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_ProjectTargets', @level2type=N'COLUMN', @level2name=N'ProjectId';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'題型 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_ProjectTargets', @level2type=N'COLUMN', @level2name=N'QuestionTypeId';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'等級 (0:初等/難度一, 1:中等/難度二, 2:中高等/難度三, 3:高等/難度四, 4:優等/難度五)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_ProjectTargets', @level2type=N'COLUMN', @level2name=N'Level';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'等級 (配合前端若無區分則為NULL)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_ProjectTargets', @level2type=N'COLUMN', @level2name=N'Level';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'目標命題數', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_ProjectTargets', @level2type=N'COLUMN', @level2name=N'TargetCount';
 GO
 
@@ -350,7 +348,7 @@ CREATE TABLE dbo.MT_MemberQuotas (
 Id INT IDENTITY(1,1) PRIMARY KEY,
 ProjectMemberId INT NOT NULL FOREIGN KEY REFERENCES dbo.MT_ProjectMembers(Id),
 QuestionTypeId INT NOT NULL FOREIGN KEY REFERENCES dbo.MT_QuestionTypes(Id),
-Level TINYINT NOT NULL,
+Level TINYINT,
 QuotaCount INT NOT NULL DEFAULT 0
 );
 GO
@@ -358,7 +356,7 @@ EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'指派給特�
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'唯一識別碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_MemberQuotas', @level2type=N'COLUMN', @level2name=N'Id';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'成員 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_MemberQuotas', @level2type=N'COLUMN', @level2name=N'ProjectMemberId';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'題型 ID', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_MemberQuotas', @level2type=N'COLUMN', @level2name=N'QuestionTypeId';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'等級 (0:初等/難度一, 1:中等/難度二, 2:中高等/難度三, 3:高等/難度四, 4:優等/難度五)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_MemberQuotas', @level2type=N'COLUMN', @level2name=N'Level';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'等級 (配合前端若無區分則為NULL)', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_MemberQuotas', @level2type=N'COLUMN', @level2name=N'Level';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'指派數', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_MemberQuotas', @level2type=N'COLUMN', @level2name=N'QuotaCount';
 GO
 
@@ -392,9 +390,7 @@ GO
 
 ---
 
--- 5. 題目與命題群組 (核心業務表)
-
----
+## -- 5. 題目與命題群組 (核心業務表)
 
 CREATE TABLE dbo.MT_Questions (
 Id INT IDENTITY(1,1) PRIMARY KEY,
@@ -593,9 +589,7 @@ GO
 
 ---
 
--- 6. 建立非唯一索引 (Non-Unique Indexes)
-
----
+## -- 6. 建立非唯一索引 (Non-Unique Indexes)
 
 CREATE INDEX IX_MT_Users_RoleId ON dbo.MT_Users(RoleId);
 CREATE INDEX IX_MT_Users_Status ON dbo.MT_Users(Status);

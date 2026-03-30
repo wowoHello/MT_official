@@ -30,16 +30,16 @@
     </div>
 
     <!-- Main Content Container -->
-    <div class="container mx-auto px-4 py-8 z-10 flex md:justify-end justify-center items-center h-full overflow-y-auto">
+    <div class="container mx-auto px-4 py-4 z-10 flex md:justify-end justify-center items-center h-full overflow-y-auto">
         <!-- Login Card -->
-        <div class="glass-card w-full max-w-md p-6 sm:p-8 rounded-2xl shadow-xl md:mr-[10%] xl:mr-[15%]">
+        <div class="glass-card w-full max-w-md p-6 sm:py-6 sm:px-8 rounded-2xl shadow-xl md:mr-[10%] xl:mr-[15%]">
 
             <!-- Logo & Title -->
-            <div class="text-center mb-5">
-                <div class="w-14 h-14 bg-[var(--color-morandi)]/10 rounded-full flex items-center justify-center mx-auto mb-3">
-                    <img src="img/pencil.png" alt="CWT Logo" class="w-9 h-9 object-contain">
+            <div class="text-center mb-4">
+                <div class="w-12 h-12 bg-[var(--color-morandi)]/10 rounded-full flex items-center justify-center mx-auto mb-2">
+                    <img src="img/pencil.png" alt="CWT Logo" class="w-8 h-8 object-contain">
                 </div>
-                <h1 tabindex="-1" class="text-2xl font-bold text-slate-main mb-1 focus:outline-none">
+                <h1 tabindex="-1" class="text-xl font-bold text-slate-main mb-1 focus:outline-none">
                   CWT 命題工作平臺
                 </h1>
                 <p class="text-sm text-gray-500">歡迎回來，請登入您的帳號</p>
@@ -57,14 +57,14 @@
             <!-- Error Alert -->
             @if (!string.IsNullOrEmpty(errorMessage))
             {
-                <div class="mb-4 p-3 bg-red-50 text-[var(--color-terracotta)] border border-red-200 rounded-lg text-sm flex items-center gap-2">
+                <div class="mb-3 p-2 bg-red-50 text-[var(--color-terracotta)] border border-red-200 rounded-lg text-sm flex items-center gap-2">
                     <i class="fa-solid fa-circle-exclamation"></i>
                     <span>@errorMessage</span>
                 </div>
             }
 
             <!-- Login Form -->
-            <EditForm Model="loginModel" OnValidSubmit="HandleLogin" FormName="loginForm" class="space-y-4">
+            <EditForm Model="loginModel" OnValidSubmit="HandleLogin" FormName="loginForm" class="space-y-3">
                 <!-- Account -->
                 <div>
                     <label for="username" class="block text-sm font-medium mb-1">帳號</label>
@@ -129,14 +129,14 @@
                 </div>
 
                 <!-- Security Notice -->
-                <div class="bg-blue-50/70 border border-blue-100 rounded-lg p-3 text-xs text-blue-800 flex items-start gap-2">
+                <div class="bg-blue-50/70 border border-blue-100 rounded-lg p-2.5 text-xs text-blue-800 flex items-start gap-2">
                     <i class="fa-solid fa-shield-halved mt-0.5 text-[var(--color-morandi)]"></i>
                     <div>
-                        <strong class="block mb-1 text-[var(--color-morandi)]">資安提示</strong>
-                        <ul class="list-disc pl-4 space-y-1 opacity-80">
+                        <strong class="block mb-0.5 text-[var(--color-morandi)]">資安提示</strong>
+                        <ul class="list-disc pl-4 space-y-0.5 opacity-80">
                             <li>請勿將帳號密碼交給他人使用。</li>
                             <li>登入後若需離開座位，請確實登出系統。</li>
-                            <li>建議定期更換您的密碼以確保帳號安全。</li>
+                            <li>建議定期更換密碼以確保帳號安全。</li>
                         </ul>
                     </div>
                 </div>
@@ -159,7 +159,7 @@
                 </button>
             </EditForm>
 
-            <div class="mt-8 text-center text-xs text-gray-400">
+            <div class="mt-4 text-center text-xs text-gray-400">
                 &copy; @DateTime.Now.Year 全民中文檢定 CWT. All rights reserved.
             </div>
         </div>
