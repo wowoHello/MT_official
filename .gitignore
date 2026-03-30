@@ -8,7 +8,6 @@ agents/
 bin/
 obj/
 example/
-Refer/
 wwwroot/uploads/
 
 # dotenv files
