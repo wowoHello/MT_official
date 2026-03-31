@@ -1,0 +1,85 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Http;
+using YourProject.Data; // 假設您的資料存取層
+using YourProject.Models; // 假設您的使用者模型
+
+namespace YourProject.Services
+{
+    public class LoginService
+    {
+        private readonly IUserRepository _userRepository; // 假設您有使用者資料庫操作的 Repository 或 Service
+        private readonly IHttpContextAccessor _httpContextAccessor;
+
+        public LoginService(IUserRepository userRepository, IHttpContextAccessor httpContextAccessor)
+        {
+            _userRepository = userRepository;
+            _httpContextAccessor = httpContextAccessor;
+        }
+
+        public async Task<bool> LoginAsync(string username, string password)
+        {
+            // 1. 去您的 MT_Users 資料表驗證帳密 (假設驗證成功，取得 user 物件)
+            // 這裡需要替換為您實際的驗證邏輯，例如：
+            // var user = await _userRepository.ValidateUserAsync(username, password);
+            // 為了範例，我們假設驗證成功並創建一個模擬使用者
+            var user = new User { Id = 1, Username = username, DisplayName = "測試用戶", RoleName = "Admin" }; // 模擬使用者
+            if (username != "test" || password != "password") // 簡單的模擬驗證
+            {
+                return false; // 驗證失敗
+            }
+
+            if (user == null) return false; // 驗證失敗
+
+            // 2. 建立 Claims (將資料庫欄位轉化為宣告)
+            var claims = new List<Claim>
+            {
+                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                new Claim(ClaimTypes.Name, user.DisplayName),
+                new Claim(ClaimTypes.Role, user.RoleName) // 來自您的 MT_Roles 或 User 物件中的角色資訊
+            };
+
+            var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+            var principal = new ClaimsPrincipal(identity);
+
+            // 3. 呼叫內建語法發放 Cookie，完成登入！(不需手寫 API)
+            await _httpContextAccessor.HttpContext.SignInAsync(
+                CookieAuthenticationDefaults.AuthenticationScheme, 
+                principal,
+                new AuthenticationProperties { IsPersistent = true } // 可選：讓 Cookie 持久化
+            );
+            return true;
+        }
+    }
+
+    // 模擬使用者模型，請替換為您實際的 User 模型
+    public class User
+    {
+        public int Id { get; set; }
+        public string Username { get; set; }
+        public string DisplayName { get; set; }
+        public string RoleName { get; set; }
+        // public string PasswordHash { get; set; } // 實際應用中應包含密碼雜湊
+    }
+
+    // 模擬使用者 Repository 介面，請替換為您實際的資料存取介面
+    public interface IUserRepository
+    {
+        Task<User> ValidateUserAsync(string username, string password);
+    }
+
+    // 模擬使用者 Repository 實作，請替換為您實際的資料存取實作
+    public class UserRepository : IUserRepository
+    {
+        public Task<User> ValidateUserAsync(string username, string password)
+        {
+            // 實際應用中會查詢資料庫並驗證密碼
+            if (username == "test" && password == "password")
+            {
+                return Task.FromResult(new User { Id = 1, Username = "test", DisplayName = "測試用戶", RoleName = "Admin" });
+            }
+            return Task.FromResult<User>(null);
+        }
+    }
+}

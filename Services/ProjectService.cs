@@ -10,6 +10,7 @@ public interface IProjectService
 {
     Task<int> CreateProjectAsync(CreateProjectRequest request);
     Task<List<ProjectListItem>> GetProjectListAsync();
+    Task<List<ProjectSwitcherItem>> GetVisibleProjectsAsync(int userId);
     Task<ProjectDetailDto?> GetProjectDetailAsync(int projectId);
     Task<List<ProjectTalentPoolItem>> GetTalentPoolAsync();
     Task SoftDeleteProjectAsync(int projectId, int deletedBy);
@@ -25,11 +26,16 @@ public class ProjectService : IProjectService
 
     private readonly IDatabaseService _db;
     private readonly ILogger<ProjectService> _logger;
+    private readonly IProjectRealtimeSyncService _projectRealtimeSyncService;
 
-    public ProjectService(IDatabaseService db, ILogger<ProjectService> logger)
+    public ProjectService(
+        IDatabaseService db,
+        ILogger<ProjectService> logger,
+        IProjectRealtimeSyncService projectRealtimeSyncService)
     {
         _db = db;
         _logger = logger;
+        _projectRealtimeSyncService = projectRealtimeSyncService;
     }
 
     public async Task<List<ProjectListItem>> GetProjectListAsync()
@@ -55,6 +61,72 @@ public class ProjectService : IProjectService
             """;
 
         var result = await conn.QueryAsync<ProjectListItem>(sql);
+        return result.ToList();
+    }
+
+    public async Task<List<ProjectSwitcherItem>> GetVisibleProjectsAsync(int userId)
+    {
+        using var conn = _db.CreateConnection();
+
+        const string sql = """
+            WITH UserContext AS (
+                SELECT
+                    u.Id AS UserId,
+                    r.Category AS RoleCategory
+                FROM dbo.MT_Users u
+                INNER JOIN dbo.MT_Roles r ON r.Id = u.RoleId
+                WHERE u.Id = @UserId
+                  AND u.Status = 1
+            ),
+            VisibleProjectIds AS (
+                SELECT p.Id AS ProjectId
+                FROM dbo.MT_Projects p
+                CROSS JOIN UserContext uc
+                WHERE uc.RoleCategory = 0
+                  AND p.IsDeleted = 0
+
+                UNION
+
+                SELECT pm.ProjectId
+                FROM dbo.MT_ProjectMembers pm
+                INNER JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
+                INNER JOIN UserContext uc ON uc.UserId = pm.UserId
+                WHERE uc.RoleCategory = 1
+
+                UNION
+
+                SELECT q.ProjectId
+                FROM dbo.MT_Questions q
+                INNER JOIN UserContext uc ON uc.UserId = q.CreatorId
+                WHERE uc.RoleCategory = 1
+                  AND q.IsDeleted = 0
+
+                UNION
+
+                SELECT ra.ProjectId
+                FROM dbo.MT_ReviewAssignments ra
+                INNER JOIN UserContext uc ON uc.UserId = ra.ReviewerId
+                WHERE uc.RoleCategory = 1
+            )
+            SELECT
+                p.Id,
+                p.ProjectCode,
+                p.Name,
+                p.Year,
+                p.Status
+            FROM dbo.MT_Projects p
+            INNER JOIN (
+                SELECT DISTINCT ProjectId
+                FROM VisibleProjectIds
+            ) vp ON vp.ProjectId = p.Id
+            WHERE p.IsDeleted = 0
+            ORDER BY
+                CASE WHEN p.Status = 2 THEN 1 ELSE 0 END,
+                p.Year DESC,
+                p.Id DESC;
+            """;
+
+        var result = await conn.QueryAsync<ProjectSwitcherItem>(sql, new { UserId = userId });
         return result.ToList();
     }
 
@@ -171,6 +243,9 @@ public class ProjectService : IProjectService
             """;
 
         await conn.ExecuteAsync(auditSql, new { UserId = deletedBy, TargetId = projectId });
+
+        await _projectRealtimeSyncService.NotifyProjectsChangedAsync(
+            new ProjectRealtimeSyncMessage(ProjectRealtimeChangeType.Deleted, projectId));
     }
 
     public async Task<int> CreateProjectAsync(CreateProjectRequest req)
@@ -333,6 +408,10 @@ public class ProjectService : IProjectService
                 transaction: trans);
 
             trans.Commit();
+
+            await _projectRealtimeSyncService.NotifyProjectsChangedAsync(
+                new ProjectRealtimeSyncMessage(ProjectRealtimeChangeType.Created, projectId));
+
             return projectId;
         }
         catch (Exception ex)
@@ -345,15 +424,19 @@ public class ProjectService : IProjectService
 
     private static string BuildNextProjectCode(string rocYear, string? latestCode)
     {
+        var normalizedYear = rocYear.Trim();
         var seq = 1;
+
+        var expectedPrefix = $"P{normalizedYear}";
         if (!string.IsNullOrWhiteSpace(latestCode) &&
-            latestCode.Length >= 8 &&
+            latestCode.StartsWith(expectedPrefix, StringComparison.OrdinalIgnoreCase) &&
+            latestCode.Length >= expectedPrefix.Length + 3 &&
             int.TryParse(latestCode[^3..], out var lastSeq))
         {
             seq = lastSeq + 1;
         }
 
-        return $"P{rocYear}{seq:D3}";
+        return $"{expectedPrefix}{seq:D3}";
     }
 
 

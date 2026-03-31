@@ -1,0 +1,47 @@
+using Dapper;
+using System.Collections.Generic;
+using System.Data;
+using System.Threading.Tasks;
+
+namespace YourProject.Services
+{
+    public class YourService : IYourService
+    {
+        private readonly IDbConnection _dbConnection;
+
+        public YourService(IDbConnection dbConnection)
+        {
+            _dbConnection = dbConnection;
+        }
+
+        public async Task<IEnumerable<YourModelName>> GetAllAsync()
+        {
+            var sql = "SELECT * FROM YourTable";
+            return await _dbConnection.QueryAsync<YourModelName>(sql);
+        }
+
+        public async Task<YourModelName> GetByIdAsync(int id)
+        {
+            var sql = "SELECT * FROM YourTable WHERE Id = @Id";
+            return await _dbConnection.QuerySingleOrDefaultAsync<YourModelName>(sql, new { Id = id });
+        }
+
+        public async Task AddAsync(YourModelName entity)
+        {
+            var sql = "INSERT INTO YourTable (Name, CreatedAt) VALUES (@Name, @CreatedAt)";
+            await _dbConnection.ExecuteAsync(sql, entity);
+        }
+
+        public async Task UpdateAsync(YourModelName entity)
+        {
+            var sql = "UPDATE YourTable SET Name = @Name, CreatedAt = @CreatedAt WHERE Id = @Id";
+            await _dbConnection.ExecuteAsync(sql, entity);
+        }
+
+        public async Task DeleteAsync(int id)
+        {
+            var sql = "DELETE FROM YourTable WHERE Id = @Id";
+            await _dbConnection.ExecuteAsync(sql, new { Id = id });
+        }
+    }
+}

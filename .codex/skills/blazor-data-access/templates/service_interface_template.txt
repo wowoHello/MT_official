@@ -1,0 +1,14 @@
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
+namespace YourProject.Services
+{
+    public interface IYourService
+    {
+        Task<IEnumerable<YourModelName>> GetAllAsync();
+        Task<YourModelName> GetByIdAsync(int id);
+        Task AddAsync(YourModelName entity);
+        Task UpdateAsync(YourModelName entity);
+        Task DeleteAsync(int id);
+    }
+}

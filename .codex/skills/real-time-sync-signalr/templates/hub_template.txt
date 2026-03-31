@@ -1,0 +1,14 @@
+using Microsoft.AspNetCore.SignalR;
+
+namespace YourProject.Hubs
+{
+    public class YourHubName : Hub
+    {
+        // Hub methods can be added here if needed, but for simple broadcasting,
+        // direct injection of IHubContext in services is often preferred.
+        // Example: public async Task SendMessage(string user, string message)
+        // { 
+        //     await Clients.All.SendAsync("ReceiveMessage", user, message);
+        // }
+    }
+}

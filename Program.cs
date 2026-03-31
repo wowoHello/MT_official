@@ -37,6 +37,7 @@ builder.Services.AddScoped<IDatabaseService, DatabaseService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
+builder.Services.AddSingleton<IProjectRealtimeSyncService, ProjectRealtimeSyncService>();
 
 var app = builder.Build();
 

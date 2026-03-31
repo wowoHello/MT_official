@@ -54,6 +54,16 @@ public class ProjectTalentPoolItem
     public string Identifier { get; set; } = string.Empty;
 }
 
+public class ProjectSwitcherItem
+{
+    public int Id { get; set; }
+    public string ProjectCode { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public int Year { get; set; }
+    public byte Status { get; set; }
+    public string DisplayName => $"{Year}年度 {Name}";
+}
+
 /// <summary>
 /// 左側專案列表資料。
 /// </summary>
