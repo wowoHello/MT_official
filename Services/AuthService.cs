@@ -1,8 +1,12 @@
 using Microsoft.Data.SqlClient;
 using Dapper;
 using MT.Models;
+using System.Collections.Concurrent;
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 
 namespace MT.Services;
 
@@ -12,11 +16,20 @@ public interface IAuthService
     Task<List<ModulePermission>> GetUserPermissionsAsync(int roleId);
     Task LogLoginAttemptAsync(int? userId, string username, bool isSuccess, string? failReason, string? ip, string? userAgent);
     Task UpdateLastLoginAsync(int userId);
+
+    /// <summary>暫存登入資料，回傳一次性 key，供 HTTP 端點完成 Cookie 寫入</summary>
+    string PrepareSignIn(UserInfo user, bool rememberMe);
+
+    /// <summary>由 HTTP 端點呼叫，使用一次性 key 完成 Cookie 寫入</summary>
+    Task<bool> CompleteSignInAsync(string key, HttpContext httpContext);
 }
 
 public class AuthService : IAuthService
 {
     private readonly IDatabaseService _db;
+
+    // 一次性暫存：Blazor 元件驗證通過後暫存，HTTP 端點取用後立即移除
+    private static readonly ConcurrentDictionary<string, (UserInfo User, bool RememberMe, DateTime CreatedAt)> _pendingLogins = new();
 
     public AuthService(IDatabaseService db)
     {
@@ -110,5 +123,53 @@ public class AuthService : IAuthService
         await conn.ExecuteAsync(
             "UPDATE dbo.MT_Users SET LastLoginAt = SYSDATETIME() WHERE Id = @UserId",
             new { UserId = userId });
+    }
+
+    public string PrepareSignIn(UserInfo user, bool rememberMe)
+    {
+        // 清理超過 60 秒的過期暫存（防止累積）
+        var cutoff = DateTime.UtcNow.AddSeconds(-60);
+        foreach (var kvp in _pendingLogins)
+        {
+            if (kvp.Value.CreatedAt < cutoff)
+                _pendingLogins.TryRemove(kvp.Key, out _);
+        }
+
+        var key = Guid.NewGuid().ToString("N");
+        _pendingLogins[key] = (user, rememberMe, DateTime.UtcNow);
+        return key;
+    }
+
+    public async Task<bool> CompleteSignInAsync(string key, HttpContext httpContext)
+    {
+        if (!_pendingLogins.TryRemove(key, out var data))
+            return false;
+
+        // 超過 60 秒視為過期
+        if ((DateTime.UtcNow - data.CreatedAt).TotalSeconds > 60)
+            return false;
+
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, data.User.Id.ToString()),
+            new(ClaimTypes.Name, data.User.Username),
+            new("DisplayName", data.User.DisplayName),
+            new(ClaimTypes.Role, data.User.RoleName),
+            new("RoleId", data.User.RoleId.ToString())
+        };
+
+        var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+        var principal = new ClaimsPrincipal(identity);
+
+        await httpContext.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            principal,
+            new AuthenticationProperties
+            {
+                IsPersistent = data.RememberMe,
+                ExpiresUtc = data.RememberMe ? DateTimeOffset.UtcNow.AddDays(90) : null
+            });
+
+        return true;
     }
 }

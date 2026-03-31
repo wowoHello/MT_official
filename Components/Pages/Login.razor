@@ -333,17 +333,9 @@
             else
                 await LocalStorage.DeleteAsync("cwt_remembered_account");
 
-            // 透過 JS 導航至登入 API endpoint（標準 HTTP POST 設定 Cookie）
-            // 使用隱藏表單 POST 提交，確保 Cookie 正確設定在瀏覽器
-            await JS.InvokeVoidAsync("authInterop.postLogin", new
-            {
-                userId = user.Id,
-                username = user.Username,
-                displayName = user.DisplayName,
-                roleName = user.RoleName,
-                roleId = user.RoleId,
-                rememberMe = loginModel.RememberMe
-            });
+            // 暫存登入資料，取得一次性 key，導航至 HTTP 端點完成 Cookie 寫入
+            var loginKey = AuthService.PrepareSignIn(user, loginModel.RememberMe);
+            Navigation.NavigateTo($"/auth/login?key={loginKey}", forceLoad: true);
         }
         catch (Exception ex)
         {

@@ -40,23 +40,3 @@ window.swalInterop = {
     }
 };
 
-/**
- * Auth Interop — 透過隱藏表單 POST 讓瀏覽器導向登入 API，設定 Cookie 後跳轉首頁
- */
-window.authInterop = {
-    postLogin: (payload) => {
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = '/api/auth/login';
-        form.style.display = 'none';
-        for (const [key, value] of Object.entries(payload)) {
-            const input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = key;
-            input.value = value;
-            form.appendChild(input);
-        }
-        document.body.appendChild(form);
-        form.submit();
-    }
-};

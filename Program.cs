@@ -2,7 +2,6 @@ using MT.Components;
 using MT.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
-using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -48,52 +47,22 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-// ====== Auth API Endpoints ======
+// ====== Auth Endpoints（Cookie 寫入必須在獨立 HTTP 請求中執行）======
 
-// 登入：驗證 + 寫入 Cookie + 導向首頁（接收隱藏表單 POST）
-app.MapPost("/api/auth/login", async (HttpContext context) =>
+// 登入：由 Blazor 元件驗證後暫存資料，此端點完成 Cookie 寫入
+app.MapGet("/auth/login", async (string key, IAuthService authService, HttpContext context) =>
 {
-    var form = await context.Request.ReadFormAsync();
+    if (await authService.CompleteSignInAsync(key, context))
+        return Results.Redirect("/home");
 
-    if (!int.TryParse(form["userId"], out var userId))
-        return Results.BadRequest();
-
-    var username = form["username"].ToString();
-    var displayName = form["displayName"].ToString();
-    var roleName = form["roleName"].ToString();
-    _ = int.TryParse(form["roleId"], out var roleId);
-    var rememberMe = string.Equals(form["rememberMe"], "true", StringComparison.OrdinalIgnoreCase);
-
-    var claims = new List<Claim>
-    {
-        new(ClaimTypes.NameIdentifier, userId.ToString()),
-        new(ClaimTypes.Name, username),
-        new("DisplayName", displayName),
-        new(ClaimTypes.Role, roleName),
-        new("RoleId", roleId.ToString())
-    };
-
-    var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-    var principal = new ClaimsPrincipal(identity);
-
-    await context.SignInAsync(
-        CookieAuthenticationDefaults.AuthenticationScheme,
-        principal,
-        new AuthenticationProperties
-        {
-            IsPersistent = rememberMe,
-            ExpiresUtc = rememberMe ? DateTimeOffset.UtcNow.AddDays(90) : null
-        });
-
-    // 設定 Cookie 後直接導向首頁
-    return Results.Redirect("/home");
+    return Results.Redirect("/");
 });
 
 // 登出：清除 Cookie 並導回登入頁
-app.MapGet("/api/auth/logout", async (HttpContext context) =>
+app.MapGet("/auth/logout", async (HttpContext context) =>
 {
     await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-    context.Response.Redirect("/");
+    return Results.Redirect("/");
 });
 
 // Quill 編輯器圖片上傳 API

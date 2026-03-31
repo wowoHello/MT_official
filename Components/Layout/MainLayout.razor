@@ -149,8 +149,9 @@
 <FontController />
 
 @code {
-    // --- 使用者資訊 (DEMO) ---
-    private string userName = "劉老師";
+    // --- 使用者資訊（從 AuthenticationState 取得）---
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+    private string userName = "";
 
     // --- 梯次切換器 ---
     private bool showProjectDropdown = false;
@@ -172,8 +173,12 @@
                 p.Name.Contains(projectSearchQuery, StringComparison.OrdinalIgnoreCase) ||
                 p.Year.Contains(projectSearchQuery, StringComparison.OrdinalIgnoreCase));
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
+        var authState = await AuthState;
+        userName = authState.User.FindFirst("DisplayName")?.Value
+                ?? authState.User.Identity?.Name
+                ?? "";
         currentProject = allProjects.First();
     }
 
@@ -215,7 +220,7 @@
 
         if (confirmed)
         {
-            Navigation.NavigateTo("/");
+            Navigation.NavigateTo("/auth/logout", forceLoad: true);
         }
     }
 

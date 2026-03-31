@@ -566,6 +566,8 @@
 </CustomModal>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
     private bool showProjectModal = false;
     private string personSearchKeyword = "";
 
@@ -718,7 +720,7 @@
 
         try
         {
-            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var authState = await AuthState;
             var userIdStr = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             int userId = int.TryParse(userIdStr, out var id) ? id : 1;
 
@@ -964,7 +966,7 @@
         try
         {
             // 取登入者 ID
-            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            var authState = await AuthState;
             var user = authState.User;
             var userIdStr = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             int currentUserId = int.TryParse(userIdStr, out var id) ? id : 1; // 預防轉型失敗
@@ -1208,7 +1210,7 @@
 
     private async Task<int?> GetCurrentUserIdAsync()
     {
-        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var authState = await AuthState;
         var userIdStr = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
         if (int.TryParse(userIdStr, out var userId) && userId > 0)
