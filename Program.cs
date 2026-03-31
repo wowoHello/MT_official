@@ -63,7 +63,7 @@ app.MapRazorComponents<App>()
 app.MapGet("/auth/login", async (string key, IAuthService authService, HttpContext context) =>
 {
     if (await authService.CompleteSignInAsync(key, context))
-        return Results.Redirect("/home");
+        return Results.Redirect("/");
 
     return Results.Redirect("/login");
 });
