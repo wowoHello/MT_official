@@ -69,7 +69,7 @@ GO
 ## -- 2. 核心使用者表
 
 CREATE TABLE dbo.MT_Users (
-UserId INT IDENTITY(1,1) PRIMARY KEY,
+Id INT IDENTITY(1,1) PRIMARY KEY,
 Username NVARCHAR(100) NOT NULL UNIQUE,
 DisplayName NVARCHAR(50) NOT NULL,
 Email NVARCHAR(200),
@@ -85,7 +85,7 @@ UpdatedAt DATETIME2 NOT NULL DEFAULT SYSDATETIME()
 );
 GO
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'儲存所有系統使用者，包含內部職員與外部教師', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users';
-EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'唯一識別碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'UserId';
+EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'唯一識別碼', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'Id';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'登入帳號', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'Username';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'使用者姓名', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'DisplayName';
 EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'電子信箱', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'MT_Users', @level2type=N'COLUMN', @level2name=N'Email';

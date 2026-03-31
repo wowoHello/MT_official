@@ -1,0 +1,29 @@
+using Microsoft.AspNetCore.Authentication.Cookies;
+
+// Program.cs
+
+// ... 其他服務註冊
+
+builder.Services.AddAuthentication("MyCookieAuth")
+    .AddCookie("MyCookieAuth", options =>
+    {
+        options.Cookie.Name = "CWT_Auth";
+        options.LoginPath = "/login"; // 如果未登入，自動導向這裡
+        options.AccessDeniedPath = "/access-denied"; // 權限不足導向
+        // options.ExpireTimeSpan = TimeSpan.FromMinutes(30); // 可選：設定 Cookie 有效期限
+        // options.SlidingExpiration = true; // 可選：啟用滑動過期
+        // options.Cookie.HttpOnly = true; // 可選：防止客戶端腳本存取 Cookie
+        // options.Cookie.SecurePolicy = CookieSecurePolicy.Always; // 可選：確保只透過 HTTPS 傳送 Cookie
+        // options.Cookie.SameSite = SameSiteMode.Lax; // 可選：設定 SameSite 屬性
+    });
+
+builder.Services.AddAuthorization();
+
+var app = builder.Build();
+
+// ... 其他中介軟體配置
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+// ... 其他路由配置

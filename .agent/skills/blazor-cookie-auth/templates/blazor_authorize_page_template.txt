@@ -1,0 +1,35 @@
+@page "/dashboard"
+@using System.Security.Claims
+
+<AuthorizeView Roles="Admin, Editor"> @* 檢查是否為 Admin 或 Editor 角色 *@
+    <Authorized>
+        <h1>歡迎回來，@context.User.Identity.Name！</h1>
+        <p>您的角色是：@string.Join(", ", context.User.Claims.Where(c => c.Type == ClaimTypes.Role).Select(c => c.Value))</p>
+        <button>進入命題專案</button>
+        <form action="/logout" method="post">
+            <button type="submit">登出</button>
+        </form>
+    </Authorized>
+    <NotAuthorized>
+        <p>您沒有權限看到這個區塊。</p>
+        <a href="/login">請登入</a>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    // 如果需要在程式碼中獲取使用者資訊，可以注入 AuthenticationStateProvider
+    // [CascadingParameter] private Task<AuthenticationState> authenticationStateTask { get; set; }
+
+    // protected override async Task OnInitializedAsync()
+    // {
+    //     var authState = await authenticationStateTask;
+    //     var user = authState.User;
+
+    //     if (user.Identity.IsAuthenticated)
+    //     {
+    //         // 使用者已登入
+    //         var userName = user.Identity.Name;
+    //         var roles = user.Claims.Where(c => c.Type == ClaimTypes.Role).Select(c => c.Value).ToList();
+    //     }
+    // }
+}

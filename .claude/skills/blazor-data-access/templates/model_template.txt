@@ -1,0 +1,10 @@
+namespace YourProject.Models
+{
+    public class YourModelName
+    {
+        public int Id { get; set; }
+        // Add other properties here
+        public string Name { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+}

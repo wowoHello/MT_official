@@ -1,0 +1,64 @@
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
+using System.Data;
+using YourProject.Data;
+using YourProject.Hubs;
+using YourProject.Models;
+
+namespace YourProject.Services
+{
+    public class YourRealtimeService
+    {
+        private readonly ApplicationDbContext _context; // Or IDbConnection for Dapper
+        private readonly IHubContext<YourHubName> _hubContext;
+
+        public YourRealtimeService(ApplicationDbContext context, IHubContext<YourHubName> hubContext)
+        {
+            _context = context;
+            _hubContext = hubContext;
+        }
+
+        public async Task AddItemAsync(YourModelName item)
+        {
+            // For EF Core:
+            _context.YourModelNames.Add(item);
+            await _context.SaveChangesAsync();
+            await _hubContext.Clients.All.SendAsync("ReceiveAddItem", item);
+
+            // For Dapper (example, adjust as needed):
+            // var sql = "INSERT INTO YourTable (Prop1, Prop2) VALUES (@Prop1, @Prop2)";
+            // await _dbConnection.ExecuteAsync(sql, item);
+            // await _hubContext.Clients.All.SendAsync("ReceiveAddItem", item);
+        }
+
+        public async Task UpdateItemAsync(YourModelName item)
+        {
+            // For EF Core:
+            _context.Entry(item).State = EntityState.Modified;
+            await _context.SaveChangesAsync();
+            await _hubContext.Clients.All.SendAsync("ReceiveUpdateItem", item);
+
+            // For Dapper (example, adjust as needed):
+            // var sql = "UPDATE YourTable SET Prop1 = @Prop1 WHERE Id = @Id";
+            // await _dbContext.ExecuteAsync(sql, item);
+            // await _hubContext.Clients.All.SendAsync("ReceiveUpdateItem", item);
+        }
+
+        public async Task DeleteItemAsync(int id)
+        {
+            // For EF Core:
+            var item = await _context.YourModelNames.FindAsync(id);
+            if (item != null)
+            {
+                _context.YourModelNames.Remove(item);
+                await _context.SaveChangesAsync();
+                await _hubContext.Clients.All.SendAsync("ReceiveDeleteItem", id);
+            }
+
+            // For Dapper (example, adjust as needed):
+            // var sql = "DELETE FROM YourTable WHERE Id = @Id";
+            // await _dbConnection.ExecuteAsync(sql, new { Id = id });
+            // await _hubContext.Clients.All.SendAsync("ReceiveDeleteItem", id);
+        }
+    }
+}

@@ -40,7 +40,7 @@ public class AuthService : IAuthService
         using var conn = _db.CreateConnection();
 
         var authRow = await conn.QueryFirstOrDefaultAsync<UserAuthRow>(
-            @"SELECT u.UserId AS Id, u.Username, u.DisplayName, u.PasswordHash,
+            @"SELECT u.Id, u.Username, u.DisplayName, u.PasswordHash,
                      u.RoleId, u.Status, u.IsFirstLogin, r.Name AS RoleName
               FROM dbo.MT_Users u
               INNER JOIN dbo.MT_Roles r ON r.Id = u.RoleId
@@ -108,7 +108,7 @@ public class AuthService : IAuthService
         using var conn = _db.CreateConnection();
 
         await conn.ExecuteAsync(
-            "UPDATE dbo.MT_Users SET LastLoginAt = SYSDATETIME() WHERE UserId = @UserId",
+            "UPDATE dbo.MT_Users SET LastLoginAt = SYSDATETIME() WHERE Id = @UserId",
             new { UserId = userId });
     }
 }

@@ -49,7 +49,7 @@ public class ProjectService : IProjectService
                 ISNULL(u.DisplayName, N'系統') AS CreatorName,
                 (SELECT COUNT(*) FROM dbo.MT_ProjectMembers pm WHERE pm.ProjectId = p.Id) AS MemberCount
             FROM dbo.MT_Projects p
-            LEFT JOIN dbo.MT_Users u ON u.UserId = p.CreatedBy
+            LEFT JOIN dbo.MT_Users u ON u.Id = p.CreatedBy
             WHERE p.IsDeleted = 0
             ORDER BY p.Year DESC, p.Id DESC;
             """;
@@ -70,7 +70,7 @@ public class ProjectService : IProjectService
                 p.StartDate, p.EndDate, p.ClosedAt,
                 ISNULL(u.DisplayName, N'系統') AS CreatorName
             FROM dbo.MT_Projects p
-            LEFT JOIN dbo.MT_Users u ON u.UserId = p.CreatedBy
+            LEFT JOIN dbo.MT_Users u ON u.Id = p.CreatedBy
             WHERE p.Id = @ProjectId AND p.IsDeleted = 0;
 
             -- 2. Phases
@@ -93,8 +93,8 @@ public class ProjectService : IProjectService
                 t.TeacherCode,
                 pmr.RoleCode
             FROM dbo.MT_ProjectMembers pm
-            LEFT JOIN dbo.MT_Users u ON u.UserId = pm.UserId
-            LEFT JOIN dbo.MT_Teachers t ON t.UserId = u.UserId
+            LEFT JOIN dbo.MT_Users u ON u.Id = pm.UserId
+            LEFT JOIN dbo.MT_Teachers t ON t.UserId = u.Id
             LEFT JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
             WHERE pm.ProjectId = @ProjectId
             ORDER BY pm.Id, pmr.RoleCode;
@@ -139,11 +139,11 @@ public class ProjectService : IProjectService
 
         const string sql = """
             SELECT
-                u.UserId,
+                u.Id AS UserId,
                 u.DisplayName AS Name,
                 t.TeacherCode AS Identifier
             FROM dbo.MT_Teachers t
-            INNER JOIN dbo.MT_Users u ON u.UserId = t.UserId
+            INNER JOIN dbo.MT_Users u ON u.Id = t.UserId
             WHERE u.Status = 1
             ORDER BY t.TeacherCode, u.DisplayName;
             """;

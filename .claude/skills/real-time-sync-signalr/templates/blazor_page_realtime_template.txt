@@ -1,0 +1,85 @@
+@page "/yourrealtimepage"
+@using Microsoft.AspNetCore.SignalR.Client
+@inject HttpClient HttpClient
+@inject NavigationManager NavigationManager
+@implements IAsyncDisposable
+
+<h3>您的即時項目列表</h3>
+
+@if (items == null)
+{
+    <p><em>載入中...</em></p>
+}
+else
+{
+    <ul>
+        @foreach (var item in items)
+        {
+            <li>@item.Name (ID: @item.Id)</li>
+        }
+    </ul>
+}
+
+@code {
+    private HubConnection? hubConnection;
+    private List<YourModelName>? items;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // 1. 獲取初始資料 (透過 HTTP API 或其他方式)
+        items = await HttpClient.GetFromJsonAsync<List<YourModelName>>("/api/youritems");
+
+        // 2. 建立 HubConnection 並啟動 WebSocket 連線
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/yourhubname")) // 替換為您的 Hub 名稱路徑
+            .Build();
+
+        // 3. 針對不同的廣播事件註冊監聽器
+        hubConnection.On<YourModelName>("ReceiveAddItem", (item) =>
+        {
+            items?.Insert(0, item);
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<YourModelName>("ReceiveUpdateItem", (updatedItem) =>
+        {
+            var existingItem = items?.FirstOrDefault(i => i.Id == updatedItem.Id);
+            if (existingItem != null)
+            {
+                // 更新現有物件的屬性
+                existingItem.Name = updatedItem.Name; // 根據您的模型調整屬性
+                // ... 其他屬性更新
+                InvokeAsync(StateHasChanged);
+            }
+        });
+
+        hubConnection.On<int>("ReceiveDeleteItem", (id) =>
+        {
+            var itemToRemove = items?.FirstOrDefault(i => i.Id == id);
+            if (itemToRemove != null)
+            {
+                items?.Remove(itemToRemove);
+                InvokeAsync(StateHasChanged);
+            }
+        });
+
+        await hubConnection.StartAsync();
+    }
+
+    // 4. 連線生命週期管理：在元件被銷毀時釋放 HubConnection
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+
+    // 您的模型定義 (應與 Service 層使用的模型一致)
+    public class YourModelName 
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+        // ... 其他屬性
+    }
+}
