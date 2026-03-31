@@ -1,6 +1,16 @@
-﻿<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                <div class="flex flex-col items-center justify-center h-screen bg-gray-50 text-gray-700">
+                    <div class="mb-4 text-6xl">🔒</div>
+                    <h2 class="text-2xl font-bold mb-2">未獲授權</h2>
+                    <p class="mb-4 text-gray-500">您尚未登入或權限不足，系統正在自動引導回登入頁面...</p>
+                    <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-morandi"></div>
+                </div>
+                <MT.Components.Shared.RedirectToLogin />
+            </NotAuthorized>
+        </AuthorizeRouteView>
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
 </Router>

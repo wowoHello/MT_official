@@ -36,6 +36,10 @@ public class AuthService : IAuthService
         _db = db;
     }
 
+    /// <summary>SHA256 雜湊（UTF-16LE 編碼，與 MSSQL HASHBYTES('SHA2_256', N'...') 一致）</summary>
+    public static byte[] ComputePasswordHash(string password)
+        => SHA256.HashData(Encoding.Unicode.GetBytes(password));
+
     private sealed class UserAuthRow
     {
         public int Id { get; set; }
@@ -69,8 +73,7 @@ public class AuthService : IAuthService
         if (authRow.Status == 2)
             return (false, "此帳號已被鎖定，請聯繫管理員。", null);
 
-        // SHA256 雜湊比對（MSSQL HASHBYTES('SHA2_256', N'...') 使用 UTF-16LE 編碼）
-        var inputHash = SHA256.HashData(Encoding.Unicode.GetBytes(password));
+        var inputHash = ComputePasswordHash(password);
 
         if (!inputHash.SequenceEqual(authRow.PasswordHash))
             return (false, "帳號或密碼錯誤。", null);

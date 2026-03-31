@@ -3,9 +3,9 @@
 @*  路由：/home                                                            *@
 @*  功能：以卡片式捷徑展示各功能模組入口，依角色顯示權限；右側為今日提醒     *@
 @* ====================================================================== *@
+@page "/"
 @page "/home"
 @inject NavigationManager Navigation
-@rendermode InteractiveServer
 
 <PageTitle>CWT 命題工作平臺 - 首頁</PageTitle>
 
@@ -97,8 +97,8 @@
 </div>
 
 @code {
-    // DEMO: 目前使用者角色 (未來從登入狀態取得)
-    private string userRole = "ADMIN";
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+    private string userRole = "";
     private string currentDateDisplay = "";
 
     private static readonly List<MenuItem> menuItems = new()
@@ -113,8 +113,14 @@
         new() { Title = "系統公告 / 使用說明", Desc = "管理內部看板公告及操作手冊下載佈局。", Icon = "fa-bullhorn", Color = "text-pink-600", BgColor = "bg-pink-50", Url = "/announcements", Roles = ["ADMIN", "TEACHER"] }
     };
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
+        var authState = await AuthState;
+        if (authState.User.Identity?.IsAuthenticated == true)
+        {
+            userRole = authState.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
+        }
+
         var now = DateTime.Now;
         string[] dayNames = ["日", "一", "二", "三", "四", "五", "六"];
         currentDateDisplay = $"{now:yyyy/MM/dd} (星期{dayNames[(int)now.DayOfWeek]})";

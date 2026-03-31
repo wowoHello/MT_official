@@ -9,14 +9,23 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-// Cookie 認證
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
-        options.LoginPath = "/";
-        options.LogoutPath = "/";
+        options.LoginPath = "/login";
+        options.LogoutPath = "/login";
         options.ExpireTimeSpan = TimeSpan.FromDays(90);
         options.SlidingExpiration = true;
+
+        // --- 方案 B：隱藏 ReturnUrl ---
+        options.Events = new CookieAuthenticationEvents
+        {
+            OnRedirectToLogin = context =>
+            {
+                context.Response.Redirect(options.LoginPath);
+                return Task.CompletedTask;
+            }
+        };
     });
 builder.Services.AddAuthorization();
 builder.Services.AddCascadingAuthenticationState();
@@ -26,6 +35,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICaptchaService, CaptchaService>();
 builder.Services.AddScoped<IDatabaseService, DatabaseService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
 
 var app = builder.Build();
@@ -55,14 +65,14 @@ app.MapGet("/auth/login", async (string key, IAuthService authService, HttpConte
     if (await authService.CompleteSignInAsync(key, context))
         return Results.Redirect("/home");
 
-    return Results.Redirect("/");
+    return Results.Redirect("/login");
 });
 
 // 登出：清除 Cookie 並導回登入頁
 app.MapGet("/auth/logout", async (HttpContext context) =>
 {
     await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-    return Results.Redirect("/");
+    return Results.Redirect("/login");
 });
 
 // Quill 編輯器圖片上傳 API
@@ -91,6 +101,6 @@ app.MapPost("/api/upload", async (HttpRequest request, IWebHostEnvironment env) 
     await file.CopyToAsync(stream);
 
     return Results.Ok(new { url = $"/uploads/{fileName}" });
-}).DisableAntiforgery();
+}).DisableAntiforgery().RequireAuthorization();
 
 app.Run();

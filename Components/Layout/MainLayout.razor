@@ -109,18 +109,28 @@
                 </button>
 
                 <!-- User Menu -->
-                <div class="flex items-center gap-2 relative group cursor-pointer">
-                    <div class="w-8 h-8 rounded-full bg-sage text-white shadow-sm border border-white/20 flex items-center justify-center font-bold text-sm">
-                        @userName.FirstOrDefault()
-                    </div>
-                    <div class="hidden md:block text-sm text-right">
-                        <div class="font-bold text-white leading-none tracking-wide">@userName</div>
+                <div class="flex items-center gap-2 relative cursor-pointer">
+                    
+                    <!-- 點擊觸發區塊 -->
+                    <div class="flex items-center gap-2 hover:-translate-y-0.5 hover:shadow-md transition-all rounded-full p-1 border border-transparent hover:border-white/10" @onclick="ToggleUserMenu">
+                        <div class="w-8 h-8 rounded-full bg-sage text-white shadow-sm border border-white/20 flex items-center justify-center font-bold text-sm">
+                            @userName.FirstOrDefault()
+                        </div>
+                        <div class="hidden md:block text-sm text-right pr-2">
+                            <div class="font-bold text-white leading-none tracking-wide">@userName</div>
+                        </div>
                     </div>
 
+                    <!-- 點擊外部關閉遮罩 -->
+                    @if (isUserMenuOpen)
+                    {
+                        <div class="fixed inset-0 z-40 cursor-default" @onclick="CloseUserMenu"></div>
+                    }
+
                     <!-- User Dropdown -->
-                    <div class="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                    <div class="absolute right-0 top-full mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-100 transition-all duration-200 z-50 @(isUserMenuOpen ? "opacity-100 visible translate-y-0" : "opacity-0 invisible -translate-y-2")">
                         <div class="py-1">
-                            <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-morandi cursor-pointer">
+                            <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-morandi cursor-pointer" @onclick="CloseUserMenu" @onclick:preventDefault="true">
                                 <i class="fa-solid fa-user-pen w-5 text-center mr-1"></i> 個人設定
                             </a>
                             <div class="border-t border-gray-100 my-1"></div>
@@ -152,8 +162,9 @@
     // --- 使用者資訊（從 AuthenticationState 取得）---
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
     private string userName = "";
+    private bool isUserMenuOpen = false;
 
-    // --- 梯次切換器 ---
+    // --- 梯次切換針對全專案的搜尋 ---
     private bool showProjectDropdown = false;
     private string projectSearchQuery = "";
     private ProjectInfo currentProject = new();
@@ -202,6 +213,16 @@
         showProjectDropdown = false;
 
         await JS.InvokeVoidAsync("swalInterop.fireToast", "info", "已切換梯次", $"目前工作專案：{project.Name}", 2000);
+    }
+
+    private void ToggleUserMenu()
+    {
+        isUserMenuOpen = !isUserMenuOpen;
+    }
+
+    private void CloseUserMenu()
+    {
+        isUserMenuOpen = false;
     }
 
     private async Task Logout()

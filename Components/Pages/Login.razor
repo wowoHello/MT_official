@@ -3,9 +3,9 @@
 @*  路由：/ | 使用 LoginLayout（無 Navbar）                                *@
 @*  功能：帳號密碼登入、圖形驗證碼、記住帳號、忘記密碼 Modal + 寄信重設     *@
 @* ====================================================================== *@
-@page "/"
+@page "/login"
+@attribute [AllowAnonymous]
 @layout LoginLayout
-
 @inject NavigationManager Navigation
 @inject ICaptchaService CaptchaService
 @inject ProtectedLocalStorage LocalStorage
@@ -214,6 +214,8 @@
 
 </div>
 @code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
     // --- 表單模型 ---
     private LoginFormModel loginModel = new();
 
@@ -233,8 +235,15 @@
 
     private bool IsDev => Env.IsDevelopment();
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
+        var authState = await AuthState;
+        if (authState.User.Identity?.IsAuthenticated == true)
+        {
+            Navigation.NavigateTo("/home");
+            return;
+        }
+
         GenerateNewCaptcha();
 
         if (IsDev)
