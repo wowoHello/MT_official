@@ -7,7 +7,7 @@
 @inject IProjectService ProjectService
 @inject ILogger<Projects> Logger
 
-<div class="flex-grow flex flex-col w-full max-w-[1920px] mx-auto h-[calc(100vh-4rem)] overflow-hidden">
+<div class="mx-auto flex w-full max-w-[1920px] flex-grow flex-col min-h-[calc(100vh-4rem)] lg:h-[calc(100vh-4rem)] lg:overflow-hidden">
     <!-- Breadcrumb & Header Row -->
     <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur border-b border-gray-200">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -39,9 +39,9 @@
     </div>
 
     <!-- Split Layout (Left List, Right Detail) -->
-    <div class="flex-grow flex overflow-hidden">
+    <div class="flex flex-col flex-grow lg:flex-row lg:overflow-hidden">
         <!-- Left Panel: Project List -->
-        <div class="w-full lg:w-1/3 xl:w-1/4 bg-white border-r border-gray-200 flex flex-col z-10 flex-shrink-0">
+        <div class="z-10 flex w-full flex-col border-b border-gray-200 bg-white lg:w-1/3 lg:flex-shrink-0 lg:border-r lg:border-b-0 xl:w-1/4">
             <!-- Filters -->
             <div class="p-4 border-b border-gray-100 bg-gray-50 flex flex-col gap-3 flex-shrink-0">
                 <div class="relative">
@@ -62,7 +62,7 @@
                 </div>
             </div>
             <!-- List -->
-            <div class="flex-grow overflow-y-auto custom-scroll">
+            <div class="overflow-y-auto custom-scroll lg:flex-grow">
                 @{ var filtered = GetFilteredProjects(); }
                 @if (filtered.Count == 0)
                 {
@@ -116,7 +116,7 @@
                         <div class="@itemClass" @onclick="async () => await SelectProject(p.Id)">
                             <div class="flex justify-between items-start">
                                 <span class="@nameClass">@p.Name</span>
-                                @{ var (badgeText, badgeClass) = GetStatusBadge(p.Status); }
+                                @{ var (badgeText, badgeClass) = GetStatusBadge((byte)p.EffectiveStatus); }
                                 <span class="@badgeClass">@badgeText</span>
                             </div>
                             <div class="flex justify-between items-center mt-1">
@@ -130,11 +130,11 @@
         </div>
 
         <!-- Right Panel: Project Details -->
-        <div class="hidden lg:flex flex-col w-full lg:w-2/3 xl:w-3/4 bg-[var(--color-oatmeal)] overflow-hidden">
+        <div class="flex min-h-[320px] flex-col bg-[var(--color-oatmeal)] lg:min-h-0 lg:w-2/3 lg:overflow-hidden xl:w-3/4">
             @if (selectedDetail == null)
             {
                 <!-- 空狀態 -->
-                <div class="flex-grow flex flex-col items-center justify-center text-gray-400 p-8">
+                <div class="flex flex-1 flex-col items-center justify-center p-8 text-gray-400 lg:flex-grow">
                     <i class="fa-solid fa-folder-open text-6xl mb-4 text-gray-300"></i>
                     <p class="text-lg font-medium">請由左側列表選擇專案，或建立新梯次。</p>
                 </div>
@@ -142,13 +142,13 @@
             else
             {
                 <!-- 詳情內容 -->
-                <div class="flex-grow overflow-y-auto custom-scroll">
+                <div class="custom-scroll lg:flex-grow lg:overflow-y-auto">
                     <!-- 頂部資訊卡 -->
                     <div class="px-8 pt-6 pb-2">
-                        <div class="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 flex flex-col lg:flex-row justify-between items-start gap-4">
+                        <div class="flex flex-col items-start justify-between gap-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:flex-row sm:items-start">
                             <div class="flex flex-col gap-1">
                                 <div class="flex items-center gap-2 mb-1">
-                                    @{ var (sBadge, sClass) = GetStatusBadge(selectedDetail.Status); }
+                                    @{ var (sBadge, sClass) = GetStatusBadge((byte)selectedDetail.EffectiveStatus); }
                                     <span class="@sClass">@sBadge</span>
                                     <span class="text-xs text-gray-500">@(selectedDetail.Year)年度</span>
                                 </div>
@@ -159,8 +159,8 @@
                                 </div>
                             </div>
                             <!-- 操作按鈕 -->
-                            <div class="flex flex-col gap-2 items-end flex-shrink-0">
-                                @if (selectedDetail.Status != 2)
+                            <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-shrink-0 sm:items-end">
+                                @if (!selectedDetail.IsClosed)
                                 {
                                     <button type="button" @onclick="() => { /* TODO: 編輯邏輯 */ }"
                                         class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors shadow-sm flex items-center gap-2">
@@ -666,8 +666,8 @@
         // 狀態篩選
         result = currentFilter switch
         {
-            "active" => result.Where(p => p.Status == 1),
-            "closed" => result.Where(p => p.Status == 2),
+            "active" => result.Where(p => p.EffectiveStatus == ProjectLifecycleStatus.Active),
+            "closed" => result.Where(p => p.IsClosed),
             _ => result // "all" 包含所有狀態
         };
 

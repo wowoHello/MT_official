@@ -60,7 +60,10 @@ public class ProjectSwitcherItem
     public string ProjectCode { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public int Year { get; set; }
-    public byte Status { get; set; }
+    public DateTime StartDate { get; set; }
+    public DateTime? ClosedAt { get; set; }
+    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, ClosedAt);
+    public bool IsClosed => EffectiveStatus == ProjectLifecycleStatus.Closed;
     public string DisplayName => $"{Year}年度 {Name}";
 }
 
@@ -74,9 +77,11 @@ public class ProjectListItem
     public string Name { get; set; } = string.Empty;
     public int Year { get; set; }
     public string? School { get; set; }
-    public byte Status { get; set; }
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
+    public DateTime? ClosedAt { get; set; }
+    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, ClosedAt);
+    public bool IsClosed => EffectiveStatus == ProjectLifecycleStatus.Closed;
     public string CreatorName { get; set; } = string.Empty;
     public int MemberCount { get; set; }
 }
@@ -91,10 +96,11 @@ public class ProjectDetailDto
     public string Name { get; set; } = string.Empty;
     public int Year { get; set; }
     public string? School { get; set; }
-    public byte Status { get; set; }
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
     public DateTime? ClosedAt { get; set; }
+    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, ClosedAt);
+    public bool IsClosed => EffectiveStatus == ProjectLifecycleStatus.Closed;
     public string CreatorName { get; set; } = string.Empty;
     public List<PhaseDetailDto> Phases { get; set; } = new();
     public List<TargetDetailDto> Targets { get; set; } = new();
@@ -122,4 +128,26 @@ public class MemberDetailDto
     public string DisplayName { get; set; } = string.Empty;
     public string? TeacherCode { get; set; }
     public string RoleName { get; set; } = string.Empty;
+}
+
+public enum ProjectLifecycleStatus : byte
+{
+    Preparing = 0,
+    Active = 1,
+    Closed = 2
+}
+
+public static class ProjectStatusHelper
+{
+    public static ProjectLifecycleStatus Resolve(DateTime startDate, DateTime? closedAt)
+    {
+        if (closedAt.HasValue)
+        {
+            return ProjectLifecycleStatus.Closed;
+        }
+
+        return startDate.Date <= DateTime.Today
+            ? ProjectLifecycleStatus.Active
+            : ProjectLifecycleStatus.Preparing;
+    }
 }

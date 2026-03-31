@@ -171,8 +171,6 @@
 <FontController />
 
 @code {
-    private const byte ClosedProjectStatus = 2;
-
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
     private HubConnection? hubConnection;
@@ -336,5 +334,5 @@
     }
 
     private static bool IsClosedProject(ProjectSwitcherItem project)
-        => project.Status == ClosedProjectStatus;
+        => project.IsClosed;
 }

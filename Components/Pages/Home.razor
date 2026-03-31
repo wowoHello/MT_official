@@ -8,10 +8,10 @@
 @inject NavigationManager Navigation
 
 <!-- Header: 移除 calc 硬編碼並補回，確保護眼佈局與全屏無卷軸 -->
-<div class="flex flex-col h-[calc(100vh-4rem)] overflow-hidden px-4 sm:px-6 lg:px-8 pt-4 pb-2">
+<div class="flex min-h-[calc(100vh-4rem)] flex-col px-4 pt-4 pb-2 sm:px-6 lg:h-[calc(100vh-4rem)] lg:overflow-hidden lg:px-8">
     <div class="mb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-4 flex-shrink-0">
         <div>
-            <h1 class="text-2xl font-bold mb-0.5 focus:outline-none">功能總覽儀表板</h1>
+            <h1 tabindex="-1" class="text-2xl font-bold mb-0.5 focus:outline-none">功能總覽儀表板</h1>
             <p class="text-gray-500 text-xs">請選擇作業項目。系統將依您的身分權限自動顯示對應功能。</p>
         </div>
         <div class="text-sm font-medium text-morandi bg-white px-3 py-1.5 rounded-lg shadow-sm border border-gray-100 flex items-center gap-2">
@@ -21,17 +21,17 @@
     </div>
 
     <!-- Main Content Area: 撐滿空間，確保不產生外部卷軸 -->
-    <div class="flex flex-col lg:flex-row gap-5 flex-1 min-h-0 overflow-hidden mb-2">
+    <div class="mb-2 flex flex-col gap-5 lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
 
         <!-- Left Grid: Function Cards (優化間距與高度，實現 8 張卡片全顯) -->
-        <div class="lg:w-2/3 xl:w-3/4 flex flex-col h-full overflow-hidden pb-4">
-            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 h-full min-h-0">
+        <div class="flex flex-col pb-4 lg:w-2/3 lg:min-h-0 lg:overflow-hidden xl:w-3/4">
+            <div class="grid auto-rows-fr grid-cols-1 gap-4 sm:grid-cols-2 lg:min-h-0 lg:flex-1 xl:grid-cols-3">
                 @foreach (var (item, index) in menuItems.Select((v, i) => (v, i)))
                 {
                     var hasAccess = item.Roles.Contains("ADMIN") || item.Roles.Contains(userRole);
                     var delay = index * 50;
 
-                    <div class="@(hasAccess ? "bg-white cursor-pointer group menu-card" : "bg-gray-50 opacity-60 cursor-not-allowed border-transparent grayscale") rounded-xl shadow-sm p-5 flex flex-col h-full relative overflow-hidden transition-all duration-300"
+                    <div class="@(hasAccess ? "bg-white cursor-pointer group menu-card" : "bg-gray-50 opacity-60 cursor-not-allowed border-transparent grayscale") relative flex min-h-[170px] flex-col overflow-hidden rounded-xl p-5 shadow-sm transition-all duration-300"
                         style="@(isReady ? $"animation: fadeIn 0.4s ease-out {delay}ms both;" : "opacity: 0;")"
                         @onclick="() => NavigateToCard(item, hasAccess)">
 
@@ -61,8 +61,8 @@
         </div>
 
         <!-- Right Sidebar: Today's Reminders -->
-        <div class="lg:w-1/3 xl:w-1/4 flex flex-col h-full overflow-hidden">
-            <div class="flex flex-col gap-4 h-full overflow-hidden">
+        <div class="flex flex-col lg:w-1/3 lg:min-h-0 lg:overflow-hidden xl:w-1/4">
+            <div class="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden">
                 <h2 class="text-lg font-bold flex items-center gap-2 mb-0.5 flex-shrink-0">
                     <i class="fa-regular fa-bell text-terracotta"></i> 今日提醒看板
                 </h2>
@@ -82,7 +82,7 @@
                 </div>
 
                 <!-- Announcements: 此區塊自動撐滿剩餘空間 -->
-                <div class="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col flex-grow min-h-0 overflow-hidden">
+                <div class="flex min-h-[240px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm lg:min-h-0 lg:flex-grow">
                     <div class="bg-gray-50 px-4 py-2.5 font-bold text-gray-700 text-sm border-b border-gray-200 flex justify-between items-center flex-shrink-0">
                         <span>公告與通知</span>
                         <span class="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">0</span>

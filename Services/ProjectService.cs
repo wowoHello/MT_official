@@ -51,9 +51,9 @@ public class ProjectService : IProjectService
                 p.Name,
                 p.Year,
                 p.School,
-                p.Status,
                 p.StartDate,
                 p.EndDate,
+                p.ClosedAt,
                 ISNULL(u.DisplayName, N'系統') AS CreatorName,
                 (SELECT COUNT(*) FROM dbo.MT_ProjectMembers pm WHERE pm.ProjectId = p.Id) AS MemberCount
             FROM dbo.MT_Projects p
@@ -115,7 +115,8 @@ public class ProjectService : IProjectService
                 p.ProjectCode,
                 p.Name,
                 p.Year,
-                p.Status
+                p.StartDate,
+                p.ClosedAt
             FROM dbo.MT_Projects p
             INNER JOIN (
                 SELECT DISTINCT ProjectId
@@ -123,7 +124,7 @@ public class ProjectService : IProjectService
             ) vp ON vp.ProjectId = p.Id
             WHERE p.IsDeleted = 0
             ORDER BY
-                CASE WHEN p.Status = 2 THEN 1 ELSE 0 END,
+                CASE WHEN p.ClosedAt IS NULL THEN 0 ELSE 1 END,
                 p.Year DESC,
                 p.Id DESC;
             """;
@@ -140,7 +141,7 @@ public class ProjectService : IProjectService
         const string multipleSql = """
             -- 1. Project Detail
             SELECT
-                p.Id, p.ProjectCode, p.Name, p.Year, p.School, p.Status, 
+                p.Id, p.ProjectCode, p.Name, p.Year, p.School,
                 p.StartDate, p.EndDate, p.ClosedAt,
                 ISNULL(u.DisplayName, N'系統') AS CreatorName
             FROM dbo.MT_Projects p
@@ -274,9 +275,9 @@ public class ProjectService : IProjectService
             var projectCode = BuildNextProjectCode(req.Year, latestCode);
 
             const string projectSql = """
-                INSERT INTO dbo.MT_Projects (ProjectCode, Name, Year, School, Status, StartDate, EndDate, CreatedBy)
+                INSERT INTO dbo.MT_Projects (ProjectCode, Name, Year, School, StartDate, EndDate, CreatedBy)
                 OUTPUT INSERTED.Id
-                VALUES (@ProjectCode, @Name, @Year, @School, 0, @StartDate, @EndDate, @CreatedBy);
+                VALUES (@ProjectCode, @Name, @Year, @School, @StartDate, @EndDate, @CreatedBy);
                 """;
 
             var projectStartDate = req.Phases.FirstOrDefault(p => p.PhaseCode == 1)?.StartDate ?? DateTime.Today;
