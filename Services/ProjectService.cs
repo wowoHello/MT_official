@@ -23,27 +23,18 @@ public class ProjectService : IProjectService
     private const byte ChiefCoordinatorRoleCode = 4;
     private const byte ExpertScholarRoleCode = 5;
 
-    private static readonly IReadOnlyDictionary<string, byte> RoleCodeByName = new Dictionary<string, byte>(StringComparer.Ordinal)
-    {
-        ["命題教師"] = PropositionTeacherRoleCode,
-        ["互審教師"] = CrossReviewTeacherRoleCode,
-        ["專審委員"] = ExpertReviewerRoleCode,
-        ["總召(專員)"] = ChiefCoordinatorRoleCode,
-        ["專家學者"] = ExpertScholarRoleCode
-    };
-
-    private readonly IConfiguration _config;
+    private readonly IDatabaseService _db;
     private readonly ILogger<ProjectService> _logger;
 
-    public ProjectService(IConfiguration config, ILogger<ProjectService> logger)
+    public ProjectService(IDatabaseService db, ILogger<ProjectService> logger)
     {
-        _config = config;
+        _db = db;
         _logger = logger;
     }
 
     public async Task<List<ProjectListItem>> GetProjectListAsync()
     {
-        using var conn = new SqlConnection(_config.GetConnectionString("DefaultConnection"));
+        using var conn = _db.CreateConnection();
 
         const string sql = """
             SELECT
@@ -69,93 +60,82 @@ public class ProjectService : IProjectService
 
     public async Task<ProjectDetailDto?> GetProjectDetailAsync(int projectId)
     {
-        using var conn = new SqlConnection(_config.GetConnectionString("DefaultConnection"));
+        using var conn = _db.CreateConnection();
         var detailParams = new { ProjectId = projectId };
 
-        const string mainSql = """
+        const string multipleSql = """
+            -- 1. Project Detail
             SELECT
-                p.Id,
-                p.ProjectCode,
-                p.Name,
-                p.Year,
-                p.School,
-                p.Status,
-                p.StartDate,
-                p.EndDate,
-                p.ClosedAt,
+                p.Id, p.ProjectCode, p.Name, p.Year, p.School, p.Status, 
+                p.StartDate, p.EndDate, p.ClosedAt,
                 ISNULL(u.DisplayName, N'系統') AS CreatorName
             FROM dbo.MT_Projects p
             LEFT JOIN dbo.MT_Users u ON u.UserId = p.CreatedBy
             WHERE p.Id = @ProjectId AND p.IsDeleted = 0;
-            """;
 
-        var detail = await conn.QueryFirstOrDefaultAsync<ProjectDetailDto>(mainSql, detailParams);
-        if (detail is null)
-        {
-            return null;
-        }
+            -- 2. Phases
+            SELECT PhaseCode, PhaseName, StartDate, EndDate
+            FROM dbo.MT_ProjectPhases
+            WHERE ProjectId = @ProjectId
+            ORDER BY SortOrder;
+
+            -- 3. Targets
+            SELECT pt.QuestionTypeId, qt.Name AS TypeName, pt.TargetCount
+            FROM dbo.MT_ProjectTargets pt
+            INNER JOIN dbo.MT_QuestionTypes qt ON qt.Id = pt.QuestionTypeId
+            WHERE pt.ProjectId = @ProjectId
+            ORDER BY pt.QuestionTypeId;
+
+            -- 4. Members and Roles
+            SELECT
+                pm.UserId,
+                ISNULL(u.DisplayName, N'未知') AS DisplayName,
+                t.TeacherCode,
+                pmr.RoleCode
+            FROM dbo.MT_ProjectMembers pm
+            LEFT JOIN dbo.MT_Users u ON u.UserId = pm.UserId
+            LEFT JOIN dbo.MT_Teachers t ON t.UserId = u.UserId
+            LEFT JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
+            WHERE pm.ProjectId = @ProjectId
+            ORDER BY pm.Id, pmr.RoleCode;
+            """;
 
         try
         {
-            const string phasesSql = """
-                SELECT PhaseCode, PhaseName, StartDate, EndDate
-                FROM dbo.MT_ProjectPhases
-                WHERE ProjectId = @ProjectId
-                ORDER BY SortOrder;
-                """;
-
-            detail.Phases = (await conn.QueryAsync<PhaseDetailDto>(phasesSql, detailParams)).ToList();
-
-            const string targetsSql = """
-                SELECT pt.QuestionTypeId, qt.Name AS TypeName, pt.TargetCount
-                FROM dbo.MT_ProjectTargets pt
-                INNER JOIN dbo.MT_QuestionTypes qt ON qt.Id = pt.QuestionTypeId
-                WHERE pt.ProjectId = @ProjectId
-                ORDER BY pt.QuestionTypeId;
-                """;
-
-            detail.Targets = (await conn.QueryAsync<TargetDetailDto>(targetsSql, detailParams)).ToList();
-
-            const string membersSql = """
-                SELECT
-                    pm.UserId,
-                    ISNULL(u.DisplayName, N'未知') AS DisplayName,
-                    t.TeacherCode,
-                    ISNULL(roleCodes.RoleCodes, N'') AS RoleCodes
-                FROM dbo.MT_ProjectMembers pm
-                LEFT JOIN dbo.MT_Users u ON u.UserId = pm.UserId
-                LEFT JOIN dbo.MT_Teachers t ON t.UserId = u.UserId
-                LEFT JOIN (
-                    SELECT
-                        pmr.ProjectMemberId,
-                        STUFF((
-                            SELECT N',' + CONVERT(NVARCHAR(10), pmr2.RoleCode)
-                            FROM dbo.MT_ProjectMemberRoles pmr2
-                            WHERE pmr2.ProjectMemberId = pmr.ProjectMemberId
-                            ORDER BY pmr2.RoleCode
-                            FOR XML PATH(''), TYPE
-                        ).value('.', 'NVARCHAR(MAX)'), 1, 1, '') AS RoleCodes
-                    FROM dbo.MT_ProjectMemberRoles pmr
-                    GROUP BY pmr.ProjectMemberId
-                ) roleCodes ON roleCodes.ProjectMemberId = pm.Id
-                WHERE pm.ProjectId = @ProjectId
-                ORDER BY pm.Id;
-                """;
-
-            var members = await conn.QueryAsync<ProjectMemberRow>(membersSql, detailParams);
-            detail.Members = members.Select(MapMemberDetail).ToList();
+            using var multi = await conn.QueryMultipleAsync(multipleSql, detailParams);
+            
+            var detail = await multi.ReadFirstOrDefaultAsync<ProjectDetailDto>();
+            if (detail is null)
+                return null;
+                
+            detail.Phases = (await multi.ReadAsync<PhaseDetailDto>()).ToList();
+            detail.Targets = (await multi.ReadAsync<TargetDetailDto>()).ToList();
+            
+            var memberRows = await multi.ReadAsync<ProjectMemberRow>();
+            detail.Members = memberRows
+                .GroupBy(m => new { m.UserId, m.DisplayName, m.TeacherCode })
+                .Select(g => new MemberDetailDto
+                {
+                    UserId = g.Key.UserId,
+                    DisplayName = g.Key.DisplayName,
+                    TeacherCode = g.Key.TeacherCode,
+                    RoleName = g.Any(x => x.RoleCode.HasValue) 
+                               ? string.Join(", ", g.Where(x => x.RoleCode.HasValue).Select(x => ResolveRoleName(x.RoleCode!.Value)).Distinct())
+                               : "未指定"
+                }).ToList();
+                
+            return detail;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "載入專案詳情子資料失敗 (Id={ProjectId})", projectId);
+            _logger.LogError(ex, "載入專案詳情失敗 (Id={ProjectId})", projectId);
+            throw;
         }
-
-        return detail;
     }
 
     public async Task<List<ProjectTalentPoolItem>> GetTalentPoolAsync()
     {
-        using var conn = new SqlConnection(_config.GetConnectionString("DefaultConnection"));
+        using var conn = _db.CreateConnection();
 
         const string sql = """
             SELECT
@@ -174,7 +154,7 @@ public class ProjectService : IProjectService
 
     public async Task SoftDeleteProjectAsync(int projectId, int deletedBy)
     {
-        using var conn = new SqlConnection(_config.GetConnectionString("DefaultConnection"));
+        using var conn = _db.CreateConnection();
 
         const string sql = """
             UPDATE dbo.MT_Projects
@@ -195,10 +175,10 @@ public class ProjectService : IProjectService
 
     public async Task<int> CreateProjectAsync(CreateProjectRequest req)
     {
-        using var conn = new SqlConnection(_config.GetConnectionString("DefaultConnection"));
+        using var conn = (System.Data.Common.DbConnection)_db.CreateConnection();
         await conn.OpenAsync();
 
-        using var trans = conn.BeginTransaction(IsolationLevel.Serializable);
+        using var trans = await conn.BeginTransactionAsync(IsolationLevel.Serializable);
 
         try
         {
@@ -308,7 +288,7 @@ public class ProjectService : IProjectService
                     },
                     transaction: trans);
 
-                var roleCode = ResolveRoleCode(alloc.RoleName);
+                var roleCode = alloc.RoleCode;
                 if (roleCode > 0)
                 {
                     await conn.ExecuteAsync(
@@ -376,12 +356,7 @@ public class ProjectService : IProjectService
         return $"P{rocYear}{seq:D3}";
     }
 
-    private static byte ResolveRoleCode(string roleName)
-    {
-        return RoleCodeByName.TryGetValue(roleName, out var roleCode)
-            ? roleCode
-            : (byte)0;
-    }
+
 
     private static string ResolveRoleName(byte roleCode)
     {
@@ -396,28 +371,11 @@ public class ProjectService : IProjectService
         };
     }
 
-    private static MemberDetailDto MapMemberDetail(ProjectMemberRow row)
-    {
-        var roleNames = row.RoleCodes
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(code => byte.TryParse(code, out var parsedCode) ? ResolveRoleName(parsedCode) : "未指定")
-            .Distinct()
-            .ToList();
-
-        return new MemberDetailDto
-        {
-            UserId = row.UserId,
-            DisplayName = row.DisplayName,
-            TeacherCode = row.TeacherCode,
-            RoleName = roleNames.Count > 0 ? string.Join(", ", roleNames) : "未指定"
-        };
-    }
-
     private sealed class ProjectMemberRow
     {
         public int UserId { get; set; }
         public string DisplayName { get; set; } = string.Empty;
         public string? TeacherCode { get; set; }
-        public string RoleCodes { get; set; } = string.Empty;
+        public byte? RoleCode { get; set; }
     }
 }

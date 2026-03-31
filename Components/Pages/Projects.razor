@@ -1169,7 +1169,7 @@
                 var allocDto = new ProjectMemberAllocationDto
                 {
                     UserId = person.UserId,
-                    RoleName = person.SelectedRole
+                    RoleCode = GetRoleCode(person.SelectedRole)
                 };
 
                 if (person.SelectedRole == "命題教師")
@@ -1252,6 +1252,16 @@
         public string Label { get; set; } = "";
         public int? Count { get; set; }
     }
+
+    private byte GetRoleCode(string roleName) => roleName switch
+    {
+        "命題教師" => 1,
+        "互審教師" => 2,
+        "專審委員" => 3,
+        "總召(專員)" => 4,
+        "專家學者" => 5,
+        _ => 0
+    };
 
     private sealed class PersonItem
     {

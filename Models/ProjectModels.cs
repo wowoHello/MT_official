@@ -34,7 +34,7 @@ public class ProjectTargetDto
 public class ProjectMemberAllocationDto
 {
     public int UserId { get; set; }
-    public string RoleName { get; set; } = string.Empty;
+    public byte RoleCode { get; set; }
     public List<ProjectMemberQuotaDto> Quotas { get; set; } = new();
 }
 

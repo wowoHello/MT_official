@@ -16,18 +16,30 @@ public interface IAuthService
 
 public class AuthService : IAuthService
 {
-    private readonly string _connectionString;
+    private readonly IDatabaseService _db;
 
-    public AuthService(IConfiguration configuration)
+    public AuthService(IDatabaseService db)
     {
-        _connectionString = configuration.GetConnectionString("DefaultConnection") ?? "";
+        _db = db;
+    }
+
+    private sealed class UserAuthRow
+    {
+        public int Id { get; set; }
+        public string Username { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public byte[] PasswordHash { get; set; } = [];
+        public int RoleId { get; set; }
+        public int Status { get; set; }
+        public bool IsFirstLogin { get; set; }
+        public string RoleName { get; set; } = "";
     }
 
     public async Task<(bool Success, string Message, UserInfo? User)> ValidateLoginAsync(string username, string password)
     {
-        using var conn = new SqlConnection(_connectionString);
+        using var conn = _db.CreateConnection();
 
-        var user = await conn.QueryFirstOrDefaultAsync<UserInfo>(
+        var authRow = await conn.QueryFirstOrDefaultAsync<UserAuthRow>(
             @"SELECT u.UserId AS Id, u.Username, u.DisplayName, u.PasswordHash,
                      u.RoleId, u.Status, u.IsFirstLogin, r.Name AS RoleName
               FROM dbo.MT_Users u
@@ -35,27 +47,38 @@ public class AuthService : IAuthService
               WHERE u.Username = @Username",
             new { Username = username });
 
-        if (user is null)
+        if (authRow is null)
             return (false, "帳號或密碼錯誤。", null);
 
-        if (user.Status == 0)
+        if (authRow.Status == 0)
             return (false, "此帳號已停用，請聯繫管理員。", null);
 
-        if (user.Status == 2)
+        if (authRow.Status == 2)
             return (false, "此帳號已被鎖定，請聯繫管理員。", null);
 
         // SHA256 雜湊比對（MSSQL HASHBYTES('SHA2_256', N'...') 使用 UTF-16LE 編碼）
         var inputHash = SHA256.HashData(Encoding.Unicode.GetBytes(password));
 
-        if (!inputHash.SequenceEqual(user.PasswordHash))
+        if (!inputHash.SequenceEqual(authRow.PasswordHash))
             return (false, "帳號或密碼錯誤。", null);
 
-        return (true, "登入成功", user);
+        var userInfo = new UserInfo
+        {
+            Id = authRow.Id,
+            Username = authRow.Username,
+            DisplayName = authRow.DisplayName,
+            RoleId = authRow.RoleId,
+            Status = authRow.Status,
+            IsFirstLogin = authRow.IsFirstLogin,
+            RoleName = authRow.RoleName
+        };
+
+        return (true, "登入成功", userInfo);
     }
 
     public async Task<List<ModulePermission>> GetUserPermissionsAsync(int roleId)
     {
-        using var conn = new SqlConnection(_connectionString);
+        using var conn = _db.CreateConnection();
 
         var permissions = await conn.QueryAsync<ModulePermission>(
             @"SELECT m.ModuleKey, m.Name, m.Icon, m.PageUrl,
@@ -72,7 +95,7 @@ public class AuthService : IAuthService
 
     public async Task LogLoginAttemptAsync(int? userId, string username, bool isSuccess, string? failReason, string? ip, string? userAgent)
     {
-        using var conn = new SqlConnection(_connectionString);
+        using var conn = _db.CreateConnection();
 
         await conn.ExecuteAsync(
             @"INSERT INTO dbo.MT_LoginLogs (UserId, Username, IsSuccess, IpAddress, UserAgent, FailReason)
@@ -82,7 +105,7 @@ public class AuthService : IAuthService
 
     public async Task UpdateLastLoginAsync(int userId)
     {
-        using var conn = new SqlConnection(_connectionString);
+        using var conn = _db.CreateConnection();
 
         await conn.ExecuteAsync(
             "UPDATE dbo.MT_Users SET LastLoginAt = SYSDATETIME() WHERE UserId = @UserId",
