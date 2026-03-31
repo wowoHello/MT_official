@@ -240,7 +240,7 @@
         var authState = await AuthState;
         if (authState.User.Identity?.IsAuthenticated == true)
         {
-            Navigation.NavigateTo("/home");
+            Navigation.NavigateTo("/");
             return;
         }
 
