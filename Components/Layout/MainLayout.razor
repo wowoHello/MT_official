@@ -1,9 +1,9 @@
 @inherits LayoutComponentBase
-@implements IDisposable
+@implements IAsyncDisposable
+@using Microsoft.AspNetCore.SignalR.Client
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject IProjectService ProjectService
-@inject IProjectRealtimeSyncService ProjectRealtimeSyncService
 @inject ILogger<MainLayout> Logger
 @rendermode InteractiveServer
 
@@ -175,6 +175,7 @@
 
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
+    private HubConnection? hubConnection;
     private string userName = string.Empty;
     private bool isUserMenuOpen;
     private bool showProjectDropdown;
@@ -210,9 +211,9 @@
         }
 
         currentUserId = userId;
-        ProjectRealtimeSyncService.ProjectsChanged += HandleProjectsChangedAsync;
 
         await ReloadVisibleProjectsAsync();
+        await InitializeHubConnectionAsync();
     }
 
     private void ToggleProjectDropdown()
@@ -272,18 +273,35 @@
         }
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        ProjectRealtimeSyncService.ProjectsChanged -= HandleProjectsChangedAsync;
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
     }
 
-    private Task HandleProjectsChangedAsync(ProjectRealtimeSyncMessage _)
+    private async Task InitializeHubConnectionAsync()
     {
-        return InvokeAsync(async () =>
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/hubs/projects"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        hubConnection.On<ProjectRealtimeSyncMessage>("ReceiveProjectChanged", async _ =>
         {
             await ReloadVisibleProjectsAsync();
-            StateHasChanged();
+            await InvokeAsync(StateHasChanged);
         });
+
+        try
+        {
+            await hubConnection.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "建立梯次同步 HubConnection 失敗");
+        }
     }
 
     private async Task ReloadVisibleProjectsAsync()

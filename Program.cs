@@ -1,23 +1,38 @@
 using MT.Components;
+using MT.Hubs;
 using MT.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// =========================================================
+// UI 與即時互動
+// =========================================================
+// Blazor Server 互動式元件
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+// SignalR：提供應用程式層級即時同步
+builder.Services.AddSignalR();
+
+// =========================================================
+// 驗證與授權
+// =========================================================
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
+        // 未登入時導回登入頁
         options.LoginPath = "/login";
+
+        // 登出後回登入頁
         options.LogoutPath = "/login";
+
+        // 記住登入最長保存 90 天
         options.ExpireTimeSpan = TimeSpan.FromDays(90);
         options.SlidingExpiration = true;
 
-        // --- 方案 B：隱藏 ReturnUrl ---
+        // 統一路由導向，避免自動附帶 ReturnUrl 造成流程混亂
         options.Events = new CookieAuthenticationEvents
         {
             OnRedirectToLogin = context =>
@@ -27,69 +42,101 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
             }
         };
     });
+
 builder.Services.AddAuthorization();
+
+// 讓 Razor 元件可透過 CascadingParameter 取得 AuthenticationState
 builder.Services.AddCascadingAuthenticationState();
+
+// 供需要存取 HttpContext 的服務或流程使用
 builder.Services.AddHttpContextAccessor();
 
-// 註冊自定義服務
+// =========================================================
+// 應用程式服務
+// =========================================================
 builder.Services.AddScoped<ICaptchaService, CaptchaService>();
 builder.Services.AddScoped<IDatabaseService, DatabaseService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
-builder.Services.AddSingleton<IProjectRealtimeSyncService, ProjectRealtimeSyncService>();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// =========================================================
+// HTTP Pipeline
+// =========================================================
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
     app.UseHsts();
 }
-app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
-app.UseHttpsRedirection();
 
+// 找不到頁面時導到自訂 NotFound 頁
+app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+
+app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
 
+// =========================================================
+// UI / 靜態資源 / 即時通道
+// =========================================================
 app.MapStaticAssets();
+
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
-// ====== Auth Endpoints（Cookie 寫入必須在獨立 HTTP 請求中執行）======
+// 命題專案梯次即時同步 Hub
+app.MapHub<ProjectsHub>("/hubs/projects");
 
-// 登入：由 Blazor 元件驗證後暫存資料，此端點完成 Cookie 寫入
+// =========================================================
+// Auth 相關端點
+// =========================================================
+// 目的：
+// Login.razor 先透過 AuthService.PrepareSignIn 準備登入資料，
+// 再導到這個端點，由真正的 HTTP 要求完成 Cookie 寫入。
 app.MapGet("/auth/login", async (string key, IAuthService authService, HttpContext context) =>
 {
     if (await authService.CompleteSignInAsync(key, context))
+    {
         return Results.Redirect("/");
+    }
 
     return Results.Redirect("/login");
 });
 
-// 登出：清除 Cookie 並導回登入頁
+// 清除目前登入 Cookie，並回登入頁
 app.MapGet("/auth/logout", async (HttpContext context) =>
 {
     await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     return Results.Redirect("/login");
 });
 
-// Quill 編輯器圖片上傳 API
+// =========================================================
+// 編輯器上傳 API
+// =========================================================
+// 給 Quill 編輯器上傳圖片使用，成功後回傳可存取的靜態網址
 app.MapPost("/api/upload", async (HttpRequest request, IWebHostEnvironment env) =>
 {
     var form = await request.ReadFormAsync();
     var file = form.Files.GetFile("file");
+
     if (file is null || file.Length == 0)
-        return Results.BadRequest(new { error = "未選擇檔案" });
+    {
+        return Results.BadRequest(new { error = "未收到上傳檔案。" });
+    }
 
     if (file.Length > 5 * 1024 * 1024)
-        return Results.BadRequest(new { error = "圖片大小不可超過 5MB" });
+    {
+        return Results.BadRequest(new { error = "檔案大小不可超過 5MB。" });
+    }
 
     var allowedTypes = new[] { "image/png", "image/jpeg", "image/gif", "image/webp" };
     if (!allowedTypes.Contains(file.ContentType))
-        return Results.BadRequest(new { error = "僅支援 PNG、JPEG、GIF、WebP 格式" });
+    {
+        return Results.BadRequest(new { error = "僅支援 PNG、JPEG、GIF、WebP 圖片。" });
+    }
 
     var uploadsDir = Path.Combine(env.WebRootPath, "uploads");
     Directory.CreateDirectory(uploadsDir);
@@ -98,10 +145,12 @@ app.MapPost("/api/upload", async (HttpRequest request, IWebHostEnvironment env) 
     var fileName = $"{Guid.NewGuid():N}{ext}";
     var filePath = Path.Combine(uploadsDir, fileName);
 
-    using var stream = new FileStream(filePath, FileMode.Create);
+    await using var stream = new FileStream(filePath, FileMode.Create);
     await file.CopyToAsync(stream);
 
     return Results.Ok(new { url = $"/uploads/{fileName}" });
-}).DisableAntiforgery().RequireAuthorization();
+})
+.DisableAntiforgery()
+.RequireAuthorization();
 
 app.Run();

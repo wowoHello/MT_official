@@ -1,7 +1,9 @@
 using System.Data;
 using System.Text.Json;
 using Dapper;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.SqlClient;
+using MT.Hubs;
 using MT.Models;
 
 namespace MT.Services;
@@ -26,16 +28,16 @@ public class ProjectService : IProjectService
 
     private readonly IDatabaseService _db;
     private readonly ILogger<ProjectService> _logger;
-    private readonly IProjectRealtimeSyncService _projectRealtimeSyncService;
+    private readonly IHubContext<ProjectsHub> _projectsHubContext;
 
     public ProjectService(
         IDatabaseService db,
         ILogger<ProjectService> logger,
-        IProjectRealtimeSyncService projectRealtimeSyncService)
+        IHubContext<ProjectsHub> projectsHubContext)
     {
         _db = db;
         _logger = logger;
-        _projectRealtimeSyncService = projectRealtimeSyncService;
+        _projectsHubContext = projectsHubContext;
     }
 
     public async Task<List<ProjectListItem>> GetProjectListAsync()
@@ -244,8 +246,7 @@ public class ProjectService : IProjectService
 
         await conn.ExecuteAsync(auditSql, new { UserId = deletedBy, TargetId = projectId });
 
-        await _projectRealtimeSyncService.NotifyProjectsChangedAsync(
-            new ProjectRealtimeSyncMessage(ProjectRealtimeChangeType.Deleted, projectId));
+        await BroadcastProjectChangedAsync(ProjectRealtimeChangeType.Deleted, projectId);
     }
 
     public async Task<int> CreateProjectAsync(CreateProjectRequest req)
@@ -409,8 +410,7 @@ public class ProjectService : IProjectService
 
             trans.Commit();
 
-            await _projectRealtimeSyncService.NotifyProjectsChangedAsync(
-                new ProjectRealtimeSyncMessage(ProjectRealtimeChangeType.Created, projectId));
+            await BroadcastProjectChangedAsync(ProjectRealtimeChangeType.Created, projectId);
 
             return projectId;
         }
@@ -437,6 +437,13 @@ public class ProjectService : IProjectService
         }
 
         return $"{expectedPrefix}{seq:D3}";
+    }
+
+    private Task BroadcastProjectChangedAsync(ProjectRealtimeChangeType changeType, int projectId)
+    {
+        return _projectsHubContext.Clients.All.SendAsync(
+            "ReceiveProjectChanged",
+            new ProjectRealtimeSyncMessage(changeType, projectId));
     }
 
 
