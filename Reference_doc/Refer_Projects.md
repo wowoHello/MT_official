@@ -19,8 +19,10 @@
     * `Name` (專案名稱 - 必填)：字串。
     * `School` (合作學校 - 選填)：字串。
 * **處理邏輯**：
-    * 前端表單綁定。後端儲存時，需自動生成 `ProjectCode` (例如依據年度+流水號生成，如 P2026001)。
-    * 預設寫入狀態 `Status = 0` (準備中)。
+    * 前端表單綁定。後端儲存時，需自動生成 `ProjectCode` (例如依據Project縮寫P+年度+流水號生成，如 P115001)。
+    * 狀態根據時間轉換 `現在時間 < StartDate && ClosedAt = Null` (準備中)。
+    * 狀態根據時間轉換 `StartDate <= 現在時間 <= EndDate && ClosedAt = Null` (進行中)。
+    * 狀態根據時間轉換 `現在時間 > EndDate && ClosedAt != Null` (已結案)。
 
 #### 2. 時程規劃設定與聯動推算 (Timeline Phasing & Auto-Calculation)
 * **觸發條件**：使用者設定第一階段「產學計畫區間」的「開始日」，或手動修改任一階段的「結束日」。
