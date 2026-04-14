@@ -5,8 +5,8 @@
 > **目標**：將 `MT_prototype` 中的 HTML/JS 前端原型，遷移至 Blazor Server (.NET 10) 架構
 > **注意事項**：此為正式環境，必須保持 Clear Code 編碼方式，能夠組件複用就要組件化，且目前已經有資料庫了，不需要再模擬延遲
 > **注意事項**：h1標籤的 CSS 都要加上 focus:outline-none，避免預設選取
-> **注意事項**：compact要重新查看 Reference_doc 資料夾內的每頁任務檔案，不要漏掉
-> **注意事項**：Reference_doc 資料夾內的檔案是參考，不一定要一模一樣，要符合 Blazor 的設計準則
+> **注意事項**：compact要重新查看 D:\MTrefer\Reference_doc 資料夾內的每頁任務檔案，不要漏掉
+> **注意事項**：D:\MTrefer\Reference_doc 資料夾內的檔案是參考，不一定要一模一樣，要符合 Blazor 的設計準則
 
 ---
 
@@ -38,26 +38,26 @@
 
 ## 現況盤點
 
-### 原型參考
+### 參考
 
-> MT_prototype 是 Prototype，可以用來參考樣式與功能，去重時與優化時不要刪掉
+> D:\MTrefer 內容為原型檔、參考之文件位置，去重時與優化時不要刪掉
 
 ### 原型頁面清單 (12 頁)
 
-| #   | 原型檔案                                                                           | 對應 JS                                                                       | 功能說明                          | 遷移優先  |
-| --- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------- | --------- |
-| 1   | [index.html](file:///d:/IISWebSize/MT/MT_prototype/index.html)                     | [login.js](file:///d:/IISWebSize/MT/MT_prototype/js/login.js)                 | 登入 / 忘記密碼                   | 🔴 P0     |
-| 2   | [firstpage.html](file:///d:/IISWebSize/MT/MT_prototype/firstpage.html)             | [firstpage.js](file:///d:/IISWebSize/MT/MT_prototype/js/firstpage.js)         | 登入後首頁 (功能捷徑)             | 🔴 P0     |
-| 3   | [dashboard.html](file:///d:/IISWebSize/MT/MT_prototype/dashboard.html)             | [dashboard.js](file:///d:/IISWebSize/MT/MT_prototype/js/dashboard.js)         | 儀表板 (統計圖表)                 | 🟡 P1     |
-| 4   | [projects.html](file:///d:/IISWebSize/MT/MT_prototype/projects.html)               | [projects.js](file:///d:/IISWebSize/MT/MT_prototype/js/projects.js)           | 專案梯次管理                      | 🟡 P1     |
-| 5   | [overview.html](file:///d:/IISWebSize/MT/MT_prototype/overview.html)               | [overview.js](file:///d:/IISWebSize/MT/MT_prototype/js/overview.js)           | 專案總覽 (進度+題目分佈)          | 🟡 P1     |
-| 6   | [cwt-list.html](file:///d:/IISWebSize/MT/MT_prototype/cwt-list.html)               | [cwt-list.js](file:///d:/IISWebSize/MT/MT_prototype/js/cwt-list.js)           | 題目列表 (CRUD + 篩選)            | 🟠 P2     |
-| 7   | [reviews.html](file:///d:/IISWebSize/MT/MT_prototype/reviews.html)                 | [cwt-review.js](file:///d:/IISWebSize/MT/MT_prototype/js/cwt-review.js)       | 審題作業                          | 🟠 P2     |
-| 8   | [announcements.html](file:///d:/IISWebSize/MT/MT_prototype/announcements.html)     | [announcements.js](file:///d:/IISWebSize/MT/MT_prototype/js/announcements.js) | 公告管理                          | 🟢 P3     |
-| 9   | [teachers.html](file:///d:/IISWebSize/MT/MT_prototype/teachers.html)               | [teachers.js](file:///d:/IISWebSize/MT/MT_prototype/js/teachers.js)           | 教師人才庫管理                    | 🟢 P3     |
-| 10  | [roles.html](file:///d:/IISWebSize/MT/MT_prototype/roles.html)                     | [roles.js](file:///d:/IISWebSize/MT/MT_prototype/js/roles.js)                 | 角色/權限管理                     | 🟢 P3     |
-| 11  | [role-login-test.html](file:///d:/IISWebSize/MT/MT_prototype/role-login-test.html) | —                                                                             | 角色登入測試頁 (DEV)              | ⚪ 不遷移 |
-| —   | —                                                                                  | [shared.js](file:///d:/IISWebSize/MT/MT_prototype/js/shared.js)               | 共用邏輯 (Navbar, Auth, FontCtrl) | 🔴 P0     |
+| #   | 原型檔案                                                                     | 對應 JS                                                                       | 功能說明                          | 遷移優先  |
+| --- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------- | --------- |
+| 1   | [index.html](file:///d:/MTrefer/MT_prototype/index.html)                     | [login.js](file:///d:/IISWebSize/MT/MT_prototype/js/login.js)                 | 登入 / 忘記密碼                   | 🔴 P0     |
+| 2   | [firstpage.html](file:///d:/MTrefer/MT_prototype/firstpage.html)             | [firstpage.js](file:///d:/IISWebSize/MT/MT_prototype/js/firstpage.js)         | 登入後首頁 (功能捷徑)             | 🔴 P0     |
+| 3   | [dashboard.html](file:///d:/MTrefer/MT_prototype/dashboard.html)             | [dashboard.js](file:///d:/IISWebSize/MT/MT_prototype/js/dashboard.js)         | 儀表板 (統計圖表)                 | 🟡 P1     |
+| 4   | [projects.html](file:///d:/MTrefer/MT_prototype/projects.html)               | [projects.js](file:///d:/IISWebSize/MT/MT_prototype/js/projects.js)           | 專案梯次管理                      | 🟡 P1     |
+| 5   | [overview.html](file:///d:/MTrefer/MT_prototype/overview.html)               | [overview.js](file:///d:/IISWebSize/MT/MT_prototype/js/overview.js)           | 專案總覽 (進度+題目分佈)          | 🟡 P1     |
+| 6   | [cwt-list.html](file:///d:/MTrefer/MT_prototype/cwt-list.html)               | [cwt-list.js](file:///d:/IISWebSize/MT/MT_prototype/js/cwt-list.js)           | 題目列表 (CRUD + 篩選)            | 🟠 P2     |
+| 7   | [reviews.html](file:///d:/MTrefer/MT_prototype/reviews.html)                 | [cwt-review.js](file:///d:/IISWebSize/MT/MT_prototype/js/cwt-review.js)       | 審題作業                          | 🟠 P2     |
+| 8   | [announcements.html](file:///d:/MTrefer/MT_prototype/announcements.html)     | [announcements.js](file:///d:/IISWebSize/MT/MT_prototype/js/announcements.js) | 公告管理                          | 🟢 P3     |
+| 9   | [teachers.html](file:///d:/MTrefer/MT_prototype/teachers.html)               | [teachers.js](file:///d:/IISWebSize/MT/MT_prototype/js/teachers.js)           | 教師人才庫管理                    | 🟢 P3     |
+| 10  | [roles.html](file:///d:/MTrefer/MT_prototype/roles.html)                     | [roles.js](file:///d:/IISWebSize/MT/MT_prototype/js/roles.js)                 | 角色/權限管理                     | 🟢 P3     |
+| 11  | [role-login-test.html](file:///d:/MTrefer/MT_prototype/role-login-test.html) | —                                                                             | 角色登入測試頁 (DEV)              | ⚪ 不遷移 |
+| —   | —                                                                            | [shared.js](file:///d:/IISWebSize/MT/MT_prototype/js/shared.js)               | 共用邏輯 (Navbar, Auth, FontCtrl) | 🔴 P0     |
 
 ### 原型技術棧
 
@@ -82,8 +82,8 @@
 
 > [!WARNING]
 > **遷移範圍**：此規劃為**完整遷移路線圖**，實際執行時建議**一次處理一個頁面**，每完成一個頁面即做驗證後再進入下一頁。請問是否同意此漸進式遷移策略？
-是！使用漸進式遷移，避免混亂或幻覺產生。
----
+
+## 是！使用漸進式遷移，避免混亂或幻覺產生。
 
 ## 擬定架構
 
@@ -114,14 +114,14 @@ MT/
 │   │   ├── Teachers.razor           # 教師管理
 │   │   ├── Roles.razor              # 角色管理
 │   │   └── NotFound.razor           # 404
-│   └── Shared/                       # [新] 共用小元件
+│   └── Shared/                       # 共用小元件
 │       ├── ProjectSwitcher.razor    # 專案切換器
 │       ├── FontController.razor     # 字體縮放
 │       ├── ConfirmDialog.razor      # 確認對話框 (取代 SweetAlert 部分)
 │       └── QuillEditor.razor        # Quill 編輯器包裝
 ├── Data/
-│   ├── AppDbContext.cs              # [新] EF Core DbContext
-│   └── Entities/                    # [新] 28 個 Entity Model
+│   ├── AppDbContext.cs              # EF Core DbContext
+│   └── Entities/                    # 25 個 Entity Model (依 db.md)
 │       ├── Role.cs
 │       ├── User.cs
 │       ├── Teacher.cs
@@ -188,12 +188,12 @@ MT/
 
 ### Phase 2：資料層 (Data Layer)
 
-#### [NEW] Data/Entities/\*.cs
+#### Data/Entities/\*.cs
 
-- 依據 [implementation_plan.md](file:///d:/IISWebSize/MT/MT_prototype/PRD/implementation_plan.md) 的 28 表定義建立 C# Entity 類別
+- 依據 [db.md](file:///d:/MTrefer/db.md) 的 25 張 `MT_` 前綴資料表定義建立 C# Entity 類別
 - 使用 Data Annotations 或 Fluent API 設定關聯、索引、約束
 
-#### [NEW] [AppDbContext.cs](file:///d:/IISWebSize/MT/Data/AppDbContext.cs)
+#### [AppDbContext.cs](file:///d:/IISWebSize/MT/Data/AppDbContext.cs)
 
 - 定義所有 `DbSet<T>`
 - `OnModelCreating` 中設定 Fluent API 配置
@@ -209,18 +209,18 @@ MT/
 - 整合 ProjectSwitcher、使用者資訊、登出功能
 - 保留 Morandi 配色與視覺風格
 
-#### [NEW] [LoginLayout.razor](file:///d:/IISWebSize/MT/Components/Layout/LoginLayout.razor)
+#### [LoginLayout.razor](file:///d:/IISWebSize/MT/Components/Layout/LoginLayout.razor)
 
 - 登入頁專用 Layout（無 Navbar、無 Sidebar）
 
-#### [NEW] Components/Shared/ProjectSwitcher.razor
+#### [ProjectSwitcher.razor](file:///d:/IISWebSize/MT/Components/Shared/ProjectSwitcher.razor)
 
-- 從 [shared.js](file:///d:/IISWebSize/MT/MT_prototype/js/shared.js) 的 [initProjectSwitcher()](file:///d:/IISWebSize/MT/MT_prototype/js/shared.js#129-226) 遷移為 Blazor 元件
+- 從 [shared.js](file:///d:/MTrefer/MT_prototype/js/shared.js) 的 [initProjectSwitcher()](file:///d:/MTrefer/MT_prototype/js/shared.js#129-226) 遷移為 Blazor 元件
 - 下拉選單 + 搜尋 + 群組顯示
 
-#### [NEW] Components/Shared/FontController.razor
+#### [FontController.razor](file:///d:/IISWebSize/MT/Components/Shared/FontController.razor)
 
-- 從 [shared.js](file:///d:/IISWebSize/MT/MT_prototype/js/shared.js) 的 [injectGlobalFontController()](file:///d:/IISWebSize/MT/MT_prototype/js/shared.js#271-350) 遷移
+- 從 [shared.js](file:///d:/MTrefer/MT_prototype/js/shared.js) 的 [injectGlobalFontController()](file:///d:/MTrefer/MT_prototype/js/shared.js#271-350) 遷移
 - Speed Dial 浮動按鈕 + 拖拽功能 (需 JS Interop)
 
 ---
@@ -231,27 +231,27 @@ MT/
 
 #### P0 - 登入頁
 
-- [NEW] Pages/Login.razor — 登入表單、驗證碼、忘記密碼 Modal
-- [NEW] Services/AuthService.cs — 認證邏輯
+- Pages/Login.razor — 登入表單、驗證碼、忘記密碼 Modal
+- Services/AuthService.cs — 認證邏輯
 
 #### P0 - 首頁
 
-- [NEW] Pages/FirstPage.razor — 功能捷徑卡片
+- Pages/FirstPage.razor — 功能捷徑卡片
 
 #### P1 - 儀表板、專案管理、總覽
 
-- [NEW] Pages/Dashboard.razor, Projects.razor, Overview.razor
-- [NEW] Services/ProjectService.cs
+- Pages/Dashboard.razor, Projects.razor, Overview.razor
+- Services/ProjectService.cs
 
 #### P2 - 題目列表、審題
 
-- [NEW] Pages/CwtList.razor, Reviews.razor
-- [NEW] Services/QuestionService.cs, ReviewService.cs
+- Pages/CwtList.razor, Reviews.razor
+- Services/QuestionService.cs, ReviewService.cs
 
 #### P3 - 公告、教師、角色
 
-- [NEW] Pages/Announcements.razor, Teachers.razor, Roles.razor
-- [NEW] Services/AnnouncementService.cs, TeacherService.cs, RoleService.cs
+- Pages/Announcements.razor, Teachers.razor, Roles.razor
+- Services/AnnouncementService.cs, TeacherService.cs, RoleService.cs
 
 ---
 
@@ -263,15 +263,6 @@ MT/
 # 每次修改後確認專案可正常建置
 cd d:\IISWebSize\MT
 dotnet build
-```
-
-### 開發伺服器驗證
-
-```powershell
-# 啟動開發伺服器並在瀏覽器中驗證
-cd d:\IISWebSize\MT
-dotnet run
-# 瀏覽器開啟 https://localhost:5001 驗證各頁面
 ```
 
 ### 瀏覽器測試 (每個頁面遷移後)
@@ -306,9 +297,3 @@ dotnet run
 - **SweetAlert2** → JS Interop 呼叫
 - **Quill** → JS Interop 包裝元件
 - **事件監聽** → Blazor 事件 (`@onclick`, `@onchange`, `EventCallback`)
-
----
-
-## 文檔查詢規範
-
-- 在使用任何第三方套件前，必須先用 Context7 查詢最新文檔
