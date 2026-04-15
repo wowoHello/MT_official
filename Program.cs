@@ -28,8 +28,9 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         // 登出後回登入頁
         options.LogoutPath = "/login";
 
-        // 記住登入最長保存 90 天
-        options.ExpireTimeSpan = TimeSpan.FromDays(90);
+        // Session 預設：未勾「記住登入」時的票據有效時間（滑動延長）
+        // 勾選「記住登入」時，於 AuthService.CompleteSignInAsync 顯式覆寫為 90 天絕對期限
+        options.ExpireTimeSpan = TimeSpan.FromHours(2);
         options.SlidingExpiration = true;
 
         // 統一路由導向，避免自動附帶 ReturnUrl 造成流程混亂
@@ -57,6 +58,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICaptchaService, CaptchaService>();
 builder.Services.AddScoped<IDatabaseService, DatabaseService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
 
@@ -98,12 +100,13 @@ app.MapHub<ProjectsHub>("/hubs/projects");
 // 再導到這個端點，由真正的 HTTP 要求完成 Cookie 寫入。
 app.MapGet("/auth/login", async (string key, IAuthService authService, HttpContext context) =>
 {
-    if (await authService.CompleteSignInAsync(key, context))
-    {
-        return Results.Redirect("/");
-    }
+    var (success, isFirstLogin) = await authService.CompleteSignInAsync(key, context);
 
-    return Results.Redirect("/login");
+    if (!success)
+        return Results.Redirect("/login");
+
+    // 首次登入強制改密碼
+    return Results.Redirect(isFirstLogin ? "/first-login-password" : "/");
 });
 
 // 清除目前登入 Cookie，並回登入頁

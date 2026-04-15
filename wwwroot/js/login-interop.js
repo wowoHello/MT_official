@@ -40,3 +40,7 @@ window.swalInterop = {
     }
 };
 
+window.loginInterop = {
+    getUserAgent: () => navigator.userAgent || ""
+};
+

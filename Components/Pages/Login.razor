@@ -1,16 +1,16 @@
 @* ====================================================================== *@
 @*  Login — 登入頁面                                                       *@
 @*  路由：/ | 使用 LoginLayout（無 Navbar）                                *@
-@*  功能：帳號密碼登入、圖形驗證碼、記住帳號、忘記密碼 Modal + 寄信重設     *@
+@*  功能：帳號密碼登入、圖形驗證碼、記住登入狀態、忘記密碼 Modal + 寄信重設 *@
 @* ====================================================================== *@
 @page "/login"
 @attribute [AllowAnonymous]
 @layout LoginLayout
 @inject NavigationManager Navigation
 @inject ICaptchaService CaptchaService
-@inject ProtectedLocalStorage LocalStorage
 @inject IWebHostEnvironment Env
 @inject IAuthService AuthService
+@inject IPasswordResetService ResetService
 
 <PageTitle>CWT 命題工作平臺</PageTitle>
 
@@ -73,7 +73,8 @@
                             <i class="fa-regular fa-user"></i>
                         </span>
                         <InputText id="username" @bind-Value="loginModel.Username" disabled="@isLoading"
-                            class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 bg-white/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent transition-all"
+                            @bind-Value:after="() => ClearFieldError(nameof(loginModel.Username))"
+                            class="@BuildLoginInputClass(nameof(loginModel.Username), true)"
                             placeholder="請輸入帳號" />
                     </div>
                 </div>
@@ -86,7 +87,8 @@
                             <i class="fa-solid fa-lock"></i>
                         </span>
                         <InputText type="@(showPassword ? "text" : "password")" id="password" @bind-Value="loginModel.Password" disabled="@isLoading"
-                            class="w-full pl-10 pr-10 py-2.5 rounded-lg border border-gray-300 bg-white/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent transition-all"
+                            @bind-Value:after="() => ClearFieldError(nameof(loginModel.Password))"
+                            class="@BuildLoginInputClass(nameof(loginModel.Password), true, "pr-10")"
                             placeholder="請輸入密碼" />
                         <button type="button" @onclick="TogglePasswordVisibility"
                             class="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer">
@@ -102,7 +104,7 @@
                                     <i class="fa-solid fa-check text-white text-[10px] opacity-0 peer-checked:opacity-100 transition-opacity"></i>
                                 </div>
                             </div>
-                            <span class="text-sm text-gray-600 group-hover:text-gray-800 transition-colors">記住登入狀態 (90天)</span>
+                            <span class="text-sm text-gray-600 group-hover:text-gray-800 transition-colors">記住登入狀態</span>
                         </label>
                         <button type="button" @onclick="OpenForgotPwdModal"
                             class="text-sm text-[var(--color-morandi)] hover:text-blue-700 hover:underline transition-colors focus:outline-none cursor-pointer">忘記密碼？</button>
@@ -114,16 +116,12 @@
                     <label for="captcha" class="block text-sm font-medium mb-1">驗證碼</label>
                     <div class="flex gap-3">
                         <InputText id="captcha" @bind-Value="loginModel.CaptchaInput" disabled="@isLoading"
-                            class="w-1/2 px-4 py-2.5 rounded-lg border border-gray-300 bg-white/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent transition-all uppercase"
+                            @bind-Value:after="() => ClearFieldError(nameof(loginModel.CaptchaInput))"
+                            class="@BuildLoginInputClass(nameof(loginModel.CaptchaInput), false, "uppercase", false)"
                             placeholder="輸入圖形碼" autocomplete="off" />
-                        <div class="w-1/2 flex items-center gap-2">
+                        <div class="w-1/2 flex items-center">
                             <img src="@captchaImage" @onclick="RefreshCaptcha"
                                 class="rounded border border-gray-200 cursor-pointer bg-white h-[42px] w-[140px]" title="點擊重新產生" />
-                            <button type="button" @onclick="RefreshCaptcha"
-                                class="text-gray-400 hover:text-[var(--color-morandi)] focus:outline-none p-2 rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
-                                title="重新產生">
-                                <i class="fa-solid fa-rotate-right"></i>
-                            </button>
                         </div>
                     </div>
                 </div>
@@ -185,28 +183,70 @@
                 </div>
 
                 <div class="p-6">
-                    <!-- Request Reset Link -->
-                    <p class="text-sm text-gray-600 mb-4">請輸入您註冊的電子信箱，我們將發送密碼重設連結給您。</p>
-                    <div class="mb-4 relative">
-                        <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
-                            <i class="fa-regular fa-envelope"></i>
-                        </span>
-                        <input type="email" @bind="resetEmail"
-                            class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-transparent"
-                            placeholder="example@school.edu.tw">
-                    </div>
-                    <button type="button" @onclick="SendResetLink" disabled="@isSendingReset"
-                        class="w-full py-2.5 bg-[var(--color-sage)] hover:bg-[#7b9c81] text-white rounded-lg font-medium transition-all shadow-sm flex justify-center items-center gap-2 focus:outline-none disabled:opacity-60 cursor-pointer">
-                        @if (isSendingReset)
-                        {
-                            <i class="fa-solid fa-spinner fa-spin"></i>
-                            <span>驗證發送中...</span>
-                        }
-                        else
-                        {
-                            <span>發送重設連結</span>
-                        }
-                    </button>
+                    @if (!resetLinkSent)
+                    {
+                        <p class="text-sm text-gray-600 mb-4">請輸入您註冊的電子信箱，我們將發送密碼重設連結給您。</p>
+                        <div class="mb-4 relative">
+                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                                <i class="fa-regular fa-envelope"></i>
+                            </span>
+                            <input type="email" @bind="resetEmail"
+                                class="login-input w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 focus:bg-white focus:outline-none focus:ring-2 focus:ring-[var(--color-morandi)] focus:border-[var(--color-morandi)] transition-all"
+                                placeholder="example@school.edu.tw">
+                        </div>
+                        <button type="button" @onclick="SendResetLink" disabled="@isSendingReset"
+                            class="w-full py-2.5 bg-[var(--color-sage)] hover:bg-[#7b9c81] text-white rounded-lg font-medium transition-all shadow-sm flex justify-center items-center gap-2 focus:outline-none disabled:opacity-60 cursor-pointer">
+                            @if (isSendingReset)
+                            {
+                                <i class="fa-solid fa-spinner fa-spin"></i>
+                                <span>驗證發送中...</span>
+                            }
+                            else
+                            {
+                                <span>發送重設連結</span>
+                            }
+                        </button>
+                    }
+                    else
+                    {
+                        <div class="text-center">
+                            <div class="w-14 h-14 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-3">
+                                <i class="fa-regular fa-envelope-open text-emerald-600 text-xl"></i>
+                            </div>
+                            <h3 class="text-base font-bold text-slate-main mb-2">請查收您的信箱</h3>
+                            <p class="text-sm text-gray-600 mb-2">我們已將密碼重設連結發送至</p>
+                            <p class="text-sm font-semibold text-[var(--color-morandi)] break-all mb-4">@resetEmailSentTo</p>
+
+                            <div class="rounded-lg border border-blue-100 bg-blue-50/80 text-left p-3 mb-4 text-sm text-blue-900">
+                                <p class="mb-1">如果您在幾分鐘內沒有收到郵件，請先檢查垃圾郵件資料夾。</p>
+                                <p class="opacity-80">若連結失效，可在下方重新發送。</p>
+                            </div>
+
+                            <div class="space-y-3">
+                                <button type="button" @onclick="SendResetLink" disabled="@IsResetResendDisabled"
+                                    class="w-full py-2.5 bg-[var(--color-sage)] hover:bg-[#7b9c81] text-white rounded-lg font-medium transition-all shadow-sm flex justify-center items-center gap-2 focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer">
+                                    @if (isSendingReset)
+                                    {
+                                        <i class="fa-solid fa-spinner fa-spin"></i>
+                                        <span>發送中...</span>
+                                    }
+                                    else if (resetResendCountdown > 0)
+                                    {
+                                        <span>@resetResendCountdown 秒後可重新發送</span>
+                                    }
+                                    else
+                                    {
+                                        <span>重新發送連結</span>
+                                    }
+                                </button>
+
+                                <button type="button" @onclick="CloseForgotPwdModal"
+                                    class="w-full py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium transition-all shadow-sm focus:outline-none cursor-pointer">
+                                    返回登入頁
+                                </button>
+                            </div>
+                        </div>
+                    }
                 </div>
             </div>
         </div>
@@ -231,7 +271,15 @@
     // --- 忘記密碼 Modal ---
     private bool showForgotPwdModal = false;
     private string resetEmail = "";
+    private string resetEmailSentTo = "";
     private bool isSendingReset = false;
+    private bool resetLinkSent = false;
+    private int resetResendCountdown = 0;
+    private CancellationTokenSource? resetResendCountdownCts;
+    private string? browserUserAgent;
+    private readonly HashSet<string> fieldErrors = [];
+
+    private bool IsResetResendDisabled => isSendingReset || resetResendCountdown > 0;
 
     private bool IsDev => Env.IsDevelopment();
 
@@ -260,13 +308,7 @@
         {
             try
             {
-                var result = await LocalStorage.GetAsync<string>("cwt_remembered_account");
-                if (result.Success && !string.IsNullOrEmpty(result.Value))
-                {
-                    loginModel.Username = result.Value;
-                    loginModel.RememberMe = true;
-                    StateHasChanged();
-                }
+                browserUserAgent = await JS.InvokeAsync<string>("loginInterop.getUserAgent");
             }
             catch
             {
@@ -276,6 +318,57 @@
     }
 
     private void TogglePasswordVisibility() => showPassword = !showPassword;
+
+    private string BuildLoginInputClass(string fieldName, bool includeLeftIconPadding, string? extraClasses = null, bool fullWidth = true)
+    {
+        var classes = new List<string>
+        {
+            "login-input",
+            "py-2.5",
+            "rounded-lg",
+            "border",
+            "bg-white/50",
+            "focus:bg-white",
+            "focus:outline-none",
+            "focus:ring-2",
+            "focus:ring-[var(--color-morandi)]",
+            "focus:border-[var(--color-morandi)]",
+            "transition-all"
+        };
+
+        if (fullWidth)
+        {
+            classes.Add("w-full");
+        }
+
+        classes.Add(includeLeftIconPadding ? "pl-10" : "px-4");
+        classes.Add(fieldErrors.Contains(fieldName) ? "border-red-400" : "border-gray-300");
+
+        if (!string.IsNullOrWhiteSpace(extraClasses))
+        {
+            classes.Add(extraClasses);
+        }
+
+        return string.Join(" ", classes);
+    }
+
+    private void SetFieldError(params string[] fieldNames)
+    {
+        fieldErrors.Clear();
+
+        foreach (var fieldName in fieldNames.Where(static name => !string.IsNullOrWhiteSpace(name)))
+        {
+            fieldErrors.Add(fieldName);
+        }
+    }
+
+    private void ClearFieldError(string fieldName)
+    {
+        if (fieldErrors.Remove(fieldName))
+        {
+            StateHasChanged();
+        }
+    }
 
     private void GenerateNewCaptcha()
     {
@@ -288,17 +381,22 @@
     {
         GenerateNewCaptcha();
         loginModel.CaptchaInput = IsDev ? generatedCaptcha : "";
+        ClearFieldError(nameof(loginModel.CaptchaInput));
     }
 
     /// <summary>處理登入流程（正式 DB 驗證）</summary>
     private async Task HandleLogin()
     {
         errorMessage = "";
+        fieldErrors.Clear();
 
         // 基本驗證
         if (string.IsNullOrWhiteSpace(loginModel.Username) || string.IsNullOrWhiteSpace(loginModel.Password))
         {
             errorMessage = "請輸入完整的帳號密碼。";
+            SetFieldError(
+                string.IsNullOrWhiteSpace(loginModel.Username) ? nameof(loginModel.Username) : string.Empty,
+                string.IsNullOrWhiteSpace(loginModel.Password) ? nameof(loginModel.Password) : string.Empty);
             return;
         }
 
@@ -306,6 +404,14 @@
         if (!string.Equals(loginModel.CaptchaInput?.Trim(), generatedCaptcha, StringComparison.OrdinalIgnoreCase))
         {
             errorMessage = "驗證碼錯誤，請重新輸入。";
+            SetFieldError(nameof(loginModel.CaptchaInput));
+            await AuthService.LogLoginAttemptAsync(
+                null,
+                loginModel.Username.Trim(),
+                false,
+                "驗證碼錯誤。",
+                null,
+                browserUserAgent);
             loginModel.CaptchaInput = "";
             GenerateNewCaptcha();
             return;
@@ -318,29 +424,17 @@
         {
             // 呼叫 AuthService 驗證帳密（DI 注入，伺服器端直接查 DB）
             var (success, message, user) = await AuthService.ValidateLoginAsync(
-                loginModel.Username.Trim(), loginModel.Password);
+                loginModel.Username.Trim(), loginModel.Password, browserUserAgent);
 
             if (!success || user is null)
             {
                 errorMessage = message;
+                SetFieldError(nameof(loginModel.Username), nameof(loginModel.Password));
                 loginModel.CaptchaInput = "";
                 GenerateNewCaptcha();
                 isLoading = false;
-
-                // 記錄失敗日誌
-                await AuthService.LogLoginAttemptAsync(null, loginModel.Username, false, message, null, null);
                 return;
             }
-
-            // 登入成功 — 記錄日誌 + 更新最後登入時間
-            await AuthService.LogLoginAttemptAsync(user.Id, user.Username, true, null, null, null);
-            await AuthService.UpdateLastLoginAsync(user.Id);
-
-            // 處理「記住帳號」
-            if (loginModel.RememberMe)
-                await LocalStorage.SetAsync("cwt_remembered_account", loginModel.Username);
-            else
-                await LocalStorage.DeleteAsync("cwt_remembered_account");
 
             // 暫存登入資料，取得一次性 key，導航至 HTTP 端點完成 Cookie 寫入
             var loginKey = AuthService.PrepareSignIn(user, loginModel.RememberMe);
@@ -359,16 +453,17 @@
 
     private void OpenForgotPwdModal()
     {
-        resetEmail = "";
+        ResetForgotPasswordModalState(clearEmail: true);
         showForgotPwdModal = true;
     }
 
     private void CloseForgotPwdModal()
     {
+        ResetForgotPasswordModalState(clearEmail: false);
         showForgotPwdModal = false;
     }
 
-    /// <summary>發送重設連結 (TODO: 待 EmailService 建構完成後啟用)</summary>
+    /// <summary>發送密碼重設連結</summary>
     private async Task SendResetLink()
     {
         if (string.IsNullOrWhiteSpace(resetEmail))
@@ -383,17 +478,61 @@
             return;
         }
 
+        try
+        {
+            _ = new System.Net.Mail.MailAddress(resetEmail.Trim());
+        }
+        catch
+        {
+            await JS.InvokeVoidAsync("swalInterop.fire", new
+            {
+                icon = "error",
+                title = "錯誤",
+                text = "請輸入有效的電子信箱格式",
+                confirmButtonColor = "#6B8EAD"
+            });
+            return;
+        }
+
         isSendingReset = true;
         StateHasChanged();
 
         try
         {
-            await Task.Delay(800);
+            var (success, message) = await ResetService.RequestPasswordResetAsync(resetEmail.Trim(), Navigation.BaseUri);
+            if (!success)
+            {
+                await JS.InvokeVoidAsync("swalInterop.fire", new
+                {
+                    icon = "error",
+                    title = "發送失敗",
+                    text = message,
+                    confirmButtonColor = "#6B8EAD"
+                });
+                return;
+            }
+
+            resetEmailSentTo = resetEmail.Trim();
+            resetLinkSent = true;
+            _ = StartResetResendCountdownAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
             await JS.InvokeVoidAsync("swalInterop.fire", new
             {
-                icon = "info",
-                title = "功能尚未啟用",
-                text = "寄信功能尚在建置中，待所有頁面完成後將正式啟用。",
+                icon = "error",
+                title = "系統設定未完成",
+                text = ex.Message,
+                confirmButtonColor = "#6B8EAD"
+            });
+        }
+        catch
+        {
+            await JS.InvokeVoidAsync("swalInterop.fire", new
+            {
+                icon = "error",
+                title = "發送失敗",
+                text = "系統忙碌中，暫時無法發送密碼重設信，請稍後再試。",
                 confirmButtonColor = "#6B8EAD"
             });
         }
@@ -401,6 +540,47 @@
         {
             isSendingReset = false;
             StateHasChanged();
+        }
+    }
+
+    private void ResetForgotPasswordModalState(bool clearEmail)
+    {
+        resetResendCountdownCts?.Cancel();
+        resetResendCountdownCts?.Dispose();
+        resetResendCountdownCts = null;
+
+        resetLinkSent = false;
+        resetResendCountdown = 0;
+        resetEmailSentTo = "";
+
+        if (clearEmail)
+        {
+            resetEmail = "";
+        }
+    }
+
+    private async Task StartResetResendCountdownAsync()
+    {
+        resetResendCountdownCts?.Cancel();
+        resetResendCountdownCts?.Dispose();
+
+        resetResendCountdownCts = new CancellationTokenSource();
+        var cancellationToken = resetResendCountdownCts.Token;
+        resetResendCountdown = 60;
+        StateHasChanged();
+
+        try
+        {
+            while (resetResendCountdown > 0 && !cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(1000, cancellationToken);
+                resetResendCountdown--;
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            // Modal 關閉或重新發送時取消倒數，屬正常流程。
         }
     }
 

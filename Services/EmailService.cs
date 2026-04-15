@@ -16,8 +16,8 @@ namespace MT.Services
     {
         private readonly string _smtpServer;
         private readonly int _smtpPort;
-        private readonly string _smtpUser;
-        private readonly string _smtpPassword;
+        private readonly string? _smtpUser;
+        private readonly string? _smtpPassword;
 
         /// <summary>
         /// 建構函式，用於初始化 SMTP 設定
@@ -26,8 +26,16 @@ namespace MT.Services
         {
             _smtpServer = configuration["Smtp:Server"] ?? "smtp.gmail.com";
             _smtpPort = int.TryParse(configuration["Smtp:Port"], out var port) ? port : 587;
-            _smtpUser = configuration["Smtp:User"] ?? throw new InvalidOperationException("未滿在appsettings.json設定SMTP User");
-            _smtpPassword = configuration["Smtp:Password"] ?? throw new InvalidOperationException("未滿在appsettings.json設定SMTP Password");
+            _smtpUser = configuration["Smtp:User"];
+            _smtpPassword = configuration["Smtp:Password"];
+        }
+
+        private void EnsureSmtpConfigured()
+        {
+            if (string.IsNullOrWhiteSpace(_smtpUser) || string.IsNullOrWhiteSpace(_smtpPassword))
+            {
+                throw new InvalidOperationException("系統尚未完成 SMTP 設定，暫時無法寄送通知信。");
+            }
         }
 
         /// <summary>
@@ -35,6 +43,10 @@ namespace MT.Services
         /// </summary>
         public async Task SendVerifyEmailAsync(string? toEmail, string subject, string basehref, string verifyCode)
         {
+            EnsureSmtpConfigured();
+            var smtpUser = _smtpUser!;
+            var smtpPassword = _smtpPassword!;
+
             if (string.IsNullOrWhiteSpace(toEmail))
                 throw new ArgumentException("收件者 Email 不得為空");
 
@@ -50,20 +62,20 @@ namespace MT.Services
                     <input value='{verifyCode}' readonly style='border:1px solid #ccc;padding:8px;font-size:20px;width:120px;text-align:center;' />
                     </strong><br /><br />
                     若有其他問題可再來電客服專線或來信客服服務信箱洽詢。<br /><br />
-                    服務信箱：{_smtpUser}<br />
+                    服務信箱：{smtpUser}<br />
                     <a href='{basehref}'>CWT 命題工作平臺</a><br /><br />
                     ***本封信由系統自動寄出，請勿直接回覆!***<br /><br />";
 
             var smtpClient = new SmtpClient(_smtpServer)
             {
                 Port = _smtpPort,
-                Credentials = new NetworkCredential(_smtpUser, _smtpPassword),
+                Credentials = new NetworkCredential(smtpUser, smtpPassword),
                 EnableSsl = true,
             };
 
             var mailMessage = new MailMessage
             {
-                From = new MailAddress(_smtpUser, "CWT 命題工作平臺"),
+                From = new MailAddress(smtpUser, "CWT 命題工作平臺"),
                 Subject = subject,
                 Body = message,
                 IsBodyHtml = true,
@@ -85,6 +97,10 @@ namespace MT.Services
         /// </summary>
         public async Task SendResetPWEmailAsync(string? toEmail, string subject, string basehref, string resetPasswordURL)
         {
+            EnsureSmtpConfigured();
+            var smtpUser = _smtpUser!;
+            var smtpPassword = _smtpPassword!;
+
             if (string.IsNullOrWhiteSpace(toEmail))
                 throw new ArgumentException("收件者 Email 不得為空");
 
@@ -98,20 +114,20 @@ namespace MT.Services
                     如上述連結失效，請複製貼上前往下面連結：<br /><br /><br />
                     <strong><a href='{resetPasswordURL}'>{resetPasswordURL}</a></strong><br /><br /><br />
                     若有其他問題可再來電客服專線或來信客服服務信箱洽詢。<br /><br />
-                    服務信箱：{_smtpUser}<br />
+                    服務信箱：{smtpUser}<br />
                     <a href='{basehref}'>CWT 命題工作平臺</a><br /><br />
                     ***本封信由系統自動寄出，請勿直接回覆!***<br /><br />";
 
             var smtpClient = new SmtpClient(_smtpServer)
             {
                 Port = _smtpPort,
-                Credentials = new NetworkCredential(_smtpUser, _smtpPassword),
+                Credentials = new NetworkCredential(smtpUser, smtpPassword),
                 EnableSsl = true,
             };
 
             var mailMessage = new MailMessage
             {
-                From = new MailAddress(_smtpUser, "CWT 命題工作平臺"),
+                From = new MailAddress(smtpUser, "CWT 命題工作平臺"),
                 Subject = subject,
                 Body = message,
                 IsBodyHtml = true,
