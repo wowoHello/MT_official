@@ -19,7 +19,34 @@ public class DatabaseService : IDatabaseService
 
     public DatabaseService(IConfiguration configuration)
     {
-        _connectionString = configuration.GetConnectionString("DefaultConnection") ?? "";
+        _connectionString = ResolveConnectionString(configuration);
+    }
+
+    private static string ResolveConnectionString(IConfiguration configuration)
+    {
+        var server = configuration["MT_SQL_Server"];
+        var database = configuration["MT_SQL_Database"];
+        var userId = configuration["MT_SQL_UserId"];
+        var password = configuration["MT_SQL_UserPassword"];
+
+        if (!string.IsNullOrWhiteSpace(server) &&
+            !string.IsNullOrWhiteSpace(database) &&
+            !string.IsNullOrWhiteSpace(userId) &&
+            !string.IsNullOrWhiteSpace(password))
+        {
+            var builder = new SqlConnectionStringBuilder
+            {
+                DataSource = server,
+                InitialCatalog = database,
+                UserID = userId,
+                Password = password,
+                TrustServerCertificate = true
+            };
+
+            return builder.ConnectionString;
+        }
+
+        return configuration.GetConnectionString("DefaultConnection") ?? string.Empty;
     }
 
     public IDbConnection CreateConnection()
@@ -31,7 +58,7 @@ public class DatabaseService : IDatabaseService
     {
         if (string.IsNullOrEmpty(_connectionString))
         {
-            return (false, "連線字串為空，請檢查 appsettings.json。");
+            return (false, "連線字串為空，請檢查環境變數或 appsettings.json。");
         }
 
         try
@@ -54,7 +81,7 @@ public class DatabaseService : IDatabaseService
     public async Task<IEnumerable<string>> GetTableListAsync()
     {
         if (string.IsNullOrEmpty(_connectionString))
-            throw new InvalidOperationException("連線字串為空，請檢查 appsettings.json。");
+            throw new InvalidOperationException("連線字串為空，請檢查環境變數或 appsettings.json。");
 
         using var conn = CreateConnection();
         return await conn.QueryAsync<string>("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME");

@@ -116,8 +116,7 @@
                         <div class="@itemClass" @onclick="async () => await SelectProject(p.Id)">
                             <div class="flex justify-between items-start">
                                 <span class="@nameClass">@p.Name</span>
-                                @{ var (badgeText, badgeClass) = GetStatusBadge((byte)p.EffectiveStatus); }
-                                <span class="@badgeClass">@badgeText</span>
+                                <StatusBadge StatusText="@GetProjectStatusText((byte)p.EffectiveStatus)" Compact="true" ShowIcon="false" />
                             </div>
                             <div class="flex justify-between items-center mt-1">
                                 <span class="text-xs text-gray-500">@(p.Year)年度 / @(string.IsNullOrEmpty(p.School) ? "無 (自辦)" : p.School)</span>
@@ -148,8 +147,7 @@
                         <div class="flex flex-col items-start justify-between gap-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:flex-row sm:items-start">
                             <div class="flex flex-col gap-1">
                                 <div class="flex items-center gap-2 mb-1">
-                                    @{ var (sBadge, sClass) = GetStatusBadge((byte)selectedDetail.EffectiveStatus); }
-                                    <span class="@sClass">@sBadge</span>
+                                    <StatusBadge StatusText="@GetProjectStatusText((byte)selectedDetail.EffectiveStatus)" Compact="true" ShowIcon="false" />
                                     <span class="text-xs text-gray-500">@(selectedDetail.Year)年度</span>
                                 </div>
                                 <h2 class="text-2xl font-black text-slate-main">@selectedDetail.Name</h2>
@@ -737,13 +735,13 @@
         }
     */
 
-    /// <summary>依狀態碼取得對應 Badge 文字與樣式</summary>
-    private static (string Text, string CssClass) GetStatusBadge(byte status) => status switch
+    /// <summary>依狀態碼取得對應狀態文字</summary>
+    private static string GetProjectStatusText(byte status) => status switch
     {
-        0 => ("準備中", "text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-700 whitespace-nowrap"),
-        1 => ("進行中", "text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-700 whitespace-nowrap"),
-        2 => ("已結案", "text-[10px] font-bold px-2 py-0.5 rounded bg-gray-200 text-gray-600 whitespace-nowrap"),
-        _ => ("未知",   "text-[10px] font-bold px-2 py-0.5 rounded bg-gray-100 text-gray-400 whitespace-nowrap")
+        0 => "準備中",
+        1 => "進行中",
+        2 => "已結案",
+        _ => "未知"
     };
 
     private void ResetForm()
