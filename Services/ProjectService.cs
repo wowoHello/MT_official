@@ -8,28 +8,69 @@ using MT.Models;
 
 namespace MT.Services;
 
+/// <summary>
+/// 定義命題專案管理所需的查詢、建立與刪除服務契約。
+/// </summary>
 public interface IProjectService
 {
+    /// <summary>
+    /// 建立新專案，並一併寫入階段、題型目標、成員角色與配額資料。
+    /// </summary>
     Task<int> CreateProjectAsync(CreateProjectRequest request);
+
+    /// <summary>
+    /// 取得指定專案的可編輯完整資料，供表單回填使用。
+    /// </summary>
+    Task<ProjectEditDto?> GetProjectEditAsync(int projectId);
+
+    /// <summary>
+    /// 取得專案管理頁左側使用的專案列表資料。
+    /// </summary>
     Task<List<ProjectListItem>> GetProjectListAsync();
+
+    /// <summary>
+    /// 依登入者身分與參與紀錄，取得可切換與可見的專案清單。
+    /// </summary>
     Task<List<ProjectSwitcherItem>> GetVisibleProjectsAsync(int userId);
+
+    /// <summary>
+    /// 取得單一專案的詳細資料，包含基本資訊、時程、題型目標與成員角色。
+    /// </summary>
     Task<ProjectDetailDto?> GetProjectDetailAsync(int projectId);
+
+    /// <summary>
+    /// 取得建立或編輯專案時可選擇的人才池名單。
+    /// </summary>
     Task<List<ProjectTalentPoolItem>> GetTalentPoolAsync();
+
+    /// <summary>
+    /// 取得專案指派人員可選用的外部角色清單。
+    /// </summary>
+    Task<List<RoleOption>> GetProjectRoleOptionsAsync();
+
+    /// <summary>
+    /// 將專案標記為軟刪除，從一般列表中隱藏並保留相關資料。
+    /// </summary>
     Task SoftDeleteProjectAsync(int projectId, int deletedBy);
+
+    /// <summary>
+    /// 更新既有專案主檔與相關設定資料。
+    /// </summary>
+    Task UpdateProjectAsync(UpdateProjectRequest request);
 }
 
+/// <summary>
+/// 提供命題專案的查詢、建立、軟刪除與即時同步通知功能。
+/// </summary>
 public class ProjectService : IProjectService
 {
-    private const byte PropositionTeacherRoleCode = 1;
-    private const byte CrossReviewTeacherRoleCode = 2;
-    private const byte ExpertReviewerRoleCode = 3;
-    private const byte ChiefCoordinatorRoleCode = 4;
-    private const byte ExpertScholarRoleCode = 5;
-
     private readonly IDatabaseService _db;
     private readonly ILogger<ProjectService> _logger;
     private readonly IHubContext<ProjectsHub> _projectsHubContext;
 
+    /// <summary>
+    /// 初始化專案服務所需的資料庫、記錄器與即時同步依賴。
+    /// </summary>
     public ProjectService(
         IDatabaseService db,
         ILogger<ProjectService> logger,
@@ -40,6 +81,9 @@ public class ProjectService : IProjectService
         _projectsHubContext = projectsHubContext;
     }
 
+    /// <summary>
+    /// 取得專案管理頁顯示用的專案列表，排除已軟刪除資料。
+    /// </summary>
     public async Task<List<ProjectListItem>> GetProjectListAsync()
     {
         using var conn = _db.CreateConnection();
@@ -66,6 +110,18 @@ public class ProjectService : IProjectService
         return result.ToList();
     }
 
+    /// <summary>
+    /// 取得指定專案的可編輯完整資料，供專案編輯表單回填。
+    /// </summary>
+    public async Task<ProjectEditDto?> GetProjectEditAsync(int projectId)
+    {
+        using var conn = _db.CreateConnection();
+        return await GetProjectEditAsync(conn, null, projectId);
+    }
+
+    /// <summary>
+    /// 依使用者角色與參與關聯，取得上方專案切換器可見的專案清單。
+    /// </summary>
     public async Task<List<ProjectSwitcherItem>> GetVisibleProjectsAsync(int userId)
     {
         using var conn = _db.CreateConnection();
@@ -133,6 +189,9 @@ public class ProjectService : IProjectService
         return result.ToList();
     }
 
+    /// <summary>
+    /// 取得單一專案的完整詳細資料，供專案管理頁右側詳情區顯示。
+    /// </summary>
     public async Task<ProjectDetailDto?> GetProjectDetailAsync(int projectId)
     {
         using var conn = _db.CreateConnection();
@@ -166,13 +225,14 @@ public class ProjectService : IProjectService
                 pm.UserId,
                 ISNULL(u.DisplayName, N'未知') AS DisplayName,
                 t.TeacherCode,
-                pmr.RoleCode
+                r.Name AS RoleName
             FROM dbo.MT_ProjectMembers pm
             LEFT JOIN dbo.MT_Users u ON u.Id = pm.UserId
             LEFT JOIN dbo.MT_Teachers t ON t.UserId = u.Id
             LEFT JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
+            LEFT JOIN dbo.MT_Roles r ON r.Id = pmr.RoleId
             WHERE pm.ProjectId = @ProjectId
-            ORDER BY pm.Id, pmr.RoleCode;
+            ORDER BY pm.Id, r.Id;
             """;
 
         try
@@ -194,9 +254,11 @@ public class ProjectService : IProjectService
                     UserId = g.Key.UserId,
                     DisplayName = g.Key.DisplayName,
                     TeacherCode = g.Key.TeacherCode,
-                    RoleName = g.Any(x => x.RoleCode.HasValue) 
-                               ? string.Join(", ", g.Where(x => x.RoleCode.HasValue).Select(x => ResolveRoleName(x.RoleCode!.Value)).Distinct())
-                               : "未指定"
+                    RoleName = string.Join(", ",
+                        g.Select(x => x.RoleName)
+                            .Where(roleName => !string.IsNullOrWhiteSpace(roleName))
+                            .Distinct()
+                            .DefaultIfEmpty("未指定"))
                 }).ToList();
                 
             return detail;
@@ -208,6 +270,9 @@ public class ProjectService : IProjectService
         }
     }
 
+    /// <summary>
+    /// 取得目前可分派進專案的人才池教師清單。
+    /// </summary>
     public async Task<List<ProjectTalentPoolItem>> GetTalentPoolAsync()
     {
         using var conn = _db.CreateConnection();
@@ -227,6 +292,27 @@ public class ProjectService : IProjectService
         return result.ToList();
     }
 
+    /// <summary>
+    /// 取得專案指派人員可選用的外部角色清單。
+    /// </summary>
+    public async Task<List<RoleOption>> GetProjectRoleOptionsAsync()
+    {
+        using var conn = _db.CreateConnection();
+
+        const string sql = """
+            SELECT Id, Name, Category, IsDefault
+            FROM dbo.MT_Roles
+            WHERE Category = 1
+            ORDER BY IsDefault DESC, Id;
+            """;
+
+        var result = await conn.QueryAsync<RoleOption>(sql);
+        return result.ToList();
+    }
+
+    /// <summary>
+    /// 將指定專案標記為軟刪除，並記錄稽核資料與推播即時更新。
+    /// </summary>
     public async Task SoftDeleteProjectAsync(int projectId, int deletedBy)
     {
         using var conn = _db.CreateConnection();
@@ -241,15 +327,25 @@ public class ProjectService : IProjectService
         await conn.ExecuteAsync(sql, new { ProjectId = projectId });
 
         const string auditSql = """
-            INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue)
-            VALUES (@UserId, 2, 2, @TargetId, N'刪除專案');
+            INSERT INTO dbo.MT_AuditLogs (UserId, ProjectId, Action, TargetType, TargetId, NewValue)
+            VALUES (@UserId, @ProjectId, @Action, @TargetType, @TargetId, N'刪除專案');
             """;
 
-        await conn.ExecuteAsync(auditSql, new { UserId = deletedBy, TargetId = projectId });
+        await conn.ExecuteAsync(auditSql, new
+        {
+            UserId = deletedBy,
+            ProjectId = projectId,
+            Action = (byte)AuditAction.Delete,
+            TargetType = (byte)AuditTargetType.Projects,
+            TargetId = projectId
+        });
 
         await BroadcastProjectChangedAsync(ProjectRealtimeChangeType.Deleted, projectId);
     }
 
+    /// <summary>
+    /// 建立專案主檔與其相關設定資料，完成後回傳新專案識別碼。
+    /// </summary>
     public async Task<int> CreateProjectAsync(CreateProjectRequest req)
     {
         using var conn = (System.Data.Common.DbConnection)_db.CreateConnection();
@@ -297,106 +393,20 @@ public class ProjectService : IProjectService
                 },
                 transaction: trans);
 
-            const string phaseSql = """
-                INSERT INTO dbo.MT_ProjectPhases (ProjectId, PhaseCode, PhaseName, StartDate, EndDate, SortOrder)
-                VALUES (@ProjectId, @PhaseCode, @Name, @StartDate, @EndDate, @PhaseCode);
-                """;
-
-            foreach (var phase in req.Phases)
-            {
-                await conn.ExecuteAsync(
-                    phaseSql,
-                    new
-                    {
-                        ProjectId = projectId,
-                        PhaseCode = phase.PhaseCode,
-                        Name = phase.Name,
-                        StartDate = phase.StartDate,
-                        EndDate = phase.EndDate
-                    },
-                    transaction: trans);
-            }
-
-            if (req.Targets.Any())
-            {
-                const string targetSql = """
-                    INSERT INTO dbo.MT_ProjectTargets (ProjectId, QuestionTypeId, TargetCount)
-                    VALUES (@ProjectId, @QuestionTypeId, @TargetCount);
-                    """;
-
-                foreach (var target in req.Targets)
-                {
-                    await conn.ExecuteAsync(
-                        targetSql,
-                        new
-                        {
-                            ProjectId = projectId,
-                            QuestionTypeId = target.QuestionTypeId,
-                            TargetCount = target.TargetCount
-                        },
-                        transaction: trans);
-                }
-            }
-
-            const string memberSql = """
-                INSERT INTO dbo.MT_ProjectMembers (ProjectId, UserId)
-                OUTPUT INSERTED.Id
-                VALUES (@ProjectId, @UserId);
-                """;
-
-            const string roleSql = """
-                INSERT INTO dbo.MT_ProjectMemberRoles (ProjectMemberId, RoleCode)
-                VALUES (@ProjectMemberId, @RoleCode);
-                """;
-
-            const string quotaSql = """
-                INSERT INTO dbo.MT_MemberQuotas (ProjectMemberId, QuestionTypeId, QuotaCount)
-                VALUES (@ProjectMemberId, @QuestionTypeId, @QuotaCount);
-                """;
-
-            foreach (var alloc in req.MemberAllocations.Where(x => x.UserId > 0))
-            {
-                var memberId = await conn.QuerySingleAsync<int>(
-                    memberSql,
-                    new
-                    {
-                        ProjectId = projectId,
-                        UserId = alloc.UserId
-                    },
-                    transaction: trans);
-
-                var roleCode = alloc.RoleCode;
-                if (roleCode > 0)
-                {
-                    await conn.ExecuteAsync(
-                        roleSql,
-                        new
-                        {
-                            ProjectMemberId = memberId,
-                            RoleCode = roleCode
-                        },
-                        transaction: trans);
-                }
-
-                foreach (var quota in alloc.Quotas.Where(x => x.QuotaCount > 0))
-                {
-                    await conn.ExecuteAsync(
-                        quotaSql,
-                        new
-                        {
-                            ProjectMemberId = memberId,
-                            QuestionTypeId = quota.QuestionTypeId,
-                            QuotaCount = quota.QuotaCount
-                        },
-                        transaction: trans);
-                }
-            }
+            await ReplaceProjectChildRecordsAsync(
+                conn,
+                trans,
+                projectId,
+                req.Phases,
+                req.Targets,
+                req.MemberAllocations,
+                shouldClearExisting: false);
 
             var jsonValue = JsonSerializer.Serialize(new { ProjectId = projectId, Name = req.Name, ProjectCode = projectCode });
 
             const string auditSql = """
-                INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue)
-                VALUES (@UserId, 0, 2, @TargetId, @NewValue);
+                INSERT INTO dbo.MT_AuditLogs (UserId, ProjectId, Action, TargetType, TargetId, NewValue)
+                VALUES (@UserId, @ProjectId, @Action, @TargetType, @TargetId, @NewValue);
                 """;
 
             await conn.ExecuteAsync(
@@ -404,6 +414,9 @@ public class ProjectService : IProjectService
                 new
                 {
                     UserId = req.CreatedBy,
+                    ProjectId = projectId,
+                    Action = (byte)AuditAction.Create,
+                    TargetType = (byte)AuditTargetType.Projects,
                     TargetId = projectId,
                     NewValue = jsonValue
                 },
@@ -423,6 +436,104 @@ public class ProjectService : IProjectService
         }
     }
 
+    /// <summary>
+    /// 更新既有專案主檔與相關設定資料，完成後寫入稽核並推播即時同步。
+    /// </summary>
+    public async Task UpdateProjectAsync(UpdateProjectRequest req)
+    {
+        using var conn = (System.Data.Common.DbConnection)_db.CreateConnection();
+        await conn.OpenAsync();
+
+        using var trans = await conn.BeginTransactionAsync(IsolationLevel.Serializable);
+
+        try
+        {
+            var oldSnapshot = await GetProjectEditAsync(conn, trans, req.ProjectId);
+            if (oldSnapshot is null)
+            {
+                throw new InvalidOperationException("找不到要編輯的專案，或該專案已被移除。");
+            }
+
+            var year = int.Parse(req.Year);
+            var projectStartDate = req.Phases.FirstOrDefault(p => p.PhaseCode == 1)?.StartDate ?? DateTime.Today;
+            var projectEndDate = req.Phases.OrderByDescending(p => p.PhaseCode).FirstOrDefault()?.EndDate ?? DateTime.Today.AddMonths(2);
+
+            const string projectSql = """
+                UPDATE dbo.MT_Projects
+                SET Name = @Name,
+                    Year = @Year,
+                    School = @School,
+                    StartDate = @StartDate,
+                    EndDate = @EndDate,
+                    UpdatedAt = SYSDATETIME()
+                WHERE Id = @ProjectId
+                  AND IsDeleted = 0;
+                """;
+
+            var affectedRows = await conn.ExecuteAsync(
+                projectSql,
+                new
+                {
+                    ProjectId = req.ProjectId,
+                    Name = req.Name,
+                    Year = year,
+                    School = req.School,
+                    StartDate = projectStartDate,
+                    EndDate = projectEndDate
+                },
+                transaction: trans);
+
+            if (affectedRows == 0)
+            {
+                throw new InvalidOperationException("找不到要更新的專案，或該專案已被移除。");
+            }
+
+            await ReplaceProjectChildRecordsAsync(
+                conn,
+                trans,
+                req.ProjectId,
+                req.Phases,
+                req.Targets,
+                req.MemberAllocations,
+                shouldClearExisting: true);
+
+            var newSnapshot = await GetProjectEditAsync(conn, trans, req.ProjectId)
+                ?? throw new InvalidOperationException("專案更新後無法重新讀取資料。");
+
+            const string auditSql = """
+                INSERT INTO dbo.MT_AuditLogs (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue)
+                VALUES (@UserId, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue);
+                """;
+
+            await conn.ExecuteAsync(
+                auditSql,
+                new
+                {
+                    UserId = req.UpdatedBy,
+                    ProjectId = req.ProjectId,
+                    Action = (byte)AuditAction.Update,
+                    TargetType = (byte)AuditTargetType.Projects,
+                    TargetId = req.ProjectId,
+                    OldValue = JsonSerializer.Serialize(oldSnapshot),
+                    NewValue = JsonSerializer.Serialize(newSnapshot)
+                },
+                transaction: trans);
+
+            trans.Commit();
+
+            await BroadcastProjectChangedAsync(ProjectRealtimeChangeType.Updated, req.ProjectId);
+        }
+        catch (Exception ex)
+        {
+            trans.Rollback();
+            _logger.LogError(ex, "更新專案失敗 (Id={ProjectId})", req.ProjectId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 依年度與目前最新流水號，產生下一個專案代碼。
+    /// </summary>
     private static string BuildNextProjectCode(string rocYear, string? latestCode)
     {
         var normalizedYear = rocYear.Trim();
@@ -440,6 +551,9 @@ public class ProjectService : IProjectService
         return $"{expectedPrefix}{seq:D3}";
     }
 
+    /// <summary>
+    /// 透過 SignalR 廣播專案異動事件，通知前端同步更新畫面。
+    /// </summary>
     private Task BroadcastProjectChangedAsync(ProjectRealtimeChangeType changeType, int projectId)
     {
         return _projectsHubContext.Clients.All.SendAsync(
@@ -447,26 +561,234 @@ public class ProjectService : IProjectService
             new ProjectRealtimeSyncMessage(changeType, projectId));
     }
 
-
-
-    private static string ResolveRoleName(byte roleCode)
+    private async Task<ProjectEditDto?> GetProjectEditAsync(IDbConnection conn, IDbTransaction? transaction, int projectId)
     {
-        return roleCode switch
+        const string sql = """
+            SELECT
+                p.Id,
+                p.ProjectCode,
+                p.Year,
+                p.Name,
+                p.School,
+                p.ClosedAt
+            FROM dbo.MT_Projects p
+            WHERE p.Id = @ProjectId
+              AND p.IsDeleted = 0;
+
+            SELECT
+                PhaseCode,
+                PhaseName AS Name,
+                StartDate,
+                EndDate
+            FROM dbo.MT_ProjectPhases
+            WHERE ProjectId = @ProjectId
+            ORDER BY SortOrder;
+
+            SELECT
+                QuestionTypeId,
+                TargetCount
+            FROM dbo.MT_ProjectTargets
+            WHERE ProjectId = @ProjectId
+            ORDER BY QuestionTypeId;
+
+            SELECT
+                pm.Id AS ProjectMemberId,
+                pm.UserId,
+                ISNULL(MIN(pmr.RoleId), 0) AS RoleId
+            FROM dbo.MT_ProjectMembers pm
+            LEFT JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
+            WHERE pm.ProjectId = @ProjectId
+            GROUP BY pm.Id, pm.UserId
+            ORDER BY pm.Id;
+
+            SELECT
+                mq.ProjectMemberId,
+                mq.QuestionTypeId,
+                mq.QuotaCount
+            FROM dbo.MT_MemberQuotas mq
+            INNER JOIN dbo.MT_ProjectMembers pm ON pm.Id = mq.ProjectMemberId
+            WHERE pm.ProjectId = @ProjectId
+            ORDER BY mq.ProjectMemberId, mq.QuestionTypeId;
+            """;
+
+        using var multi = await conn.QueryMultipleAsync(sql, new { ProjectId = projectId }, transaction);
+
+        var project = await multi.ReadFirstOrDefaultAsync<ProjectEditDto>();
+        if (project is null)
         {
-            PropositionTeacherRoleCode => "命題教師",
-            CrossReviewTeacherRoleCode => "互審教師",
-            ExpertReviewerRoleCode => "專審委員",
-            ChiefCoordinatorRoleCode => "總召(專員)",
-            ExpertScholarRoleCode => "專家學者",
-            _ => "未指定"
-        };
+            return null;
+        }
+
+        project.Phases = (await multi.ReadAsync<ProjectPhaseDto>()).ToList();
+        project.Targets = (await multi.ReadAsync<ProjectTargetDto>()).ToList();
+
+        var memberRows = (await multi.ReadAsync<ProjectEditMemberRow>()).ToList();
+        var quotaRows = (await multi.ReadAsync<ProjectEditMemberQuotaRow>()).ToList();
+
+        project.MemberAllocations = memberRows
+            .Select(member => new ProjectMemberAllocationDto
+            {
+                UserId = member.UserId,
+                RoleId = member.RoleId,
+                Quotas = quotaRows
+                    .Where(quota => quota.ProjectMemberId == member.ProjectMemberId)
+                    .Select(quota => new ProjectMemberQuotaDto
+                    {
+                        QuestionTypeId = quota.QuestionTypeId,
+                        QuotaCount = quota.QuotaCount
+                    })
+                    .ToList()
+            })
+            .ToList();
+
+        return project;
     }
 
+    private async Task ReplaceProjectChildRecordsAsync(
+        IDbConnection conn,
+        IDbTransaction transaction,
+        int projectId,
+        IEnumerable<ProjectPhaseDto> phases,
+        IEnumerable<ProjectTargetDto> targets,
+        IEnumerable<ProjectMemberAllocationDto> memberAllocations,
+        bool shouldClearExisting)
+    {
+        if (shouldClearExisting)
+        {
+            const string deleteSql = """
+                DELETE mq
+                FROM dbo.MT_MemberQuotas mq
+                INNER JOIN dbo.MT_ProjectMembers pm ON pm.Id = mq.ProjectMemberId
+                WHERE pm.ProjectId = @ProjectId;
+
+                DELETE pmr
+                FROM dbo.MT_ProjectMemberRoles pmr
+                INNER JOIN dbo.MT_ProjectMembers pm ON pm.Id = pmr.ProjectMemberId
+                WHERE pm.ProjectId = @ProjectId;
+
+                DELETE FROM dbo.MT_ProjectMembers
+                WHERE ProjectId = @ProjectId;
+
+                DELETE FROM dbo.MT_ProjectTargets
+                WHERE ProjectId = @ProjectId;
+
+                DELETE FROM dbo.MT_ProjectPhases
+                WHERE ProjectId = @ProjectId;
+                """;
+
+            await conn.ExecuteAsync(deleteSql, new { ProjectId = projectId }, transaction: transaction);
+        }
+
+        const string phaseSql = """
+            INSERT INTO dbo.MT_ProjectPhases (ProjectId, PhaseCode, PhaseName, StartDate, EndDate, SortOrder)
+            VALUES (@ProjectId, @PhaseCode, @Name, @StartDate, @EndDate, @PhaseCode);
+            """;
+
+        foreach (var phase in phases)
+        {
+            await conn.ExecuteAsync(
+                phaseSql,
+                new
+                {
+                    ProjectId = projectId,
+                    PhaseCode = phase.PhaseCode,
+                    Name = phase.Name,
+                    StartDate = phase.StartDate,
+                    EndDate = phase.EndDate
+                },
+                transaction: transaction);
+        }
+
+        const string targetSql = """
+            INSERT INTO dbo.MT_ProjectTargets (ProjectId, QuestionTypeId, TargetCount)
+            VALUES (@ProjectId, @QuestionTypeId, @TargetCount);
+            """;
+
+        foreach (var target in targets.Where(target => target.TargetCount > 0))
+        {
+            await conn.ExecuteAsync(
+                targetSql,
+                new
+                {
+                    ProjectId = projectId,
+                    QuestionTypeId = target.QuestionTypeId,
+                    TargetCount = target.TargetCount
+                },
+                transaction: transaction);
+        }
+
+        const string memberSql = """
+            INSERT INTO dbo.MT_ProjectMembers (ProjectId, UserId)
+            OUTPUT INSERTED.Id
+            VALUES (@ProjectId, @UserId);
+            """;
+
+        const string roleSql = """
+            INSERT INTO dbo.MT_ProjectMemberRoles (ProjectMemberId, RoleId)
+            VALUES (@ProjectMemberId, @RoleId);
+            """;
+
+        const string quotaSql = """
+            INSERT INTO dbo.MT_MemberQuotas (ProjectMemberId, QuestionTypeId, QuotaCount)
+            VALUES (@ProjectMemberId, @QuestionTypeId, @QuotaCount);
+            """;
+
+        foreach (var alloc in memberAllocations.Where(allocation => allocation.UserId > 0))
+        {
+            var memberId = await conn.QuerySingleAsync<int>(
+                memberSql,
+                new
+                {
+                    ProjectId = projectId,
+                    UserId = alloc.UserId
+                },
+                transaction: transaction);
+
+            if (alloc.RoleId > 0)
+            {
+                await conn.ExecuteAsync(
+                    roleSql,
+                    new
+                    {
+                        ProjectMemberId = memberId,
+                        RoleId = alloc.RoleId
+                    },
+                    transaction: transaction);
+            }
+
+            foreach (var quota in alloc.Quotas.Where(quota => quota.QuotaCount > 0))
+            {
+                await conn.ExecuteAsync(
+                    quotaSql,
+                    new
+                    {
+                        ProjectMemberId = memberId,
+                        QuestionTypeId = quota.QuestionTypeId,
+                        QuotaCount = quota.QuotaCount
+                    },
+                    transaction: transaction);
+            }
+        }
+    }
     private sealed class ProjectMemberRow
     {
         public int UserId { get; set; }
         public string DisplayName { get; set; } = string.Empty;
         public string? TeacherCode { get; set; }
-        public byte? RoleCode { get; set; }
+        public string? RoleName { get; set; }
+    }
+
+    private sealed class ProjectEditMemberRow
+    {
+        public int ProjectMemberId { get; set; }
+        public int UserId { get; set; }
+        public int RoleId { get; set; }
+    }
+
+    private sealed class ProjectEditMemberQuotaRow
+    {
+        public int ProjectMemberId { get; set; }
+        public int QuestionTypeId { get; set; }
+        public int QuotaCount { get; set; }
     }
 }

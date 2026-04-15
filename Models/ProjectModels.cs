@@ -17,6 +17,21 @@ public class CreateProjectRequest
     public List<ProjectMemberAllocationDto> MemberAllocations { get; set; } = new();
 }
 
+/// <summary>
+/// 編輯專案時使用的請求 DTO。
+/// </summary>
+public class UpdateProjectRequest
+{
+    public int ProjectId { get; set; }
+    public string Year { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string? School { get; set; }
+    public int UpdatedBy { get; set; }
+    public List<ProjectPhaseDto> Phases { get; set; } = new();
+    public List<ProjectTargetDto> Targets { get; set; } = new();
+    public List<ProjectMemberAllocationDto> MemberAllocations { get; set; } = new();
+}
+
 public class ProjectPhaseDto
 {
     public int PhaseCode { get; set; }
@@ -34,7 +49,7 @@ public class ProjectTargetDto
 public class ProjectMemberAllocationDto
 {
     public int UserId { get; set; }
-    public byte RoleCode { get; set; }
+    public int RoleId { get; set; }
     public List<ProjectMemberQuotaDto> Quotas { get; set; } = new();
 }
 
@@ -42,6 +57,22 @@ public class ProjectMemberQuotaDto
 {
     public int QuestionTypeId { get; set; }
     public int QuotaCount { get; set; }
+}
+
+/// <summary>
+/// 編輯專案時使用的完整回填資料。
+/// </summary>
+public class ProjectEditDto
+{
+    public int Id { get; set; }
+    public string ProjectCode { get; set; } = string.Empty;
+    public int Year { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? School { get; set; }
+    public DateTime? ClosedAt { get; set; }
+    public List<ProjectPhaseDto> Phases { get; set; } = new();
+    public List<ProjectTargetDto> Targets { get; set; } = new();
+    public List<ProjectMemberAllocationDto> MemberAllocations { get; set; } = new();
 }
 
 /// <summary>

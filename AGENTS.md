@@ -1,28 +1,24 @@
 # Repository Guidelines
 
-## 專案結構與模組分工
-`Components/` 是 Blazor UI 主體：`Pages/` 放可路由頁面，`Layout/` 放版型骨架，`Shared/` 放可重用的 Razor 元件，例如題型表單與預覽元件。`Services/` 放認證、驗證碼、密碼重設、專案流程等商業邏輯。`Models/` 放 DTO 與共用資料模型。`Hubs/` 放 SignalR hubs。`Database/Migrations/` 放手動 SQL migration scripts。靜態資源集中在 `wwwroot/`，包含 `css/`、`js/`、`img/`、`uploads/`、`webfonts/`。
+## Project Structure & Module Organization
+此專案是 `net10.0` 的 Blazor Server Web App。主要程式入口在 `Program.cs`，路由與頁面放在 `Components/`，其中 `Pages/` 是頁面、`Layout/` 是版型、`Shared/` 是可重用元件。資料模型在 `Models/`，資料存取與商業邏輯集中在 `Services/`，SignalR hub 在 `Hubs/`。靜態資源與前端腳本放在 `wwwroot/`，像是 `wwwroot/css/`、`wwwroot/js/`、`wwwroot/img/`。
 
-## 建置、測試與開發指令
-請在專案根目錄執行以下指令：
-
-- `dotnet restore`：安裝 .NET 相依套件。
-- `dotnet build`：確認 `net10.0` 的 Blazor Server 專案可成功編譯。
-- `dotnet run`：啟動本機開發伺服器。
-- `npm install`：安裝 Tailwind CLI 相關套件。
+## Build, Test, and Development Commands
+- `dotnet restore`：還原 NuGet 套件。
+- `dotnet build`：編譯整個專案，提交前至少跑一次。
+- `dotnet run`：本機啟動網站，設定來自 `Properties/launchSettings.json`。
+- `npm install`：安裝 Tailwind CLI 依賴。
 - `npm run build:css`：將 `wwwroot/css/input.css` 編譯成 `wwwroot/css/tailwind.css`。
-- `npm run watch:css`：開發 UI 時持續監看並重建 Tailwind 樣式。
+- `npm run watch:css`：開發時持續監看 Tailwind 樣式變更。
 
-若有修改 Razor 或樣式檔，送出 PR 前至少先跑一次 `dotnet build` 與 `npm run build:css`。
+## Coding Style & Naming Conventions
+C#、Razor、JS 皆延續現有風格：使用 4 個空白縮排，型別、元件與方法採 `PascalCase`，區域變數與私有欄位採 `camelCase`。Razor 元件檔名請與元件名稱一致，例如 `StatusBadge.razor`。服務類別維持單一職責，資料庫查詢集中在 `Services/`，不要把 SQL 或驗證流程散落到頁面元件。
 
-## 程式風格與命名規範
-遵守清楚、可拆分的小元件 Blazor 設計。C# 與 Razor 一律使用 4 個空白縮排。元件、services、公開成員使用 PascalCase，區域變數使用 camelCase，私有欄位使用 `_fieldName`。頁面只保留薄薄的頁面邏輯，可重用行為請移到 `Services/` 或 `Components/Shared/`。樣式優先使用 Tailwind utilities，只有在真的不夠用時才補到 `wwwroot/css/app.css`。
+## Testing Guidelines
+目前 repository 沒有獨立測試專案，所以先以建置成功與手動驗證為最低門檻。修改登入、權限、密碼重設、專案列表或 SignalR 同步流程時，請至少執行 `dotnet build`，再用本機站點確認主要流程。若新增測試專案，建議使用 `ProjectName.Tests` 命名，測試名稱採 `MethodName_Scenario_ExpectedResult`。
 
-## 測試規範
-目前這個 repository 還沒有獨立的測試專案。在測試專案補上之前，至少要完成 `dotnet build`、頁面 smoke test，以及登入、登出、專案切換等核心流程驗證。未來若新增測試，請建立獨立的 `*.Tests` 專案，檔名依測試目標命名，例如 `AuthServiceTests.cs`。
+## Commit & Pull Request Guidelines
+Git 歷史以繁體中文、直接描述變更內容為主，例如 `補上記住登入與忘記密碼功能`。請用單一主題提交，避免把 CSS、資料庫與頁面重構混成一包。PR 需說明變更目的、影響範圍、手動驗證步驟；若有 UI 調整，附上截圖；若動到設定、連線或權限邏輯，請明寫風險點。
 
-## Commit 與 Pull Request 規範
-最近的 git 紀錄以簡短、具描述性的繁體中文 commit message 為主，請延續這個風格。建議先寫功能或模組，再寫變更目的，例如 `更新登入流程與驗證碼邏輯`。PR 內容需包含簡短摘要、影響檔案範圍、是否牽涉資料庫或 SignalR、UI 變更截圖，以及手動驗證步驟，例如 `dotnet build`、登入與登出檢查。
-
-## 安全與設定提醒
-不要提交真實的 connection strings、secrets 或正式環境郵件設定。上傳檔案規則需與 `Program.cs` 保持一致；只要改到 `/auth/*`、`/api/upload` 或 SignalR hub 行為，就要重新檢查 authorization 與存取風險。
+## Security & Configuration Tips
+連線字串與敏感設定放在 `appsettings.*.json` 的本機或部署環境覆蓋值，不要把真實密碼提交進版控。認證、驗證碼、密碼重設與資料庫存取都已集中在 `Services/`，修改這些區塊時請優先維持既有責任邊界。

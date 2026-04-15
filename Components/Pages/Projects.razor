@@ -160,7 +160,7 @@
                             <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-shrink-0 sm:items-end">
                                 @if (!selectedDetail.IsClosed)
                                 {
-                                    <button type="button" @onclick="() => { /* TODO: 編輯邏輯 */ }"
+                                    <button type="button" @onclick="OpenEditProjectModalAsync"
                                         class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors shadow-sm flex items-center gap-2">
                                         <i class="fa-solid fa-pen-to-square text-morandi"></i> 編輯專案
                                     </button>
@@ -171,7 +171,7 @@
                                 }
                                 <button type="button" @onclick="HandleDeleteProject"
                                     class="cursor-pointer px-4 py-2 bg-white border border-red-300 text-red-500 rounded-lg text-sm font-bold hover:bg-red-50 transition-colors shadow-sm flex items-center gap-2">
-                                    <i class="fa-solid fa-trash-can"></i> 刪除專案
+                                    <i class="fa-solid fa-trash-can"></i> 移除專案
                                 </button>
                             </div>
                         </div>
@@ -298,7 +298,7 @@
 </div>
 
 <!-- Slide-over panel: 新增 / 編輯專案 -->
-<CustomModal @bind-IsVisible="showProjectModal" Type="CustomModal.ModalType.SlideOver" Title="新增專案 (梯次)"
+<CustomModal @bind-IsVisible="showProjectModal" Type="CustomModal.ModalType.SlideOver" Title="@(isEditMode ? "編輯專案 (梯次)" : "新增專案 (梯次)")"
     MaxWidth="max-w-2xl" HeaderIcon="fa-solid fa-layer-group" CloseOnBackdropClick="true">
     <ChildContent>
         <EditForm Model="formModel" OnValidSubmit="SaveProject" class="space-y-8">
@@ -436,12 +436,12 @@
                                         </div>
                                     </label>
                                     <div class="flex-grow">
-                                        <select @bind="person.SelectedRole" disabled="@(!person.IsSelected)"
+                                        <select @bind="person.SelectedRoleId" @bind:after="RebuildAllocationTeachers" disabled="@(!person.IsSelected)"
                                             class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 focus:ring-morandi focus:border-morandi bg-white disabled:bg-gray-100 disabled:text-gray-400">
-                                            <option value="">請選派主要身分...</option>
-                                            @foreach (var role in availableRoles)
+                                            <option value="0">請選派主要身分...</option>
+                                            @foreach (var role in projectRoles)
                                             {
-                                                <option value="@role">@role</option>
+                                                <option value="@role.Id">@role.Name</option>
                                             }
                                         </select>
                                     </div>
@@ -552,13 +552,13 @@
         </EditForm>
     </ChildContent>
     <FooterContent>
-        <button type="button" @onclick="() => showProjectModal = false"
+        <button type="button" @onclick="CloseProjectModal"
             class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors focus:outline-none shadow-sm">
             取消
         </button>
         <button type="button" @onclick="SaveProject"
             class="cursor-pointer px-6 py-2 bg-morandi text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] transition-colors focus:outline-none shadow-sm flex items-center gap-2">
-            <i class="fa-solid fa-floppy-disk"></i> 儲存專案
+            <i class="fa-solid fa-floppy-disk"></i> @(isEditMode ? "儲存修改" : "儲存專案")
         </button>
     </FooterContent>
 </CustomModal>
@@ -567,6 +567,8 @@
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
 
     private bool showProjectModal = false;
+    private bool isEditMode = false;
+    private int? editingProjectId;
     private string personSearchKeyword = "";
 
     // ──── 專案列表狀態 ────
@@ -603,7 +605,7 @@
     };
 
     // --- 可選身份 ---
-    private static readonly string[] availableRoles = ["命題教師", "互審教師", "專審委員", "總召(專員)", "專家學者"];
+    private List<RoleOption> projectRoles = new();
 
     // --- 人才庫（來源：教師管理系統，目前尚未建構 TeacherService，故為空） ---
     private List<PersonItem> talentPool = new();
@@ -615,6 +617,7 @@
     {
         await LoadProjectsAsync();
         await LoadTalentPoolAsync();
+        await LoadProjectRolesAsync();
         ResetForm();
     }
 
@@ -746,10 +749,12 @@
 
     private void ResetForm()
     {
+        isEditMode = false;
+        editingProjectId = null;
         formModel = new();
         personSearchKeyword = "";
         foreach (var qt in questionTypes) qt.Count = null;
-        foreach (var p in talentPool) { p.IsSelected = false; p.SelectedRole = ""; }
+        foreach (var p in talentPool) { p.IsSelected = false; p.SelectedRoleId = 0; }
         allocationTeachers.Clear();
         InitStages();
     }
@@ -829,7 +834,7 @@
 
         if (!person.IsSelected)
         {
-            person.SelectedRole = "";
+            person.SelectedRoleId = 0;
         }
 
         RebuildAllocationTeachers();
@@ -840,7 +845,7 @@
     {
         var newList = new List<AllocationItem>();
 
-        foreach (var p in talentPool.Where(p => p.IsSelected && p.SelectedRole == "命題教師"))
+        foreach (var p in talentPool.Where(p => p.IsSelected && IsPropositionTeacherRole(p.SelectedRoleId)))
         {
             var existing = allocationTeachers.FirstOrDefault(a => a.UserId == p.UserId);
             if (existing != null)
@@ -927,128 +932,10 @@
         showProjectModal = true;
     }
 
-    private Task SaveProjectLegacy() => Task.CompletedTask;
-    /*
-        // 1. 必填驗證：Year 與 Name
-        if (string.IsNullOrWhiteSpace(formModel.Year) || string.IsNullOrWhiteSpace(formModel.Name))
-        {
-            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "「專案年度」與「專案名稱」為必填項目", "warning");
-            return;
-        }
-
-        // 2. 時程驗證：確保產學計畫區間(階段 1)有設定起訖日期
-        if (stages[0].Start == null || stages[0].End == null)
-        {
-            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "請設定產學計畫區間的起訖日期", "warning");
-            return;
-        }
-
-        // 3. 數量配額驗證
-        var isValid = true;
-        for (int i = 0; i < questionTypes.Count; i++)
-        {
-            var target = questionTypes[i].Count ?? 0;
-            if (target > 0 && GetAllocatedSum(i) != target)
-            {
-                isValid = false;
-                break;
-            }
-        }
-
-        if (!isValid)
-        {
-            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "題型數量的分配不符合專案需求題數，請重新配置", "warning");
-            return;
-        }
-
-        try
-        {
-            // 取登入者 ID
-            var authState = await AuthState;
-            var user = authState.User;
-            var userIdStr = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            int currentUserId = int.TryParse(userIdStr, out var id) ? id : 1; // 預防轉型失敗
-
-            // 4. 準備 DTO
-            var req = new CreateProjectRequest
-            {
-                Year = formModel.Year.Trim(),
-                Name = formModel.Name.Trim(),
-                School = formModel.School?.Trim(),
-                CreatedBy = currentUserId
-            };
-
-            for (int i = 0; i < stages.Length; i++)
-            {
-                if (stages[i].Start.HasValue && stages[i].End.HasValue)
-                {
-                    req.Phases.Add(new ProjectPhaseDto
-                    {
-                        PhaseCode = i + 1,
-                        Name = stages[i].Name,
-                        StartDate = stages[i].Start!.Value,
-                        EndDate = stages[i].End!.Value
-                    });
-                }
-            }
-
-            for (int i = 0; i < questionTypes.Count; i++)
-            {
-                var count = questionTypes[i].Count ?? 0;
-                if (count > 0)
-                {
-                    req.Targets.Add(new ProjectTargetDto
-                    {
-                        QuestionTypeId = i + 1,
-                        TargetCount = count
-                    });
-                }
-            }
-
-            foreach (var p in talentPool.Where(x => x.IsSelected))
-            {
-                var allocDto = new ProjectMemberAllocationDto
-                {
-                    UserId = int.TryParse(p.Id.Replace("T", ""), out var uid) ? uid : 0,
-                    RoleName = p.SelectedRole
-                };
-
-                if (p.SelectedRole == "命題教師")
-                {
-                    var allocVm = allocationTeachers.FirstOrDefault(a => a.Id == p.Id);
-                    if (allocVm != null)
-                    {
-                        for (int i = 0; i < allocVm.Quotas.Length; i++)
-                        {
-                            if (allocVm.Quotas[i] > 0)
-                            {
-                                allocDto.Quotas.Add(new ProjectMemberQuotaDto
-                                {
-                                    QuestionTypeId = i + 1,
-                                    QuotaCount = allocVm.Quotas[i]
-                                });
-                            }
-                        }
-                    }
-                }
-                
-                req.MemberAllocations.Add(allocDto);
-            }
-
-            // 5. 呼叫 Service
-            await ProjectService.CreateProjectAsync(req);
-
-            await JS.InvokeVoidAsync("Swal.fire", "新增成功", "專案與所有設定已寫入資料庫！", "success");
-            showProjectModal = false;
-
-            // 重新載入列表以顯示新建的專案
-            await LoadProjectsAsync();
-        }
-        catch (Exception ex)
-        {
-            await JS.InvokeVoidAsync("Swal.fire", "系統錯誤", $"新增專案失敗：{ex.Message}", "error");
-        }
-    */
+    private void CloseProjectModal()
+    {
+        showProjectModal = false;
+    }
 
     // ──── 內部模型類別 ────
 
@@ -1061,13 +948,13 @@
 
         var confirmed = await JS.InvokeAsync<bool>("swalInterop.confirm", new
         {
-            title = "確認刪除專案？",
-            text = $"刪除「{selectedDetail.Name}」後將無法復原。",
+            title = "確認移除專案？",
+            text = $"移除後，專案「{selectedDetail.Name}」將自列表隱藏，相關資料仍會保留。",
             icon = "warning",
             showCancelButton = true,
             confirmButtonColor = "#ef4444",
             cancelButtonColor = "#6B8EAD",
-            confirmButtonText = "確認刪除",
+            confirmButtonText = "確認移除",
             cancelButtonText = "取消"
         });
 
@@ -1085,7 +972,7 @@
             }
 
             await ProjectService.SoftDeleteProjectAsync(selectedDetail.Id, userId.Value);
-            await ShowAlertAsync("success", "已刪除", "專案已成功移除。");
+            await ShowAlertAsync("success", "已移除", "專案已自列表隱藏，相關資料仍保留。");
 
             selectedDetail = null;
             selectedProjectId = null;
@@ -1094,6 +981,47 @@
         catch (Exception ex)
         {
             await ShowAlertAsync("error", "刪除失敗", $"錯誤：{ex.Message}");
+        }
+    }
+
+    private async Task LoadProjectRolesAsync()
+    {
+        try
+        {
+            projectRoles = await ProjectService.GetProjectRoleOptionsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入專案角色清單失敗");
+            projectRoles = new();
+        }
+    }
+
+    private async Task OpenEditProjectModalAsync()
+    {
+        if (selectedDetail is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var editData = await ProjectService.GetProjectEditAsync(selectedDetail.Id);
+            if (editData is null)
+            {
+                await ShowAlertAsync("error", "載入失敗", "找不到要編輯的專案資料。");
+                return;
+            }
+
+            ApplyProjectEditData(editData);
+            isEditMode = true;
+            editingProjectId = editData.Id;
+            showProjectModal = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入專案編輯資料失敗 (Id={ProjectId})", selectedDetail.Id);
+            await ShowAlertAsync("error", "載入失敗", $"無法載入編輯資料：{ex.Message}");
         }
     }
 
@@ -1129,80 +1057,181 @@
 
         try
         {
-            var req = new CreateProjectRequest
-            {
-                Year = formModel.Year.Trim(),
-                Name = formModel.Name.Trim(),
-                School = formModel.School?.Trim(),
-                CreatedBy = currentUserId.Value
-            };
+            var req = BuildProjectRequest(currentUserId.Value);
 
-            for (var i = 0; i < stages.Length; i++)
+            if (isEditMode && editingProjectId.HasValue)
             {
-                if (stages[i].Start.HasValue && stages[i].End.HasValue)
+                var updateReq = new UpdateProjectRequest
                 {
-                    req.Phases.Add(new ProjectPhaseDto
-                    {
-                        PhaseCode = i + 1,
-                        Name = stages[i].Name,
-                        StartDate = stages[i].Start!.Value,
-                        EndDate = stages[i].End!.Value
-                    });
-                }
-            }
-
-            for (var i = 0; i < questionTypes.Count; i++)
-            {
-                var count = questionTypes[i].Count ?? 0;
-                if (count > 0)
-                {
-                    req.Targets.Add(new ProjectTargetDto
-                    {
-                        QuestionTypeId = i + 1,
-                        TargetCount = count
-                    });
-                }
-            }
-
-            foreach (var person in talentPool.Where(x => x.IsSelected && x.UserId > 0))
-            {
-                var allocDto = new ProjectMemberAllocationDto
-                {
-                    UserId = person.UserId,
-                    RoleCode = GetRoleCode(person.SelectedRole)
+                    ProjectId = editingProjectId.Value,
+                    Year = req.Year,
+                    Name = req.Name,
+                    School = req.School,
+                    UpdatedBy = currentUserId.Value,
+                    Phases = req.Phases,
+                    Targets = req.Targets,
+                    MemberAllocations = req.MemberAllocations
                 };
 
-                if (person.SelectedRole == "命題教師")
-                {
-                    var allocation = allocationTeachers.FirstOrDefault(a => a.UserId == person.UserId);
-                    if (allocation != null)
-                    {
-                        for (var i = 0; i < allocation.Quotas.Length; i++)
-                        {
-                            if (allocation.Quotas[i] > 0)
-                            {
-                                allocDto.Quotas.Add(new ProjectMemberQuotaDto
-                                {
-                                    QuestionTypeId = i + 1,
-                                    QuotaCount = allocation.Quotas[i]
-                                });
-                            }
-                        }
-                    }
-                }
-
-                req.MemberAllocations.Add(allocDto);
+                await ProjectService.UpdateProjectAsync(updateReq);
+                await ShowAlertAsync("success", "修改成功", "專案設定已更新。");
+                showProjectModal = false;
+                await LoadProjectsAsync();
+                await SelectProject(updateReq.ProjectId);
             }
-
-            await ProjectService.CreateProjectAsync(req);
-            await ShowAlertAsync("success", "新增成功", "專案與所有設定已寫入資料庫！");
-
-            showProjectModal = false;
-            await LoadProjectsAsync();
+            else
+            {
+                await ProjectService.CreateProjectAsync(req);
+                await ShowAlertAsync("success", "新增成功", "專案與所有設定已寫入資料庫！");
+                showProjectModal = false;
+                await LoadProjectsAsync();
+            }
         }
         catch (Exception ex)
         {
-            await ShowAlertAsync("error", "系統錯誤", $"新增專案失敗：{ex.Message}");
+            var actionName = isEditMode ? "修改" : "新增";
+            await ShowAlertAsync("error", "系統錯誤", $"{actionName}專案失敗：{ex.Message}");
+        }
+    }
+
+    private CreateProjectRequest BuildProjectRequest(int currentUserId)
+    {
+        var req = new CreateProjectRequest
+        {
+            Year = formModel.Year.Trim(),
+            Name = formModel.Name.Trim(),
+            School = string.IsNullOrWhiteSpace(formModel.School) ? null : formModel.School.Trim(),
+            CreatedBy = currentUserId
+        };
+
+        for (var i = 0; i < stages.Length; i++)
+        {
+            if (stages[i].Start.HasValue && stages[i].End.HasValue)
+            {
+                req.Phases.Add(new ProjectPhaseDto
+                {
+                    PhaseCode = i + 1,
+                    Name = stages[i].Name,
+                    StartDate = stages[i].Start!.Value,
+                    EndDate = stages[i].End!.Value
+                });
+            }
+        }
+
+        for (var i = 0; i < questionTypes.Count; i++)
+        {
+            var count = questionTypes[i].Count ?? 0;
+            if (count > 0)
+            {
+                req.Targets.Add(new ProjectTargetDto
+                {
+                    QuestionTypeId = i + 1,
+                    TargetCount = count
+                });
+            }
+        }
+
+        foreach (var person in talentPool.Where(x => x.IsSelected && x.UserId > 0))
+        {
+            var allocDto = new ProjectMemberAllocationDto
+            {
+                UserId = person.UserId,
+                RoleId = person.SelectedRoleId
+            };
+
+            if (IsPropositionTeacherRole(person.SelectedRoleId))
+            {
+                var allocation = allocationTeachers.FirstOrDefault(a => a.UserId == person.UserId);
+                if (allocation != null)
+                {
+                    for (var i = 0; i < allocation.Quotas.Length; i++)
+                    {
+                        if (allocation.Quotas[i] > 0)
+                        {
+                            allocDto.Quotas.Add(new ProjectMemberQuotaDto
+                            {
+                                QuestionTypeId = i + 1,
+                                QuotaCount = allocation.Quotas[i]
+                            });
+                        }
+                    }
+                }
+            }
+
+            req.MemberAllocations.Add(allocDto);
+        }
+
+        return req;
+    }
+
+    private void ApplyProjectEditData(ProjectEditDto project)
+    {
+        ResetForm();
+
+        formModel.Year = project.Year.ToString();
+        formModel.Name = project.Name;
+        formModel.School = project.School ?? string.Empty;
+
+        foreach (var phase in project.Phases)
+        {
+            var phaseIndex = phase.PhaseCode - 1;
+            if (phaseIndex < 0 || phaseIndex >= stages.Length)
+            {
+                continue;
+            }
+
+            stages[phaseIndex].Start = phase.StartDate;
+            stages[phaseIndex].End = phase.EndDate;
+        }
+
+        foreach (var target in project.Targets)
+        {
+            var targetIndex = target.QuestionTypeId - 1;
+            if (targetIndex < 0 || targetIndex >= questionTypes.Count)
+            {
+                continue;
+            }
+
+            questionTypes[targetIndex].Count = target.TargetCount;
+        }
+
+        var memberAllocations = project.MemberAllocations.ToDictionary(allocation => allocation.UserId);
+
+        foreach (var person in talentPool)
+        {
+            if (memberAllocations.TryGetValue(person.UserId, out var allocation))
+            {
+                person.IsSelected = true;
+                person.SelectedRoleId = allocation.RoleId;
+            }
+            else
+            {
+                person.IsSelected = false;
+                person.SelectedRoleId = 0;
+            }
+        }
+
+        RebuildAllocationTeachers();
+
+        foreach (var allocation in project.MemberAllocations.Where(allocation => IsPropositionTeacherRole(allocation.RoleId)))
+        {
+            var teacher = allocationTeachers.FirstOrDefault(item => item.UserId == allocation.UserId);
+            if (teacher is null)
+            {
+                continue;
+            }
+
+            Array.Fill(teacher.Quotas, 0);
+            foreach (var quota in allocation.Quotas)
+            {
+                var quotaIndex = quota.QuestionTypeId - 1;
+                if (quotaIndex < 0 || quotaIndex >= teacher.Quotas.Length)
+                {
+                    continue;
+                }
+
+                teacher.Quotas[quotaIndex] = quota.QuotaCount;
+            }
         }
     }
 
@@ -1253,15 +1282,15 @@
         public int? Count { get; set; }
     }
 
-    private byte GetRoleCode(string roleName) => roleName switch
+    private int? GetPropositionTeacherRoleId()
     {
-        "命題教師" => 1,
-        "互審教師" => 2,
-        "專審委員" => 3,
-        "總召(專員)" => 4,
-        "專家學者" => 5,
-        _ => 0
-    };
+        return projectRoles.FirstOrDefault(role => string.Equals(role.Name, "命題教師", StringComparison.Ordinal))?.Id;
+    }
+
+    private bool IsPropositionTeacherRole(int roleId)
+    {
+        return roleId > 0 && GetPropositionTeacherRoleId() == roleId;
+    }
 
     private sealed class PersonItem
     {
@@ -1270,7 +1299,7 @@
         public string Name { get; set; } = "";
         public string Identifier { get; set; } = "";
         public bool IsSelected { get; set; }
-        public string SelectedRole { get; set; } = "";
+        public int SelectedRoleId { get; set; }
     }
 
     private sealed class AllocationItem

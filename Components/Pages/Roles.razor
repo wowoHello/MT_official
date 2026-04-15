@@ -4,6 +4,8 @@
 @*  功能：人員帳號管理/角色權限管理雙分頁、帳號列表與詳情、角色 CRUD         *@
 @* ====================================================================== *@
 @page "/roles"
+@inject IRoleService RoleService
+@inject ILogger<Roles> Logger
 
 <div class="flex-grow flex flex-col w-full max-w-[1920px] mx-auto h-[calc(100vh-4rem)] overflow-hidden">
     <!-- Breadcrumb & Header Row -->
@@ -33,7 +35,7 @@
             <div class="flex gap-2">
                 @if (currentTab == "accounts")
                 {
-                    <button type="button" @onclick="() => showAccountModal = true"
+                    <button type="button" @onclick="OpenAccountModal"
                         class="cursor-pointer px-5 py-2.5 bg-sage text-white rounded-lg text-sm font-medium hover:bg-[#7b9c81] transition-all shadow-sm focus:outline-none flex items-center gap-2">
                         <i class="fa-solid fa-user-plus"></i> 新增人員
                     </button>
@@ -71,10 +73,10 @@
 
             <!-- Statistics Cards -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 flex-shrink-0">
-                @StatCard("帳號總數", "0", "fa-users", "text-morandi", "text-slate-main")
-                @StatCard("啟用中", "0", "fa-circle-check", "text-sage", "text-sage")
-                @StatCard("停用中", "0", "fa-circle-xmark", "text-terracotta", "text-terracotta")
-                @StatCard("系統管理員", "0", "fa-user-shield", "text-purple-500", "text-purple-600")
+                @StatCard("帳號總數", allAccounts.Count.ToString(), "fa-users", "text-morandi", "text-slate-main")
+                @StatCard("啟用中", allAccounts.Count(a => a.Status == 1).ToString(), "fa-circle-check", "text-sage", "text-sage")
+                @StatCard("停用中", allAccounts.Count(a => a.Status != 1).ToString(), "fa-circle-xmark", "text-terracotta", "text-terracotta")
+                @StatCard("系統管理員", allAccounts.Count(a => a.RoleName == "系統管理員").ToString(), "fa-user-shield", "text-purple-500", "text-purple-600")
             </div>
 
             <!-- Split Layout (Left List, Right Detail) -->
@@ -86,26 +88,221 @@
                     <div class="p-4 border-b border-gray-100 bg-gray-50 flex flex-col gap-3 flex-shrink-0">
                         <div class="relative">
                             <i class="fa-solid fa-magnifying-glass left-3 top-2.5 absolute text-gray-400"></i>
-                            <input type="text" class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi" placeholder="搜尋姓名、帳號或信箱...">
+                            <input type="text" @bind="accountKeyword" @bind:event="oninput"
+                                class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi"
+                                placeholder="搜尋姓名、帳號或信箱...">
                         </div>
                         <div class="flex gap-2">
-                            <button class="flex-1 py-1 text-xs font-bold rounded bg-morandi text-white cursor-pointer">全部</button>
-                            <button class="flex-1 py-1 text-xs font-bold border border-gray-200 text-gray-500 rounded hover:bg-gray-100 cursor-pointer">啟用中</button>
-                            <button class="flex-1 py-1 text-xs font-bold border border-gray-200 text-gray-500 rounded hover:bg-gray-100 cursor-pointer">停用中</button>
+                            <button type="button" @onclick='() => accountStatusFilter = "all"'
+                                class="flex-1 py-1 text-xs font-bold rounded cursor-pointer transition @(accountStatusFilter == "all" ? "bg-morandi text-white" : "border border-gray-200 text-gray-500 hover:bg-gray-100")">全部</button>
+                            <button type="button" @onclick='() => accountStatusFilter = "active"'
+                                class="flex-1 py-1 text-xs font-bold rounded cursor-pointer transition @(accountStatusFilter == "active" ? "bg-morandi text-white" : "border border-gray-200 text-gray-500 hover:bg-gray-100")">啟用中</button>
+                            <button type="button" @onclick='() => accountStatusFilter = "inactive"'
+                                class="flex-1 py-1 text-xs font-bold rounded cursor-pointer transition @(accountStatusFilter == "inactive" ? "bg-morandi text-white" : "border border-gray-200 text-gray-500 hover:bg-gray-100")">停用中</button>
                         </div>
                     </div>
-                    <!-- List (Empty State) -->
-                    <div class="flex-grow overflow-y-auto custom-scroll p-4">
-                        <EmptyState IconClass="fa-id-badge" Message="尚無人員帳號" SubMessage="點擊右上角新增內部管理人員。" />
+                    <!-- List -->
+                    <div class="flex-grow overflow-y-auto custom-scroll">
+                        @if (isLoadingAccounts)
+                        {
+                            <div class="p-6 text-center text-gray-400 text-sm">
+                                <i class="fa-solid fa-spinner fa-spin mr-1"></i> 載入中...
+                            </div>
+                        }
+                        else if (!FilteredAccounts.Any())
+                        {
+                            <div class="p-4">
+                                <EmptyState IconClass="fa-id-badge" Message="尚無人員帳號" SubMessage="點擊右上角新增內部管理人員。" />
+                            </div>
+                        }
+                        else
+                        {
+                            @foreach (var a in FilteredAccounts)
+                            {
+                                <button type="button" @onclick="() => SelectAccount(a.Id)"
+                                    class="w-full text-left flex items-center gap-3 px-4 py-3 border-l-4 border-b border-b-gray-100 transition cursor-pointer @(selectedAccountId == a.Id ? "border-l-morandi bg-gray-50" : "border-l-transparent hover:bg-gray-50")">
+                                    <div class="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0 @(a.Status == 1 ? "bg-morandi" : "bg-gray-400")">
+                                        @(string.IsNullOrEmpty(a.DisplayName) ? "?" : a.DisplayName[..1])
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="w-2 h-2 rounded-full flex-shrink-0 @(a.Status == 1 ? "bg-sage" : "bg-terracotta")"></span>
+                                            <span class="text-sm font-bold text-slate-main truncate">@a.DisplayName</span>
+                                            <span class="text-[10px] font-medium px-1.5 py-0.5 rounded flex-shrink-0 @(a.IsDefaultRole ? "bg-amber-100 text-amber-700" : "bg-purple-100 text-purple-700")">@a.RoleName</span>
+                                        </div>
+                                        <div class="text-xs text-gray-500 font-mono truncate">@a.Username</div>
+                                        @if (!string.IsNullOrWhiteSpace(a.CompanyTitle))
+                                        {
+                                            <div class="text-xs text-gray-400 truncate">@a.CompanyTitle</div>
+                                        }
+                                    </div>
+                                </button>
+                            }
+                        }
                     </div>
                 </div>
 
                 <!-- Right Panel: Account Details -->
                 <div class="hidden lg:flex flex-col flex-grow bg-[var(--color-oatmeal)] overflow-hidden">
-                    <div class="flex-grow flex flex-col items-center justify-center text-gray-400 p-8">
-                        <i class="fa-solid fa-user-gear text-6xl mb-4 text-gray-300"></i>
-                        <p class="text-lg font-medium">請由左側列表選擇人員，或新增一位內部人員。</p>
-                    </div>
+                    @if (isLoadingAccountDetail)
+                    {
+                        <div class="flex-grow flex items-center justify-center text-gray-400 text-sm">
+                            <i class="fa-solid fa-spinner fa-spin mr-2"></i> 載入詳情中...
+                        </div>
+                    }
+                    else if (selectedAccount is null)
+                    {
+                        <div class="flex-grow flex flex-col items-center justify-center text-gray-400 p-8">
+                            <i class="fa-solid fa-user-gear text-6xl mb-4 text-gray-300"></i>
+                            <p class="text-lg font-medium">請由左側列表選擇人員，或新增一位內部人員。</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="flex-grow overflow-y-auto custom-scroll p-6 lg:p-8">
+                            <!-- Top Info Row -->
+                            <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-6">
+                                <div class="flex flex-col sm:flex-row justify-between items-start gap-4">
+                                    <div class="flex items-start gap-4">
+                                        <div class="w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-2xl flex-shrink-0 @(selectedAccount.Status == 1 ? "bg-morandi" : "bg-gray-400")">
+                                            @(string.IsNullOrEmpty(selectedAccount.DisplayName) ? "?" : selectedAccount.DisplayName[..1])
+                                        </div>
+                                        <div>
+                                            <div class="flex items-center gap-2 mb-1">
+                                                <h2 class="text-2xl font-bold text-slate-main">@selectedAccount.DisplayName</h2>
+                                                <span class="text-xs font-bold px-2 py-0.5 rounded @(selectedAccount.Status == 1 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700")">
+                                                    @(selectedAccount.Status == 1 ? "啟用" : "停用")
+                                                </span>
+                                            </div>
+                                            <p class="text-sm text-gray-500 font-mono mb-1">帳號：@selectedAccount.Username</p>
+                                            <p class="text-sm text-gray-500 flex items-center gap-1">
+                                                <i class="fa-solid fa-envelope w-4 text-center"></i>
+                                                <span>@(string.IsNullOrWhiteSpace(selectedAccount.Email) ? "未填寫" : selectedAccount.Email)</span>
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-col gap-2 min-w-[140px]">
+                                        <button type="button" disabled
+                                            class="w-full py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium shadow-sm flex items-center justify-center gap-2 opacity-60 cursor-not-allowed"
+                                            title="下一版提供">
+                                            <i class="fa-solid fa-pen-to-square"></i> 編輯資料
+                                        </button>
+                                        <button type="button" @onclick="ToggleAccountStatus" disabled="@isAccountActionBusy"
+                                            class="cursor-pointer w-full py-2 text-white rounded-lg text-sm font-medium hover:opacity-90 transition-colors shadow-sm flex items-center justify-center gap-2 disabled:opacity-60 @(selectedAccount.Status == 1 ? "bg-terracotta" : "bg-sage")">
+                                            <i class="fa-solid @(selectedAccount.Status == 1 ? "fa-user-lock" : "fa-user-check")"></i>
+                                            <span>@(selectedAccount.Status == 1 ? "停用帳號" : "啟用帳號")</span>
+                                        </button>
+                                        <button type="button" @onclick="ResetAccountPassword" disabled="@isAccountActionBusy"
+                                            class="cursor-pointer w-full py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm flex items-center justify-center gap-2 disabled:opacity-60">
+                                            <i class="fa-solid fa-key"></i> 重設密碼
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Detail Info Cards -->
+                            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                                <!-- 基本資料 -->
+                                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                                    <h3 class="text-lg font-bold text-slate-main mb-4 flex items-center gap-2">
+                                        <i class="fa-solid fa-user text-morandi"></i> 基本資料
+                                    </h3>
+                                    <div class="space-y-3 text-sm">
+                                        <div class="flex justify-between gap-4">
+                                            <span class="text-gray-500">姓名</span>
+                                            <span class="font-medium text-slate-main text-right">@selectedAccount.DisplayName</span>
+                                        </div>
+                                        <div class="flex justify-between gap-4">
+                                            <span class="text-gray-500">登入帳號</span>
+                                            <span class="font-mono text-slate-main text-right">@selectedAccount.Username</span>
+                                        </div>
+                                        <div class="flex justify-between gap-4">
+                                            <span class="text-gray-500">電子信箱</span>
+                                            <span class="@(string.IsNullOrWhiteSpace(selectedAccount.Email) ? "text-gray-400" : "text-slate-main") text-right break-all">
+                                                @(string.IsNullOrWhiteSpace(selectedAccount.Email) ? "未填寫" : selectedAccount.Email)
+                                            </span>
+                                        </div>
+                                        <div class="flex justify-between gap-4">
+                                            <span class="text-gray-500">公司職稱</span>
+                                            <span class="@(string.IsNullOrWhiteSpace(selectedAccount.CompanyTitle) ? "text-gray-400" : "text-slate-main") text-right">
+                                                @(string.IsNullOrWhiteSpace(selectedAccount.CompanyTitle) ? "未填寫" : selectedAccount.CompanyTitle)
+                                            </span>
+                                        </div>
+                                        <div class="flex justify-between gap-4">
+                                            <span class="text-gray-500">建立日期</span>
+                                            <span class="text-slate-main text-right">@selectedAccount.CreatedAt.ToString("yyyy-MM-dd")</span>
+                                        </div>
+                                        <div class="flex justify-between gap-4">
+                                            <span class="text-gray-500">首次登入</span>
+                                            <span class="@(selectedAccount.IsFirstLogin ? "text-amber-600" : "text-sage") font-medium text-right">
+                                                @(selectedAccount.IsFirstLogin ? "尚未登入" : "已完成")
+                                            </span>
+                                        </div>
+                                        <div class="flex justify-between gap-4">
+                                            <span class="text-gray-500">備註</span>
+                                            <span class="@(string.IsNullOrWhiteSpace(selectedAccount.Note) ? "text-gray-400" : "text-slate-main") text-right">
+                                                @(string.IsNullOrWhiteSpace(selectedAccount.Note) ? "無" : selectedAccount.Note)
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 權限資訊 -->
+                                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                                    <h3 class="text-lg font-bold text-slate-main mb-4 flex items-center gap-2">
+                                        <i class="fa-solid fa-shield-halved text-purple-500"></i> 權限資訊
+                                    </h3>
+                                    <div class="space-y-3 text-sm">
+                                        <div class="flex justify-between items-center gap-4">
+                                            <span class="text-gray-500">身份別</span>
+                                            <span class="flex items-center gap-1.5">
+                                                <span class="font-medium text-slate-main">@selectedAccount.RoleName</span>
+                                                @if (selectedAccount.IsDefaultRole)
+                                                {
+                                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">預設角色</span>
+                                                }
+                                            </span>
+                                        </div>
+                                        <div class="flex justify-between gap-4">
+                                            <span class="text-gray-500">角色分類</span>
+                                            <span class="text-slate-main">@(selectedAccount.RoleCategory == 0 ? "內部人員" : "外部人員")</span>
+                                        </div>
+                                        <div class="pt-3 border-t border-gray-100">
+                                            <div class="text-gray-500 mb-2">可存取功能區塊</div>
+                                            @if (selectedAccount.EnabledModules.Count == 0)
+                                            {
+                                                <div class="text-xs text-gray-400">此角色尚未開啟任何功能</div>
+                                            }
+                                            else
+                                            {
+                                                <div class="flex flex-wrap gap-1.5">
+                                                    @foreach (var m in selectedAccount.EnabledModules)
+                                                    {
+                                                        <span class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 flex items-center gap-1">
+                                                            <i class="fa-solid @m.Icon text-[10px] @m.ColorClass"></i>
+                                                            @m.Name
+                                                        </span>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                        @{
+                                            var announcementsOn = selectedAccount.EnabledModules.Any(m => m.ModuleKey == "announcements");
+                                        }
+                                        @if (announcementsOn)
+                                        {
+                                            <div class="pt-3 border-t border-gray-100 flex justify-between gap-4">
+                                                <span class="text-gray-500">公告權限層級</span>
+                                                <span class="text-slate-main">
+                                                    @(selectedAccount.AnnouncementPerm == 2 ? "瀏覽與編輯" : "僅瀏覽")
+                                                </span>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
                 </div>
             </div>
         </div>
@@ -117,26 +314,106 @@
 
             <!-- 角色統計 -->
             <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4 flex-shrink-0">
-                @StatCard("角色總數", "0", "fa-shield-halved", "text-morandi", "text-slate-main")
-                @StatCard("內部人員角色", "0", "fa-building", "text-morandi", "text-morandi")
-                @StatCard("外部人員角色", "0", "fa-user-graduate", "text-sage", "text-sage")
+                @StatCard("角色總數", allRoles.Count.ToString(), "fa-shield-halved", "text-morandi", "text-slate-main")
+                @StatCard("內部人員角色", allRoles.Count(r => r.Category == 0).ToString(), "fa-building", "text-morandi", "text-morandi")
+                @StatCard("外部人員角色", allRoles.Count(r => r.Category == 1).ToString(), "fa-user-graduate", "text-sage", "text-sage")
             </div>
 
             <!-- Role Cards Grid -->
             <div class="flex-grow overflow-y-auto custom-scroll">
-                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 pb-4">
-                    <EmptyState IconClass="fa-unlock-keyhole" Message="尚無角色" SubMessage="點擊上方新增角色以定義權限。" />
-                </div>
+                @if (isLoadingRoles)
+                {
+                    <div class="text-center text-gray-400 text-sm py-8">
+                        <i class="fa-solid fa-spinner fa-spin mr-2"></i> 載入角色中...
+                    </div>
+                }
+                else if (allRoles.Count == 0)
+                {
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 pb-4">
+                        <EmptyState IconClass="fa-unlock-keyhole" Message="尚無角色" SubMessage="點擊上方新增角色以定義權限。" />
+                    </div>
+                }
+                else
+                {
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5 pb-4">
+                        @foreach (var role in allRoles)
+                        {
+                            <div class="group bg-white rounded-xl shadow-sm border-2 border-transparent hover:border-morandi hover:shadow-lg transition-all p-5 flex flex-col">
+                                <!-- Header：圖示 + 名稱 + 鎖頭 -->
+                                <div class="flex items-start justify-between mb-3">
+                                    <div class="flex items-center gap-3 min-w-0">
+                                        <div class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 @(role.IsDefault ? "bg-amber-100 text-amber-600" : "bg-purple-100 text-purple-600")">
+                                            <i class="fa-solid fa-shield-halved"></i>
+                                        </div>
+                                        <div class="min-w-0">
+                                            <div class="flex items-center gap-2">
+                                                <h4 class="text-base font-bold text-slate-main truncate" title="@role.Name">@role.Name</h4>
+                                                @if (role.IsDefault)
+                                                {
+                                                    <i class="fa-solid fa-lock text-amber-500 text-xs" title="預設角色"></i>
+                                                }
+                                            </div>
+                                            <span class="inline-block text-xs font-medium px-2 py-0.5 rounded mt-1 @(role.Category == 0 ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700")">
+                                                @(role.Category == 0 ? "內部人員" : "外部人員")
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div class="text-morandi font-bold text-sm flex-shrink-0" title="已啟用功能 / 總功能">
+                                        @role.EnabledModuleCount/@permissionToggles.Count
+                                    </div>
+                                </div>
+
+                                <!-- 角色描述 -->
+                                <p class="text-sm text-gray-500 mb-3 line-clamp-2 min-h-[2.5rem]">
+                                    @(string.IsNullOrWhiteSpace(role.Description) ? "—" : role.Description)
+                                </p>
+
+                                <!-- 已啟用功能 Badge -->
+                                <div class="flex flex-wrap gap-1 mb-3 min-h-[22px]">
+                                    @foreach (var m in role.EnabledModules.Take(6))
+                                    {
+                                        <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600 flex items-center gap-1" title="@m.Name">
+                                            <i class="fa-solid @m.Icon text-[10px] @m.ColorClass"></i>
+                                            @m.Name
+                                        </span>
+                                    }
+                                    @if (role.EnabledModules.Count > 6)
+                                    {
+                                        <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-500">
+                                            +@(role.EnabledModules.Count - 6)
+                                        </span>
+                                    }
+                                </div>
+
+                                <!-- Footer -->
+                                <div class="mt-auto flex items-center justify-between pt-3 border-t border-gray-100">
+                                    <span class="text-xs text-gray-500 flex items-center gap-1">
+                                        <i class="fa-solid fa-users"></i> @role.UserCount 位使用者
+                                    </span>
+                                    <button type="button"
+                                            class="cursor-pointer text-xs px-3 py-1.5 rounded border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-morandi hover:border-morandi transition flex items-center gap-1">
+                                        <i class="fa-solid @(role.IsDefault ? "fa-eye" : "fa-pen-to-square")"></i>
+                                        @(role.IsDefault ? "檢視" : "編輯")
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
             </div>
         </div>
     }
 </div>
 
 <!-- Add Account Modal -->
-<CustomModal @bind-IsVisible="showAccountModal" Type="CustomModal.ModalType.SlideOver" Title="新增人員" CloseOnBackdropClick="false">
+<CustomModal IsVisible="showAccountModal" IsVisibleChanged="OnAccountModalVisibleChanged"
+             Type="CustomModal.ModalType.SlideOver" Title="新增人員" HeaderIcon="fa-solid fa-user-plus"
+             MaxWidth="max-w-xl" CloseOnBackdropClick="false">
     <ChildContent>
-        <form class="space-y-6">
-            <!-- 區塊 1: 基本資料 -->
+        <EditForm Model="newAccountModel" class="space-y-6">
+            <DataAnnotationsValidator />
+
+            <!-- 區塊 1：基本資料 -->
             <div class="space-y-4">
                 <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
                     <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span>
@@ -145,67 +422,656 @@
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm font-medium mb-1 text-gray-700">使用者姓名 <span class="text-red-500">*</span></label>
-                        <input type="text" required placeholder="如：王小明" class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
+                        <input type="text" @bind="newAccountModel.DisplayName" placeholder="如：王小明"
+                               class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium mb-1 text-gray-700">帳號 <span class="text-red-500">*</span></label>
-                        <input type="text" required placeholder="英數字" class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
+                        <label class="block text-sm font-medium mb-1 text-gray-700">登入帳號 <span class="text-red-500">*</span></label>
+                        <input type="text" @bind="newAccountModel.Username" placeholder="如：admin01"
+                               class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
                     </div>
                     <div class="col-span-2">
-                        <label class="block text-sm font-medium mb-1 text-gray-700">電子信箱</label>
-                        <input type="email" placeholder="example@mail.com" class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
+                        <label class="block text-sm font-medium mb-1 text-gray-700">
+                            電子信箱 <span class="text-gray-400 font-normal">(選填)</span>
+                        </label>
+                        <input type="email" @bind="newAccountModel.Email" placeholder="name@company.com.tw"
+                               class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium mb-1 text-gray-700">預設密碼 <span class="text-red-500">*</span></label>
-                        <input type="password" required placeholder="至少6碼" class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium mb-1 text-gray-700">帳號狀態</label>
-                        <select class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
-                            <option value="active">啟用</option>
-                            <option value="inactive">停用</option>
+                        <label class="block text-sm font-medium mb-1 text-gray-700">身份別 <span class="text-red-500">*</span></label>
+                        <select @bind="newAccountModel.RoleId"
+                                class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm bg-white cursor-pointer">
+                            <option value="0">-- 請選擇 --</option>
+                            @foreach (var r in internalRoleOptions)
+                            {
+                                <option value="@r.Id">@r.Name @(r.IsDefault ? "(預設)" : "")</option>
+                            }
                         </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1 text-gray-700">
+                            公司職稱 <span class="text-gray-400 font-normal">(選填)</span>
+                        </label>
+                        <input type="text" @bind="newAccountModel.CompanyTitle" placeholder="如：專案經理"
+                               class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
                     </div>
                 </div>
             </div>
 
-            <!-- 區塊 2: 角色指派 -->
+            <!-- 區塊 2：帳號設定 -->
             <div class="space-y-4 pt-2">
                 <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
                     <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">2</span>
-                    角色指派
+                    帳號設定
                 </h3>
-                <div class="bg-gray-50 p-4 rounded border border-gray-200 text-center text-gray-400 text-sm">
-                    角色資料將於後端介接後產生...
+                <div class="space-y-4">
+                    <div class="bg-blue-50/50 p-4 rounded-lg border border-blue-100">
+                        <p class="text-xs text-morandi font-medium">
+                            <i class="fa-solid fa-lightbulb mr-1"></i>
+                            預設密碼為公司統編 <span class="font-bold font-mono">01024304</span>，首次登入時系統會強制要求變更密碼。
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1 text-gray-700">帳號狀態</label>
+                        <div class="flex gap-4">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="frmAcctStatus"
+                                       checked="@(newAccountModel.Status == 1)"
+                                       @onchange="() => newAccountModel.Status = 1"
+                                       class="text-morandi focus:ring-morandi">
+                                <span class="text-sm">啟用</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="frmAcctStatus"
+                                       checked="@(newAccountModel.Status == 0)"
+                                       @onchange="() => newAccountModel.Status = 0"
+                                       class="text-morandi focus:ring-morandi">
+                                <span class="text-sm">停用</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1 text-gray-700">備註</label>
+                        <textarea @bind="newAccountModel.Note" rows="3" placeholder="如：特殊權限需求、備忘事項..."
+                                  class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm resize-none"></textarea>
+                    </div>
                 </div>
             </div>
-        </form>
+        </EditForm>
     </ChildContent>
     <FooterContent>
-        <button type="button" @onclick="() => showAccountModal = false"
-            class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors shadow-sm">
+        <button type="button" @onclick="CloseAccountModal" disabled="@isSavingAccount"
+            class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors shadow-sm disabled:opacity-60">
             取消
         </button>
-        <button type="button" @onclick="() => showAccountModal = false"
-            class="cursor-pointer px-6 py-2 bg-morandi text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] transition-colors shadow-sm flex items-center gap-2">
-            <i class="fa-solid fa-floppy-disk"></i> 儲存
+        <button type="button" @onclick="SaveAccount" disabled="@isSavingAccount"
+            class="cursor-pointer px-6 py-2 bg-morandi text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] transition-colors shadow-sm flex items-center gap-2 disabled:opacity-60">
+            @if (isSavingAccount)
+            {
+                <i class="fa-solid fa-spinner fa-spin"></i>
+                <span>儲存中...</span>
+            }
+            else
+            {
+                <i class="fa-solid fa-floppy-disk"></i>
+                <span>儲存人員</span>
+            }
         </button>
     </FooterContent>
 </CustomModal>
 
 <!-- Add Role Modal -->
-<CustomModal @bind-IsVisible="showRoleModal" Type="CustomModal.ModalType.Center" Title="新增角色">
+<CustomModal IsVisible="showRoleModal" IsVisibleChanged="OnRoleModalVisibleChanged"
+             Type="CustomModal.ModalType.Center" Title="新增角色" CloseOnBackdropClick="false">
     <ChildContent>
-        <div class="p-4 bg-gray-50 border border-gray-200 rounded text-center text-gray-500 mb-4">
-            表單內容建置中...
-        </div>
+        <EditForm Model="newRoleModel" class="space-y-6">
+            <DataAnnotationsValidator />
+
+            <!-- 區塊 1：角色資訊 -->
+            <div class="space-y-4">
+                <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
+                    <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span>
+                    角色資訊
+                </h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1 text-gray-700">
+                            角色名稱 <span class="text-red-500">*</span>
+                        </label>
+                        <input type="text" @bind="newRoleModel.Name" placeholder="如:計畫主持人"
+                               class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm" />
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1 text-gray-700">
+                            分類 <span class="text-red-500">*</span>
+                        </label>
+                        <select @bind="newRoleModel.Category"
+                                class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm bg-white cursor-pointer">
+                            <option value="0">內部人員</option>
+                            <option value="1">外部人員</option>
+                        </select>
+                    </div>
+                    <div class="col-span-2">
+                        <label class="block text-sm font-medium mb-1 text-gray-700">角色描述</label>
+                        <textarea @bind="newRoleModel.Description" rows="2" placeholder="此角色的用途描述..."
+                                  class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm resize-none"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 區塊 2：功能區塊權限 -->
+            <div class="space-y-4">
+                <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
+                    <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">2</span>
+                    功能區塊權限
+                </h3>
+                @if (permissionToggles.Count == 0)
+                {
+                    <div class="text-center text-gray-400 text-sm py-4">
+                        <i class="fa-solid fa-spinner fa-spin mr-1"></i> 載入模組中...
+                    </div>
+                }
+                else
+                {
+                    <div class="space-y-2">
+                        @foreach (var t in permissionToggles)
+                        {
+                            <div class="flex items-center justify-between p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-9 h-9 rounded-lg flex items-center justify-center @t.BgColorClass">
+                                        <i class="fa-solid @t.Icon @t.ColorClass"></i>
+                                    </div>
+                                    <div>
+                                        <div class="text-sm font-medium text-slate-main">@t.Name</div>
+                                        <div class="text-xs text-gray-400 font-mono">@t.PageUrl</div>
+                                    </div>
+                                </div>
+                                <button type="button" @onclick="() => ToggleModule(t)"
+                                        class="relative w-11 h-6 rounded-full transition-colors cursor-pointer @(t.IsEnabled ? "bg-sage" : "bg-gray-300")">
+                                    <span class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform @(t.IsEnabled ? "translate-x-[22px]" : "translate-x-0.5")"></span>
+                                </button>
+                            </div>
+
+                            @if (t.ModuleKey == "announcements" && t.IsEnabled)
+                            {
+                                <div class="pl-12 pb-2">
+                                    <label class="block text-sm font-medium mb-1 text-gray-600">
+                                        <i class="fa-solid fa-sliders mr-1"></i> 公告權限層級
+                                    </label>
+                                    <select @bind="t.AnnouncementPerm"
+                                            class="w-full max-w-xs px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm bg-white cursor-pointer">
+                                        <option value="1">僅瀏覽 (View Only)</option>
+                                        <option value="2">瀏覽與編輯 (Edit)</option>
+                                    </select>
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+            </div>
+        </EditForm>
     </ChildContent>
+    <FooterContent>
+        <button type="button" @onclick="CloseRoleModal" disabled="@isSavingRole"
+                class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors shadow-sm disabled:opacity-60">
+            取消
+        </button>
+        <button type="button" @onclick="SaveRole" disabled="@isSavingRole"
+                class="cursor-pointer px-6 py-2 bg-morandi text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] transition-colors shadow-sm flex items-center gap-2 disabled:opacity-60">
+            @if (isSavingRole)
+            {
+                <i class="fa-solid fa-spinner fa-spin"></i>
+                <span>儲存中...</span>
+            }
+            else
+            {
+                <i class="fa-solid fa-floppy-disk"></i>
+                <span>儲存角色</span>
+            }
+        </button>
+    </FooterContent>
 </CustomModal>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
     private string currentTab = "accounts";
     private bool showAccountModal = false;
     private bool showRoleModal = false;
+
+    // ──── 帳號列表與詳情（Tab A）────
+    private List<InternalAccountItem> allAccounts = new();
+    private AccountDetailDto? selectedAccount;
+    private int? selectedAccountId;
+    private string accountKeyword = "";
+    private string accountStatusFilter = "all";
+    private bool isLoadingAccounts = true;
+    private bool isLoadingAccountDetail = false;
+    private bool isAccountActionBusy = false;
+
+    // ──── 新增人員 表單狀態 ────
+    private CreateAccountRequest newAccountModel = new() { Status = 1 };
+    private List<RoleOption> internalRoleOptions = new();
+    private bool isSavingAccount = false;
+
+    // ──── 角色卡片列表（Tab B）────
+    private List<RoleCardItem> allRoles = new();
+    private bool isLoadingRoles = true;
+
+    // ──── 新增角色 表單狀態 ────
+    private CreateRoleRequest newRoleModel = new();
+    private List<RolePermissionToggle> permissionToggles = new();
+    private bool isSavingRole = false;
+
+    /// <summary>依搜尋關鍵字與狀態篩選左側清單。</summary>
+    private IEnumerable<InternalAccountItem> FilteredAccounts =>
+        allAccounts
+            .Where(a => accountStatusFilter == "all"
+                        || (accountStatusFilter == "active" && a.Status == 1)
+                        || (accountStatusFilter == "inactive" && a.Status != 1))
+            .Where(a => string.IsNullOrWhiteSpace(accountKeyword)
+                        || a.DisplayName.Contains(accountKeyword, StringComparison.OrdinalIgnoreCase)
+                        || a.Username.Contains(accountKeyword, StringComparison.OrdinalIgnoreCase)
+                        || (a.Email?.Contains(accountKeyword, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadModulesAsync();
+        await LoadInternalRoleOptionsAsync();
+        await LoadRolesAsync();
+        await LoadAccountsAsync();
+    }
+
+    /// <summary>載入全部角色卡片資料（含使用者數與已啟用模組摘要）。</summary>
+    private async Task LoadRolesAsync()
+    {
+        try
+        {
+            isLoadingRoles = true;
+            allRoles = await RoleService.GetRolesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入角色清單失敗");
+            await JS.InvokeVoidAsync("Swal.fire", "載入失敗", "無法取得角色清單，請稍後再試。", "error");
+        }
+        finally
+        {
+            isLoadingRoles = false;
+        }
+    }
+
+    /// <summary>載入內部人員帳號清單。</summary>
+    private async Task LoadAccountsAsync()
+    {
+        try
+        {
+            isLoadingAccounts = true;
+            allAccounts = await RoleService.GetInternalAccountsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入人員帳號清單失敗");
+            await JS.InvokeVoidAsync("Swal.fire", "載入失敗", "無法取得人員帳號清單，請稍後再試。", "error");
+        }
+        finally
+        {
+            isLoadingAccounts = false;
+        }
+    }
+
+    /// <summary>載入內部人員身份別下拉清單。</summary>
+    private async Task LoadInternalRoleOptionsAsync()
+    {
+        try
+        {
+            internalRoleOptions = await RoleService.GetInternalRoleOptionsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入內部角色下拉失敗");
+        }
+    }
+
+    /// <summary>點擊左側列表人員後載入其詳情。</summary>
+    private async Task SelectAccount(int userId)
+    {
+        if (selectedAccountId == userId && selectedAccount is not null) return;
+        selectedAccountId = userId;
+        isLoadingAccountDetail = true;
+        selectedAccount = null;
+        try
+        {
+            selectedAccount = await RoleService.GetAccountDetailAsync(userId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入人員詳情失敗 UserId={UserId}", userId);
+            await JS.InvokeVoidAsync("Swal.fire", "載入失敗", "無法取得人員詳情，請稍後再試。", "error");
+        }
+        finally
+        {
+            isLoadingAccountDetail = false;
+        }
+    }
+
+    /// <summary>停用/啟用當前選中的帳號。</summary>
+    private async Task ToggleAccountStatus()
+    {
+        if (selectedAccount is null || isAccountActionBusy) return;
+
+        var willDisable = selectedAccount.Status == 1;
+        var confirmed = await ConfirmAsync(
+            willDisable ? "確認停用帳號？" : "確認啟用帳號？",
+            $"即將{(willDisable ? "停用" : "啟用")}人員「{selectedAccount.DisplayName}」的登入權限。",
+            willDisable ? "#D98A6C" : "#8EAB94");
+        if (!confirmed) return;
+
+        isAccountActionBusy = true;
+        try
+        {
+            var operatorId = await GetCurrentUserIdAsync();
+            await RoleService.ToggleAccountStatusAsync(selectedAccount.Id, operatorId);
+
+            await LoadAccountsAsync();
+            if (selectedAccountId is int id) selectedAccount = await RoleService.GetAccountDetailAsync(id);
+
+            await JS.InvokeVoidAsync("Swal.fire", new
+            {
+                icon = "success",
+                title = willDisable ? "已停用" : "已啟用",
+                timer = 1500,
+                showConfirmButton = false,
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "操作失敗", ex.Message, "warning");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "切換帳號狀態失敗");
+            await JS.InvokeVoidAsync("Swal.fire", "系統錯誤", "切換狀態失敗，請稍後再試。", "error");
+        }
+        finally
+        {
+            isAccountActionBusy = false;
+        }
+    }
+
+    /// <summary>重設當前選中帳號的密碼為預設值（公司統編）。</summary>
+    private async Task ResetAccountPassword()
+    {
+        if (selectedAccount is null || isAccountActionBusy) return;
+
+        var confirmed = await ConfirmAsync(
+            "確認重設密碼？",
+            $"將人員「{selectedAccount.DisplayName}」的密碼重設為公司統編 01024304，下次登入會強制變更。",
+            "#6B8EAD");
+        if (!confirmed) return;
+
+        isAccountActionBusy = true;
+        try
+        {
+            var operatorId = await GetCurrentUserIdAsync();
+            await RoleService.ResetAccountPasswordAsync(selectedAccount.Id, operatorId);
+            if (selectedAccountId is int id) selectedAccount = await RoleService.GetAccountDetailAsync(id);
+
+            await JS.InvokeVoidAsync("Swal.fire", new
+            {
+                icon = "success",
+                title = "密碼已重設",
+                text = "預設密碼為公司統編 01024304。",
+                timer = 1800,
+                showConfirmButton = false,
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "重設密碼失敗");
+            await JS.InvokeVoidAsync("Swal.fire", "系統錯誤", "重設密碼失敗，請稍後再試。", "error");
+        }
+        finally
+        {
+            isAccountActionBusy = false;
+        }
+    }
+
+    /// <summary>透過 swal-interop.js 顯示確認對話框並回傳使用者是否確認。</summary>
+    private Task<bool> ConfirmAsync(string title, string text, string confirmColor) =>
+        JS.InvokeAsync<bool>("swalConfirm", new
+        {
+            icon = "question",
+            title,
+            text,
+            showCancelButton = true,
+            confirmButtonText = "確認",
+            cancelButtonText = "取消",
+            confirmButtonColor = confirmColor,
+        }).AsTask();
+
+    private async Task<int> GetCurrentUserIdAsync()
+    {
+        var authState = await AuthState;
+        var userIdStr = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return int.TryParse(userIdStr, out var id) ? id : 1;
+    }
+
+    // ──── 新增人員 Modal 控制 ────
+
+    private void OpenAccountModal()
+    {
+        ResetAccountForm();
+        showAccountModal = true;
+    }
+
+    private void CloseAccountModal()
+    {
+        showAccountModal = false;
+        ResetAccountForm();
+    }
+
+    private Task OnAccountModalVisibleChanged(bool value)
+    {
+        showAccountModal = value;
+        if (!value) ResetAccountForm();
+        return Task.CompletedTask;
+    }
+
+    private void ResetAccountForm()
+    {
+        newAccountModel = new CreateAccountRequest { Status = 1 };
+    }
+
+    /// <summary>儲存新人員帳號：前端驗證 → 呼叫 Service → 刷新清單。</summary>
+    private async Task SaveAccount()
+    {
+        if (isSavingAccount) return;
+
+        if (string.IsNullOrWhiteSpace(newAccountModel.DisplayName))
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "請輸入使用者姓名。", "warning");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(newAccountModel.Username))
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "請輸入登入帳號。", "warning");
+            return;
+        }
+        if (newAccountModel.RoleId <= 0)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "請選擇身份別。", "warning");
+            return;
+        }
+
+        isSavingAccount = true;
+        try
+        {
+            newAccountModel.Username = newAccountModel.Username.Trim();
+            newAccountModel.DisplayName = newAccountModel.DisplayName.Trim();
+            newAccountModel.Email = newAccountModel.Email?.Trim();
+            newAccountModel.CompanyTitle = newAccountModel.CompanyTitle?.Trim();
+            newAccountModel.Note = newAccountModel.Note?.Trim();
+
+            var operatorId = await GetCurrentUserIdAsync();
+            var newId = await RoleService.CreateAccountAsync(newAccountModel, operatorId);
+            Logger.LogInformation("人員帳號建立成功 Id={Id} Username={Username}", newId, newAccountModel.Username);
+
+            await JS.InvokeVoidAsync("Swal.fire", new
+            {
+                icon = "success",
+                title = "新增成功",
+                text = $"人員「{newAccountModel.DisplayName}」已成功新增。",
+                timer = 1800,
+                showConfirmButton = false,
+            });
+            CloseAccountModal();
+            await LoadAccountsAsync();
+            await SelectAccount(newId);
+        }
+        catch (InvalidOperationException ex)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "無法新增", ex.Message, "warning");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "新增人員失敗");
+            await JS.InvokeVoidAsync("Swal.fire", "系統錯誤", "儲存失敗，請稍後再試。", "error");
+        }
+        finally
+        {
+            isSavingAccount = false;
+        }
+    }
+
+    /// <summary>載入啟用中的功能模組，作為 Toggle 清單的資料來源。</summary>
+    private async Task LoadModulesAsync()
+    {
+        try
+        {
+            var modules = await RoleService.GetActiveModulesAsync();
+            permissionToggles = modules.Select(m => new RolePermissionToggle
+            {
+                ModuleId = m.Id,
+                ModuleKey = m.ModuleKey,
+                Name = m.Name,
+                Icon = m.Icon,
+                PageUrl = m.PageUrl,
+                Description = m.Description,
+                ColorClass = m.ColorClass,
+                BgColorClass = m.BgColorClass,
+                SortOrder = m.SortOrder,
+                IsEnabled = false,
+                AnnouncementPerm = 1,
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入功能模組失敗");
+            await JS.InvokeVoidAsync("Swal.fire", "載入失敗", "無法取得功能模組清單，請稍後再試。", "error");
+        }
+    }
+
+    /// <summary>切換單一模組 Toggle 狀態；關閉公告模組時重設權限為預設值。</summary>
+    private void ToggleModule(RolePermissionToggle toggle)
+    {
+        toggle.IsEnabled = !toggle.IsEnabled;
+        if (toggle.ModuleKey == "announcements" && !toggle.IsEnabled)
+        {
+            toggle.AnnouncementPerm = 1;
+        }
+    }
+
+    /// <summary>CustomModal 雙向綁定橋接；關閉時重設表單。</summary>
+    private Task OnRoleModalVisibleChanged(bool value)
+    {
+        showRoleModal = value;
+        if (!value) ResetRoleForm();
+        return Task.CompletedTask;
+    }
+
+    private void CloseRoleModal()
+    {
+        showRoleModal = false;
+        ResetRoleForm();
+    }
+
+    /// <summary>清空表單與 Toggle 狀態，供開新表單或關閉後重用。</summary>
+    private void ResetRoleForm()
+    {
+        newRoleModel = new CreateRoleRequest();
+        foreach (var t in permissionToggles)
+        {
+            t.IsEnabled = false;
+            t.AnnouncementPerm = 1;
+        }
+    }
+
+    /// <summary>儲存新角色：前端驗證 → 組 DTO → 呼叫 Service → 成功提示並關閉。</summary>
+    private async Task SaveRole()
+    {
+        if (isSavingRole) return;
+
+        // 1. 前端必填檢查
+        if (string.IsNullOrWhiteSpace(newRoleModel.Name))
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "請輸入角色名稱。", "warning");
+            return;
+        }
+        if (newRoleModel.Category is not (0 or 1))
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "請選擇角色分類。", "warning");
+            return;
+        }
+
+        isSavingRole = true;
+        try
+        {
+            // 2. 取登入者 ID
+            var authState = await AuthState;
+            var userIdStr = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            int operatorId = int.TryParse(userIdStr, out var id) ? id : 1;
+
+            // 3. 組 DTO（將所有 Toggle 轉為 RolePermissionInput）
+            newRoleModel.Name = newRoleModel.Name.Trim();
+            newRoleModel.Description = newRoleModel.Description?.Trim();
+            newRoleModel.Permissions = permissionToggles.Select(t => new RolePermissionInput
+            {
+                ModuleId = t.ModuleId,
+                IsEnabled = t.IsEnabled,
+                AnnouncementPerm = t.ModuleKey == "announcements" && t.IsEnabled ? t.AnnouncementPerm : 0,
+            }).ToList();
+
+            // 4. 呼叫 Service
+            var newId = await RoleService.CreateRoleAsync(newRoleModel, operatorId);
+            Logger.LogInformation("角色建立成功 Id={Id} Name={Name}", newId, newRoleModel.Name);
+
+            // 5. 成功提示 + 關閉 + 刷新卡片
+            await JS.InvokeVoidAsync("Swal.fire", new
+            {
+                icon = "success",
+                title = "新增成功",
+                text = $"角色「{newRoleModel.Name}」已成功新增。",
+                timer = 1800,
+                showConfirmButton = false
+            });
+            CloseRoleModal();
+            await LoadRolesAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "無法新增", ex.Message, "warning");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "新增角色失敗");
+            await JS.InvokeVoidAsync("Swal.fire", "系統錯誤", "儲存失敗，請稍後再試。", "error");
+        }
+        finally
+        {
+            isSavingRole = false;
+        }
+    }
 
     private RenderFragment StatCard(string title, string value, string icon, string iconColor, string valueColor) => __builder =>
     {
