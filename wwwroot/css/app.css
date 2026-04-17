@@ -1,6 +1,5 @@
-/* 全站基底字體放大（18px = 112.5%，適合年長使用者） */
-/* FontController 會動態覆蓋此值 */
-html { font-size: 112.5%; }
+/* 全站基底字體設定在 input.css → html { font-size: 120%; } */
+/* FontController 會以 120% 為基準做相對縮放，控制器顯示仍維持 100% 起跳 */
 
 /* --- Blazor 框架必備驗證樣式 (不建議刪除) --- */
 .valid.modified:not([type=checkbox]) {

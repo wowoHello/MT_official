@@ -5,6 +5,7 @@
 window.FontController = {
     _idleTimer: null,
     _IDLE_DELAY: 3000, // 3秒無操作後變半透明
+    _BASE_SCALE: 120, // 全站預設基準字級（控制器 100% 時的實際倍率）
 
     /** 初始化 */
     init(scale) {
@@ -16,7 +17,8 @@ window.FontController = {
 
     /** 套用字體縮放 */
     applyScale(scale) {
-        document.documentElement.style.fontSize = `${scale}%`;
+        const effectiveScale = (this._BASE_SCALE * scale) / 100;
+        document.documentElement.style.fontSize = `${effectiveScale}%`;
         localStorage.setItem('cwt_font_scale', scale);
     },
 

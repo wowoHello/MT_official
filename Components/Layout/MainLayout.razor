@@ -4,6 +4,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject IProjectService ProjectService
+@inject IRoleService RoleService
 @inject ILogger<MainLayout> Logger
 @rendermode InteractiveServer
 
@@ -164,16 +165,22 @@
 
 <div class="h-16 w-full shrink-0"></div>
 
+<CascadingValue Value="moduleCards" Name="ModuleCards">
 <CascadingValue Value="currentProject" Name="CurrentProject">
     <div class="mx-auto flex-grow w-full">
         @Body
     </div>
+</CascadingValue>
 </CascadingValue>
 
 <FontController />
 
 @code {
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    // ================================================================
+    // 元件狀態
+    // ================================================================
 
     private HubConnection? hubConnection;
     private string userName = string.Empty;
@@ -183,6 +190,13 @@
     private int? currentUserId;
     private List<ProjectSwitcherItem> availableProjects = [];
     private ProjectSwitcherItem? currentProject;
+
+    /// <summary>使用者在當前梯次下的功能模組權限清單（供子頁面 CascadingParameter 使用）。</summary>
+    private List<UserModuleCard> moduleCards = [];
+
+    // ================================================================
+    // 計算屬性
+    // ================================================================
 
     private IEnumerable<ProjectSwitcherItem> FilteredProjects =>
         string.IsNullOrWhiteSpace(projectSearchQuery)
@@ -194,6 +208,10 @@
 
     private string UserAvatarText =>
         string.IsNullOrWhiteSpace(userName) ? "?" : userName[..1];
+
+    // ================================================================
+    // 生命週期
+    // ================================================================
 
     protected override async Task OnInitializedAsync()
     {
@@ -213,8 +231,99 @@
         currentUserId = userId;
 
         await ReloadVisibleProjectsAsync();
+        await ReloadModuleCardsAsync();
         await InitializeHubConnectionAsync();
+
+        // 初次載入時檢查當前頁面是否有權限（防止直接輸入網址偷渡）
+        EnforceModuleAccess(Navigation.Uri);
+
+        // 訂閱導航事件，後續每次路由變更時檢查模組存取權限
+        Navigation.LocationChanged += OnLocationChanged;
     }
+
+    public async ValueTask DisposeAsync()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+
+    // ================================================================
+    // 模組權限：載入與導航擋控
+    // ================================================================
+
+    /// <summary>載入使用者在當前梯次下的模組權限清單。</summary>
+    private async Task ReloadModuleCardsAsync()
+    {
+        if (currentUserId is null) return;
+
+        try
+        {
+            moduleCards = await RoleService.GetUserModuleCardsAsync(currentUserId.Value, currentProject?.Id);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入功能模組權限失敗 (UserId={UserId}, ProjectId={ProjectId})",
+                currentUserId, currentProject?.Id);
+            moduleCards = [];
+        }
+    }
+
+    /// <summary>導航事件處理：每次路由變更時檢查模組存取權限。</summary>
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+        => EnforceModuleAccess(e.Location);
+
+    /// <summary>
+    /// 模組存取擋控（統一入口）：
+    /// 從 URL 提取頁面路徑，比對 moduleCards 中的 PageUrl，
+    /// 非模組頁面（login、home 等）不受管控，模組頁面無權限則踢回首頁。
+    /// </summary>
+    private void EnforceModuleAccess(string absoluteUri)
+    {
+        var pagePath = ExtractPagePath(absoluteUri);
+
+        // 空路徑（首頁）或無法解析 → 放行
+        if (string.IsNullOrEmpty(pagePath)) return;
+
+        // 比對模組清單，找不到代表不是模組頁面（login、not-found 等）→ 放行
+        var module = moduleCards.FirstOrDefault(m =>
+            string.Equals(m.PageUrl, pagePath, StringComparison.OrdinalIgnoreCase));
+
+        if (module is null) return;
+
+        // 有權限放行，無權限踢回首頁
+        if (!module.IsEnabled)
+        {
+            Navigation.NavigateTo("");
+        }
+    }
+
+    /// <summary>
+    /// 從完整 URL 提取頁面路徑段（去除 base path 與查詢字串）。
+    /// 例如 "https://pc435.csf.org.tw/MT/projects?tab=1" → "projects"
+    /// </summary>
+    private string ExtractPagePath(string absoluteUri)
+    {
+        var baseUri = Navigation.BaseUri;
+        if (!absoluteUri.StartsWith(baseUri, StringComparison.OrdinalIgnoreCase))
+            return string.Empty;
+
+        var relativePath = absoluteUri[baseUri.Length..];
+
+        // 移除查詢字串與 hash
+        var queryIndex = relativePath.IndexOfAny(['?', '#']);
+        if (queryIndex >= 0)
+            relativePath = relativePath[..queryIndex];
+
+        return relativePath.Trim('/');
+    }
+
+    // ================================================================
+    // 梯次切換器
+    // ================================================================
 
     private void ToggleProjectDropdown()
     {
@@ -235,13 +344,22 @@
         showProjectDropdown = false;
     }
 
+    /// <summary>切換梯次：更新權限並檢查當前頁面是否仍有存取權。</summary>
     private async Task SelectProject(ProjectSwitcherItem project)
     {
         currentProject = project;
         showProjectDropdown = false;
 
+        // 切換梯次後重新載入模組權限，並檢查當前頁面是否仍有存取權
+        await ReloadModuleCardsAsync();
+        EnforceModuleAccess(Navigation.Uri);
+
         await JS.InvokeVoidAsync("swalInterop.fireToast", "info", "已切換命題梯次", $"目前梯次：{project.DisplayName}", 2000);
     }
+
+    // ================================================================
+    // 使用者選單
+    // ================================================================
 
     private void ToggleUserMenu()
     {
@@ -273,13 +391,9 @@
         }
     }
 
-    public async ValueTask DisposeAsync()
-    {
-        if (hubConnection is not null)
-        {
-            await hubConnection.DisposeAsync();
-        }
-    }
+    // ================================================================
+    // SignalR 即時同步
+    // ================================================================
 
     private async Task InitializeHubConnectionAsync()
     {
@@ -303,6 +417,10 @@
             Logger.LogWarning(ex, "建立梯次同步 HubConnection 失敗");
         }
     }
+
+    // ================================================================
+    // 梯次資料載入
+    // ================================================================
 
     private async Task ReloadVisibleProjectsAsync()
     {

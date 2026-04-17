@@ -8,6 +8,11 @@
     --color-slate-main: #374151;
 }
 
+/* 全站基底字體放大（19.2px = 120%，適合作為預設閱讀尺寸） */
+/* FontController 會以此為基準再做 100% / 105% / 95% 等相對縮放 */
+/* 必須放在 @layer 外面，否則優先級低於瀏覽器預設 */
+html { font-size: 120%; }
+
 @layer base {
     body {
         font-family: 'Noto Sans TC', sans-serif;
