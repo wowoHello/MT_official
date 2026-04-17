@@ -1,14 +1,18 @@
 @* ====================================================================== *@
 @*  Home — 登入後首頁（功能總覽儀表板）                                     *@
-@*  路由：/home                                                            *@
-@*  功能：以卡片式捷徑展示各功能模組入口，依角色顯示權限；右側為今日提醒     *@
+@*  路由：/ 或 /home                                                       *@
+@*  功能：依使用者「系統角色 ∪ 當前梯次角色」動態渲染功能模組卡片           *@
+@*        資料來源：MT_Modules + MT_RolePermissions                        *@
+@*        梯次切換時自動重新載入權限                                        *@
 @* ====================================================================== *@
 @page "/"
 @page "/home"
 @inject NavigationManager Navigation
+@inject IRoleService RoleService
 
-<!-- Header: 移除 calc 硬編碼並補回，確保護眼佈局與全屏無卷軸 -->
 <div class="flex min-h-[calc(100vh-4rem)] flex-col px-4 pt-4 pb-2 sm:px-6 lg:h-[calc(100vh-4rem)] lg:overflow-hidden lg:px-8">
+
+    <!-- 頁面標題列 -->
     <div class="mb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-4 flex-shrink-0">
         <div>
             <h1 tabindex="-1" class="text-2xl font-bold mb-0.5 focus:outline-none">功能總覽儀表板</h1>
@@ -20,36 +24,35 @@
         </div>
     </div>
 
-    <!-- Main Content Area: 撐滿空間，確保不產生外部卷軸 -->
+    <!-- 主內容區：功能卡片 + 今日提醒 -->
     <div class="mb-2 flex flex-col gap-5 lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
 
-        <!-- Left Grid: Function Cards (優化間距與高度，實現 8 張卡片全顯) -->
+        <!-- 左側：功能模組卡片 Grid -->
         <div class="flex flex-col pb-4 lg:w-2/3 lg:min-h-0 lg:overflow-hidden xl:w-3/4">
             <div class="grid auto-rows-fr grid-cols-1 gap-4 sm:grid-cols-2 lg:min-h-0 lg:flex-1 xl:grid-cols-3">
-                @foreach (var (item, index) in menuItems.Select((v, i) => (v, i)))
+                @foreach (var (module, index) in moduleCards.Select((v, i) => (v, i)))
                 {
-                    var hasAccess = item.Roles.Contains("ADMIN") || item.Roles.Contains(userRole);
                     var delay = index * 50;
 
-                    <div class="@(hasAccess ? "bg-white cursor-pointer group menu-card" : "bg-gray-50 opacity-60 cursor-not-allowed border-transparent grayscale") relative flex min-h-[170px] flex-col overflow-hidden rounded-xl p-5 shadow-sm transition-all duration-300"
+                    <div class="@(module.IsEnabled ? "bg-white cursor-pointer group menu-card" : "bg-gray-50 opacity-60 cursor-not-allowed border-transparent grayscale") relative flex min-h-[170px] flex-col overflow-hidden rounded-xl p-5 shadow-sm transition-all duration-300"
                         style="@(isReady ? $"animation: fadeIn 0.4s ease-out {delay}ms both;" : "opacity: 0;")"
-                        @onclick="() => NavigateToCard(item, hasAccess)">
+                        @onclick="() => NavigateToModule(module)">
 
-                        @if (!hasAccess)
+                        @if (!module.IsEnabled)
                         {
                             <div class="absolute top-3 right-3 text-xs font-bold text-gray-400 bg-gray-200 px-2 py-1 rounded">
                                 <i class="fa-solid fa-lock"></i> 無權限
                             </div>
                         }
 
-                        <div class="w-12 h-12 rounded-xl flex items-center justify-center text-2xl mb-4 @(hasAccess ? item.BgColor : "bg-gray-200") @(hasAccess ? item.Color : "text-gray-400") @(hasAccess ? "group-hover:scale-110 transition-transform" : "")">
-                            <i class="fa-solid @item.Icon"></i>
+                        <div class="w-12 h-12 rounded-xl flex items-center justify-center text-2xl mb-4 @(module.IsEnabled ? module.BgColorClass : "bg-gray-200") @(module.IsEnabled ? module.ColorClass : "text-gray-400") @(module.IsEnabled ? "group-hover:scale-110 transition-transform" : "")">
+                            <i class="fa-solid @module.Icon"></i>
                         </div>
 
-                        <h3 class="text-lg font-bold mb-2 @(hasAccess ? "text-slate-main group-hover:text-morandi transition-colors" : "text-gray-500")">@item.Title</h3>
-                        <p class="text-sm text-gray-500 flex-grow leading-relaxed">@item.Desc</p>
+                        <h3 class="text-lg font-bold mb-2 @(module.IsEnabled ? "text-slate-main group-hover:text-morandi transition-colors" : "text-gray-500")">@module.Name</h3>
+                        <p class="text-sm text-gray-500 flex-grow leading-relaxed">@module.Description</p>
 
-                        @if (hasAccess)
+                        @if (module.IsEnabled)
                         {
                             <div class="mt-4 flex items-center text-xs font-medium text-morandi opacity-0 group-hover:opacity-100 transition-opacity">
                                 進入功能 <i class="fa-solid fa-arrow-right ml-1"></i>
@@ -60,19 +63,18 @@
             </div>
         </div>
 
-        <!-- Right Sidebar: Today's Reminders -->
+        <!-- 右側：今日提醒看板 -->
         <div class="flex flex-col lg:w-1/3 lg:min-h-0 lg:overflow-hidden xl:w-1/4">
             <div class="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden">
                 <h2 class="text-lg font-bold flex items-center gap-2 mb-0.5 flex-shrink-0">
                     <i class="fa-regular fa-bell text-terracotta"></i> 今日提醒看板
                 </h2>
 
-                <!-- Urgent Alerts -->
+                <!-- 急件 / 到期警示 -->
                 <div class="bg-red-50 rounded-xl border border-red-100 overflow-hidden shadow-sm shadow-red-100/50 flex-shrink-0">
                     <div class="bg-red-100 px-4 py-1.5 font-bold text-terracotta text-sm border-b border-red-200">
                         急件 / 到期警示
                     </div>
-                    <!-- Empty State Design -->
                     <div class="px-5 py-6 flex flex-col items-center justify-center text-center">
                         <div class="w-12 h-12 rounded-full bg-white flex items-center justify-center mb-3 shadow-sm border border-red-50">
                             <i class="fa-regular fa-face-smile text-terracotta/70 text-xl"></i>
@@ -81,13 +83,12 @@
                     </div>
                 </div>
 
-                <!-- Announcements: 此區塊自動撐滿剩餘空間 -->
+                <!-- 公告與通知 -->
                 <div class="flex min-h-[240px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm lg:min-h-0 lg:flex-grow">
                     <div class="bg-gray-50 px-4 py-2.5 font-bold text-gray-700 text-sm border-b border-gray-200 flex justify-between items-center flex-shrink-0">
                         <span>公告與通知</span>
                         <span class="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">0</span>
                     </div>
-                    <!-- Empty State Design -->
                     <div class="overflow-y-auto custom-scroll flex-grow flex flex-col items-center justify-center p-6 bg-gray-50/50">
                         <div class="mb-4">
                             <i class="fa-regular fa-folder-open text-[4rem] text-slate-main/20"></i>
@@ -103,62 +104,87 @@
 </div>
 
 @code {
-    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
-    private string userRole = "";
-    private string currentDateDisplay = "";
+    // ================================================================
+    // 注入參數
+    // ================================================================
 
-    private static readonly List<MenuItem> menuItems = new()
-    {
-        new() { Title = "命題儀錶板", Desc = "監控各題型缺口與整體命題進度。", Icon = "fa-chart-pie", Color = "text-indigo-600", BgColor = "bg-indigo-50", Url = "/dashboard", Roles = ["ADMIN"] },
-        new() { Title = "命題專案管理", Desc = "梯次設定、派發工作與階段時程管控。", Icon = "fa-box-archive", Color = "text-amber-600", BgColor = "bg-amber-50", Url = "/projects", Roles = ["ADMIN"] },
-        new() { Title = "命題總覽", Desc = "全梯次試題列表、題目內容與審題全局結果檢視。", Icon = "fa-globe", Color = "text-emerald-600", BgColor = "bg-emerald-50", Url = "/overview", Roles = ["ADMIN"] },
-        new() { Title = "命題任務", Desc = "進行試題命製、修題，並檢視本人考題狀態。", Icon = "fa-pen-to-square", Color = "text-morandi", BgColor = "bg-blue-50", Url = "/cwt-list", Roles = ["ADMIN", "TEACHER"] },
-        new() { Title = "審題任務", Desc = "互審、專審、總審工作區塊與處置辦理。", Icon = "fa-magnifying-glass-chart", Color = "text-terracotta", BgColor = "bg-red-50", Url = "/reviews", Roles = ["ADMIN", "TEACHER"] },
-        new() { Title = "教師管理系統", Desc = "命審題人員庫維護、資歷檢視與過往命題歷程。", Icon = "fa-chalkboard-user", Color = "text-cyan-600", BgColor = "bg-cyan-50", Url = "/teachers", Roles = ["ADMIN"] },
-        new() { Title = "角色與權限管理", Desc = "系統帳號新增、外部人員身份指派及功能開關。", Icon = "fa-id-card-clip", Color = "text-purple-600", BgColor = "bg-purple-50", Url = "/roles", Roles = ["ADMIN"] },
-        new() { Title = "系統公告 / 使用說明", Desc = "管理內部看板公告及操作手冊下載佈局。", Icon = "fa-bullhorn", Color = "text-pink-600", BgColor = "bg-pink-50", Url = "/announcements", Roles = ["ADMIN", "TEACHER"] }
-    };
+    [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    /// <summary>由 MainLayout 傳入的當前選中梯次，切換時觸發重新載入。</summary>
+    [CascadingParameter(Name = "CurrentProject")] private ProjectSwitcherItem? CurrentProject { get; set; }
+
+    // ================================================================
+    // 元件狀態
+    // ================================================================
+
+    private List<UserModuleCard> moduleCards = [];
+    private int currentUserId;
+    private int? trackedProjectId;
+    private string currentDateDisplay = "";
+    private bool isReady;
+
+    // ================================================================
+    // 生命週期
+    // ================================================================
 
     protected override async Task OnInitializedAsync()
     {
+        // 解析登入使用者資訊
         var authState = await AuthState;
-        if (authState.User.Identity?.IsAuthenticated == true)
-        {
-            userRole = authState.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "";
-        }
+        var userIdText = authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(userIdText, out currentUserId)) return;
 
+        // 日期顯示
         var now = DateTime.Now;
         string[] dayNames = ["日", "一", "二", "三", "四", "五", "六"];
         currentDateDisplay = $"{now:yyyy/MM/dd} (星期{dayNames[(int)now.DayOfWeek]})";
+
+        // 初次載入功能卡片
+        trackedProjectId = CurrentProject?.Id;
+        await LoadModuleCardsAsync();
     }
 
-    private bool isReady = false;
+    /// <summary>
+    /// 偵測梯次切換：當 MainLayout 的 currentProject 變更時，重新查詢權限。
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        var newProjectId = CurrentProject?.Id;
+        if (newProjectId == trackedProjectId) return;
+
+        trackedProjectId = newProjectId;
+        await LoadModuleCardsAsync();
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            // 讓 Blazor Server 建立連線與 DOM 初始化穩定後再開始播卡片動畫，避免掉幀卡頓
+            // 等待 Blazor Server DOM 初始化穩定後再播放卡片動畫
             await Task.Delay(100);
             isReady = true;
             StateHasChanged();
         }
     }
 
-    private void NavigateToCard(MenuItem item, bool hasAccess)
+    // ================================================================
+    // 私有方法
+    // ================================================================
+
+    /// <summary>從資料庫載入功能模組卡片（含權限標記）。</summary>
+    private async Task LoadModuleCardsAsync()
     {
-        if (!hasAccess) return;
-        Navigation.NavigateTo(item.Url);
+        if (currentUserId <= 0) return;
+        moduleCards = await RoleService.GetUserModuleCardsAsync(currentUserId, trackedProjectId);
     }
 
-    private sealed class MenuItem
+    /// <summary>點擊卡片導航至對應頁面（僅有權限時生效）。</summary>
+    private void NavigateToModule(UserModuleCard module)
     {
-        public string Title { get; set; } = "";
-        public string Desc { get; set; } = "";
-        public string Icon { get; set; } = "";
-        public string Color { get; set; } = "";
-        public string BgColor { get; set; } = "";
-        public string Url { get; set; } = "";
-        public string[] Roles { get; set; } = [];
+        if (!module.IsEnabled || string.IsNullOrWhiteSpace(module.PageUrl)) return;
+
+        // PageUrl 存的是不帶 / 前綴的相對路徑（如 "dashboard"），
+        // NavigateTo 會基於 <base href> 正確解析子應用程式路徑
+        Navigation.NavigateTo(module.PageUrl);
     }
 }

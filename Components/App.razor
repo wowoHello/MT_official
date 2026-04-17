@@ -1,10 +1,12 @@
 <!DOCTYPE html>
+@inject NavigationManager navigationManager
+
 <html lang="zh-TW">
 
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <base href="/" />
+    <base href="@navigationManager.BaseUri" />
     <ResourcePreloader />
     <!-- <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" /> -->    
     <!-- <link rel="stylesheet" href="@Assets["MT.styles.css"]" /> -->

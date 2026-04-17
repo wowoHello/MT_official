@@ -393,6 +393,9 @@
   .left-0 {
     left: calc(var(--spacing) * 0);
   }
+  .left-0\.5 {
+    left: calc(var(--spacing) * 0.5);
+  }
   .left-3 {
     left: calc(var(--spacing) * 3);
   }
@@ -837,9 +840,6 @@
   .max-w-\[200px\] {
     max-width: 200px;
   }
-  .max-w-\[1920px\] {
-    max-width: 1920px;
-  }
   .max-w-full {
     max-width: 100%;
   }
@@ -879,12 +879,12 @@
   .flex-grow {
     flex-grow: 1;
   }
-  .translate-x-0\.5 {
-    --tw-translate-x: calc(var(--spacing) * 0.5);
+  .translate-x-0 {
+    --tw-translate-x: calc(var(--spacing) * 0);
     translate: var(--tw-translate-x) var(--tw-translate-y);
   }
-  .translate-x-\[22px\] {
-    --tw-translate-x: 22px;
+  .translate-x-5 {
+    --tw-translate-x: calc(var(--spacing) * 5);
     translate: var(--tw-translate-x) var(--tw-translate-y);
   }
   .-translate-y-1\/2 {
@@ -1137,6 +1137,10 @@
     border-top-left-radius: var(--radius-2xl);
     border-top-right-radius: var(--radius-2xl);
   }
+  .rounded-r {
+    border-top-right-radius: 0.25rem;
+    border-bottom-right-radius: 0.25rem;
+  }
   .rounded-r-lg {
     border-top-right-radius: var(--radius-lg);
     border-bottom-right-radius: var(--radius-lg);
@@ -1252,6 +1256,12 @@
     border-color: color-mix(in srgb, #6B8EAD 30%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       border-color: color-mix(in oklab, var(--color-morandi) 30%, transparent);
+    }
+  }
+  .border-morandi\/40 {
+    border-color: color-mix(in srgb, #6B8EAD 40%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--color-morandi) 40%, transparent);
     }
   }
   .border-red-50 {
@@ -1807,9 +1817,6 @@
   .pl-10 {
     padding-left: calc(var(--spacing) * 10);
   }
-  .pl-12 {
-    padding-left: calc(var(--spacing) * 12);
-  }
   .text-center {
     text-align: center;
   }
@@ -2285,6 +2292,10 @@
     transition-property: transform, translate, scale, rotate;
     transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
     transition-duration: var(--tw-duration, var(--default-transition-duration));
+  }
+  .duration-150 {
+    --tw-duration: 150ms;
+    transition-duration: 150ms;
   }
   .duration-200 {
     --tw-duration: 200ms;
@@ -2778,6 +2789,11 @@
   .disabled\:text-gray-400 {
     &:disabled {
       color: var(--color-gray-400);
+    }
+  }
+  .disabled\:text-gray-500 {
+    &:disabled {
+      color: var(--color-gray-500);
     }
   }
   .disabled\:opacity-60 {

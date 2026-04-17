@@ -177,3 +177,20 @@ public class ModuleItem
     public string BgColorClass { get; set; } = "";
     public int SortOrder { get; set; }
 }
+
+/// <summary>首頁功能卡片用：模組資訊 + 當前使用者是否有存取權限。</summary>
+public class UserModuleCard
+{
+    public int Id { get; set; }
+    public string ModuleKey { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Icon { get; set; } = "";
+    public string PageUrl { get; set; } = "";
+    public string Description { get; set; } = "";
+    public string ColorClass { get; set; } = "";
+    public string BgColorClass { get; set; } = "";
+    public int SortOrder { get; set; }
+
+    /// <summary>該使用者在當前梯次下是否可存取此模組。</summary>
+    public bool IsEnabled { get; set; }
+}

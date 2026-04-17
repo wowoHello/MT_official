@@ -114,9 +114,9 @@
         var path => $"/{path}"
     };
 
-    private void GoHome() => Navigation.NavigateTo("/");
+    private void GoHome() => Navigation.NavigateTo(string.Empty);
 
-    private void GoProjects() => Navigation.NavigateTo("/projects");
+    private void GoProjects() => Navigation.NavigateTo("projects");
 
     private sealed record SuggestionItem(string Icon, string Title, string Description);
 }

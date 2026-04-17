@@ -28,6 +28,12 @@ public interface IRoleService
     // === 共用查詢 ===
     Task<List<RoleOption>> GetInternalRoleOptionsAsync();
     Task<List<ModuleItem>> GetActiveModulesAsync();
+
+    /// <summary>
+    /// 取得所有啟用模組並標記使用者在指定梯次下的存取權限。
+    /// 權限 = 系統角色(MT_Users.RoleId) ∪ 梯次角色(MT_ProjectMemberRoles) 的聯集。
+    /// </summary>
+    Task<List<UserModuleCard>> GetUserModuleCardsAsync(int userId, int? projectId);
 }
 
 /// <summary>
@@ -575,6 +581,44 @@ public class RoleService : IRoleService
             """;
 
         var rows = await conn.QueryAsync<ModuleItem>(sql);
+        return rows.ToList();
+    }
+
+    /// <summary>
+    /// 取得所有啟用模組，並標記使用者在指定梯次下是否可存取。
+    /// 權限判定：系統角色(MT_Users.RoleId) ∪ 梯次角色(MT_ProjectMemberRoles) 的聯集。
+    /// 若 projectId 為 null，僅依系統角色判定。
+    /// </summary>
+    public async Task<List<UserModuleCard>> GetUserModuleCardsAsync(int userId, int? projectId)
+    {
+        using var conn = _db.CreateConnection();
+
+        const string sql = """
+            SELECT
+                m.Id, m.ModuleKey, m.Name, m.Icon, m.PageUrl,
+                m.Description, m.ColorClass, m.BgColorClass, m.SortOrder,
+                -- 只要任一角色有啟用該模組即視為有權限
+                CASE WHEN EXISTS (
+                    SELECT 1
+                    FROM dbo.MT_RolePermissions rp
+                    WHERE rp.ModuleId = m.Id AND rp.IsEnabled = 1
+                      AND rp.RoleId IN (
+                          -- ① 系統角色
+                          SELECT u.RoleId FROM dbo.MT_Users u WHERE u.Id = @UserId
+                          UNION
+                          -- ② 當前梯次的所有角色（projectId 為 NULL 時此段不回傳資料）
+                          SELECT pmr.RoleId
+                          FROM dbo.MT_ProjectMembers pm
+                          INNER JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
+                          WHERE pm.UserId = @UserId AND pm.ProjectId = @ProjectId
+                      )
+                ) THEN 1 ELSE 0 END AS IsEnabled
+            FROM dbo.MT_Modules m
+            WHERE m.IsActive = 1
+            ORDER BY m.SortOrder;
+            """;
+
+        var rows = await conn.QueryAsync<UserModuleCard>(sql, new { UserId = userId, ProjectId = projectId });
         return rows.ToList();
     }
 

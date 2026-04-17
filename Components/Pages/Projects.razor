@@ -7,7 +7,7 @@
 @inject IProjectService ProjectService
 @inject ILogger<Projects> Logger
 
-<div class="mx-auto flex w-full max-w-[1920px] flex-grow flex-col min-h-[calc(100vh-4rem)] lg:h-[calc(100vh-4rem)] lg:overflow-hidden">
+<div class="mx-auto flex w-full flex-grow flex-col min-h-[calc(100vh-4rem)] lg:h-[calc(100vh-4rem)] lg:overflow-hidden">
     <!-- Breadcrumb & Header Row -->
     <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur border-b border-gray-200">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -15,9 +15,9 @@
                 <nav class="flex text-sm text-gray-500 mb-1 font-medium" aria-label="Breadcrumb">
                     <ol class="inline-flex items-center space-x-1 md:space-x-2">
                         <li class="inline-flex items-center">
-                            <a href="/" class="inline-flex items-center hover:text-morandi transition-colors focus:outline-none">
+                            <NavLink href="" Match="NavLinkMatch.All" class="inline-flex items-center hover:text-morandi transition-colors focus:outline-none">
                                 <i class="fa-solid fa-house mr-1"></i> 首頁
-                            </a>
+                            </NavLink>
                         </li>
                         <li>
                             <div class="flex items-center">

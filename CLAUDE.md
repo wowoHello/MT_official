@@ -99,8 +99,8 @@ MT/
 │   ├── Routes.razor                 # 路由設定
 │   ├── _Imports.razor               # 全域 using
 │   ├── Layout/
-│   │   ├── MainLayout.razor         # [改] 主版面 (含 Navbar)
-│   │   ├── LoginLayout.razor        # [新] 登入專用版面 (無 Navbar)
+│   │   ├── MainLayout.razor         # 主版面 (含 Navbar)
+│   │   ├── LoginLayout.razor        # 登入專用版面 (無 Navbar)
 │   │   └── ...
 │   ├── Pages/
 │   │   ├── Login.razor              # 登入頁

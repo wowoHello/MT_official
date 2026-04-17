@@ -2,7 +2,7 @@
 @code {
     protected override void OnInitialized()
     {
-        // 確保導向 /login，且使用 replace 以保持網址乾淨
-        Navigation.NavigateTo("/login", replace: true);
+        // 使用相對路徑，避免 IIS 子路徑部署時跳回網站根目錄。
+        Navigation.NavigateTo("login", replace: true);
     }
 }

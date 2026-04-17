@@ -5,7 +5,7 @@
 @* ====================================================================== *@
 @page "/dashboard"
 
-<div class="flex-grow w-full max-w-[1920px] mx-auto flex flex-col">
+<div class="flex-grow w-full mx-auto flex flex-col">
     <!-- Breadcrumb & Header -->
     <div class="px-4 sm:px-6 lg:px-8 py-4 bg-white/50 backdrop-blur border-b border-gray-200 flex-shrink-0">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -14,9 +14,9 @@
                 <nav class="flex text-sm text-gray-500 mb-2 font-medium" aria-label="Breadcrumb">
                     <ol class="inline-flex items-center space-x-1 md:space-x-2">
                         <li class="inline-flex items-center">
-                            <a href="/" class="inline-flex items-center hover:text-[var(--color-morandi)] transition-colors focus:outline-none">
+                            <NavLink href="" Match="NavLinkMatch.All" class="inline-flex items-center hover:text-[var(--color-morandi)] transition-colors focus:outline-none">
                                 <i class="fa-solid fa-house mr-1"></i> 首頁
-                            </a>
+                            </NavLink>
                         </li>
                         <li>
                             <div class="flex items-center">
@@ -34,12 +34,12 @@
 
             <!-- Quick Actions -->
             <div class="flex gap-2">
-                <a href="/projects" class="px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50 hover:text-[var(--color-morandi)] hover:-translate-y-0.5 hover:shadow-md cursor-pointer active:scale-95 transition-all duration-200 shadow-sm focus:outline-none flex items-center">
+                <NavLink href="projects" class="px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50 hover:text-[var(--color-morandi)] hover:-translate-y-0.5 hover:shadow-md cursor-pointer active:scale-95 transition-all duration-200 shadow-sm focus:outline-none flex items-center">
                     <i class="fa-solid fa-gear mr-1"></i> 專案設定
-                </a>
-                <a href="/overview" class="px-4 py-2 bg-[var(--color-morandi)] text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] hover:-translate-y-0.5 hover:shadow-md cursor-pointer active:scale-95 transition-all duration-200 shadow-sm focus:outline-none flex items-center">
+                </NavLink>
+                <NavLink href="overview" class="px-4 py-2 bg-[var(--color-morandi)] text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] hover:-translate-y-0.5 hover:shadow-md cursor-pointer active:scale-95 transition-all duration-200 shadow-sm focus:outline-none flex items-center">
                     <i class="fa-solid fa-list-check mr-1"></i> 試題總覽
-                </a>
+                </NavLink>
             </div>
         </div>
     </div>

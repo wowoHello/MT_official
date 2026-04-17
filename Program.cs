@@ -31,17 +31,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         // Session 預設：未勾「記住登入」時的票據有效時間（滑動延長）
         // 勾選「記住登入」時，於 AuthService.CompleteSignInAsync 顯式覆寫為 90 天絕對期限
         options.ExpireTimeSpan = TimeSpan.FromHours(2);
-        options.SlidingExpiration = true;
-
-        // 統一路由導向，避免自動附帶 ReturnUrl 造成流程混亂
-        options.Events = new CookieAuthenticationEvents
-        {
-            OnRedirectToLogin = context =>
-            {
-                context.Response.Redirect(options.LoginPath);
-                return Task.CompletedTask;
-            }
-        };
+        options.SlidingExpiration = true;        
     });
 
 builder.Services.AddAuthorization();
@@ -68,6 +58,13 @@ var app = builder.Build();
 // =========================================================
 // HTTP Pipeline
 // =========================================================
+// 從設定檔讀取 PathBase（本機不設 = "/"，IIS 子應用程式設 "/MT"）
+var pathBase = app.Configuration["PathBase"];
+if (!string.IsNullOrEmpty(pathBase))
+{
+    app.UsePathBase(pathBase);
+}
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
@@ -104,17 +101,17 @@ app.MapGet("/auth/login", async (string key, IAuthService authService, HttpConte
     var (success, isFirstLogin) = await authService.CompleteSignInAsync(key, context);
 
     if (!success)
-        return Results.Redirect("/login");
+        return Results.Redirect("~/login");
 
     // 首次登入強制改密碼
-    return Results.Redirect(isFirstLogin ? "/first-login-password" : "/");
+    return Results.Redirect(isFirstLogin ? "~/first-login-password" : "~/");
 });
 
 // 清除目前登入 Cookie，並回登入頁
 app.MapGet("/auth/logout", async (HttpContext context) =>
 {
     await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-    return Results.Redirect("/login");
+    return Results.Redirect("~/login");
 });
 
 // =========================================================
@@ -152,7 +149,8 @@ app.MapPost("/api/upload", async (HttpRequest request, IWebHostEnvironment env) 
     await using var stream = new FileStream(filePath, FileMode.Create);
     await file.CopyToAsync(stream);
 
-    return Results.Ok(new { url = $"/uploads/{fileName}" });
+    var pathBase = request.PathBase.HasValue ? request.PathBase.Value : "";
+    return Results.Ok(new { url = $"{pathBase}/uploads/{fileName}" });
 })
 .DisableAntiforgery()
 .RequireAuthorization();

@@ -288,7 +288,7 @@
         var authState = await AuthState;
         if (authState.User.Identity?.IsAuthenticated == true)
         {
-            Navigation.NavigateTo("/");
+            Navigation.NavigateTo(string.Empty);
             return;
         }
 
@@ -438,7 +438,7 @@
 
             // 暫存登入資料，取得一次性 key，導航至 HTTP 端點完成 Cookie 寫入
             var loginKey = AuthService.PrepareSignIn(user, loginModel.RememberMe);
-            Navigation.NavigateTo($"/auth/login?key={loginKey}", forceLoad: true);
+            Navigation.NavigateTo($"auth/login?key={loginKey}", forceLoad: true);
         }
         catch (Exception ex)
         {
