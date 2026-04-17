@@ -23,6 +23,9 @@ public interface IAuthService
 
     /// <summary>由 HTTP 端點呼叫，使用一次性 key 完成 Cookie 寫入，回傳是否為首次登入以決定導向</summary>
     Task<(bool Success, bool IsFirstLogin)> CompleteSignInAsync(string key, HttpContext httpContext);
+
+    /// <summary>寫入 MT_AuditLogs 稽核紀錄（登入/登出等）</summary>
+    Task LogAuditAsync(int userId, AuditAction action, string? ipAddress = null);
 }
 
 public class AuthService : IAuthService
@@ -234,15 +237,18 @@ public class AuthService : IAuthService
                 AllowRefresh = !data.RememberMe
             });
 
+        var clientIp = ResolveIpAddress(httpContext);
+
         await ClearTemporaryLockoutAsync(data.User.Id);
         await LogLoginAttemptAsync(
             data.User.Id,
             data.User.Username,
             true,
             null,
-            ResolveIpAddress(httpContext),
+            clientIp,
             ResolveUserAgent(null, httpContext));
         await UpdateLastLoginAsync(data.User.Id);
+        await LogAuditAsync(data.User.Id, AuditAction.Login, clientIp);
 
         return (true, data.User.IsFirstLogin);
     }
@@ -339,6 +345,23 @@ public class AuthService : IAuthService
 
         var context = httpContext ?? _httpContextAccessor.HttpContext;
         return context?.Request.Headers.UserAgent.ToString();
+    }
+
+    public async Task LogAuditAsync(int userId, AuditAction action, string? ipAddress = null)
+    {
+        using var conn = _db.CreateConnection();
+
+        await conn.ExecuteAsync(
+            @"INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, IpAddress)
+              VALUES (@UserId, @Action, @TargetType, @TargetId, @IpAddress)",
+            new
+            {
+                UserId = userId,
+                Action = (byte)action,
+                TargetType = (byte)AuditTargetType.Users,
+                TargetId = userId,
+                IpAddress = TrimToLength(ipAddress, 50)
+            });
     }
 
     private static string? TrimToLength(string? value, int maxLength)

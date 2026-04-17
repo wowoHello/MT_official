@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* MT_Modules 資料表的 ColorClass / BgColorClass 欄位會動態套用以下 class，
+   Tailwind 掃描不到動態值，必須在此強制保留 */
+@source inline("text-indigo-600 bg-indigo-50 text-amber-600 bg-amber-50 text-emerald-600 bg-emerald-50 text-morandi bg-blue-50 text-terracotta bg-red-50 text-cyan-600 bg-cyan-50 text-purple-600 bg-purple-50 text-pink-600 bg-pink-50");
+
 @theme {
     --color-oatmeal: #FBF9F6;
     --color-morandi: #6B8EAD;

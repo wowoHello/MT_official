@@ -2,13 +2,15 @@ namespace MT.Models;
 
 /// <summary>
 /// MT_AuditLogs.Action 操作類型。
-/// 對應資料表擴充屬性：0:建立, 1:修改, 2:刪除。
+/// 對應資料表擴充屬性：0:建立, 1:修改, 2:刪除, 3:登入, 4:登出。
 /// </summary>
 public enum AuditAction : byte
 {
     Create = 0,
     Update = 1,
     Delete = 2,
+    Login = 3,
+    Logout = 4,
 }
 
 /// <summary>

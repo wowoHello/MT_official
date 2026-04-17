@@ -107,9 +107,17 @@ app.MapGet("/auth/login", async (string key, IAuthService authService, HttpConte
     return Results.Redirect(isFirstLogin ? "~/first-login-password" : "~/");
 });
 
-// 清除目前登入 Cookie，並回登入頁
-app.MapGet("/auth/logout", async (HttpContext context) =>
+// 清除目前登入 Cookie，並回登入頁（登出前寫入稽核紀錄）
+app.MapGet("/auth/logout", async (IAuthService authService, HttpContext context) =>
 {
+    var userIdClaim = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (int.TryParse(userIdClaim, out var userId))
+    {
+        var ip = context.Request.Headers["X-Forwarded-For"].FirstOrDefault()?.Split(',')[0].Trim()
+                 ?? context.Connection.RemoteIpAddress?.ToString();
+        await authService.LogAuditAsync(userId, MT.Models.AuditAction.Logout, ip);
+    }
+
     await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     return Results.Redirect("~/login");
 });

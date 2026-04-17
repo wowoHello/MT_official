@@ -45,7 +45,13 @@
 
 ## 現況盤點
 
-### 參考
+### 新對話起始動作
+
+- 瀏覽所有的程式碼
+- 參考文件位置：D:\MTrefer
+- 資料庫規劃：D:\MTrefer\db.md
+- 參考Prototype：D:\MTrefer\MT_prototype
+- 規格書位置：D:\MTrefer\Reference_doc
 
 > D:\MTrefer 內容為原型檔、參考之文件位置，去重時與優化時不要刪掉
 

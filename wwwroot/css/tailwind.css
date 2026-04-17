@@ -32,6 +32,8 @@
     --color-emerald-600: oklch(59.6% 0.145 163.225);
     --color-emerald-700: oklch(50.8% 0.118 165.612);
     --color-emerald-800: oklch(43.2% 0.095 166.913);
+    --color-cyan-50: oklch(98.4% 0.019 200.873);
+    --color-cyan-600: oklch(60.9% 0.126 221.723);
     --color-blue-50: oklch(97% 0.014 254.604);
     --color-blue-100: oklch(93.2% 0.032 255.585);
     --color-blue-200: oklch(88.2% 0.059 254.128);
@@ -42,10 +44,15 @@
     --color-blue-700: oklch(48.8% 0.243 264.376);
     --color-blue-800: oklch(42.4% 0.199 265.638);
     --color-blue-900: oklch(37.9% 0.146 265.522);
+    --color-indigo-50: oklch(96.2% 0.018 272.314);
+    --color-indigo-600: oklch(51.1% 0.262 276.966);
+    --color-purple-50: oklch(97.7% 0.014 308.299);
     --color-purple-100: oklch(94.6% 0.033 307.174);
     --color-purple-500: oklch(62.7% 0.265 303.9);
     --color-purple-600: oklch(55.8% 0.288 302.321);
     --color-purple-700: oklch(49.6% 0.265 301.924);
+    --color-pink-50: oklch(97.1% 0.014 343.198);
+    --color-pink-600: oklch(59.2% 0.249 0.584);
     --color-slate-400: oklch(70.4% 0.04 256.788);
     --color-slate-500: oklch(55.4% 0.046 257.417);
     --color-slate-600: oklch(44.6% 0.043 257.281);
@@ -1407,6 +1414,9 @@
   .bg-blue-100 {
     background-color: var(--color-blue-100);
   }
+  .bg-cyan-50 {
+    background-color: var(--color-cyan-50);
+  }
   .bg-emerald-50 {
     background-color: var(--color-emerald-50);
   }
@@ -1443,6 +1453,9 @@
   .bg-green-100 {
     background-color: var(--color-green-100);
   }
+  .bg-indigo-50 {
+    background-color: var(--color-indigo-50);
+  }
   .bg-morandi {
     background-color: var(--color-morandi);
   }
@@ -1466,6 +1479,12 @@
   }
   .bg-oatmeal {
     background-color: var(--color-oatmeal);
+  }
+  .bg-pink-50 {
+    background-color: var(--color-pink-50);
+  }
+  .bg-purple-50 {
+    background-color: var(--color-purple-50);
   }
   .bg-purple-100 {
     background-color: var(--color-purple-100);
@@ -1973,6 +1992,9 @@
   .text-blue-900 {
     color: var(--color-blue-900);
   }
+  .text-cyan-600 {
+    color: var(--color-cyan-600);
+  }
   .text-emerald-600 {
     color: var(--color-emerald-600);
   }
@@ -2003,6 +2025,9 @@
   .text-green-700 {
     color: var(--color-green-700);
   }
+  .text-indigo-600 {
+    color: var(--color-indigo-600);
+  }
   .text-morandi {
     color: var(--color-morandi);
   }
@@ -2011,6 +2036,9 @@
     @supports (color: color-mix(in lab, red, red)) {
       color: color-mix(in oklab, var(--color-morandi) 60%, transparent);
     }
+  }
+  .text-pink-600 {
+    color: var(--color-pink-600);
   }
   .text-purple-500 {
     color: var(--color-purple-500);
