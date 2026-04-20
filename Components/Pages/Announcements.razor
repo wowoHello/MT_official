@@ -203,10 +203,13 @@
                                             @onclick="() => OpenEditAnnouncement(ann.Id)" @onclick:stopPropagation="true" title="編輯">
                                         <i class="fa-solid fa-pen text-sm"></i>
                                     </button>
-                                    <button class="w-8 h-8 rounded-full hover:bg-red-50 @(ann.IsPinned ? "text-red-500" : "text-gray-400 hover:text-red-500") flex items-center justify-center transition-colors"
-                                            @onclick="() => HandleTogglePin(ann.Id)" @onclick:stopPropagation="true" title="@(ann.IsPinned ? "取消置頂" : "置頂")">
-                                        <i class="fa-solid fa-thumbtack text-sm"></i>
-                                    </button>
+                                    @if (ann.DisplayStatus is "已發佈" or "未發佈")
+                                    {
+                                        <button class="w-8 h-8 rounded-full hover:bg-red-50 @(ann.IsPinned ? "text-red-500" : "text-gray-400 hover:text-red-500") flex items-center justify-center transition-colors"
+                                                @onclick="() => HandleTogglePin(ann.Id)" @onclick:stopPropagation="true" title="@(ann.IsPinned ? "取消置頂" : "置頂")">
+                                            <i class="fa-solid fa-thumbtack text-sm"></i>
+                                        </button>
+                                    }
                                     <button class="w-8 h-8 rounded-full hover:bg-red-50 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"
                                             @onclick="() => HandleDelete(ann)" @onclick:stopPropagation="true" title="刪除">
                                         <i class="fa-solid fa-trash-can text-sm"></i>
@@ -405,7 +408,7 @@
     // ─── 權限（0:無, 1:僅瀏覽, 2:瀏覽與編輯） ───
     private byte announcementPerm = 2;
 
-    // ─── 定時器：每 60 秒刷新 UI，讓 DisplayStatus 自動跟隨時間更新 ───
+    // ─── 定時器：每 10 秒刷新 UI，讓 DisplayStatus 自動跟隨時間更新 ───
     private Timer? _statusTimer;
 
     // ─── 前端計算統計卡片 ───
@@ -467,12 +470,35 @@
     {
         await LoadPermissionAsync();
         await LoadDataAsync();
-        _statusTimer = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+        _statusTimer = new Timer(_ => InvokeAsync(AutoUnpinExpiredAsync), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
     }
 
     public void Dispose()
     {
         _statusTimer?.Dispose();
+    }
+
+    // ─── Timer 回呼：自動取消已下架/草稿公告的置頂，並同步 DB ───
+    private async Task AutoUnpinExpiredAsync()
+    {
+        var toUnpin = announcements.Where(a => a.IsPinned && a.DisplayStatus is "已下架" or "草稿").ToList();
+        if (toUnpin.Count > 0)
+        {
+            try
+            {
+                var userId = await GetCurrentUserIdAsync();
+                foreach (var ann in toUnpin)
+                {
+                    ann.IsPinned = false;
+                    await AnnouncementService.TogglePinAsync(ann.Id, userId);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "自動取消置頂失敗");
+            }
+        }
+        StateHasChanged();
     }
 
     private async Task LoadDataAsync()
@@ -604,6 +630,14 @@
     {
         if (!await ValidateFormAsync()) return;
 
+        // 勾了置頂但日期算出來會是已下架 → 提示並取消置頂
+        if (formModel.IsPinned && formModel.UnpublishDate.HasValue && DateTime.Now > formModel.UnpublishDate.Value)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "warning", title = "已下架狀態無法置頂", text = "下架時間已過，已自動取消置頂設定。", confirmButtonColor = "#6B8EAD" });
+            formModel.IsPinned = false;
+            return;
+        }
+
         formModel.Status = (byte)AnnouncementStatus.Published;
         await DoSaveAsync("公告已儲存");
     }
@@ -612,6 +646,13 @@
     private async Task SaveAsDraft()
     {
         if (!await ValidateFormAsync()) return;
+
+        if (formModel.IsPinned)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "warning", title = "草稿狀態無法置頂", text = "已自動取消置頂設定。", confirmButtonColor = "#6B8EAD" });
+            formModel.IsPinned = false;
+            return;
+        }
 
         formModel.Status = (byte)AnnouncementStatus.Draft;
         await DoSaveAsync("已存為草稿");
@@ -665,6 +706,7 @@
                 formModel.UnpublishDate = TruncateSeconds(formModel.UnpublishDate.Value);
 
             formModel.Status = (byte)AnnouncementStatus.Draft;
+            formModel.IsPinned = false;
             var userId = await GetCurrentUserIdAsync();
 
             if (editingId.HasValue)

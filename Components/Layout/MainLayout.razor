@@ -144,7 +144,7 @@
                         <div class="py-1">
                             <a href="#"
                                class="block cursor-pointer px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-morandi"
-                               @onclick="CloseUserMenu"
+                               @onclick="OpenProfileModal"
                                @onclick:preventDefault="true">
                                 <i class="fa-solid fa-user-pen mr-1 w-5 text-center"></i> 個人資料
                             </a>
@@ -162,6 +162,147 @@
         </div>
     </div>
 </nav>
+
+<!-- Profile Modal -->
+<CustomModal @bind-IsVisible="showProfileModal" Type="CustomModal.ModalType.Center" Title="個人資料" CloseOnBackdropClick="true">
+    <ChildContent>
+        @if (isLoadingProfile)
+        {
+            <div class="py-8 text-center text-gray-400 text-sm">
+                <i class="fa-solid fa-spinner fa-spin mr-1"></i> 載入中...
+            </div>
+        }
+        else if (userProfile is not null)
+        {
+            <div class="space-y-5">
+                <!-- 頭部：頭像 + 姓名 + 角色 + 狀態 -->
+                <div class="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
+                    <div class="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl flex-shrink-0 @(userProfile.Status == 1 ? "bg-morandi" : "bg-gray-400")">
+                        @(string.IsNullOrEmpty(userProfile.DisplayName) ? "?" : userProfile.DisplayName[..1])
+                    </div>
+                    <div>
+                        <div class="text-lg font-bold text-slate-main">@userProfile.DisplayName</div>
+                        <div class="flex items-center gap-2 mt-1 flex-wrap">
+                            <span class="text-xs font-medium px-2 py-0.5 rounded @(userProfile.RoleCategory == 0 ? "bg-purple-100 text-purple-700" : "bg-amber-100 text-amber-700")">
+                                @userProfile.RoleName
+                            </span>
+                            <span class="text-xs px-2 py-0.5 rounded @(userProfile.RoleCategory == 0 ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700")">
+                                @(userProfile.RoleCategory == 0 ? "內部人員" : "外部人員")
+                            </span>
+                            <span class="text-xs font-bold px-2 py-0.5 rounded @(userProfile.Status == 1 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700")">
+                                @(userProfile.Status == 1 ? "啟用" : "停用")
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 資訊列表 -->
+                <div class="space-y-3 text-sm">
+                    <div class="flex justify-between gap-4">
+                        <span class="text-gray-500">登入帳號</span>
+                        <span class="font-mono text-slate-main">@userProfile.Username</span>
+                    </div>
+                    <div class="flex justify-between gap-4">
+                        <span class="text-gray-500">電子信箱</span>
+                        <span class="@(string.IsNullOrWhiteSpace(userProfile.Email) ? "text-gray-400" : "text-slate-main") break-all text-right">
+                            @(string.IsNullOrWhiteSpace(userProfile.Email) ? "未填寫" : userProfile.Email)
+                        </span>
+                    </div>
+                    <div class="flex justify-between gap-4">
+                        <span class="text-gray-500">公司職稱</span>
+                        <span class="@(string.IsNullOrWhiteSpace(userProfile.CompanyTitle) ? "text-gray-400" : "text-slate-main")">
+                            @(string.IsNullOrWhiteSpace(userProfile.CompanyTitle) ? "未填寫" : userProfile.CompanyTitle)
+                        </span>
+                    </div>
+                    <div class="flex justify-between gap-4">
+                        <span class="text-gray-500">建立日期</span>
+                        <span class="text-slate-main">@userProfile.CreatedAt.ToString("yyyy-MM-dd")</span>
+                    </div>
+                    <div class="flex justify-between gap-4">
+                        <span class="text-gray-500">上次登入</span>
+                        <span class="text-slate-main">@(userProfile.LastLoginAt?.ToString("yyyy-MM-dd HH:mm") ?? "尚未登入")</span>
+                    </div>
+                </div>
+
+                <!-- 變更密碼區（可折疊） -->
+                <div class="border-t border-gray-200 pt-4">
+                    @if (!showPasswordForm)
+                    {
+                        <button type="button" @onclick="() => showPasswordForm = true"
+                                class="cursor-pointer w-full py-2.5 text-sm font-medium text-morandi border border-morandi/30 rounded-lg hover:bg-morandi/5 transition flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-key"></i> 變更密碼
+                        </button>
+                    }
+                    else
+                    {
+                        <div class="space-y-3">
+                            <h4 class="text-sm font-bold text-slate-main flex items-center gap-2">
+                                <i class="fa-solid fa-key text-morandi"></i> 變更密碼
+                            </h4>
+                            <div>
+                                <label class="block text-xs font-medium mb-1 text-gray-600">舊密碼</label>
+                                <div class="relative">
+                                    <input type="@(showPwdOld ? "text" : "password")" @bind="pwdOld" placeholder="請輸入目前密碼"
+                                           class="w-full px-3 py-2 pr-10 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
+                                    <button type="button" tabindex="-1" @onclick="() => showPwdOld = !showPwdOld"
+                                            class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer focus:outline-none">
+                                        <i class="fa-regular @(showPwdOld ? "fa-eye" : "fa-eye-slash") text-sm"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium mb-1 text-gray-600">新密碼 <span class="text-gray-400 font-normal">(至少 6 碼)</span></label>
+                                <div class="relative">
+                                    <input type="@(showPwdNew ? "text" : "password")" @bind="pwdNew" placeholder="請輸入新密碼"
+                                           class="w-full px-3 py-2 pr-10 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
+                                    <button type="button" tabindex="-1" @onclick="() => showPwdNew = !showPwdNew"
+                                            class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer focus:outline-none">
+                                        <i class="fa-regular @(showPwdNew ? "fa-eye" : "fa-eye-slash") text-sm"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium mb-1 text-gray-600">確認新密碼</label>
+                                <div class="relative">
+                                    <input type="@(showPwdConfirm ? "text" : "password")" @bind="pwdConfirm" placeholder="請再次輸入新密碼"
+                                           class="w-full px-3 py-2 pr-10 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
+                                    <button type="button" tabindex="-1" @onclick="() => showPwdConfirm = !showPwdConfirm"
+                                            class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer focus:outline-none">
+                                        <i class="fa-regular @(showPwdConfirm ? "fa-eye" : "fa-eye-slash") text-sm"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="flex gap-2 pt-1">
+                                <button type="button" @onclick="() => { showPasswordForm = false; pwdOld = pwdNew = pwdConfirm = string.Empty; }"
+                                        class="cursor-pointer flex-1 py-2 text-sm border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition">
+                                    取消
+                                </button>
+                                <button type="button" @onclick="ChangePassword" disabled="@isChangingPassword"
+                                        class="cursor-pointer flex-1 py-2 text-sm bg-morandi text-white rounded-lg hover:bg-[#5b7a95] transition flex items-center justify-center gap-1 disabled:opacity-60">
+                                    @if (isChangingPassword)
+                                    {
+                                        <i class="fa-solid fa-spinner fa-spin"></i>
+                                    }
+                                    else
+                                    {
+                                        <i class="fa-solid fa-check"></i>
+                                    }
+                                    <span>確認變更</span>
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </ChildContent>
+    <FooterContent>
+        <button type="button" @onclick="CloseProfileModal"
+                class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors shadow-sm">
+            關閉
+        </button>
+    </FooterContent>
+</CustomModal>
 
 <div class="h-16 w-full shrink-0"></div>
 
@@ -369,6 +510,118 @@
     private void CloseUserMenu()
     {
         isUserMenuOpen = false;
+    }
+
+    // ================================================================
+    // 個人資料 Modal
+    // ================================================================
+
+    private bool showProfileModal = false;
+    private UserProfileDto? userProfile;
+    private bool isLoadingProfile = false;
+    private string pwdOld = "";
+    private string pwdNew = "";
+    private string pwdConfirm = "";
+    private bool isChangingPassword = false;
+    private bool showPasswordForm = false;
+    private bool showPwdOld = false;
+    private bool showPwdNew = false;
+    private bool showPwdConfirm = false;
+
+    private async Task OpenProfileModal()
+    {
+        CloseUserMenu();
+        isLoadingProfile = true;
+        showProfileModal = true;
+        try
+        {
+            if (currentUserId is int uid)
+                userProfile = await RoleService.GetUserProfileAsync(uid);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入個人資料失敗");
+        }
+        finally
+        {
+            isLoadingProfile = false;
+        }
+    }
+
+    private void CloseProfileModal()
+    {
+        showProfileModal = false;
+        ResetPasswordForm();
+    }
+
+    private void ResetPasswordForm()
+    {
+        pwdOld = pwdNew = pwdConfirm = string.Empty;
+        showPasswordForm = false;
+        isChangingPassword = false;
+        showPwdOld = showPwdNew = showPwdConfirm = false;
+    }
+
+    private async Task ChangePassword()
+    {
+        if (isChangingPassword) return;
+
+        // 前端驗證
+        if (string.IsNullOrWhiteSpace(pwdOld))
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "請輸入舊密碼。", "warning");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(pwdNew) || pwdNew.Length < 6)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "新密碼至少需 6 碼。", "warning");
+            return;
+        }
+        if (pwdNew == pwdOld)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "新密碼不可與舊密碼相同。", "warning");
+            return;
+        }
+        if (pwdNew != pwdConfirm)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "確認密碼與新密碼不一致。", "warning");
+            return;
+        }
+
+        isChangingPassword = true;
+        try
+        {
+            if (currentUserId is not int uid) return;
+            await RoleService.ChangeOwnPasswordAsync(uid, pwdOld, pwdNew);
+
+            await JS.InvokeVoidAsync("Swal.fire", new
+            {
+                icon = "success",
+                title = "密碼已變更",
+                text = "即將重新導向登入頁面，請用新密碼登入。",
+                timer = 2500,
+                showConfirmButton = false,
+            });
+
+            CloseProfileModal();
+
+            // 延遲後登出
+            await Task.Delay(2500);
+            Navigation.NavigateTo("auth/logout", forceLoad: true);
+        }
+        catch (InvalidOperationException ex)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "變更失敗", ex.Message, "warning");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "變更密碼失敗");
+            await JS.InvokeVoidAsync("Swal.fire", "系統錯誤", "變更密碼失敗，請稍後再試。", "error");
+        }
+        finally
+        {
+            isChangingPassword = false;
+        }
     }
 
     private async Task Logout()

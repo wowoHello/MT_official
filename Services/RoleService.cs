@@ -34,6 +34,10 @@ public interface IRoleService
     /// 權限 = 系統角色(MT_Users.RoleId) ∪ 梯次角色(MT_ProjectMemberRoles) 的聯集。
     /// </summary>
     Task<List<UserModuleCard>> GetUserModuleCardsAsync(int userId, int? projectId);
+
+    // === 個人資料 ===
+    Task<UserProfileDto?> GetUserProfileAsync(int userId);
+    Task ChangeOwnPasswordAsync(int userId, string oldPassword, string newPassword);
 }
 
 /// <summary>
@@ -749,5 +753,78 @@ public class RoleService : IRoleService
             TargetId = targetId,
             NewValue = newValue,
         }, transaction: transaction);
+    }
+
+    // ==================================================================
+    // 個人資料
+    // ==================================================================
+
+    /// <summary>
+    /// 取得單一使用者的基本資料（供個人資料 Modal 使用）。
+    /// </summary>
+    public async Task<UserProfileDto?> GetUserProfileAsync(int userId)
+    {
+        using var conn = _db.CreateConnection();
+
+        const string sql = """
+            SELECT
+                u.Id,
+                u.Username,
+                u.DisplayName,
+                u.Email,
+                r.Name AS RoleName,
+                r.Category AS RoleCategory,
+                u.Status,
+                u.CompanyTitle,
+                u.CreatedAt,
+                u.LastLoginAt
+            FROM dbo.MT_Users u
+            INNER JOIN dbo.MT_Roles r ON r.Id = u.RoleId
+            WHERE u.Id = @UserId;
+            """;
+
+        return await conn.QuerySingleOrDefaultAsync<UserProfileDto>(sql, new { UserId = userId });
+    }
+
+    /// <summary>
+    /// 使用者自行變更密碼：驗證舊密碼 → 確認新舊不同 → 更新雜湊 → 寫入稽核。
+    /// </summary>
+    public async Task ChangeOwnPasswordAsync(int userId, string oldPassword, string newPassword)
+    {
+        if (string.IsNullOrWhiteSpace(oldPassword)) throw new ArgumentException("請輸入舊密碼。");
+        if (string.IsNullOrWhiteSpace(newPassword)) throw new ArgumentException("請輸入新密碼。");
+        if (newPassword.Length < 6) throw new ArgumentException("新密碼至少需 6 碼。");
+
+        using var conn = (System.Data.Common.DbConnection)_db.CreateConnection();
+        await conn.OpenAsync();
+
+        // 讀取當前密碼雜湊
+        const string readSql = "SELECT PasswordHash FROM dbo.MT_Users WHERE Id = @Id;";
+        var currentHash = await conn.QuerySingleOrDefaultAsync<byte[]>(readSql, new { Id = userId });
+        if (currentHash is null) throw new InvalidOperationException("找不到使用者。");
+
+        // 驗證舊密碼
+        var oldHash = AuthService.ComputePasswordHash(oldPassword);
+        if (!oldHash.SequenceEqual(currentHash))
+            throw new InvalidOperationException("舊密碼不正確。");
+
+        // 驗證新舊不同
+        var newHash = AuthService.ComputePasswordHash(newPassword);
+        if (newHash.SequenceEqual(currentHash))
+            throw new InvalidOperationException("新密碼不可與舊密碼相同。");
+
+        // 更新密碼
+        const string updateSql = """
+            UPDATE dbo.MT_Users
+            SET PasswordHash = @PasswordHash,
+                IsFirstLogin = 0,
+                UpdatedAt    = SYSDATETIME()
+            WHERE Id = @Id;
+            """;
+        await conn.ExecuteAsync(updateSql, new { Id = userId, PasswordHash = newHash });
+
+        // 寫入稽核
+        await WriteAuditAsync(conn, userId, AuditAction.Update, AuditTargetType.Users, userId,
+            newValue: "{\"PasswordChanged\":true}");
     }
 }

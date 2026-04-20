@@ -128,7 +128,7 @@
                                         <div class="flex items-center gap-1.5">
                                             <span class="w-2 h-2 rounded-full flex-shrink-0 @(a.Status == 1 ? "bg-sage" : "bg-terracotta")"></span>
                                             <span class="text-sm font-bold text-slate-main truncate">@a.DisplayName</span>
-                                            <span class="text-[10px] font-medium px-1.5 py-0.5 rounded flex-shrink-0 @(a.IsDefaultRole ? "bg-amber-100 text-amber-700" : "bg-purple-100 text-purple-700")">@a.RoleName</span>
+                                            <span class="text-[10px] font-medium px-1.5 py-0.5 rounded flex-shrink-0 bg-purple-100 text-purple-700">@a.RoleName</span>
                                         </div>
                                         <div class="text-xs text-gray-500 font-mono truncate">@a.Username</div>
                                         @if (!string.IsNullOrWhiteSpace(a.CompanyTitle))
@@ -249,7 +249,7 @@
                                 <!-- 權限資訊 -->
                                 <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                                     <h3 class="text-lg font-bold text-slate-main mb-4 flex items-center gap-2">
-                                        <i class="fa-solid fa-shield-halved text-purple-500"></i> 權限資訊
+                                        <i class="fa-solid fa-shield-halved @(selectedAccount.RoleCategory == 0 ? "text-purple-500" : "text-amber-500")"></i> 權限資訊
                                     </h3>
                                     <div class="space-y-3 text-sm">
                                         <div class="flex justify-between items-center gap-4">
@@ -341,7 +341,7 @@
                                 <!-- Header：圖示 + 名稱 + 鎖頭 -->
                                 <div class="flex items-start justify-between mb-3">
                                     <div class="flex items-center gap-3 min-w-0">
-                                        <div class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 @(role.IsDefault ? "bg-amber-100 text-amber-600" : "bg-purple-100 text-purple-600")">
+                                        <div class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 @(role.Category == 0 ? "bg-purple-100 text-purple-600" : "bg-amber-100 text-amber-600")">
                                             <i class="fa-solid fa-shield-halved"></i>
                                         </div>
                                         <div class="min-w-0">

@@ -178,6 +178,21 @@ public class ModuleItem
     public int SortOrder { get; set; }
 }
 
+/// <summary>個人資料 Modal 用：當前登入者的帳號概覽（唯讀）。</summary>
+public class UserProfileDto
+{
+    public int Id { get; set; }
+    public string Username { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public string? Email { get; set; }
+    public string RoleName { get; set; } = "";
+    public int RoleCategory { get; set; }
+    public int Status { get; set; }
+    public string? CompanyTitle { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? LastLoginAt { get; set; }
+}
+
 /// <summary>首頁功能卡片用：模組資訊 + 當前使用者是否有存取權限。</summary>
 public class UserModuleCard
 {

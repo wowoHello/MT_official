@@ -48,7 +48,7 @@
                     <i class="fa-solid fa-magnifying-glass left-3 top-2.5 absolute text-gray-400"></i>
                     <input type="text" @bind="searchKeyword" @bind:event="oninput"
                         class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi"
-                        placeholder="搜尋專案名稱 / 年度...">
+                        placeholder="搜尋專案名稱 / 年度 / 合作學校...">
                 </div>
                 <div class="flex gap-2">
                     @foreach (var f in filterOptions)
@@ -676,10 +676,11 @@
         if (!string.IsNullOrWhiteSpace(searchKeyword))
         {
             var kw = searchKeyword.Trim();
+            var schoolDisplay = (string? s) => string.IsNullOrEmpty(s) ? "無 (自辦)" : s;
             result = result.Where(p =>
                 p.Name.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
                 p.Year.ToString().Contains(kw) ||
-                p.Year.ToString().Contains(kw)); // 支援民國年搜尋
+                schoolDisplay(p.School).Contains(kw, StringComparison.OrdinalIgnoreCase));
         }
 
         return result.ToList();
