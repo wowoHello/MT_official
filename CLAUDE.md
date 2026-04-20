@@ -22,6 +22,7 @@
 3. **樣式規範 (Tailwind CSS Only)**
    - 所有 UI 樣式一律使用 Tailwind CSS 實作。
    - 除非 Tailwind 無法達成需求，否則禁止撰寫自訂 CSS 類別或 Inline Styles。
+   - 需考量到使用者大多是年長者，字體大小最小就是 text-xs，不要使用text-[10px]等過小字體
 4. **符合規則**
    - 須符合 Blazor 設計準則（例如：常常引用的位址寫在\_Imports.razor內、檔案該放該放的地方如Services、Componets/Models等...）
    - 所有的 form 都要改為使用 Blazor 專屬的 **EditForm**

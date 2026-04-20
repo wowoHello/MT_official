@@ -1,6 +1,8 @@
 /**
  * quill-interop.js — Blazor ↔ Quill 編輯器 JS Interop
  * 參照 https://quilljs.com/docs/modules/toolbar
+ *
+ * 效能策略：Quill 實例常駐，首次展開才初始化，後續開關僅填入/取回內容
  */
 
 // 字體是否已註冊
@@ -8,7 +10,7 @@ let fontRegistered = false;
 
 // 工具列設定（明確指定 whitelist，不依賴空陣列）
 const toolbarOptions = [
-    [{ font: ['dfkai-sb', 'times-new-roman'] }, { size: ['small', false, 'large'] }],
+    [{ font: ['times-new-roman', 'dfkai-sb'] }, { size: ['small', false, 'large'] }],
     [{ color: [] }, { align: [] }],
     ['bold', 'underline', 'strike'],
     [{ list: 'ordered' }, { list: 'bullet' }, { indent: '-1' }, { indent: '+1' }],
@@ -18,10 +20,8 @@ const toolbarOptions = [
 window.QuillInterop = {
     instances: {},
 
-    /** 初始化 Quill 編輯器 */
-    init(containerId, dotNetRef) {
-        if (this.instances[containerId]) return;
-
+    /** 內部：建立 Quill 實例（僅首次呼叫） */
+    _create(containerId, dotNetRef) {
         // 註冊自訂字體（只執行一次）
         if (!fontRegistered) {
             const Font = Quill.import('formats/font');
@@ -69,13 +69,41 @@ window.QuillInterop = {
             debounceTimer = setTimeout(() => {
                 if (!dotNetRef) return;
                 const text = quill.getText().trim();
-                dotNetRef.invokeMethodAsync('OnWordCountChanged', text.length);
+                const inst = QuillInterop.instances[containerId];
+                const count = inst?.excludePunct ? text.replace(/[\p{P}\s]/gu, '').length : text.length;
+                dotNetRef.invokeMethodAsync('OnWordCountChanged', count);
                 const html = quill.root.innerHTML;
                 dotNetRef.invokeMethodAsync('OnContentChanged', html === '<p><br></p>' ? '' : html);
             }, 500);
         });
 
-        this.instances[containerId] = { quill, dotNetRef };
+        this.instances[containerId] = { quill, dotNetRef, excludePunct: false };
+        return quill;
+    },
+
+    /** 合併呼叫：初始化（若尚未）+ 填入內容 + 聚焦，單次 interop 完成 */
+    show(containerId, dotNetRef, html, excludePunct) {
+        let inst = this.instances[containerId];
+        if (!inst) {
+            this._create(containerId, dotNetRef);
+            inst = this.instances[containerId];
+        } else {
+            // 更新 dotNetRef（元件可能重新建立過）
+            inst.dotNetRef = dotNetRef;
+        }
+        const quill = inst.quill;
+        if (!html || html === '<p><br></p>') {
+            quill.setText('');
+        } else {
+            const delta = quill.clipboard.convert({ html });
+            quill.setContents(delta, 'silent');
+        }
+        // 同步開關狀態並手動計算字數（silent 不觸發 text-change）
+        inst.excludePunct = !!excludePunct;
+        const text = quill.getText().trim();
+        const count = inst.excludePunct ? text.replace(/[\p{P}\s]/gu, '').length : text.length;
+        inst.dotNetRef?.invokeMethodAsync('OnWordCountChanged', count);
+        quill.focus();
     },
 
     /** 取得 HTML 內容 */
@@ -114,12 +142,25 @@ window.QuillInterop = {
         this.instances[containerId]?.quill.focus();
     },
 
-    /** 取得純文字字數 */
-    getWordCount(containerId) {
-        return this.instances[containerId]?.quill.getText().trim().length ?? 0;
+    /** 切換標點空白排除開關，立即重新計算字數 */
+    setExcludePunct(containerId, exclude) {
+        const inst = this.instances[containerId];
+        if (!inst) return;
+        inst.excludePunct = !!exclude;
+        const text = inst.quill.getText().trim();
+        const count = inst.excludePunct ? text.replace(/[\p{P}\s]/gu, '').length : text.length;
+        inst.dotNetRef?.invokeMethodAsync('OnWordCountChanged', count);
     },
 
-    /** 銷毀實例 */
+    /** 取得純文字字數 */
+    getWordCount(containerId) {
+        const inst = this.instances[containerId];
+        if (!inst) return 0;
+        const text = inst.quill.getText().trim();
+        return inst.excludePunct ? text.replace(/[\p{P}\s]/gu, '').length : text.length;
+    },
+
+    /** 銷毀實例（僅元件 Dispose 時呼叫） */
     dispose(containerId) {
         delete this.instances[containerId];
     }

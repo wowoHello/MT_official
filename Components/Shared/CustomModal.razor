@@ -152,6 +152,10 @@
     [Parameter]
     public EventCallback OnClose { get; set; }
 
+    /// <summary>僅 backdrop 點擊時觸發（區分 X 按鈕 / 取消按鈕的關閉）</summary>
+    [Parameter]
+    public EventCallback OnBackdropClose { get; set; }
+
     private async Task CloseAsync()
     {
         IsVisible = false;
@@ -166,7 +170,12 @@
     {
         if (CloseOnBackdropClick)
         {
-            await CloseAsync();
+            IsVisible = false;
+            await IsVisibleChanged.InvokeAsync(IsVisible);
+            if (OnBackdropClose.HasDelegate)
+                await OnBackdropClose.InvokeAsync();
+            else if (OnClose.HasDelegate)
+                await OnClose.InvokeAsync();
         }
     }
 }

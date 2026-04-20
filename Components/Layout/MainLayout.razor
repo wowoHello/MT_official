@@ -398,7 +398,7 @@
     private async Task InitializeHubConnectionAsync()
     {
         hubConnection = new HubConnectionBuilder()
-            .WithUrl(Navigation.ToAbsoluteUri("/hubs/projects"))
+            .WithUrl(Navigation.ToAbsoluteUri("hubs/projects"))
             .WithAutomaticReconnect()
             .Build();
 

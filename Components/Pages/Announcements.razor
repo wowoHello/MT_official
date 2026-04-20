@@ -4,6 +4,9 @@
 @*  功能：公告列表 CRUD、搜尋篩選、SlideOver 編輯公告表單                   *@
 @* ====================================================================== *@
 @page "/announcements"
+@inject IAnnouncementService AnnouncementService
+@inject ILogger<Announcements> Logger
+@implements IDisposable
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
 
@@ -31,13 +34,17 @@
                 </h1>
             </div>
             <div class="flex gap-2">
-                <a href="#" class="cursor-pointer px-4 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm focus:outline-none flex items-center gap-2">
+                <button type="button" @onclick="ShowUserGuide"
+                    class="cursor-pointer px-4 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm focus:outline-none flex items-center gap-2">
                     <i class="fa-solid fa-book"></i> 使用說明手冊
-                </a>
-                <button @onclick="OpenNewAnnouncement" type="button"
-                    class="cursor-pointer px-5 py-2.5 bg-sage text-white rounded-lg text-sm font-medium hover:bg-[#7b9c81] transition-all shadow-sm focus:outline-none flex items-center gap-2">
-                    <i class="fa-solid fa-plus"></i> 新增公告
                 </button>
+                @if (announcementPerm >= 2)
+                {
+                    <button @onclick="OpenNewAnnouncement" type="button"
+                        class="cursor-pointer px-5 py-2.5 bg-sage text-white rounded-lg text-sm font-medium hover:bg-[#7b9c81] transition-all shadow-sm focus:outline-none flex items-center gap-2">
+                        <i class="fa-solid fa-plus"></i> 新增公告
+                    </button>
+                }
             </div>
         </div>
     </div>
@@ -46,34 +53,34 @@
     <div class="px-4 sm:px-6 lg:px-8 pt-4 flex-shrink-0">
         <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition duration-200 hover:shadow-md">
-                <div class="text-gray-500 text-[10px] font-bold mb-0.5 flex items-center justify-between">
+                <div class="text-gray-500 text-xs font-bold mb-0.5 flex items-center justify-between">
                     公告總數 <i class="fa-solid fa-bullhorn text-morandi opacity-50"></i>
                 </div>
-                <div class="text-xl font-bold text-slate-main">0</div>
+                <div class="text-xl font-bold text-slate-main">@ComputedStats.Total</div>
             </div>
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition duration-200 hover:shadow-md">
-                <div class="text-gray-500 text-[10px] font-bold mb-0.5 flex items-center justify-between">
+                <div class="text-gray-500 text-xs font-bold mb-0.5 flex items-center justify-between">
                     已發佈 <i class="fa-solid fa-circle-check text-sage opacity-50"></i>
                 </div>
-                <div class="text-xl font-bold text-sage">0</div>
+                <div class="text-xl font-bold text-sage">@ComputedStats.Published</div>
             </div>
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition duration-200 hover:shadow-md">
-                <div class="text-gray-500 text-[10px] font-bold mb-0.5 flex items-center justify-between">
+                <div class="text-gray-500 text-xs font-bold mb-0.5 flex items-center justify-between">
                     草稿 <i class="fa-solid fa-file-pen text-gray-400 opacity-50"></i>
                 </div>
-                <div class="text-xl font-bold text-gray-500">0</div>
+                <div class="text-xl font-bold text-gray-500">@ComputedStats.Draft</div>
             </div>
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition duration-200 hover:shadow-md">
-                <div class="text-gray-500 text-[10px] font-bold mb-0.5 flex items-center justify-between">
+                <div class="text-gray-500 text-xs font-bold mb-0.5 flex items-center justify-between">
                     已下架 <i class="fa-solid fa-eye-slash text-terracotta opacity-50"></i>
                 </div>
-                <div class="text-xl font-bold text-terracotta">0</div>
+                <div class="text-xl font-bold text-terracotta">@ComputedStats.Archived</div>
             </div>
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition duration-200 hover:shadow-md">
-                <div class="text-gray-500 text-[10px] font-bold mb-0.5 flex items-center justify-between">
-                    置頂中 <i class="fa-solid fa-thumbtack text-red-500 opacity-50"></i>
+                <div class="text-gray-500 text-xs font-bold mb-0.5 flex items-center justify-between">
+                    置頂中（發佈狀態） <i class="fa-solid fa-thumbtack text-red-500 opacity-50"></i>
                 </div>
-                <div class="text-xl font-bold text-red-500">0</div>
+                <div class="text-xl font-bold text-red-500">@ComputedStats.Pinned</div>
             </div>
         </div>
     </div>
@@ -87,50 +94,139 @@
                 <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
                     <div class="relative w-full md:w-64">
                         <i class="fa-solid fa-magnifying-glass left-3 top-2.5 absolute text-gray-400"></i>
-                        <input type="text" class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi" placeholder="搜尋公告標題或內容...">
+                        <input type="text" @bind="filterKeyword" @bind:event="oninput"
+                            class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi"
+                            placeholder="搜尋公告標題或內容...">
                     </div>
-                    <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                        <option value="all">所有分類</option>
-                        <option value="system">系統公告</option>
-                        <option value="compose">命題公告</option>
-                        <option value="review">審題公告</option>
-                        <option value="other">其它</option>
+                    <select @bind="filterCategory"
+                        class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                        <option value="0">所有分類</option>
+                        <option value="1">系統公告</option>
+                        <option value="2">命題公告</option>
+                        <option value="3">審題公告</option>
+                        <option value="4">其它</option>
                     </select>
-                    <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                    <select @bind="filterDisplayStatus"
+                        class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                         <option value="all">所有狀態</option>
-                        <option value="published">已發佈</option>
-                        <option value="draft">草稿</option>
-                        <option value="archived">已下架</option>
+                        <option value="已發佈">已發佈</option>
+                        <option value="未發佈">未發佈</option>
+                        <option value="草稿">草稿</option>
+                        <option value="已下架">已下架</option>
                     </select>
                 </div>
                 <div class="text-sm text-gray-500 font-medium flex-shrink-0">
-                    共 <span class="text-morandi font-bold">0</span> 則公告
+                    共 <span class="text-morandi font-bold">@FilteredList.Count</span> 則公告
                 </div>
             </div>
 
             <!-- Table Header -->
-            <div class="grid grid-cols-12 gap-2 px-6 py-3 border-b border-gray-200 bg-white text-xs font-bold text-gray-500 uppercase tracking-wider shrink-0">
+            <!-- 小螢幕: 置頂(1)+分類(1)+標題(7)+狀態(2)+操作(1)=12 -->
+            <!-- md:     置頂(1)+分類(1)+標題(6)+狀態(1)+發佈日(2)+操作(1)=12 -->
+            <!-- lg:     置頂(1)+分類(1)+標題(5)+梯次(2)+狀態(1)+發佈日(1)+操作(1)=12 -->
+            <div class="grid grid-cols-12 gap-2 px-6 py-3 border-b border-gray-200 bg-white text-sm font-bold text-gray-500 tracking-wider shrink-0">
                 <div class="col-span-1 text-center">置頂</div>
                 <div class="col-span-1">分類</div>
-                <div class="col-span-4 lg:col-span-5">公告標題</div>
-                <div class="col-span-2 hidden lg:block">綁定梯次</div>
-                <div class="col-span-2 lg:col-span-1">狀態</div>
-                <div class="col-span-1 hidden md:block">發佈日</div>
+                <div class="col-span-7 md:col-span-6 lg:col-span-5">公告標題</div>
+                <div class="hidden lg:block lg:col-span-2">綁定梯次</div>
+                <div class="col-span-2 md:col-span-1">狀態</div>
+                <div class="hidden md:block md:col-span-2 lg:col-span-1">發佈日</div>
                 <div class="col-span-1 text-center">操作</div>
             </div>
 
             <!-- Announcement List -->
-            <div class="flex-grow overflow-y-auto custom-scroll p-4">
-                <EmptyState IconClass="fa-bullhorn" Message="目前尚無公告" SubMessage="點擊右上角「新增公告」向全站或特定梯次廣播。" />
+            <div class="flex-grow overflow-y-auto custom-scroll">
+                @if (FilteredList.Count == 0)
+                {
+                    <div class="p-4">
+                        <EmptyState IconClass="fa-bullhorn" Message="目前尚無公告" SubMessage="點擊右上角「新增公告」向全站或特定梯次廣播。" />
+                    </div>
+                }
+                else
+                {
+                    @foreach (var ann in FilteredList)
+                    {
+                        <div class="grid grid-cols-12 gap-2 px-6 py-3.5 border-b border-gray-50 hover:bg-gray-50/50 transition-colors items-center cursor-pointer"
+                             @onclick="() => OpenViewModal(ann)">
+                            <!-- 置頂 -->
+                            <div class="col-span-1 flex justify-center">
+                                @if (ann.IsPinned)
+                                {
+                                    <i class="fa-solid fa-thumbtack text-red-500 text-base" title="置頂中"></i>
+                                }
+                                else
+                                {
+                                    <span class="text-gray-300">—</span>
+                                }
+                            </div>
+                            <!-- 分類 -->
+                            <div class="col-span-1">
+                                <span class="text-xs font-bold px-1.5 py-0.5 rounded @GetCategoryClass(ann.Category)">
+                                    @GetCategoryLabel(ann.Category)
+                                </span>
+                            </div>
+                            <!-- 標題 -->
+                            <div class="col-span-7 md:col-span-6 lg:col-span-5 min-w-0">
+                                <div class="flex items-center gap-2">
+                                    @if (ann.IsPinned)
+                                    {
+                                        <span class="bg-red-50 text-red-500 text-xs font-bold px-1 py-0 rounded flex-shrink-0">TOP</span>
+                                    }
+                                    <span class="text-base font-bold text-slate-main truncate">@ann.Title</span>
+                                </div>
+                                <p class="text-sm text-gray-400 mt-0.5 truncate">@StripHtml(ann.Content, 60)</p>
+                            </div>
+                            <!-- 綁定梯次 -->
+                            <div class="hidden lg:block lg:col-span-2">
+                                @if (ann.ProjectId is null)
+                                {
+                                    <span class="text-sm text-morandi font-bold truncate block">全站廣播</span>
+                                }
+                                else
+                                {
+                                    <span class="text-sm text-gray-500 truncate block">@ann.ProjectName</span>
+                                }
+                            </div>
+                            <!-- 狀態 -->
+                            <div class="col-span-2 md:col-span-1">
+                                <StatusBadge StatusText="@ann.DisplayStatus" Compact="true" />
+                            </div>
+                            <!-- 發佈日 -->
+                            <div class="hidden md:block md:col-span-2 lg:col-span-1">
+                                <span class="text-sm text-gray-500">@ann.PublishDate.ToString("yyyy/MM/dd HH:mm")</span>
+                            </div>
+                            <!-- 操作 -->
+                            <div class="col-span-1 flex justify-center gap-1">
+                                @if (announcementPerm >= 2)
+                                {
+                                    <button class="w-8 h-8 rounded-full hover:bg-blue-50 text-gray-400 hover:text-morandi flex items-center justify-center transition-colors"
+                                            @onclick="() => OpenEditAnnouncement(ann.Id)" @onclick:stopPropagation="true" title="編輯">
+                                        <i class="fa-solid fa-pen text-sm"></i>
+                                    </button>
+                                    <button class="w-8 h-8 rounded-full hover:bg-red-50 @(ann.IsPinned ? "text-red-500" : "text-gray-400 hover:text-red-500") flex items-center justify-center transition-colors"
+                                            @onclick="() => HandleTogglePin(ann.Id)" @onclick:stopPropagation="true" title="@(ann.IsPinned ? "取消置頂" : "置頂")">
+                                        <i class="fa-solid fa-thumbtack text-sm"></i>
+                                    </button>
+                                    <button class="w-8 h-8 rounded-full hover:bg-red-50 text-gray-400 hover:text-red-500 flex items-center justify-center transition-colors"
+                                            @onclick="() => HandleDelete(ann)" @onclick:stopPropagation="true" title="刪除">
+                                        <i class="fa-solid fa-trash-can text-sm"></i>
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
             </div>
         </div>
     </div>
 </div>
 
-<!-- SlideOver：新增 / 編輯公告 -->
-<CustomModal @bind-IsVisible="showAnnouncementModal" Type="CustomModal.ModalType.SlideOver" Title="@panelTitle" CloseOnBackdropClick="false">
+<!-- ============================================== -->
+<!-- SlideOver：新增 / 編輯公告                       -->
+<!-- ============================================== -->
+<CustomModal @bind-IsVisible="showSlideOver" Type="CustomModal.ModalType.SlideOver" Title="@panelTitle" MaxWidth="max-w-2xl" CloseOnBackdropClick="true" OnBackdropClose="HandleBackdropSaveDraft">
     <ChildContent>
-        <form class="space-y-6" @onsubmit:preventDefault>
+        <EditForm Model="formModel" class="space-y-6">
 
             <!-- 區塊 1: 公告設定 -->
             <div class="space-y-4">
@@ -139,49 +235,49 @@
                     公告設定
                 </h3>
                 <div class="grid grid-cols-2 gap-4">
-                    <div>
+                    <div class="col-span-2">
                         <label class="block text-sm font-medium mb-1 text-gray-700">分類 <span class="text-red-500">*</span></label>
-                        <select class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm bg-white cursor-pointer">
-                            <option value="system">系統公告</option>
-                            <option value="compose">命題公告</option>
-                            <option value="review">審題公告</option>
-                            <option value="other">其它</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium mb-1 text-gray-700">狀態 <span class="text-red-500">*</span></label>
-                        <select class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm bg-white cursor-pointer">
-                            <option value="draft">草稿</option>
-                            <option value="published">已發佈</option>
-                            <option value="archived">已下架</option>
-                        </select>
+                        <InputSelect @bind-Value="formModel.Category"
+                            class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm bg-white cursor-pointer">
+                            <option value="1">系統公告</option>
+                            <option value="2">命題公告</option>
+                            <option value="3">審題公告</option>
+                            <option value="4">其它</option>
+                        </InputSelect>
                     </div>
                     <div class="col-span-2">
                         <label class="block text-sm font-medium mb-1 text-gray-700">綁定顯示梯次</label>
-                        <select class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm bg-white cursor-pointer">
-                            <option value="ALL">全站廣播 (所有梯次)</option>
+                        <select @bind="formModel.ProjectId"
+                            class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm bg-white cursor-pointer">
+                            <option value="">全站廣播 (所有梯次)</option>
+                            @foreach (var proj in projectDropdown)
+                            {
+                                <option value="@proj.Id">@proj.Name</option>
+                            }
                         </select>
-                        <p class="text-[10px] text-gray-400 mt-1">
+                        <p class="text-xs text-gray-400 mt-1">
                             <i class="fa-solid fa-circle-info mr-0.5"></i> 選擇「全站廣播」則所有梯次均可看到此公告；選擇特定梯次，則僅在該梯次下顯示。
                         </p>
                     </div>
                     <div>
                         <label class="block text-sm font-medium mb-1 text-gray-700">上架日期 <span class="text-red-500">*</span></label>
-                        <input type="date" class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
+                        <input type="datetime-local" @bind="formModel.PublishDate" @bind:after="OnPublishDateChanged"
+                            class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm" />
                     </div>
                     <div>
                         <label class="block text-sm font-medium mb-1 text-gray-700">下架日期 <span class="text-gray-400 font-normal">(選填)</span></label>
-                        <input type="date" class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
-                        <p class="text-[10px] text-gray-400 mt-1">留空表示不自動下架。超過此日期後，狀態將自動變為「已下架」。</p>
+                        <input type="datetime-local" @bind="formModel.UnpublishDate" @bind:after="OnUnpublishDateChanged"
+                            class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm" />
+                        <p class="text-xs text-gray-400 mt-1">留空表示不自動下架。超過此日期時間後，狀態將自動變為「已下架」。</p>
                     </div>
                     <div class="col-span-2">
                         <label class="flex items-center gap-3 cursor-pointer bg-red-50/50 px-4 py-3 rounded-lg border border-red-100 hover:bg-red-50 transition-colors">
-                            <input type="checkbox" class="w-4 h-4 text-red-500 focus:ring-red-400 rounded">
+                            <InputCheckbox @bind-Value="formModel.IsPinned" class="w-4 h-4 text-red-500 focus:ring-red-400 rounded" />
                             <div>
                                 <span class="text-sm font-bold text-red-600 flex items-center gap-1">
                                     <i class="fa-solid fa-thumbtack"></i> 置頂公告
                                 </span>
-                                <p class="text-[10px] text-gray-500 mt-0.5">開啟後此公告會在列表與首頁公告看板中優先顯示於最頂端。</p>
+                                <p class="text-xs text-gray-500 mt-0.5">開啟後此公告會在列表與首頁公告看板中優先顯示於最頂端。</p>
                             </div>
                         </label>
                     </div>
@@ -196,42 +292,507 @@
                 </h3>
                 <div>
                     <label class="block text-sm font-medium mb-1 text-gray-700">公告標題 <span class="text-red-500">*</span></label>
-                    <input type="text" placeholder="請輸入公告標題" class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
+                    <InputText @bind-Value="formModel.Title" placeholder="請輸入公告標題"
+                        class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm" />
                 </div>
                 <div>
                     <label class="block text-sm font-medium mb-2 text-gray-700">公告內容 <span class="text-red-500">*</span></label>
-                    <!-- Quill 編輯器預留區（待 JS Interop 整合） -->
-                    <div class="border border-gray-300 rounded-lg overflow-hidden min-h-[250px] bg-gray-50 flex items-center justify-center text-gray-400 text-sm">
-                        <div class="text-center">
-                            <i class="fa-solid fa-pen-to-square text-2xl mb-2 block"></i>
-                            Quill 編輯器（待整合 JS Interop）
-                        </div>
-                    </div>
+                    <QuillEditor @bind-Value="formModel.Content" FieldLabel="公告內容" Placeholder="在此輸入公告內容..." />
                 </div>
             </div>
-        </form>
+        </EditForm>
     </ChildContent>
     <FooterContent>
-        <button type="button" class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors focus:outline-none shadow-sm flex items-center gap-2">
+        <button type="button" @onclick="SaveAsDraft"
+            class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors focus:outline-none shadow-sm flex items-center gap-2">
             <i class="fa-solid fa-file-pen"></i> 存為草稿
         </button>
         <div class="flex-grow"></div>
-        <button type="button" @onclick="() => showAnnouncementModal = false" class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors focus:outline-none shadow-sm">
+        <button type="button" @onclick="() => showSlideOver = false"
+            class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors focus:outline-none shadow-sm">
             取消
         </button>
-        <button type="button" class="cursor-pointer px-6 py-2 bg-morandi text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] transition-colors focus:outline-none shadow-sm flex items-center gap-2">
+        <button type="button" @onclick="SaveAndPublish"
+            class="cursor-pointer px-6 py-2 bg-morandi text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] transition-colors focus:outline-none shadow-sm flex items-center gap-2">
             <i class="fa-solid fa-floppy-disk"></i> 儲存公告
         </button>
     </FooterContent>
 </CustomModal>
 
-@code {
-    private bool showAnnouncementModal = false;
-    private string panelTitle = "新增公告";
+<!-- ============================================== -->
+<!-- Modal：公告檢視                                  -->
+<!-- ============================================== -->
+<CustomModal @bind-IsVisible="showViewModal" Type="CustomModal.ModalType.Center" Title="公告詳情">
+    <ChildContent>
+        @if (viewingAnnouncement is not null)
+        {
+            <!-- 標籤列 -->
+            <div class="mb-3 flex gap-2 flex-wrap">
+                <span class="text-xs font-bold px-2 py-0.5 rounded @GetCategoryClass(viewingAnnouncement.Category)">
+                    @GetCategoryLabel(viewingAnnouncement.Category)
+                </span>
+                <StatusBadge StatusText="@viewingAnnouncement.DisplayStatus" Compact="true" />
+                @if (viewingAnnouncement.IsPinned)
+                {
+                    <span class="bg-red-100 text-red-500 text-xs font-bold px-2 py-0.5 rounded">
+                        <i class="fa-solid fa-thumbtack mr-0.5"></i>置頂
+                    </span>
+                }
+            </div>
+            <!-- 標題 -->
+            <h2 class="text-xl font-bold text-slate-main leading-tight mb-2">@viewingAnnouncement.Title</h2>
+            <!-- 元資料 -->
+            <div class="text-xs text-gray-500 mb-4 flex items-center gap-3 flex-wrap">
+                <span class="flex items-center gap-1">
+                    <i class="fa-regular fa-clock"></i> 發佈：@viewingAnnouncement.PublishDate.ToString("yyyy/MM/dd HH:mm:ss")
+                </span>
+                @if (viewingAnnouncement.UnpublishDate.HasValue)
+                {
+                    <span class="flex items-center gap-1">
+                        <i class="fa-solid fa-eye-slash"></i> 下架：@viewingAnnouncement.UnpublishDate.Value.ToString("yyyy/MM/dd HH:mm:ss")
+                    </span>
+                }
+                <span class="flex items-center gap-1">
+                    <i class="fa-solid fa-folder-open"></i>
+                    @(viewingAnnouncement.ProjectId is null ? "全站廣播" : viewingAnnouncement.ProjectName)
+                </span>
+            </div>
+            <!-- 內容 -->
+            <div class="text-gray-700 leading-relaxed text-sm space-y-4 border-t border-gray-100 pt-4">
+                @((MarkupString)viewingAnnouncement.Content)
+            </div>
+        }
+    </ChildContent>
+    <FooterContent>
+        @if (announcementPerm >= 2 && viewingAnnouncement is not null)
+        {
+            <button type="button" @onclick="() => ViewToEdit(viewingAnnouncement.Id)"
+                class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors focus:outline-none shadow-sm flex items-center gap-2">
+                <i class="fa-solid fa-pen-to-square"></i> 編輯此公告
+            </button>
+        }
+        <button type="button" @onclick="() => showViewModal = false"
+            class="cursor-pointer px-6 py-2 bg-morandi hover:bg-[#5b7a95] text-white rounded-lg font-medium transition-colors focus:outline-none">
+            確認關閉
+        </button>
+    </FooterContent>
+</CustomModal>
 
+@code {
+    // ─── 注入與授權 ───
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    // ─── 資料狀態 ───
+    private List<AnnouncementListItem> announcements = new();
+    private List<ProjectDropdownItem> projectDropdown = new();
+
+    // ─── 篩選 ───
+    private string filterKeyword = "";
+    private byte filterCategory = 0;       // 0 = 全部
+    private string filterDisplayStatus = "all";  // 依顯示狀態篩選
+
+    // ─── 表單 ───
+    private AnnouncementFormModel formModel = new();
+    private bool showSlideOver;
+    private string panelTitle = "新增公告";
+    private int? editingId;
+
+    // ─── 檢視 Modal ───
+    private bool showViewModal;
+    private AnnouncementListItem? viewingAnnouncement;
+
+    // ─── 權限（0:無, 1:僅瀏覽, 2:瀏覽與編輯） ───
+    private byte announcementPerm = 2;
+
+    // ─── 定時器：每 60 秒刷新 UI，讓 DisplayStatus 自動跟隨時間更新 ───
+    private Timer? _statusTimer;
+
+    // ─── 前端計算統計卡片 ───
+    private AnnouncementStats ComputedStats
+    {
+        get
+        {
+            var published = announcements.Count(a => a.DisplayStatus == "已發佈");
+            var draft = announcements.Count(a => a.DisplayStatus == "草稿");
+            var archived = announcements.Count(a => a.DisplayStatus == "已下架");
+            var pinned = announcements.Count(a => a.IsPinned && a.DisplayStatus == "已發佈");
+            return new AnnouncementStats
+            {
+                Total = announcements.Count,
+                Published = published,
+                Draft = draft,
+                Archived = archived,
+                Pinned = pinned
+            };
+        }
+    }
+
+    // ─── 篩選後的列表（含排序） ───
+    private List<AnnouncementListItem> FilteredList
+    {
+        get
+        {
+            var query = announcements.AsEnumerable();
+
+            // 分類篩選
+            if (filterCategory > 0)
+                query = query.Where(a => a.Category == filterCategory);
+
+            // 顯示狀態篩選（依日期推導後的狀態）
+            if (filterDisplayStatus != "all")
+                query = query.Where(a => a.DisplayStatus == filterDisplayStatus);
+
+            // 關鍵字篩選
+            if (!string.IsNullOrWhiteSpace(filterKeyword))
+            {
+                var kw = filterKeyword.Trim();
+                query = query.Where(a =>
+                    a.Title.Contains(kw, StringComparison.OrdinalIgnoreCase) ||
+                    a.Content.Contains(kw, StringComparison.OrdinalIgnoreCase));
+            }
+
+            // 排序：置頂 > 顯示狀態優先（已發佈>未發佈>草稿>已下架）> 分類順序 > 發佈日新到舊
+            return query
+                .OrderByDescending(a => a.IsPinned)
+                .ThenBy(a => a.DisplayStatus switch { "已發佈" => 0, "未發佈" => 1, "草稿" => 2, "已下架" => 3, _ => 4 })
+                .ThenBy(a => a.Category)
+                .ThenByDescending(a => a.PublishDate)
+                .ToList();
+        }
+    }
+
+    // ─── 生命週期 ───
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPermissionAsync();
+        await LoadDataAsync();
+        _statusTimer = new Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
+    }
+
+    public void Dispose()
+    {
+        _statusTimer?.Dispose();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        try
+        {
+            announcements = await AnnouncementService.GetAnnouncementListAsync();
+            projectDropdown = await AnnouncementService.GetProjectDropdownAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入公告資料失敗");
+        }
+    }
+
+    private async Task LoadPermissionAsync()
+    {
+        try
+        {
+            if (AuthState is null) return;
+            var authState = await AuthState;
+            var permClaim = authState.User.FindFirst("AnnouncementPerm")?.Value;
+            if (byte.TryParse(permClaim, out var perm))
+                announcementPerm = perm;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入公告權限失敗");
+        }
+    }
+
+    // ─── 取得當前使用者 ID ───
+    private async Task<int> GetCurrentUserIdAsync()
+    {
+        if (AuthState is null) return 0;
+        var authState = await AuthState;
+        var idClaim = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return int.TryParse(idClaim, out var id) ? id : 0;
+    }
+
+    // ─── 新增公告 ───
     private void OpenNewAnnouncement()
     {
+        editingId = null;
+        formModel = new AnnouncementFormModel { PublishDate = TruncateSeconds(DateTime.Now) };
         panelTitle = "新增公告";
-        showAnnouncementModal = true;
+        showSlideOver = true;
+    }
+
+    // ─── 編輯公告 ───
+    private async Task OpenEditAnnouncement(int id)
+    {
+        try
+        {
+            var dto = await AnnouncementService.GetAnnouncementEditAsync(id);
+            if (dto is null) return;
+
+            editingId = id;
+            formModel = new AnnouncementFormModel
+            {
+                Category = dto.Category,
+                Status = dto.Status,
+                ProjectId = dto.ProjectId,
+                PublishDate = dto.PublishDate,
+                UnpublishDate = dto.UnpublishDate,
+                IsPinned = dto.IsPinned,
+                Title = dto.Title,
+                Content = dto.Content
+            };
+            panelTitle = "編輯公告";
+            showSlideOver = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入公告編輯資料失敗 Id={Id}", id);
+        }
+    }
+
+    // ─── 日期即時防呆 ───
+    private async Task OnPublishDateChanged()
+    {
+        if (formModel.PublishDate.HasValue && formModel.UnpublishDate.HasValue
+            && formModel.PublishDate.Value > formModel.UnpublishDate.Value)
+        {
+            formModel.UnpublishDate = null;
+            _ = JS.InvokeVoidAsync("Swal.fire", new { icon = "info", title = "下架日期已清除", text = "上架日期晚於原下架日期，請重新設定。", toast = true, position = "top-end", showConfirmButton = false, timer = 2500 });
+        }
+    }
+
+    private async Task OnUnpublishDateChanged()
+    {
+        if (formModel.PublishDate.HasValue && formModel.UnpublishDate.HasValue
+            && formModel.UnpublishDate.Value < formModel.PublishDate.Value)
+        {
+            formModel.UnpublishDate = null;
+            _ = JS.InvokeVoidAsync("Swal.fire", new { icon = "info", title = "下架日期不可早於上架日期", text = "已自動清除，請重新選擇。", toast = true, position = "top-end", showConfirmButton = false, timer = 2500 });
+        }
+    }
+
+    // ─── 前端驗證 ───
+    private async Task<bool> ValidateFormAsync()
+    {
+        if (string.IsNullOrWhiteSpace(formModel.Title))
+        {
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "warning", title = "請填寫公告標題", confirmButtonColor = "#6B8EAD" });
+            return false;
+        }
+        if (formModel.PublishDate is null)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "warning", title = "請設定上架日期", confirmButtonColor = "#6B8EAD" });
+            return false;
+        }
+        if (formModel.UnpublishDate.HasValue && formModel.PublishDate.HasValue
+            && formModel.UnpublishDate.Value < formModel.PublishDate.Value)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "warning", title = "下架日期不可早於上架日期", confirmButtonColor = "#6B8EAD" });
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(formModel.Content) || formModel.Content == "<p><br></p>")
+        {
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "warning", title = "請填寫公告內容", confirmButtonColor = "#6B8EAD" });
+            return false;
+        }
+        return true;
+    }
+
+    // ─── 儲存公告（Status=1 發佈） ───
+    private async Task SaveAndPublish()
+    {
+        if (!await ValidateFormAsync()) return;
+
+        formModel.Status = (byte)AnnouncementStatus.Published;
+        await DoSaveAsync("公告已儲存");
+    }
+
+    // ─── 存為草稿（Status=0） ───
+    private async Task SaveAsDraft()
+    {
+        if (!await ValidateFormAsync()) return;
+
+        formModel.Status = (byte)AnnouncementStatus.Draft;
+        await DoSaveAsync("已存為草稿");
+    }
+
+    // ─── 日期秒數歸零（datetime-local 精度到分鐘，避免秒數造成狀態判斷誤差） ───
+    private static DateTime TruncateSeconds(DateTime dt) => new(dt.Year, dt.Month, dt.Day, dt.Hour, dt.Minute, 0);
+
+    // ─── 共用儲存邏輯（先收合面板，再非同步儲存 + Toast） ───
+    private async Task DoSaveAsync(string successMsg)
+    {
+        try
+        {
+            // 秒數歸零，與 datetime-local 輸入精度一致
+            if (formModel.PublishDate.HasValue)
+                formModel.PublishDate = TruncateSeconds(formModel.PublishDate.Value);
+            if (formModel.UnpublishDate.HasValue)
+                formModel.UnpublishDate = TruncateSeconds(formModel.UnpublishDate.Value);
+
+            showSlideOver = false;
+
+            var userId = await GetCurrentUserIdAsync();
+
+            if (editingId.HasValue)
+                await AnnouncementService.UpdateAsync(editingId.Value, formModel, userId);
+            else
+                await AnnouncementService.CreateAsync(formModel, userId);
+
+            _ = JS.InvokeVoidAsync("Swal.fire", new { icon = "success", title = successMsg, toast = true, position = "top-end", showConfirmButton = false, timer = 2000 });
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "儲存公告失敗");
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "error", title = "儲存失敗", text = "請稍後再試。", confirmButtonColor = "#6B8EAD" });
+        }
+    }
+
+    // ─── Backdrop 點擊：自動存為草稿 ───
+    private async Task HandleBackdropSaveDraft()
+    {
+        if (string.IsNullOrWhiteSpace(formModel.Title) &&
+            (string.IsNullOrWhiteSpace(formModel.Content) || formModel.Content == "<p><br></p>"))
+            return;
+
+        try
+        {
+            if (formModel.PublishDate.HasValue)
+                formModel.PublishDate = TruncateSeconds(formModel.PublishDate.Value);
+            if (formModel.UnpublishDate.HasValue)
+                formModel.UnpublishDate = TruncateSeconds(formModel.UnpublishDate.Value);
+
+            formModel.Status = (byte)AnnouncementStatus.Draft;
+            var userId = await GetCurrentUserIdAsync();
+
+            if (editingId.HasValue)
+                await AnnouncementService.UpdateAsync(editingId.Value, formModel, userId);
+            else if (!string.IsNullOrWhiteSpace(formModel.Title))
+                await AnnouncementService.CreateAsync(formModel, userId);
+
+            _ = JS.InvokeVoidAsync("Swal.fire", new { icon = "success", title = "已自動存為草稿", toast = true, position = "top-end", showConfirmButton = false, timer = 2000 });
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "自動存草稿失敗");
+        }
+    }
+
+    // ─── 置頂切換 ───
+    private async Task HandleTogglePin(int id)
+    {
+        try
+        {
+            // 先更新前端狀態，立即反映 UI
+            var target = announcements.Find(a => a.Id == id);
+            if (target is not null) target.IsPinned = !target.IsPinned;
+            var msg = target?.IsPinned == true ? "已置頂" : "已取消置頂";
+
+            // Toast 不等待
+            _ = JS.InvokeVoidAsync("Swal.fire", new { icon = "success", title = msg, toast = true, position = "top-end", showConfirmButton = false, timer = 1500 });
+
+            // 後端同步
+            var userId = await GetCurrentUserIdAsync();
+            await AnnouncementService.TogglePinAsync(id, userId);
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "置頂切換失敗 Id={Id}", id);
+            await LoadDataAsync(); // 失敗時重新載入還原正確狀態
+        }
+    }
+
+    // ─── 刪除公告 ───
+    private async Task HandleDelete(AnnouncementListItem ann)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("swalConfirm", new
+        {
+            title = "確認刪除?",
+            html = $"將刪除公告「<b>{ann.Title}</b>」，此操作無法復原。",
+            icon = "warning",
+            showCancelButton = true,
+            confirmButtonColor = "#D98A6C",
+            cancelButtonColor = "#6B8EAD",
+            confirmButtonText = "確認刪除",
+            cancelButtonText = "取消"
+        });
+
+        if (!confirmed) return;
+
+        try
+        {
+            var userId = await GetCurrentUserIdAsync();
+            await AnnouncementService.DeleteAsync(ann.Id, userId);
+            await LoadDataAsync();
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "success", title = "已刪除", toast = true, position = "top-end", showConfirmButton = false, timer = 1500 });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "刪除公告失敗 Id={Id}", ann.Id);
+        }
+    }
+
+    // ─── 檢視 Modal ───
+    private void OpenViewModal(AnnouncementListItem ann)
+    {
+        viewingAnnouncement = ann;
+        showViewModal = true;
+    }
+
+    // ─── 檢視 → 編輯 ───
+    private async Task ViewToEdit(int id)
+    {
+        showViewModal = false;
+        await Task.Delay(100);
+        await OpenEditAnnouncement(id);
+    }
+
+    // ─── 使用說明手冊 ───
+    private async Task ShowUserGuide()
+    {
+        await JS.InvokeVoidAsync("Swal.fire", new
+        {
+            icon = "info",
+            title = "使用說明手冊",
+            html = @"<p class=""text-sm text-gray-600 mb-4"">實際上線後將提供 PDF 文件下載連結。</p>
+                     <div class=""text-left text-sm space-y-2 border-t border-gray-100 pt-4"">
+                         <div class=""flex items-center gap-2 text-gray-700""><i class=""fa-solid fa-file-pdf text-red-500""></i><span>CWT 命題工作平臺 使用說明手冊 v3.2.pdf</span></div>
+                         <div class=""flex items-center gap-2 text-gray-700""><i class=""fa-solid fa-file-pdf text-red-500""></i><span>聽力題組命題操作指引 v1.0.pdf</span></div>
+                         <div class=""flex items-center gap-2 text-gray-700""><i class=""fa-solid fa-file-pdf text-red-500""></i><span>三審流程與迴避規則說明.pdf</span></div>
+                     </div>",
+            confirmButtonColor = "#6B8EAD",
+            confirmButtonText = "瞭解"
+        });
+    }
+
+    // ─── 輔助方法：分類標籤 ───
+    private static string GetCategoryLabel(byte category) => category switch
+    {
+        1 => "系統公告",
+        2 => "命題公告",
+        3 => "審題公告",
+        4 => "其它",
+        _ => "未知"
+    };
+
+    private static string GetCategoryClass(byte category) => category switch
+    {
+        1 => "bg-blue-100 text-blue-700",
+        2 => "bg-emerald-100 text-emerald-700",
+        3 => "bg-purple-100 text-purple-700",
+        4 => "bg-gray-100 text-gray-600",
+        _ => "bg-gray-100 text-gray-600"
+    };
+
+    // ─── 輔助方法：HTML 去標籤摘要 ───
+    private static string StripHtml(string html, int maxLength)
+    {
+        if (string.IsNullOrEmpty(html)) return "";
+        var text = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", "");
+        return text.Length > maxLength ? text[..maxLength] + "..." : text;
     }
 }

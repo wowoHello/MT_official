@@ -45,13 +45,29 @@ builder.Services.AddHttpContextAccessor();
 // =========================================================
 // 應用程式服務
 // =========================================================
+// 登入頁 Canvas 驗證碼產生與比對（Login.razor）
 builder.Services.AddScoped<ICaptchaService, CaptchaService>();
+
+// Dapper 資料庫連線工廠，所有 Service 透過此取得 SqlConnection
 builder.Services.AddScoped<IDatabaseService, DatabaseService>();
+
+// 登入驗證、Cookie 寫入、密碼雜湊、稽核紀錄（Login.razor、/auth/login、/auth/logout）
 builder.Services.AddScoped<IAuthService, AuthService>();
+
+// 忘記密碼寄送驗證信（由 PasswordResetService 內部呼叫）
 builder.Services.AddScoped<IEmailService, EmailService>();
+
+// 忘記密碼 Token 管理、首次登入強制改密碼（Login.razor、ResetPassword.razor、FirstLoginPassword.razor）
 builder.Services.AddScoped<IPasswordResetService, PasswordResetService>();
+
+// 命題專案梯次 CRUD、可見梯次查詢（Projects.razor、MainLayout.razor）
 builder.Services.AddScoped<IProjectService, ProjectService>();
+
+// 帳號管理、角色權限 CRUD、功能模組權限查詢（Roles.razor、MainLayout.razor）
 builder.Services.AddScoped<IRoleService, RoleService>();
+
+// 系統公告 CRUD、自動下架、統計卡片（Announcements.razor、Home.razor）
+builder.Services.AddScoped<IAnnouncementService, AnnouncementService>();
 
 var app = builder.Build();
 
@@ -108,14 +124,22 @@ app.MapGet("/auth/login", async (string key, IAuthService authService, HttpConte
 });
 
 // 清除目前登入 Cookie，並回登入頁（登出前寫入稽核紀錄）
+// 稽核失敗不應阻擋登出流程，因此用 try-catch 保護
 app.MapGet("/auth/logout", async (IAuthService authService, HttpContext context) =>
 {
-    var userIdClaim = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-    if (int.TryParse(userIdClaim, out var userId))
+    try
     {
-        var ip = context.Request.Headers["X-Forwarded-For"].FirstOrDefault()?.Split(',')[0].Trim()
-                 ?? context.Connection.RemoteIpAddress?.ToString();
-        await authService.LogAuditAsync(userId, MT.Models.AuditAction.Logout, ip);
+        var userIdClaim = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (int.TryParse(userIdClaim, out var userId))
+        {
+            var ip = context.Request.Headers["X-Forwarded-For"].FirstOrDefault()?.Split(',')[0].Trim()
+                     ?? context.Connection.RemoteIpAddress?.ToString();
+            await authService.LogAuditAsync(userId, MT.Models.AuditAction.Logout, ip);
+        }
+    }
+    catch
+    {
+        // 稽核紀錄寫入失敗不影響登出
     }
 
     await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);

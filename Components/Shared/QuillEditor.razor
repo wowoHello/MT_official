@@ -1,14 +1,14 @@
 @* ====================================================================== *@
 @*  QuillEditor — Quill 富文本編輯器 Blazor 包裝元件                       *@
-@*  底部滑入面板式設計（手機友好）、含中文標點快速插入、字數統計             *@
-@*  參數：FieldLabel（欄位名稱）、Value（HTML 內容雙向綁定）               *@
+@*  底部滑入面板式設計、含中文標點快速插入、字數統計                         *@
+@*  效能策略：Quill 實例常駐，首次展開才初始化，後續僅 CSS 顯隱             *@
 @* ====================================================================== *@
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
 <!-- 可編輯欄位（點擊觸發底部編輯器） -->
-<div class="editable-field cursor-text border-[1.5px] border-gray-200 rounded-lg min-h-[100px] max-h-[200px] overflow-y-auto custom-scroll p-4 hover:border-blue-300 transition-all @(isEditing ? "border-morandi shadow-[0_0_0_3px_rgba(107,142,173,0.15)]" : "")"
-     @onclick="ActivateEditor">
+<div class="editable-field cursor-text border-[1.5px] border-gray-200 rounded-lg min-h-[100px] max-h-[200px] overflow-y-auto custom-scroll p-4 hover:border-blue-300 transition-all @(isOpen ? "border-morandi shadow-[0_0_0_3px_rgba(107,142,173,0.15)]" : "")"
+     @onclick="OpenEditor">
     @if (string.IsNullOrEmpty(Value))
     {
         <p class="text-gray-400 text-sm">@Placeholder</p>
@@ -19,48 +19,50 @@
     }
 </div>
 
-<!-- 底部滑入式 Quill 面板 -->
-@if (isEditing)
-{
-    <!-- Backdrop -->
-    <div class="fixed inset-0 bg-slate-900/10 z-[150] transition-opacity" @onclick="CloseEditor"></div>
+<!-- 底部滑入式 Quill 面板（始終渲染，CSS 控制顯隱） -->
+<!-- Backdrop -->
+<div class="fixed inset-0 bg-slate-900/10 z-[150] transition-opacity duration-300 @(isOpen ? "opacity-100" : "opacity-0 pointer-events-none")"
+     @onclick="CloseEditor"></div>
 
-    <!-- Editor Sheet -->
-    <div class="fixed inset-x-0 bottom-0 z-[150]" style="animation: @(isClosing ? "quillSlideDown 0.3s ease-in-out forwards" : "quillSlideUp 0.3s ease-in-out forwards");">
-        <div class="bg-white border-t-2 border-morandi shadow-[0_-8px_30px_rgba(0,0,0,0.12)] h-[25vh] flex flex-col rounded-t-2xl overflow-visible">
+<!-- Editor Sheet -->
+<div class="fixed inset-x-0 bottom-0 z-[150] transition-transform duration-300 ease-in-out @(isOpen ? "translate-y-0" : "translate-y-full")">
+    <div class="bg-white border-t-2 border-morandi shadow-[0_-8px_30px_rgba(0,0,0,0.12)] h-[25vh] flex flex-col rounded-t-2xl overflow-visible">
 
-            <!-- 標頭：欄位指示 + 中文標點 + 收起 -->
-            <div class="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200 gap-2 flex-shrink-0">
-                <div class="flex items-center gap-2 text-sm text-gray-600 min-w-0 flex-wrap">
-                    <i class="fa-solid fa-pen-to-square text-morandi"></i>
-                    <span class="text-gray-500">正在編輯：</span>
-                    <span class="font-bold text-slate-main truncate">@FieldLabel</span>
-                    <span class="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
-                        字數：@wordCount
-                    </span>
-                </div>
-                <div class="flex items-center gap-1 overflow-x-auto custom-scroll flex-shrink">
-                    <span class="text-[10px] text-gray-400 mr-1 flex-shrink-0">快速插入</span>
-                    @foreach (var p in punctuations)
-                    {
-                        var punct = p;
-                        <button type="button" @onclick="() => InsertPunctuation(punct.Char, punct.IsPair)"
-                            class="punct-btn px-2 py-0.5 text-sm text-gray-500 border border-gray-200 rounded bg-white hover:bg-morandi hover:text-white hover:border-morandi transition-all cursor-pointer flex-shrink-0">
-                            @punct.Char
-                        </button>
-                    }
-                </div>
-                <button type="button" @onclick="CloseEditor"
-                    class="text-sm text-gray-400 hover:text-gray-600 font-medium transition-colors cursor-pointer flex items-center gap-1 flex-shrink-0 ml-2">
-                    <i class="fa-solid fa-chevron-down"></i> 收起
-                </button>
+        <!-- 標頭：欄位指示 + 中文標點 + 收起 -->
+        <div class="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200 gap-2 flex-shrink-0">
+            <div class="flex items-center gap-2 text-sm text-gray-600 min-w-0 flex-wrap">
+                <i class="fa-solid fa-pen-to-square text-morandi"></i>
+                <span class="text-gray-500">正在編輯：</span>
+                <span class="font-bold text-slate-main truncate">@FieldLabel</span>
+                <span class="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                    字數：@wordCount
+                </span>
+                <label class="inline-flex items-center gap-1 cursor-pointer select-none flex-shrink-0">
+                    <input type="checkbox" class="accent-morandi w-3.5 h-3.5 cursor-pointer" @bind="excludePunctuation" @bind:after="OnExcludeToggleChanged" />
+                    <span class="text-xs text-gray-500">標點與空白不算</span>
+                </label>
             </div>
-
-            <!-- Quill 編輯器容器 -->
-            <div id="@containerId" class="quill-editor-container flex-grow min-h-0"></div>
+            <div class="flex items-center gap-1 overflow-x-auto custom-scroll flex-shrink">
+                <span class="text-[10px] text-gray-400 mr-1 flex-shrink-0">快速插入</span>
+                @foreach (var p in punctuations)
+                {
+                    var punct = p;
+                    <button type="button" @onclick="() => InsertPunctuation(punct.Char, punct.IsPair)"
+                        class="punct-btn px-2 py-0.5 text-sm text-gray-500 border border-gray-200 rounded bg-white hover:bg-morandi hover:text-white hover:border-morandi transition-all cursor-pointer flex-shrink-0">
+                        @punct.Char
+                    </button>
+                }
+            </div>
+            <button type="button" @onclick="CloseEditor"
+                class="text-sm text-gray-400 hover:text-gray-600 font-medium transition-colors cursor-pointer flex items-center gap-1 flex-shrink-0 ml-2">
+                <i class="fa-solid fa-chevron-down"></i> 收起
+            </button>
         </div>
+
+        <!-- Quill 編輯器容器 -->
+        <div id="@containerId" class="quill-editor-container flex-grow min-h-0"></div>
     </div>
-}
+</div>
 
 @code {
     [Parameter] public string Value { get; set; } = "";
@@ -69,12 +71,12 @@
     [Parameter] public string Placeholder { get; set; } = "點擊此處開始編輯...";
 
     private string containerId = $"quill-{Guid.NewGuid():N}";
-    private bool isEditing = false;
-    private bool isClosing = false;
-    private bool shouldInitializeQuill = false;
-    private int wordCount = 0;
-    private DotNetObjectReference<QuillEditor>? dotNetRef;
+    private bool isOpen = false;
     private bool quillInitialized = false;
+    private bool pendingShow = false;
+    private int wordCount = 0;
+    private bool excludePunctuation = false;
+    private DotNetObjectReference<QuillEditor>? dotNetRef;
 
     private record PunctuationItem(string Char, bool IsPair);
 
@@ -86,77 +88,49 @@
         new("——", false), new("……", false)
     ];
 
-    private void ActivateEditor()
+    private void OpenEditor()
     {
-        isEditing = true;
-        isClosing = false;
-        shouldInitializeQuill = true;
+        isOpen = true;
+        pendingShow = true;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (shouldInitializeQuill)
+        if (pendingShow)
         {
-            shouldInitializeQuill = false;
-            // 讓 CSS 進場動畫跑完 (0.3s)，再執行 JS 初始化的重度運算，否則 JS 會佔據主執行緒造成動畫掉幀卡頓
-            await Task.Delay(300);
-            if (!isEditing) return;
-
+            pendingShow = false;
             dotNetRef ??= DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("QuillInterop.init", containerId, dotNetRef);
+            // 單次 interop 呼叫：初始化（若首次）+ 填入內容 + 聚焦
+            await JS.InvokeVoidAsync("QuillInterop.show", containerId, dotNetRef, Value ?? "", excludePunctuation);
             quillInitialized = true;
-
-            if (!string.IsNullOrEmpty(Value))
-            {
-                await JS.InvokeVoidAsync("QuillInterop.setHtml", containerId, Value);
-            }
-            await JS.InvokeVoidAsync("QuillInterop.focus", containerId);
         }
     }
 
     private async Task CloseEditor()
     {
-        if (!quillInitialized) 
+        if (quillInitialized)
         {
-            isClosing = true;
-            StateHasChanged();
-            await Task.Delay(300);
-            isClosing = false;
-            isEditing = false;
-            return;
-        }
-
-        try
-        {
-            // 嘗試向瀏覽器取得最新的 HTML 內容
-            var html = await JS.InvokeAsync<string>("QuillInterop.getHtml", containerId);
-            if (html != Value)
+            try
             {
-                Value = html;
-                await ValueChanged.InvokeAsync(Value);
+                var html = await JS.InvokeAsync<string>("QuillInterop.getHtml", containerId);
+                if (html != Value)
+                {
+                    Value = html;
+                    await ValueChanged.InvokeAsync(Value);
+                }
             }
-            
-            // 通知 JS 端銷毀編輯器實例
-            await JS.InvokeVoidAsync("QuillInterop.dispose", containerId);
+            catch (Exception ex) when (ex is TaskCanceledException || ex.GetType().Name == "JSDisconnectedException")
+            {
+            }
         }
-        catch (Exception ex) when (ex is TaskCanceledException || ex.GetType().Name == "JSDisconnectedException")
-        {
-            // 攔截並忽略：因元件生命週期結束、快速切換頁面或 SignalR 斷線所引起的取消例外
-            // 這裡刻意使用 GetType().Name 判斷 JSDisconnectedException，避免缺少 using Microsoft.JSInterop 命名空間的問題
-        }
-        finally
-        {
-            // 無論 JS 呼叫是否成功或被取消，都必須確保狀態被正確重置，播放退場動畫
-            quillInitialized = false;
-            isClosing = true;
-            StateHasChanged();
+        isOpen = false;
+    }
 
-            await Task.Delay(300); // 等待退場動畫播完
-            isClosing = false;
-            isEditing = false;
-            
-            // 確保 UI 會更新 (關閉面板)
-            StateHasChanged(); 
+    private async Task OnExcludeToggleChanged()
+    {
+        if (quillInitialized)
+        {
+            await JS.InvokeVoidAsync("QuillInterop.setExcludePunct", containerId, excludePunctuation);
         }
     }
 
@@ -199,7 +173,6 @@
             }
             catch (Exception ex) when (ex is TaskCanceledException || ex.GetType().Name == "JSDisconnectedException")
             {
-                // 元件銷毀時，JS 互操作很容易因為連線已中斷而拋錯，安全忽略即可
             }
         }
         dotNetRef?.Dispose();

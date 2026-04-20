@@ -8,6 +8,7 @@
 @page "/"
 @page "/home"
 @inject NavigationManager Navigation
+@inject IAnnouncementService AnnouncementService
 
 <div class="flex min-h-[calc(100vh-4rem)] flex-col px-4 pt-4 pb-2 sm:px-6 lg:px-8">
 
@@ -76,16 +77,96 @@
                 <div class="flex min-h-[240px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm lg:min-h-0 lg:flex-grow">
                     <div class="bg-gray-50 px-4 py-2.5 font-bold text-gray-700 text-sm border-b border-gray-200 flex justify-between items-center flex-shrink-0">
                         <span>公告與通知</span>
-                        <span class="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">0</span>
+                        <span class="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">@announcements.Count</span>
                     </div>
-                    <div class="overflow-y-auto custom-scroll flex-grow flex flex-col items-center justify-center p-6 bg-gray-50/50">
-                        <div class="mb-4">
-                            <i class="fa-regular fa-folder-open text-[4rem] text-slate-main/20"></i>
+
+                    @if (announcements.Count == 0)
+                    {
+                        <div class="overflow-y-auto custom-scroll flex-grow flex flex-col items-center justify-center p-6 bg-gray-50/50">
+                            <div class="mb-4">
+                                <i class="fa-regular fa-folder-open text-[4rem] text-slate-main/20"></i>
+                            </div>
+                            <p class="text-sm font-bold text-slate-main/60 mb-1 tracking-wide">目前沒有公告通知</p>
+                            <p class="text-xs text-gray-400 text-center max-w-[200px] leading-relaxed">若有新的系統更新或命題時程異動，將會顯示於此處</p>
                         </div>
-                        <p class="text-sm font-bold text-slate-main/60 mb-1 tracking-wide">目前沒有公告通知</p>
-                        <p class="text-xs text-gray-400 text-center max-w-[200px] leading-relaxed">若有新的系統更新或命題時程異動，將會顯示於此處</p>
-                    </div>
+                    }
+                    else
+                    {
+                        <div class="overflow-y-auto custom-scroll flex-grow">
+                            @foreach (var item in announcements)
+                            {
+                                <div class="px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
+                                     @onclick="() => OpenAnnouncementModal(item)">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        @if (item.IsPinned)
+                                        {
+                                            <span class="bg-red-100 text-red-600 text-xs font-bold px-1.5 py-0.5 rounded">置頂</span>
+                                        }
+                                        <span class="@GetCategoryBadgeClass(item.Category) text-xs font-bold px-1.5 py-0.5 rounded">@GetCategoryName(item.Category)</span>
+                                        <span class="text-xs text-gray-400 ml-auto flex items-center gap-1">
+                                            <i class="fa-regular fa-calendar"></i> @item.PublishDate.ToString("yyyy-MM-dd")
+                                        </span>
+                                    </div>
+                                    <h4 class="text-sm font-bold text-slate-main hover:text-morandi mb-1 line-clamp-2 transition-colors">@item.Title</h4>
+                                    <p class="text-xs text-gray-500 line-clamp-2">@StripHtml(item.Content)</p>
+                                </div>
+                            }
+                        </div>
+                    }
                 </div>
+
+                <!-- 公告檢視 Modal -->
+                <CustomModal @bind-IsVisible="showAnnouncementModal" Type="CustomModal.ModalType.Center" Title="公告詳情">
+                    <ChildContent>
+                        @if (selectedAnnouncement is not null)
+                        {
+                            <div class="space-y-4">
+                                <!-- 標籤列 -->
+                                <div class="flex flex-wrap items-center gap-2">
+                                    @if (selectedAnnouncement.IsPinned)
+                                    {
+                                        <span class="bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5 rounded">置頂公告</span>
+                                    }
+                                    <span class="@GetCategoryBadgeClass(selectedAnnouncement.Category) text-xs font-bold px-2 py-0.5 rounded">@GetCategoryName(selectedAnnouncement.Category)</span>
+                                    @if (selectedAnnouncement.ProjectId is null)
+                                    {
+                                        <span class="bg-morandi/10 text-morandi text-xs font-bold px-2 py-0.5 rounded">全站廣播</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="bg-gray-100 text-gray-600 text-xs font-bold px-2 py-0.5 rounded">專案：@selectedAnnouncement.ProjectName</span>
+                                    }
+                                </div>
+
+                                <!-- 標題 -->
+                                <h2 class="text-xl font-bold text-slate-main leading-tight">@selectedAnnouncement.Title</h2>
+
+                                <!-- 發佈資訊 -->
+                                <div class="text-xs text-gray-500 flex items-center gap-3">
+                                    <span class="flex items-center gap-1">
+                                        <i class="fa-regular fa-clock"></i> 發佈時間：@selectedAnnouncement.PublishDate.ToString("yyyy-MM-dd")
+                                    </span>
+                                    <span class="flex items-center gap-1">
+                                        <i class="fa-regular fa-user"></i> @selectedAnnouncement.AuthorName
+                                    </span>
+                                </div>
+
+                                <hr class="border-gray-100" />
+
+                                <!-- 富文本內容 -->
+                                <div class="text-gray-700 leading-relaxed text-sm space-y-3 prose prose-sm max-w-none">
+                                    @((MarkupString)selectedAnnouncement.Content)
+                                </div>
+                            </div>
+                        }
+                    </ChildContent>
+                    <FooterContent>
+                        <button type="button" @onclick="() => showAnnouncementModal = false"
+                                class="px-6 py-2 bg-morandi hover:bg-[#5b7a95] text-white rounded-lg font-medium transition-colors cursor-pointer">
+                            確認關閉
+                        </button>
+                    </FooterContent>
+                </CustomModal>
             </div>
         </div>
 
@@ -102,12 +183,19 @@
     /// <summary>由 MainLayout 傳入的功能模組權限清單。</summary>
     [CascadingParameter(Name = "ModuleCards")] private List<UserModuleCard>? ModuleCards { get; set; }
 
+    /// <summary>由 MainLayout 傳入的當前選中梯次。</summary>
+    [CascadingParameter(Name = "CurrentProject")] private ProjectSwitcherItem? CurrentProject { get; set; }
+
     // ================================================================
     // 元件狀態
     // ================================================================
 
     private string currentDateDisplay = "";
     private bool isReady;
+    private List<AnnouncementListItem> announcements = [];
+    private AnnouncementListItem? selectedAnnouncement;
+    private bool showAnnouncementModal;
+    private int? previousProjectId;
 
     /// <summary>僅取有權限的模組用於渲染卡片。</summary>
     private IReadOnlyList<UserModuleCard> enabledModules =>
@@ -124,15 +212,73 @@
         currentDateDisplay = $"{now:yyyy/MM/dd} (星期{dayNames[(int)now.DayOfWeek]})";
     }
 
+    protected override async Task OnParametersSetAsync()
+    {
+        var projectId = CurrentProject?.Id;
+        if (projectId != previousProjectId)
+        {
+            previousProjectId = projectId;
+            await LoadAnnouncementsAsync();
+        }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            // 等待 Blazor Server DOM 初始化穩定後再播放卡片動畫
             await Task.Delay(100);
             isReady = true;
             StateHasChanged();
         }
+    }
+
+    // ================================================================
+    // 公告資料
+    // ================================================================
+
+    private async Task LoadAnnouncementsAsync()
+    {
+        try
+        {
+            announcements = await AnnouncementService.GetHomeAnnouncementsAsync(CurrentProject?.Id);
+        }
+        catch
+        {
+            announcements = [];
+        }
+    }
+
+    private void OpenAnnouncementModal(AnnouncementListItem item)
+    {
+        selectedAnnouncement = item;
+        showAnnouncementModal = true;
+    }
+
+    // ================================================================
+    // 公告輔助方法
+    // ================================================================
+
+    private static string GetCategoryName(byte category) => category switch
+    {
+        1 => "系統公告",
+        2 => "命題公告",
+        3 => "審題公告",
+        _ => "其它"
+    };
+
+    private static string GetCategoryBadgeClass(byte category) => category switch
+    {
+        1 => "bg-blue-100 text-blue-700",
+        2 => "bg-emerald-100 text-emerald-700",
+        3 => "bg-purple-100 text-purple-700",
+        _ => "bg-gray-100 text-gray-600"
+    };
+
+    /// <summary>移除 HTML 標籤，用於公告摘要顯示。</summary>
+    private static string StripHtml(string html)
+    {
+        if (string.IsNullOrEmpty(html)) return "";
+        return System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", "").Trim();
     }
 
     // ================================================================
@@ -143,9 +289,6 @@
     private void NavigateToModule(UserModuleCard module)
     {
         if (string.IsNullOrWhiteSpace(module.PageUrl)) return;
-
-        // PageUrl 為不帶 / 前綴的相對路徑（如 "dashboard"），
-        // NavigateTo 會基於 <base href> 正確解析子應用程式路徑
         Navigation.NavigateTo(module.PageUrl);
     }
 }

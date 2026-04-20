@@ -7,7 +7,7 @@
 <span class="@GetBadgeContainerClass()">
     @if (ShowIcon && !string.IsNullOrEmpty(GetIconClass()))
     {
-        <i class="fa-solid @GetIconClass() text-[10px]"></i>
+        <i class="fa-solid @GetIconClass() text-[10px] mr-1"></i>
     }
     @StatusText
 </span>
@@ -31,7 +31,7 @@
     private string GetBadgeContainerClass()
     {
         var baseClass = Compact
-            ? "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold whitespace-nowrap"
+            ? "inline-flex items-center px-2 py-0.5 rounded text-xs font-bold whitespace-nowrap"
             : "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border";
 
         return $"{baseClass} {GetBadgeToneClass()}";
@@ -65,17 +65,17 @@
         if (string.IsNullOrEmpty(StatusText)) return "default";
 
         var text = StatusText.Trim();
-        if (text.Contains("完成") || text.Contains("採用") || text.Contains("啟用"))
+        if (text.Contains("完成") || text.Contains("採用") || text.Contains("啟用") || text.Contains("已發佈"))
             return "success";
-        if (text.Contains("進行中") || text.Contains("送審") || text.Contains("鎖定") || text.Contains("審查中"))
+        if (text.Contains("進行中") || text.Contains("送審") || text.Contains("鎖定") || text.Contains("審查中") || text.Contains("未發佈"))
             return "info";
         if (text.Contains("退回") || text.Contains("修題") || text.Contains("待審"))
             return "warning";
-        if (text.Contains("不採用") || text.Contains("停用") || text.Contains("失敗") || text.Contains("異常"))
+        if (text.Contains("不採用") || text.Contains("停用") || text.Contains("失敗") || text.Contains("異常") || text.Contains("已下架"))
             return "danger";
         if (text.Contains("結案"))
             return "closed";
-        if (text.Contains("草稿") || text.Contains("準備中") || text.Contains("下架") || text.Contains("關閉"))
+        if (text.Contains("草稿") || text.Contains("準備中") || text.Contains("關閉"))
             return "draft";
 
         return "default";

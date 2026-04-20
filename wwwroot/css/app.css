@@ -120,15 +120,7 @@
 .stage-line.done { background: var(--color-sage, #8eab94); }
 .stage-line.upcoming { background: #e5e7eb; }
 
-/* --- Quill 底部滑入式編輯器動畫 --- */
-@keyframes quillSlideUp {
-    from { transform: translateY(100%); }
-    to { transform: translateY(0); }
-}
-@keyframes quillSlideDown {
-    from { transform: translateY(0); }
-    to { transform: translateY(100%); }
-}
+/* --- Quill 底部滑入式編輯器：改用 Tailwind transition 控制，不再需要 keyframes --- */
 
 /* --- Quill 編輯器容器自適應 --- */
 .quill-editor-container {
@@ -146,8 +138,8 @@
 }
 .quill-editor-container .ql-container.ql-snow {
     border: none !important;
-    font-family: 'Noto Sans TC', sans-serif;
-    font-size: 0.9rem;
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 1.05rem;
     flex-grow: 1;
     min-height: 0;
     overflow: auto;
@@ -167,7 +159,7 @@
 
 /* --- Quill 預覽區：移除文字背景填色 --- */
 /* 預覽欄位：與 Quill 編輯器一致的字體與樣式 */
-.editable-field { font-family: '標楷體', 'DFKai-SB', 'BiauKai', serif; }
+.editable-field { font-family: 'Times New Roman', Times, serif; font-size: 1.05rem; }
 .ql-size-small { font-size: 0.75em; }
 .ql-size-large { font-size: 1.5em; }
 .editable-field span[style*="background-color"],
@@ -176,14 +168,14 @@
 }
 
 /* --- 自訂字體 for Quill --- */
-/* Quill 編輯器預設使用標楷體 */
-.ql-editor { font-family: '標楷體', 'DFKai-SB', 'BiauKai', serif; }
+/* Quill 編輯器預設使用 Times New Roman */
+.ql-editor { font-family: 'Times New Roman', Times, serif; font-size: 1.15rem; }
 .ql-font-dfkai-sb { font-family: '標楷體', 'DFKai-SB', 'BiauKai', serif; }
 .ql-font-times-new-roman { font-family: 'Times New Roman', Times, serif; }
 
-/* Quill 字體選單：預設項目顯示「預設字體」 */
+/* Quill 字體選單：預設項目顯示「Times New Roman」 */
 .ql-snow .ql-picker.ql-font .ql-picker-label::before,
-.ql-snow .ql-picker.ql-font .ql-picker-item::before { content: '標楷體'; font-family: '標楷體', 'DFKai-SB', serif; }
+.ql-snow .ql-picker.ql-font .ql-picker-item::before { content: 'Times New Roman'; font-family: 'Times New Roman', Times, serif; }
 
 /* Quill 字體選單：自訂字體顯示名稱 */
 .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="dfkai-sb"]::before,
@@ -193,7 +185,7 @@
 .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="times-new-roman"]::before { content: 'Times New Roman'; font-family: 'Times New Roman', Times, serif; }
 
 /* Quill 字體選單：固定寬度避免溢出 */
-.ql-snow .ql-picker.ql-font { width: 80px; }
+.ql-snow .ql-picker.ql-font { width: 140px; }
 .ql-snow .ql-picker.ql-font .ql-picker-label { overflow: hidden; }
 .ql-snow .ql-picker.ql-font .ql-picker-label::before { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
