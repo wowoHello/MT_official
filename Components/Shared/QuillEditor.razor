@@ -46,10 +46,11 @@
                 <span class="text-[10px] text-gray-400 mr-1 flex-shrink-0">快速插入</span>
                 @foreach (var p in punctuations)
                 {
-                    var punct = p;
-                    <button type="button" @onclick="() => InsertPunctuation(punct.Char, punct.IsPair)"
+                    @* 改為純 JS onclick，繞過 Blazor Server SignalR 往返，點擊延遲降至 0ms *@
+                    <button type="button"
+                        onclick="QuillInterop.insertPunctuation('@containerId', '@p.Char', @(p.IsPair ? "true" : "false"))"
                         class="punct-btn px-2 py-0.5 text-sm text-gray-500 border border-gray-200 rounded bg-white hover:bg-morandi hover:text-white hover:border-morandi transition-all cursor-pointer flex-shrink-0">
-                        @punct.Char
+                        @p.Char
                     </button>
                 }
             </div>
@@ -131,14 +132,6 @@
         if (quillInitialized)
         {
             await JS.InvokeVoidAsync("QuillInterop.setExcludePunct", containerId, excludePunctuation);
-        }
-    }
-
-    private async Task InsertPunctuation(string ch, bool isPair)
-    {
-        if (quillInitialized)
-        {
-            await JS.InvokeVoidAsync("QuillInterop.insertPunctuation", containerId, ch, isPair);
         }
     }
 

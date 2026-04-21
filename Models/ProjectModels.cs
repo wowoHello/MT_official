@@ -49,7 +49,7 @@ public class ProjectTargetDto
 public class ProjectMemberAllocationDto
 {
     public int UserId { get; set; }
-    public int RoleId { get; set; }
+    public List<int> RoleIds { get; set; } = new();
     public List<ProjectMemberQuotaDto> Quotas { get; set; } = new();
 }
 
@@ -158,7 +158,7 @@ public class MemberDetailDto
     public int UserId { get; set; }
     public string DisplayName { get; set; } = string.Empty;
     public string? TeacherCode { get; set; }
-    public string RoleName { get; set; } = string.Empty;
+    public List<RoleTag> Roles { get; set; } = new();
 }
 
 public enum ProjectLifecycleStatus : byte

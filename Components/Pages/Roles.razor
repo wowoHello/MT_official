@@ -86,12 +86,8 @@
                 <div class="w-full lg:w-[380px] xl:w-[420px] border-r border-gray-200 flex flex-col z-10 flex-shrink-0">
                     <!-- Filters -->
                     <div class="p-4 border-b border-gray-100 bg-gray-50 flex flex-col gap-3 flex-shrink-0">
-                        <div class="relative">
-                            <i class="fa-solid fa-magnifying-glass left-3 top-2.5 absolute text-gray-400"></i>
-                            <input type="text" @bind="accountKeyword" @bind:event="oninput"
-                                class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi"
-                                placeholder="搜尋姓名、帳號或信箱...">
-                        </div>
+                        <DebouncedSearchInput @bind-Value="accountKeyword"
+                                              Placeholder="搜尋姓名、帳號或信箱..." />
                         <div class="flex gap-2">
                             <button type="button" @onclick='() => accountStatusFilter = "all"'
                                 class="flex-1 py-1 text-xs font-bold rounded cursor-pointer transition @(accountStatusFilter == "all" ? "bg-morandi text-white" : "border border-gray-200 text-gray-500 hover:bg-gray-100")">全部</button>
@@ -111,7 +107,7 @@
                         }
                         else if (!FilteredAccounts.Any())
                         {
-                            <div class="p-4">
+                            <div class="p-4 h-full">
                                 <EmptyState IconClass="fa-id-badge" Message="尚無人員帳號" SubMessage="點擊右上角新增內部管理人員。" />
                             </div>
                         }
@@ -152,9 +148,8 @@
                     }
                     else if (selectedAccount is null)
                     {
-                        <div class="flex-grow flex flex-col items-center justify-center text-gray-400 p-8">
-                            <i class="fa-solid fa-user-gear text-6xl mb-4 text-gray-300"></i>
-                            <p class="text-lg font-medium">請由左側列表選擇人員，或新增一位內部人員。</p>
+                        <div class="flex-grow flex items-center justify-center p-8">
+                            <EmptyState IconClass="fa-user-gear" Message="請選擇人員" SubMessage="由左側列表選擇人員查看詳情，或點擊右上角新增一位內部人員。" />
                         </div>
                     }
                     else
@@ -285,18 +280,6 @@
                                                 </div>
                                             }
                                         </div>
-                                        @{
-                                            var announcementsOn = selectedAccount.EnabledModules.Any(m => m.Name?.Contains("公告") == true);
-                                        }
-                                        @if (announcementsOn)
-                                        {
-                                            <div class="pt-3 border-t border-gray-100 flex justify-between gap-4">
-                                                <span class="text-gray-500">公告權限層級</span>
-                                                <span class="text-slate-main">
-                                                    @(selectedAccount.AnnouncementPerm == 2 ? "瀏覽與編輯" : "僅瀏覽")
-                                                </span>
-                                            </div>
-                                        }
                                     </div>
                                 </div>
                             </div>
@@ -386,14 +369,27 @@
 
                                 <!-- Footer -->
                                 <div class="mt-auto flex items-center justify-between pt-3 border-t border-gray-100">
-                                    <span class="text-xs text-gray-500 flex items-center gap-1">
+                                    <button type="button" @onclick="() => OpenRoleUsersModal(role.Id, role.Name, role.Category)"
+                                            disabled="@(role.UserCount == 0)"
+                                            class="text-xs text-gray-500 flex items-center gap-1 @(role.UserCount > 0 ? "cursor-pointer hover:text-morandi hover:underline" : "cursor-default")"
+                                            title="@(role.UserCount > 0 ? "點擊查看使用者清單" : "目前沒有使用者")">
                                         <i class="fa-solid fa-users"></i> @role.UserCount 位使用者
-                                    </span>
-                                    <button type="button" @onclick="() => OpenRoleModalAsync(role.Id, role.IsDefault)"
-                                            class="cursor-pointer text-xs px-3 py-1.5 rounded border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-morandi hover:border-morandi transition flex items-center gap-1">
-                                        <i class="fa-solid @(role.IsDefault ? "fa-eye" : "fa-pen-to-square")"></i>
-                                        @(role.IsDefault ? "檢視" : "編輯")
                                     </button>
+                                    <div class="flex items-center gap-1.5">
+                                        @if (!role.IsDefault)
+                                        {
+                                            <button type="button" @onclick="() => DeleteRole(role.Id, role.Name, role.UserCount)"
+                                                    class="cursor-pointer text-xs px-2.5 py-1.5 rounded border border-gray-200 text-gray-400 hover:bg-red-50 hover:text-red-500 hover:border-red-300 transition flex items-center gap-1"
+                                                    title="刪除角色">
+                                                <i class="fa-solid fa-trash-can"></i>
+                                            </button>
+                                        }
+                                        <button type="button" @onclick="() => OpenRoleModalAsync(role.Id, role.IsDefault)"
+                                                class="cursor-pointer text-xs px-3 py-1.5 rounded border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-morandi hover:border-morandi transition flex items-center gap-1">
+                                            <i class="fa-solid @(role.IsDefault ? "fa-eye" : "fa-pen-to-square")"></i>
+                                            @(role.IsDefault ? "檢視" : "編輯")
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         }
@@ -612,20 +608,6 @@
                                     <span class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-transform duration-150 ease-out @(t.IsEnabled ? "translate-x-5" : "translate-x-0")"></span>
                                 </button>
                             </div>
-
-                            @if (IsAnnouncementsToggle(t) && t.IsEnabled)
-                            {
-                                <div class="p-3 bg-morandi/5 border-l-4 border-morandi/40 rounded-r flex items-center gap-3">
-                                    <label class="text-xs font-medium text-gray-600 whitespace-nowrap flex items-center gap-1">
-                                        <i class="fa-solid fa-sliders text-morandi"></i> 公告權限層級
-                                    </label>
-                                    <select @bind="t.AnnouncementPerm" disabled="@isRoleReadOnly"
-                                            class="flex-grow max-w-xs px-3 py-1.5 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm bg-white cursor-pointer disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed">
-                                        <option value="1">僅瀏覽 (View Only)</option>
-                                        <option value="2">瀏覽與編輯 (Edit)</option>
-                                    </select>
-                                </div>
-                            }
                         }
                     </div>
                 }
@@ -653,6 +635,85 @@
             }
             </button>
         }
+    </FooterContent>
+</CustomModal>
+
+<!-- Role Users Modal：檢視使用此角色的所有人員 -->
+<CustomModal @bind-IsVisible="showRoleUsersModal" Type="CustomModal.ModalType.Center"
+             Title="@($"使用「{roleUsersRoleName}」的人員")" CloseOnBackdropClick="true">
+    <ChildContent>
+        @if (isLoadingRoleUsers)
+        {
+            <div class="py-8 text-center text-gray-400 text-sm">
+                <i class="fa-solid fa-spinner fa-spin mr-1"></i> 載入中...
+            </div>
+        }
+        else if (roleUsers.Count == 0)
+        {
+            <div class="py-4">
+                <EmptyState IconClass="fa-user-slash" Message="目前沒有使用者" SubMessage="此角色尚未指派給任何人員。" Compact="true" />
+            </div>
+        }
+        else
+        {
+            <div class="space-y-2">
+                @foreach (var u in roleUsers)
+                {
+                    <div @key="@($"{u.UserId}-{u.Source}-{u.ProjectCode}")" class="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition">
+                        <div class="w-10 h-10 rounded-full bg-morandi text-white flex items-center justify-center font-bold flex-shrink-0">
+                            @(string.IsNullOrEmpty(u.DisplayName) ? "?" : u.DisplayName[..1])
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="text-sm font-bold text-slate-main">@u.DisplayName</span>
+                                <span class="text-xs text-gray-500 font-mono">@u.Username</span>
+                                @if (u.Source == 0)
+                                {
+                                    @if (roleUsersCategory == 1)
+                                    {
+                                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">教師角色</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">系統角色</span>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">梯次指派</span>
+                                }
+                            </div>
+                            @if (u.Source == 1 && !string.IsNullOrWhiteSpace(u.ProjectName))
+                            {
+                                <div class="text-xs text-gray-400 truncate">
+                                    <i class="fa-solid fa-layer-group mr-1"></i>@u.ProjectName
+                                    @if (!string.IsNullOrWhiteSpace(u.ProjectCode))
+                                    {
+                                        <span class="font-mono">（@u.ProjectCode）</span>
+                                    }
+                                </div>
+                            }
+                            else if (!string.IsNullOrWhiteSpace(u.Email))
+                            {
+                                <div class="text-xs text-gray-400 truncate">
+                                    <i class="fa-solid fa-envelope mr-1"></i>@u.Email
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+            <p class="text-xs text-gray-400 mt-4">
+                <i class="fa-solid fa-circle-info mr-1"></i>
+                要刪除此角色，請先至對應管理頁面（人員帳號管理 / 教師管理系統）將上述人員改派至其他角色。
+            </p>
+        }
+    </ChildContent>
+    <FooterContent>
+        <button type="button" @onclick="() => showRoleUsersModal = false"
+                class="cursor-pointer px-4 py-2 bg-morandi text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] transition-colors shadow-sm">
+            關閉
+        </button>
     </FooterContent>
 </CustomModal>
 
@@ -684,6 +745,13 @@
     private List<RoleCardItem> allRoles = new();
     private bool isLoadingRoles = true;
 
+    // ──── 角色使用者清單 Modal ────
+    private bool showRoleUsersModal = false;
+    private List<RoleUserItem> roleUsers = new();
+    private string roleUsersRoleName = "";
+    private int roleUsersCategory = 0;
+    private bool isLoadingRoleUsers = false;
+
     // ──── 新增/編輯/檢視角色 表單狀態 ────
     private CreateRoleRequest newRoleModel = new();
     private List<RolePermissionToggle> permissionToggles = new();
@@ -694,10 +762,6 @@
 
     private string RoleModalTitle =>
         isRoleReadOnly ? "檢視角色" : (isRoleEditMode ? "編輯角色" : "新增角色");
-
-    /// <summary>判斷是否為「系統公告/使用說明」模組（用名稱包含「公告」比對，避開 ModuleKey 值差異）。</summary>
-    private static bool IsAnnouncementsToggle(RolePermissionToggle t)
-        => t.Name?.Contains("公告") == true;
 
     /// <summary>依搜尋關鍵字與狀態篩選左側清單。</summary>
     private IEnumerable<InternalAccountItem> FilteredAccounts =>
@@ -812,13 +876,7 @@
             await LoadAccountsAsync();
             if (selectedAccountId is int id) selectedAccount = await RoleService.GetAccountDetailAsync(id);
 
-            await JS.InvokeVoidAsync("Swal.fire", new
-            {
-                icon = "success",
-                title = willDisable ? "已停用" : "已啟用",
-                timer = 1500,
-                showConfirmButton = false,
-            });
+            await JS.InvokeVoidAsync("swalToast", "success", willDisable ? "帳號已停用" : "帳號已啟用", 2000);
         }
         catch (InvalidOperationException ex)
         {
@@ -853,14 +911,7 @@
             await RoleService.ResetAccountPasswordAsync(selectedAccount.Id, operatorId);
             if (selectedAccountId is int id) selectedAccount = await RoleService.GetAccountDetailAsync(id);
 
-            await JS.InvokeVoidAsync("Swal.fire", new
-            {
-                icon = "success",
-                title = "密碼已重設",
-                text = "預設密碼為公司統編 01024304。",
-                timer = 1800,
-                showConfirmButton = false,
-            });
+            await JS.InvokeVoidAsync("swalToast", "success", "密碼已重設為公司統編 01024304", 2500);
         }
         catch (Exception ex)
         {
@@ -998,16 +1049,12 @@
                 Logger.LogInformation("人員帳號建立成功 Id={Id} Username={Username}", targetId, newAccountModel.Username);
             }
 
-            await JS.InvokeVoidAsync("Swal.fire", new
-            {
-                icon = "success",
-                title = isAccountEditMode ? "更新成功" : "新增成功",
-                text = $"人員「{displayName}」已成功{(isAccountEditMode ? "更新" : "新增")}。",
-                timer = 1800,
-                showConfirmButton = false,
-            });
+            var wasEdit = isAccountEditMode;
             CloseAccountModal();
+            await JS.InvokeVoidAsync("swalToast", "success",
+                $"人員「{displayName}」已{(wasEdit ? "更新" : "新增")}", 2000);
             await LoadAccountsAsync();
+            await LoadRolesAsync();
             await SelectAccount(targetId);
         }
         catch (InvalidOperationException ex)
@@ -1043,7 +1090,6 @@
                 BgColorClass = m.BgColorClass,
                 SortOrder = m.SortOrder,
                 IsEnabled = false,
-                AnnouncementPerm = 1,
             }).ToList();
         }
         catch (Exception ex)
@@ -1053,14 +1099,10 @@
         }
     }
 
-    /// <summary>切換單一模組 Toggle 狀態；關閉公告模組時重設權限為預設值。</summary>
+    /// <summary>切換單一模組 Toggle 狀態。</summary>
     private void ToggleModule(RolePermissionToggle toggle)
     {
         toggle.IsEnabled = !toggle.IsEnabled;
-        if (IsAnnouncementsToggle(toggle) && !toggle.IsEnabled)
-        {
-            toggle.AnnouncementPerm = 1;
-        }
     }
 
     /// <summary>CustomModal 雙向綁定橋接；關閉時重設表單。</summary>
@@ -1084,7 +1126,6 @@
         foreach (var t in permissionToggles)
         {
             t.IsEnabled = false;
-            t.AnnouncementPerm = 1;
         }
         isRoleEditMode = false;
         isRoleReadOnly = false;
@@ -1129,6 +1170,65 @@
         showRoleModal = true;
     }
 
+    /// <summary>開啟角色使用者清單 Modal。</summary>
+    private async Task OpenRoleUsersModal(int roleId, string roleName, int category)
+    {
+        roleUsersRoleName = roleName;
+        roleUsersCategory = category;
+        roleUsers = new();
+        showRoleUsersModal = true;
+        isLoadingRoleUsers = true;
+        try
+        {
+            roleUsers = await RoleService.GetRoleUsersAsync(roleId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入角色使用者清單失敗 RoleId={RoleId}", roleId);
+            await JS.InvokeVoidAsync("Swal.fire", "載入失敗", "無法取得使用者清單，請稍後再試。", "error");
+        }
+        finally
+        {
+            isLoadingRoleUsers = false;
+        }
+    }
+
+    /// <summary>刪除自訂角色：確認 → 呼叫 Service → 刷新卡片。</summary>
+    private async Task DeleteRole(int roleId, string roleName, int userCount)
+    {
+        if (userCount > 0)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "無法刪除",
+                $"角色「{roleName}」尚有 {userCount} 位使用者，請先將人員改派至其他角色後再刪除。", "warning");
+            return;
+        }
+
+        var confirmed = await ConfirmAsync(
+            "確認刪除角色？",
+            $"即將永久刪除角色「{roleName}」，此操作無法復原。",
+            "#D98A6C");
+        if (!confirmed) return;
+
+        try
+        {
+            var operatorId = await GetCurrentUserIdAsync();
+            await RoleService.DeleteRoleAsync(roleId, operatorId);
+
+            await JS.InvokeVoidAsync("swalToast", "success", $"角色「{roleName}」已刪除", 2000);
+            await LoadRolesAsync();
+            await LoadInternalRoleOptionsAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", "無法刪除", ex.Message, "warning");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "刪除角色失敗 RoleId={RoleId}", roleId);
+            await JS.InvokeVoidAsync("Swal.fire", "系統錯誤", "刪除失敗，請稍後再試。", "error");
+        }
+    }
+
     /// <summary>儲存新角色或更新既有角色：前端驗證 → 組 DTO → 呼叫 Service → 刷新卡片。</summary>
     private async Task SaveRole()
     {
@@ -1157,7 +1257,6 @@
             {
                 ModuleId = t.ModuleId,
                 IsEnabled = t.IsEnabled,
-                AnnouncementPerm = IsAnnouncementsToggle(t) && t.IsEnabled ? t.AnnouncementPerm : 0,
             }).ToList();
 
             string roleName = newRoleModel.Name;
@@ -1180,15 +1279,10 @@
                 Logger.LogInformation("角色建立成功 Id={Id} Name={Name}", newId, roleName);
             }
 
-            await JS.InvokeVoidAsync("Swal.fire", new
-            {
-                icon = "success",
-                title = isRoleEditMode ? "更新成功" : "新增成功",
-                text = $"角色「{roleName}」已成功{(isRoleEditMode ? "更新" : "新增")}。",
-                timer = 1800,
-                showConfirmButton = false
-            });
+            var wasEdit = isRoleEditMode;
             CloseRoleModal();
+            await JS.InvokeVoidAsync("swalToast", "success",
+                $"角色「{roleName}」已{(wasEdit ? "更新" : "新增")}", 2000);
             await LoadRolesAsync();
 
             // 若當前選中的帳號使用此角色，同步刷新詳情

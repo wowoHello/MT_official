@@ -15,7 +15,7 @@
     <!-- 頁面標題列 -->
     <div class="mb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-4 flex-shrink-0">
         <div>
-            <h1 tabindex="-1" class="text-2xl font-bold mb-0.5 focus:outline-none">功能總覽儀表板</h1>
+            <h1 tabindex="-1" class="text-2xl pb-1 font-bold mb-0.5 focus:outline-none">功能總覽</h1>
             <p class="text-gray-500 text-xs">請選擇作業項目。系統將依您的身分權限自動顯示對應功能。</p>
         </div>
         <div class="text-sm font-medium text-morandi bg-white px-3 py-1.5 rounded-lg shadow-sm border border-gray-100 flex items-center gap-2">
@@ -28,37 +28,53 @@
     <div class="mb-2 flex flex-col gap-5 lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
 
         <!-- 左側：功能模組卡片 Grid（僅渲染有權限的模組） -->
-        <div class="flex flex-col pb-4 lg:w-2/3 lg:min-h-0 lg:overflow-hidden xl:w-3/4">
-            <div class="grid auto-rows-[minmax(170px,250px)] grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                @foreach (var (module, index) in enabledModules.Select((v, i) => (v, i)))
-                {
-                    var delay = index * 50;
+        <div class="flex flex-col lg:w-2/3 lg:min-h-0 lg:overflow-hidden xl:w-3/4">
+            @if (enabledModules.Count == 0)
+            {
+                <EmptyState IconClass="fa-inbox"
+                            Message="目前還沒指派的梯次唷！"
+                            SubMessage="請聯繫管理員為您指派參與的梯次，或先查看右側的使用說明手冊。"
+                            CssClass="flex-grow" />
+            }
+            else
+            {
+                <div class="grid grid-cols-1 gap-4 py-1 sm:grid-cols-2 xl:grid-cols-3 xl:grid-rows-3 xl:auto-rows-fr xl:flex-grow xl:min-h-0">
+                    @foreach (var (module, index) in enabledModules.Select((v, i) => (v, i)))
+                    {
+                        var delay = index * 50;
 
-                    <div class="bg-white cursor-pointer group menu-card relative flex min-h-[170px] flex-col overflow-hidden rounded-xl p-5 shadow-sm transition-all duration-300"
-                        style="@(isReady ? $"animation: fadeIn 0.4s ease-out {delay}ms both;" : "opacity: 0;")"
-                        @onclick="() => NavigateToModule(module)">
+                        <div class="bg-white cursor-pointer group menu-card relative flex min-h-[170px] flex-col overflow-hidden rounded-xl p-5 shadow-sm transition-all duration-300"
+                            style="@(isReady ? $"animation: fadeIn 0.4s ease-out {delay}ms both;" : "opacity: 0;")"
+                            @onclick="() => NavigateToModule(module)">
 
-                        <div class="w-14 h-14 rounded-xl flex items-center justify-center text-3xl mb-4 @module.BgColorClass @module.ColorClass group-hover:scale-110 transition-transform">
-                            <i class="fa-solid @module.Icon"></i>
+                            <div class="w-14 h-14 rounded-xl flex items-center justify-center text-3xl mb-4 @module.BgColorClass @module.ColorClass group-hover:scale-110 transition-transform">
+                                <i class="fa-solid @module.Icon"></i>
+                            </div>
+
+                            <h3 class="text-xl font-bold mb-2 text-slate-main group-hover:text-morandi transition-colors">@module.Name</h3>
+                            <p class="text-[15px] text-gray-500 flex-grow leading-relaxed">@module.Description</p>
+
+                            <div class="mt-4 flex items-center text-sm font-medium text-morandi opacity-0 group-hover:opacity-100 transition-opacity">
+                                進入功能 <i class="fa-solid fa-arrow-right ml-1"></i>
+                            </div>
                         </div>
-
-                        <h3 class="text-xl font-bold mb-2 text-slate-main group-hover:text-morandi transition-colors">@module.Name</h3>
-                        <p class="text-[15px] text-gray-500 flex-grow leading-relaxed">@module.Description</p>
-
-                        <div class="mt-4 flex items-center text-sm font-medium text-morandi opacity-0 group-hover:opacity-100 transition-opacity">
-                            進入功能 <i class="fa-solid fa-arrow-right ml-1"></i>
-                        </div>
-                    </div>
-                }
-            </div>
+                    }
+                </div>
+            }
         </div>
 
         <!-- 右側：今日提醒看板 -->
         <div class="flex flex-col lg:w-1/3 lg:min-h-0 lg:overflow-hidden xl:w-1/4">
             <div class="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden">
-                <h2 class="text-lg font-bold flex items-center gap-2 mb-0.5 flex-shrink-0">
-                    <i class="fa-regular fa-bell text-terracotta"></i> 今日提醒看板
-                </h2>
+                <div class="flex items-center justify-between gap-2 mb-0.5 flex-shrink-0">
+                    <h2 class="text-lg font-bold flex items-center gap-2">
+                        <i class="fa-regular fa-bell text-terracotta"></i> 今日提醒看板
+                    </h2>
+                    <button type="button" @onclick="ShowManualComingSoon"
+                            class="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-morandi hover:text-white text-morandi text-xs font-bold rounded-lg border border-morandi/30 shadow-sm transition-colors cursor-pointer">
+                        <i class="fa-solid fa-book"></i> 使用說明手冊
+                    </button>
+                </div>
 
                 <!-- 急件 / 到期警示 -->
                 <div class="bg-red-50 rounded-xl border border-red-100 overflow-hidden shadow-sm shadow-red-100/50 flex-shrink-0">
@@ -196,6 +212,7 @@
     private AnnouncementListItem? selectedAnnouncement;
     private bool showAnnouncementModal;
     private int? previousProjectId;
+    private bool hasLoadedAnnouncements;
 
     /// <summary>僅取有權限的模組用於渲染卡片。</summary>
     private IReadOnlyList<UserModuleCard> enabledModules =>
@@ -215,9 +232,10 @@
     protected override async Task OnParametersSetAsync()
     {
         var projectId = CurrentProject?.Id;
-        if (projectId != previousProjectId)
+        if (!hasLoadedAnnouncements || projectId != previousProjectId)
         {
             previousProjectId = projectId;
+            hasLoadedAnnouncements = true;
             await LoadAnnouncementsAsync();
         }
     }
@@ -252,6 +270,12 @@
     {
         selectedAnnouncement = item;
         showAnnouncementModal = true;
+    }
+
+    /// <summary>使用說明手冊：PDF 尚未建置，先以提示取代。</summary>
+    private async Task ShowManualComingSoon()
+    {
+        await JS.InvokeVoidAsync("swalInterop.fireToast", "info", "使用說明手冊", "手冊 PDF 建置中，敬請期待。", 2500);
     }
 
     // ================================================================

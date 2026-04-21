@@ -1,0 +1,64 @@
+@* ====================================================================== *@
+@*  DebouncedSearchInput — 具 debounce 的搜尋輸入框                          *@
+@*  目的：避免每打一個字就觸發 SignalR 往返，減少 Blazor Server 卡頓          *@
+@*  使用方式：<DebouncedSearchInput @bind-Value="keyword" DelayMs="250" />   *@
+@* ====================================================================== *@
+@implements IDisposable
+
+<div class="relative">
+    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"></i>
+    <input type="text"
+           value="@innerValue"
+           @oninput="OnInput"
+           placeholder="@Placeholder"
+           class="@CssClass" />
+</div>
+
+@code {
+    [Parameter] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    /// <summary>延遲毫秒數，使用者停止輸入後才回寫 Value（預設 250ms）。</summary>
+    [Parameter] public int DelayMs { get; set; } = 250;
+
+    [Parameter] public string Placeholder { get; set; } = "搜尋...";
+
+    [Parameter] public string CssClass { get; set; } =
+        "w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi";
+
+    private string innerValue = string.Empty;
+    private System.Threading.Timer? debounceTimer;
+
+    protected override void OnParametersSet()
+    {
+        // 外部 Value 變動時同步到內部（例如程式碼主動清空）
+        if (innerValue != Value)
+        {
+            innerValue = Value;
+        }
+    }
+
+    private void OnInput(ChangeEventArgs e)
+    {
+        innerValue = e.Value?.ToString() ?? string.Empty;
+
+        // 重設計時器：使用者還在打字就不觸發回寫
+        debounceTimer?.Dispose();
+        debounceTimer = new System.Threading.Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                if (Value != innerValue)
+                {
+                    Value = innerValue;
+                    await ValueChanged.InvokeAsync(Value);
+                }
+            });
+        }, null, DelayMs, Timeout.Infinite);
+    }
+
+    public void Dispose()
+    {
+        debounceTimer?.Dispose();
+    }
+}

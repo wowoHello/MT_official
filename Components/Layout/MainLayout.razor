@@ -51,14 +51,9 @@
                     <div class="absolute top-full z-50 mt-2 w-full min-w-[300px] overflow-hidden rounded-xl border border-gray-100 bg-white shadow-xl"
                          @onclick:stopPropagation="true">
                         <div class="border-b border-gray-100 bg-gray-50/50 p-3">
-                            <div class="relative">
-                                <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-sm text-gray-400"></i>
-                                <input type="text"
-                                       @bind="projectSearchQuery"
-                                       @bind:event="oninput"
-                                       class="w-full rounded-lg border border-gray-300 py-1.5 pl-8 pr-3 text-sm focus:border-morandi focus:outline-none focus:ring-morandi"
-                                       placeholder="搜尋專案梯次..." />
-                            </div>
+                            <DebouncedSearchInput @bind-Value="projectSearchQuery"
+                                                  Placeholder="搜尋專案梯次..."
+                                                  CssClass="w-full rounded-lg border border-gray-300 py-1.5 pl-9 pr-3 text-sm focus:border-morandi focus:outline-none focus:ring-morandi" />
                         </div>
                         <div class="max-h-[50vh] overflow-y-auto sm:max-h-[60vh]">
                             @{
@@ -183,9 +178,18 @@
                     <div>
                         <div class="text-lg font-bold text-slate-main">@userProfile.DisplayName</div>
                         <div class="flex items-center gap-2 mt-1 flex-wrap">
-                            <span class="text-xs font-medium px-2 py-0.5 rounded @(userProfile.RoleCategory == 0 ? "bg-purple-100 text-purple-700" : "bg-amber-100 text-amber-700")">
-                                @userProfile.RoleName
-                            </span>
+                            @* 若當前梯次有身分 → 顯示梯次身分（可能多個，依每筆 Category 配色）；否則顯示系統角色 *@
+                            @if (userProfile.ProjectRoles.Count > 0)
+                            {
+                                @foreach (var role in userProfile.ProjectRoles)
+                                {
+                                    <StatusBadge StatusText="@role.Name" IsInternal="@(role.Category == 0)" Compact="true" ShowIcon="false" />
+                                }
+                            }
+                            else
+                            {
+                                <StatusBadge StatusText="@userProfile.RoleName" IsInternal="@(userProfile.RoleCategory == 0)" Compact="true" ShowIcon="false" />
+                            }
                             <span class="text-xs px-2 py-0.5 rounded @(userProfile.RoleCategory == 0 ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700")">
                                 @(userProfile.RoleCategory == 0 ? "內部人員" : "外部人員")
                             </span>
@@ -536,7 +540,7 @@
         try
         {
             if (currentUserId is int uid)
-                userProfile = await RoleService.GetUserProfileAsync(uid);
+                userProfile = await RoleService.GetUserProfileAsync(uid, currentProject?.Id);
         }
         catch (Exception ex)
         {
@@ -658,6 +662,14 @@
         hubConnection.On<ProjectRealtimeSyncMessage>("ReceiveProjectChanged", async _ =>
         {
             await ReloadVisibleProjectsAsync();
+            await InvokeAsync(StateHasChanged);
+        });
+
+        // 角色/權限變更：重載模組卡片，並檢查當前頁面是否仍有權限
+        hubConnection.On("ReceiveRoleChanged", async () =>
+        {
+            await ReloadModuleCardsAsync();
+            EnforceModuleAccess(Navigation.Uri);
             await InvokeAsync(StateHasChanged);
         });
 

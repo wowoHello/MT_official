@@ -38,9 +38,6 @@ public class AccountDetailDto
 
     /// <summary>該角色已啟用的功能模組 Badge。</summary>
     public List<RoleModuleBadge> EnabledModules { get; set; } = [];
-
-    /// <summary>公告模組權限層級 (0:無, 1:檢視, 2:編輯)。</summary>
-    public int AnnouncementPerm { get; set; }
 }
 
 /// <summary>新增人員帳號請求。</summary>
@@ -121,7 +118,6 @@ public class RolePermissionToggle
     public string BgColorClass { get; set; } = "";
     public int SortOrder { get; set; }
     public bool IsEnabled { get; set; }
-    public int AnnouncementPerm { get; set; }
 }
 
 /// <summary>新增角色請求。</summary>
@@ -148,7 +144,21 @@ public class RolePermissionInput
 {
     public int ModuleId { get; set; }
     public bool IsEnabled { get; set; }
-    public int AnnouncementPerm { get; set; }
+}
+
+/// <summary>角色使用者清單項目（誰正在使用此角色）。</summary>
+public class RoleUserItem
+{
+    public int UserId { get; set; }
+    public string DisplayName { get; set; } = "";
+    public string Username { get; set; } = "";
+    public string? Email { get; set; }
+    /// <summary>來源：0 = 系統角色（MT_Users.RoleId），1 = 梯次指派（MT_ProjectMemberRoles）。</summary>
+    public int Source { get; set; }
+    /// <summary>梯次名稱（僅 Source=1 時有值）。</summary>
+    public string? ProjectName { get; set; }
+    /// <summary>梯次編號（僅 Source=1 時有值）。</summary>
+    public string? ProjectCode { get; set; }
 }
 
 // ======================================================================
@@ -191,6 +201,9 @@ public class UserProfileDto
     public string? CompanyTitle { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
+
+    /// <summary>當前梯次下的所有身分標籤（MT_ProjectMemberRoles）；無梯次時為空。</summary>
+    public List<RoleTag> ProjectRoles { get; set; } = [];
 }
 
 /// <summary>首頁功能卡片用：模組資訊 + 當前使用者是否有存取權限。</summary>

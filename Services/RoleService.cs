@@ -1,6 +1,8 @@
 using System.Data;
 using System.Text.Json;
 using Dapper;
+using Microsoft.AspNetCore.SignalR;
+using MT.Hubs;
 using MT.Models;
 
 namespace MT.Services;
@@ -24,6 +26,7 @@ public interface IRoleService
     Task<int> CreateRoleAsync(CreateRoleRequest req, int operatorId);
     Task UpdateRoleAsync(UpdateRoleRequest req, int operatorId);
     Task DeleteRoleAsync(int roleId, int operatorId);
+    Task<List<RoleUserItem>> GetRoleUsersAsync(int roleId);
 
     // === 共用查詢 ===
     Task<List<RoleOption>> GetInternalRoleOptionsAsync();
@@ -36,7 +39,8 @@ public interface IRoleService
     Task<List<UserModuleCard>> GetUserModuleCardsAsync(int userId, int? projectId);
 
     // === 個人資料 ===
-    Task<UserProfileDto?> GetUserProfileAsync(int userId);
+    /// <summary>取得使用者基本資料；若傳入 projectId，會帶出該梯次下的所有身分標籤。</summary>
+    Task<UserProfileDto?> GetUserProfileAsync(int userId, int? projectId = null);
     Task ChangeOwnPasswordAsync(int userId, string oldPassword, string newPassword);
 }
 
@@ -46,15 +50,29 @@ public interface IRoleService
 public class RoleService : IRoleService
 {
     private const string DefaultInternalPassword = "01024304";
-    private const string AnnouncementsModuleKey = "announcements";
 
     private readonly IDatabaseService _db;
     private readonly ILogger<RoleService> _logger;
+    private readonly IHubContext<ProjectsHub> _hubContext;
 
-    public RoleService(IDatabaseService db, ILogger<RoleService> logger)
+    public RoleService(IDatabaseService db, ILogger<RoleService> logger, IHubContext<ProjectsHub> hubContext)
     {
         _db = db;
         _logger = logger;
+        _hubContext = hubContext;
+    }
+
+    /// <summary>廣播角色/權限變更事件，通知所有客戶端重載模組權限。</summary>
+    private async Task BroadcastRoleChangedAsync()
+    {
+        try
+        {
+            await _hubContext.Clients.All.SendAsync("ReceiveRoleChanged");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "廣播角色變更事件失敗");
+        }
     }
 
     // ==================================================================
@@ -128,8 +146,7 @@ public class RoleService : IRoleService
                 m.Icon,
                 m.ColorClass,
                 m.BgColorClass,
-                m.SortOrder,
-                rp.AnnouncementPerm
+                m.SortOrder
             FROM dbo.MT_RolePermissions rp
             INNER JOIN dbo.MT_Modules m ON m.Id = rp.ModuleId
             WHERE rp.RoleId = @RoleId
@@ -138,21 +155,8 @@ public class RoleService : IRoleService
             ORDER BY m.SortOrder;
             """;
 
-        var modules = (await conn.QueryAsync(moduleSql, new { RoleId = detail.RoleId })).ToList();
-
-        detail.EnabledModules = modules.Select(m => new RoleModuleBadge
-        {
-            ModuleId = (int)m.ModuleId,
-            ModuleKey = (string)m.ModuleKey,
-            Name = (string)m.Name,
-            Icon = (string?)m.Icon ?? "",
-            ColorClass = (string?)m.ColorClass ?? "",
-            BgColorClass = (string?)m.BgColorClass ?? "",
-            SortOrder = (int)m.SortOrder,
-        }).ToList();
-
-        var announcementsRow = modules.FirstOrDefault(m => (string)m.ModuleKey == AnnouncementsModuleKey);
-        detail.AnnouncementPerm = announcementsRow is null ? 0 : (int)(byte)announcementsRow.AnnouncementPerm;
+        detail.EnabledModules = (await conn.QueryAsync<RoleModuleBadge>(
+            moduleSql, new { RoleId = detail.RoleId })).ToList();
 
         return detail;
     }
@@ -241,6 +245,8 @@ public class RoleService : IRoleService
 
         await WriteAuditAsync(conn, operatorId, AuditAction.Update, AuditTargetType.Users, req.Id,
             newValue: JsonSerializer.Serialize(new { req.DisplayName, req.RoleId, req.Status }));
+
+        await BroadcastRoleChangedAsync();
     }
 
     /// <summary>
@@ -270,6 +276,8 @@ public class RoleService : IRoleService
 
         await WriteAuditAsync(conn, operatorId, AuditAction.Update, AuditTargetType.Users, userId,
             newValue: JsonSerializer.Serialize(new { StatusChangedTo = next }));
+
+        await BroadcastRoleChangedAsync();
     }
 
     /// <summary>
@@ -309,6 +317,8 @@ public class RoleService : IRoleService
     {
         using var conn = _db.CreateConnection();
 
+        // UserCount：內部人員以 MT_Users.RoleId 計算；外部人員另由 MT_ProjectMemberRoles 聚合
+        // 同一使用者在多個梯次重複指派同角色時以 DISTINCT UserId 去重
         const string roleSql = """
             SELECT
                 r.Id,
@@ -316,7 +326,14 @@ public class RoleService : IRoleService
                 r.Category,
                 r.Description,
                 r.IsDefault,
-                (SELECT COUNT(*) FROM dbo.MT_Users u WHERE u.RoleId = r.Id) AS UserCount
+                (SELECT COUNT(*) FROM dbo.MT_Users u WHERE u.RoleId = r.Id)
+                    +
+                (SELECT COUNT(DISTINCT pm.UserId)
+                 FROM dbo.MT_ProjectMemberRoles pmr
+                 INNER JOIN dbo.MT_ProjectMembers pm ON pm.Id = pmr.ProjectMemberId
+                 WHERE pmr.RoleId = r.Id
+                   AND pm.UserId NOT IN (SELECT Id FROM dbo.MT_Users WHERE RoleId = r.Id)
+                ) AS UserCount
             FROM dbo.MT_Roles r
             ORDER BY r.IsDefault DESC, r.Category, r.Id;
             """;
@@ -399,8 +416,7 @@ public class RoleService : IRoleService
                 m.ColorClass,
                 m.BgColorClass,
                 m.SortOrder,
-                COALESCE(rp.IsEnabled, CAST(0 AS BIT)) AS IsEnabled,
-                COALESCE(rp.AnnouncementPerm, 0)       AS AnnouncementPerm
+                COALESCE(rp.IsEnabled, CAST(0 AS BIT)) AS IsEnabled
             FROM dbo.MT_Modules m
             LEFT JOIN dbo.MT_RolePermissions rp
                 ON rp.ModuleId = m.Id AND rp.RoleId = @RoleId
@@ -426,6 +442,7 @@ public class RoleService : IRoleService
 
         await EnsureRoleNameUniqueAsync(conn, req.Name, excludeRoleId: null);
 
+        int roleId;
         using var trans = await conn.BeginTransactionAsync();
         try
         {
@@ -435,7 +452,7 @@ public class RoleService : IRoleService
                 VALUES (@Name, @Category, @Description, 0);
                 """;
 
-            var roleId = await conn.ExecuteScalarAsync<int>(insertRoleSql, new
+            roleId = await conn.ExecuteScalarAsync<int>(insertRoleSql, new
             {
                 req.Name,
                 req.Category,
@@ -449,13 +466,15 @@ public class RoleService : IRoleService
                 transaction: trans);
 
             await trans.CommitAsync();
-            return roleId;
         }
         catch
         {
             await trans.RollbackAsync();
             throw;
         }
+
+        await BroadcastRoleChangedAsync();
+        return roleId;
     }
 
     /// <summary>
@@ -507,6 +526,8 @@ public class RoleService : IRoleService
             await trans.RollbackAsync();
             throw;
         }
+
+        await BroadcastRoleChangedAsync();
     }
 
     /// <summary>
@@ -519,9 +540,14 @@ public class RoleService : IRoleService
 
         await EnsureRoleEditableAsync(conn, roleId);
 
-        const string userCountSql = "SELECT COUNT(*) FROM dbo.MT_Users WHERE RoleId = @RoleId;";
+        // 計算使用者引用：內部人員（MT_Users.RoleId）+ 外部人員（MT_ProjectMemberRoles）
+        const string userCountSql = """
+            SELECT
+                (SELECT COUNT(*) FROM dbo.MT_Users WHERE RoleId = @RoleId)
+              + (SELECT COUNT(*) FROM dbo.MT_ProjectMemberRoles WHERE RoleId = @RoleId);
+            """;
         var userCount = await conn.ExecuteScalarAsync<int>(userCountSql, new { RoleId = roleId });
-        if (userCount > 0) throw new InvalidOperationException($"此角色尚有 {userCount} 位使用者，請先改派後再刪除。");
+        if (userCount > 0) throw new InvalidOperationException($"此角色尚有 {userCount} 筆指派紀錄，請先將人員改派後再刪除。");
 
         using var trans = await conn.BeginTransactionAsync();
         try
@@ -546,6 +572,50 @@ public class RoleService : IRoleService
             await trans.RollbackAsync();
             throw;
         }
+
+        await BroadcastRoleChangedAsync();
+    }
+
+    /// <summary>
+    /// 取得使用此角色的所有使用者清單（含系統角色 + 梯次指派兩種來源）。
+    /// </summary>
+    public async Task<List<RoleUserItem>> GetRoleUsersAsync(int roleId)
+    {
+        using var conn = _db.CreateConnection();
+
+        const string sql = """
+            SELECT
+                u.Id AS UserId,
+                u.DisplayName,
+                u.Username,
+                u.Email,
+                0 AS Source,
+                CAST(NULL AS NVARCHAR(200)) AS ProjectName,
+                CAST(NULL AS NVARCHAR(20))  AS ProjectCode
+            FROM dbo.MT_Users u
+            WHERE u.RoleId = @RoleId
+
+            UNION ALL
+
+            SELECT
+                u.Id AS UserId,
+                u.DisplayName,
+                u.Username,
+                u.Email,
+                1 AS Source,
+                p.Name        AS ProjectName,
+                p.ProjectCode AS ProjectCode
+            FROM dbo.MT_ProjectMemberRoles pmr
+            INNER JOIN dbo.MT_ProjectMembers pm ON pm.Id = pmr.ProjectMemberId
+            INNER JOIN dbo.MT_Users u          ON u.Id = pm.UserId
+            INNER JOIN dbo.MT_Projects p       ON p.Id = pm.ProjectId
+            WHERE pmr.RoleId = @RoleId
+
+            ORDER BY Source, DisplayName;
+            """;
+
+        var rows = await conn.QueryAsync<RoleUserItem>(sql, new { RoleId = roleId });
+        return rows.ToList();
     }
 
     // ==================================================================
@@ -700,33 +770,22 @@ public class RoleService : IRoleService
 
         if (permissions.Count == 0) return;
 
-        // 讀取公告模組 Id，用於判斷是否保留 AnnouncementPerm；其他模組一律寫 0。
-        var announcementsId = await conn.ExecuteScalarAsync<int?>(
-            "SELECT Id FROM dbo.MT_Modules WHERE ModuleKey = @Key;",
-            new { Key = AnnouncementsModuleKey }, transaction: trans);
-
+        // Permissions 為預留欄位（區塊細部權限），交由 DB 預設值處理
         const string insertSql = """
-            INSERT INTO dbo.MT_RolePermissions (RoleId, ModuleId, IsEnabled, AnnouncementPerm)
-            VALUES (@RoleId, @ModuleId, @IsEnabled, @AnnouncementPerm);
+            INSERT INTO dbo.MT_RolePermissions (RoleId, ModuleId, IsEnabled)
+            VALUES (@RoleId, @ModuleId, @IsEnabled);
             """;
 
         foreach (var p in permissions)
         {
-            var announcementPerm = (p.ModuleId == announcementsId && p.IsEnabled)
-                ? ClampAnnouncementPerm(p.AnnouncementPerm)
-                : 0;
-
             await conn.ExecuteAsync(insertSql, new
             {
                 RoleId = roleId,
                 p.ModuleId,
                 p.IsEnabled,
-                AnnouncementPerm = announcementPerm,
             }, transaction: trans);
         }
     }
-
-    private static int ClampAnnouncementPerm(int perm) => perm is 1 or 2 ? perm : 1;
 
     /// <summary>
     /// 統一寫入 MT_AuditLogs 的輔助方法。ProjectId 固定為 NULL（帳號/角色不綁定梯次）。
@@ -761,8 +820,9 @@ public class RoleService : IRoleService
 
     /// <summary>
     /// 取得單一使用者的基本資料（供個人資料 Modal 使用）。
+    /// 若傳入 projectId，會額外查詢該梯次下的所有身分標籤（MT_ProjectMemberRoles）。
     /// </summary>
-    public async Task<UserProfileDto?> GetUserProfileAsync(int userId)
+    public async Task<UserProfileDto?> GetUserProfileAsync(int userId, int? projectId = null)
     {
         using var conn = _db.CreateConnection();
 
@@ -783,7 +843,27 @@ public class RoleService : IRoleService
             WHERE u.Id = @UserId;
             """;
 
-        return await conn.QuerySingleOrDefaultAsync<UserProfileDto>(sql, new { UserId = userId });
+        var profile = await conn.QuerySingleOrDefaultAsync<UserProfileDto>(sql, new { UserId = userId });
+        if (profile is null) return null;
+
+        // 查詢當前梯次下的所有身分標籤（可能多個：命題教師 + 審題專家）
+        if (projectId.HasValue)
+        {
+            const string projectRolesSql = """
+                SELECT r.Name, r.Category
+                FROM dbo.MT_ProjectMembers pm
+                INNER JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
+                INNER JOIN dbo.MT_Roles r ON r.Id = pmr.RoleId
+                WHERE pm.UserId = @UserId AND pm.ProjectId = @ProjectId
+                ORDER BY r.Id;
+                """;
+
+            var rows = await conn.QueryAsync<(string Name, byte Category)>(projectRolesSql,
+                new { UserId = userId, ProjectId = projectId.Value });
+            profile.ProjectRoles = rows.Select(r => new RoleTag(r.Name, r.Category)).ToList();
+        }
+
+        return profile;
     }
 
     /// <summary>

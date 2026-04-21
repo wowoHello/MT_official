@@ -69,6 +69,9 @@ builder.Services.AddScoped<IRoleService, RoleService>();
 // 系統公告 CRUD、自動下架、統計卡片（Announcements.razor、Home.razor）
 builder.Services.AddScoped<IAnnouncementService, AnnouncementService>();
 
+// 教師人才庫 CRUD、命題/審題歷程查詢、梯次指派（Teachers.razor）
+builder.Services.AddScoped<ITeacherService, TeacherService>();
+
 var app = builder.Build();
 
 // =========================================================

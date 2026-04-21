@@ -152,7 +152,7 @@ public class AuthService : IAuthService
         var permissions = await conn.QueryAsync<ModulePermission>(
             @"SELECT m.ModuleKey, m.Name, m.Icon, m.PageUrl,
                      m.Description, m.ColorClass, m.BgColorClass,
-                     rp.IsEnabled, rp.AnnouncementPerm
+                     rp.IsEnabled
               FROM dbo.MT_RolePermissions rp
               INNER JOIN dbo.MT_Modules m ON m.Id = rp.ModuleId
               WHERE rp.RoleId = @RoleId AND rp.IsEnabled = 1 AND m.IsActive = 1

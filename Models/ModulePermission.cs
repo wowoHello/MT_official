@@ -10,5 +10,4 @@ public class ModulePermission
     public string ColorClass { get; set; } = "";
     public string BgColorClass { get; set; } = "";
     public bool IsEnabled { get; set; }
-    public int AnnouncementPerm { get; set; }
 }

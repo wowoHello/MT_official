@@ -220,12 +220,13 @@ public class ProjectService : IProjectService
             WHERE pt.ProjectId = @ProjectId
             ORDER BY pt.QuestionTypeId;
 
-            -- 4. Members and Roles
+            -- 4. Members and Roles（帶 Category 供 UI 配色）
             SELECT
                 pm.UserId,
                 ISNULL(u.DisplayName, N'未知') AS DisplayName,
                 t.TeacherCode,
-                r.Name AS RoleName
+                r.Name AS RoleName,
+                r.Category AS RoleCategory
             FROM dbo.MT_ProjectMembers pm
             LEFT JOIN dbo.MT_Users u ON u.Id = pm.UserId
             LEFT JOIN dbo.MT_Teachers t ON t.UserId = u.Id
@@ -254,11 +255,11 @@ public class ProjectService : IProjectService
                     UserId = g.Key.UserId,
                     DisplayName = g.Key.DisplayName,
                     TeacherCode = g.Key.TeacherCode,
-                    RoleName = string.Join(", ",
-                        g.Select(x => x.RoleName)
-                            .Where(roleName => !string.IsNullOrWhiteSpace(roleName))
-                            .Distinct()
-                            .DefaultIfEmpty("未指定"))
+                    Roles = g.Where(x => !string.IsNullOrWhiteSpace(x.RoleName))
+                        .Select(x => new RoleTag(x.RoleName!, x.RoleCategory ?? 0))
+                        .GroupBy(r => r.Name)
+                        .Select(grp => grp.First())
+                        .ToList()
                 }).ToList();
                 
             return detail;
@@ -593,13 +594,18 @@ public class ProjectService : IProjectService
 
             SELECT
                 pm.Id AS ProjectMemberId,
-                pm.UserId,
-                ISNULL(MIN(pmr.RoleId), 0) AS RoleId
+                pm.UserId
             FROM dbo.MT_ProjectMembers pm
-            LEFT JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
             WHERE pm.ProjectId = @ProjectId
-            GROUP BY pm.Id, pm.UserId
             ORDER BY pm.Id;
+
+            SELECT
+                pmr.ProjectMemberId,
+                pmr.RoleId
+            FROM dbo.MT_ProjectMemberRoles pmr
+            INNER JOIN dbo.MT_ProjectMembers pm ON pm.Id = pmr.ProjectMemberId
+            WHERE pm.ProjectId = @ProjectId
+            ORDER BY pmr.ProjectMemberId, pmr.RoleId;
 
             SELECT
                 mq.ProjectMemberId,
@@ -623,13 +629,17 @@ public class ProjectService : IProjectService
         project.Targets = (await multi.ReadAsync<ProjectTargetDto>()).ToList();
 
         var memberRows = (await multi.ReadAsync<ProjectEditMemberRow>()).ToList();
+        var roleRows = (await multi.ReadAsync<ProjectEditMemberRoleRow>()).ToList();
         var quotaRows = (await multi.ReadAsync<ProjectEditMemberQuotaRow>()).ToList();
 
         project.MemberAllocations = memberRows
             .Select(member => new ProjectMemberAllocationDto
             {
                 UserId = member.UserId,
-                RoleId = member.RoleId,
+                RoleIds = roleRows
+                    .Where(role => role.ProjectMemberId == member.ProjectMemberId)
+                    .Select(role => role.RoleId)
+                    .ToList(),
                 Quotas = quotaRows
                     .Where(quota => quota.ProjectMemberId == member.ProjectMemberId)
                     .Select(quota => new ProjectMemberQuotaDto
@@ -744,14 +754,14 @@ public class ProjectService : IProjectService
                 },
                 transaction: transaction);
 
-            if (alloc.RoleId > 0)
+            foreach (var roleId in alloc.RoleIds.Where(id => id > 0).Distinct())
             {
                 await conn.ExecuteAsync(
                     roleSql,
                     new
                     {
                         ProjectMemberId = memberId,
-                        RoleId = alloc.RoleId
+                        RoleId = roleId
                     },
                     transaction: transaction);
             }
@@ -776,12 +786,18 @@ public class ProjectService : IProjectService
         public string DisplayName { get; set; } = string.Empty;
         public string? TeacherCode { get; set; }
         public string? RoleName { get; set; }
+        public int? RoleCategory { get; set; }
     }
 
     private sealed class ProjectEditMemberRow
     {
         public int ProjectMemberId { get; set; }
         public int UserId { get; set; }
+    }
+
+    private sealed class ProjectEditMemberRoleRow
+    {
+        public int ProjectMemberId { get; set; }
         public int RoleId { get; set; }
     }
 

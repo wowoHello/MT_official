@@ -26,6 +26,13 @@
     public bool ShowIcon { get; set; } = true;
 
     /// <summary>
+    /// 身分別模式開關：傳入時套用「內部紫 / 外部琥珀」雙色配色，
+    /// 用於角色身分別標籤（命題教師、系統管理員...），與狀態標籤區分開。
+    /// </summary>
+    [Parameter]
+    public bool? IsInternal { get; set; }
+
+    /// <summary>
     /// 自動根據文字判斷顏色，若有指定 BadgeType 則優先使用
     /// </summary>
     private string GetBadgeContainerClass()
@@ -39,6 +46,18 @@
 
     private string GetBadgeToneClass()
     {
+        // 身分別模式：依內部/外部直接套雙色
+        if (IsInternal is bool isInternal)
+        {
+            return (isInternal, Compact) switch
+            {
+                (true, true)   => "bg-purple-100 text-purple-700",
+                (true, false)  => "bg-purple-50 text-purple-700 border-purple-200",
+                (false, true)  => "bg-amber-100 text-amber-700",
+                (false, false) => "bg-amber-50 text-amber-700 border-amber-200",
+            };
+        }
+
         var type = BadgeType != "default" ? BadgeType : InferTypeFromStatus();
 
         return (type, Compact) switch
