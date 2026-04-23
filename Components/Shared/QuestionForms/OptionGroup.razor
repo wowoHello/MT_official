@@ -42,7 +42,7 @@
                     </span>
                 </label>
                 <div class="flex-grow">
-                    <QuillEditor Value="@Options[idx]"
+                    <QuillField Value="@Options[idx]"
                         ValueChanged="v => OnOptionChange(idx, v)"
                         FieldLabel="@($"選項 ({optLabel})")"
                         Placeholder="@($"請輸入選項 ({optLabel}) 內容...")" />
@@ -78,3 +78,4 @@
 
     public enum OptionLayout { Vertical, Grid }
 }
+

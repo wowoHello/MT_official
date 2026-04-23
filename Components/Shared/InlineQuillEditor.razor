@@ -1,0 +1,97 @@
+@* ====================================================================== *@
+@*  InlineQuillEditor — 直接嵌入頁面內容區的 Quill 編輯器                  *@
+@*  適用：公告、說明文字等不需要底部拉起式編輯體驗的場景                   *@
+@* ====================================================================== *@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<div class="rounded-lg border border-gray-300 bg-white overflow-hidden focus-within:ring-2 focus-within:ring-morandi focus-within:border-morandi transition-all">
+    <div id="@containerId" class="@EditorClass"></div>
+</div>
+
+@if (ShowWordCount)
+{
+    <div class="mt-1 text-xs text-gray-400 flex justify-end">
+        字數：@wordCount
+    </div>
+}
+
+@code {
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string EditorClass { get; set; } = "min-h-[220px]";
+    [Parameter] public bool ShowWordCount { get; set; } = true;
+    [Parameter] public bool ExcludePunctuation { get; set; } = false;
+
+    private readonly string containerId = $"inline-quill-{Guid.NewGuid():N}";
+    private DotNetObjectReference<InlineQuillEditor>? dotNetRef;
+    private bool initialized;
+    private string lastSyncedValue = "";
+    private int wordCount;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        dotNetRef = DotNetObjectReference.Create(this);
+        lastSyncedValue = Value ?? "";
+
+        await JS.InvokeVoidAsync("QuillInterop.show", containerId, dotNetRef, lastSyncedValue, ExcludePunctuation);
+        initialized = true;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!initialized)
+        {
+            return;
+        }
+
+        var nextValue = Value ?? "";
+        if (nextValue == lastSyncedValue)
+        {
+            return;
+        }
+
+        lastSyncedValue = nextValue;
+        await JS.InvokeVoidAsync("QuillInterop.setHtml", containerId, nextValue);
+    }
+
+    [JSInvokable]
+    public void OnWordCountChanged(int count)
+    {
+        wordCount = count;
+        InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnContentChanged(string html)
+    {
+        if (html == lastSyncedValue)
+        {
+            return;
+        }
+
+        lastSyncedValue = html;
+        await ValueChanged.InvokeAsync(html);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (initialized)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("QuillInterop.dispose", containerId);
+            }
+            catch (Exception ex) when (ex is TaskCanceledException || ex.GetType().Name == "JSDisconnectedException")
+            {
+            }
+        }
+
+        dotNetRef?.Dispose();
+    }
+}

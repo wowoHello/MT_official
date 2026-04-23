@@ -14,7 +14,7 @@
         <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
             <i class="fa-solid fa-pen text-morandi"></i> 題目 <span class="text-red-400">*</span>
         </label>
-        <QuillEditor Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="題目" Placeholder="點擊此處開始編輯題目..." />
+        <QuillField Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="題目" Placeholder="點擊此處開始編輯題目..." />
     </div>
 
     <!-- 文章內容 -->
@@ -31,7 +31,7 @@
                 母題包含「題目」與「文章內容」，兩者皆為必填；文章內容可附圖。子題請補上主向度與能力指標，方便後續審題判讀。
             </p>
         </div>
-        <QuillEditor Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }" FieldLabel="文章內容" Placeholder="點擊此處開始輸入文章內容..." />
+        <QuillField Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }" FieldLabel="文章內容" Placeholder="點擊此處開始輸入文章內容..." />
     </div>
 
     <!-- 子題區 -->
@@ -69,7 +69,7 @@
                             <label class="block text-sm font-bold text-gray-700 mb-2">
                                 題目內容 <span class="text-red-400">*</span>
                             </label>
-                            <QuillEditor Value="@sq.Stem" ValueChanged="v => { sq.Stem = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }" FieldLabel="@($"第 {idx + 1} 題 題目內容")"
+                            <QuillField Value="@sq.Stem" ValueChanged="v => { sq.Stem = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }" FieldLabel="@($"第 {idx + 1} 題 題目內容")"
                                 Placeholder="點擊此處開始編輯題目內容..." />
                         </div>
 
@@ -108,7 +108,7 @@
                             <label class="block text-sm font-bold text-gray-700 mb-2">
                                 試題解析（紀錄答案理由） <span class="text-red-400">*</span>
                             </label>
-                            <QuillEditor Value="@sq.Analysis" ValueChanged="v => { sq.Analysis = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }" FieldLabel="@($"第 {idx + 1} 題 解析")"
+                            <QuillField Value="@sq.Analysis" ValueChanged="v => { sq.Analysis = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }" FieldLabel="@($"第 {idx + 1} 題 解析")"
                                 Placeholder="點擊此處開始編輯解析..." />
                         </div>
                     </div>
@@ -204,3 +204,4 @@
         public string Analysis { get; set; } = "";
     }
 }
+

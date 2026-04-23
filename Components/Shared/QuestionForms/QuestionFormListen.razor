@@ -38,7 +38,7 @@
         <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
             <i class="fa-solid fa-pen text-morandi"></i> 題幹 <span class="text-red-400">*</span>
         </label>
-        <QuillEditor Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="題幹" Placeholder="點擊此處開始編輯題幹內容..." />
+        <QuillField Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="題幹" Placeholder="點擊此處開始編輯題幹內容..." />
     </div>
 
     <!-- 選項與答案 -->
@@ -51,7 +51,7 @@
         <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
             <i class="fa-solid fa-lightbulb text-amber-500"></i> 試題解析（紀錄答案理由） <span class="text-red-400">*</span>
         </label>
-        <QuillEditor Value="@Analysis" ValueChanged="v => { Analysis = v; AnalysisChanged.InvokeAsync(v); }" FieldLabel="解析" Placeholder="點擊此處開始編輯解析，可說明正確答案依據與其他選項錯誤原因..." />
+        <QuillField Value="@Analysis" ValueChanged="v => { Analysis = v; AnalysisChanged.InvokeAsync(v); }" FieldLabel="解析" Placeholder="點擊此處開始編輯解析，可說明正確答案依據與其他選項錯誤原因..." />
     </div>
 </div>
 
@@ -74,3 +74,4 @@
     [Parameter] public EventCallback<string> AnalysisChanged { get; set; }
 
 }
+

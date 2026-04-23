@@ -742,44 +742,6 @@
         }
     }
 
-    /// <summary>軟刪除專案（SweetAlert 確認後執行）</summary>
-    private Task HandleDeleteProjectLegacy() => Task.CompletedTask;
-    /*
-        if (selectedDetail == null) return;
-
-        var confirmed = await JS.InvokeAsync<bool>("swalInterop.confirm", new
-        {
-            "title:'確定刪除專案？'," +
-            $"text:'刪除後專案「{selectedDetail.Name}」將不會再出現在列表中。'," +
-            "icon:'warning'," +
-            "showCancelButton:true," +
-            "confirmButtonColor:'#ef4444'," +
-            "cancelButtonColor:'#6B8EAD'," +
-            "confirmButtonText:'確定刪除'," +
-            "cancelButtonText:'取消'" +
-            "}).then(r => r.isConfirmed)");
-
-        if (!confirmed) return;
-
-        try
-        {
-            var authState = await AuthState;
-            var userIdStr = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            int userId = int.TryParse(userIdStr, out var id) ? id : 1;
-
-            await ProjectService.SoftDeleteProjectAsync(selectedDetail.Id, userId);
-            await JS.InvokeVoidAsync("Swal.fire", "已刪除", "專案已成功移除。", "success");
-
-            selectedDetail = null;
-            selectedProjectId = null;
-            await LoadProjectsAsync();
-        }
-        catch (Exception ex)
-        {
-            await JS.InvokeVoidAsync("Swal.fire", "刪除失敗", $"錯誤：{ex.Message}", "error");
-        }
-    */
-
     /// <summary>依狀態碼取得對應狀態文字</summary>
     private static string GetProjectStatusText(byte status) => status switch
     {

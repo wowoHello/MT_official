@@ -4,10 +4,10 @@
 @*  參數：IsVisible（雙向綁定）、Title、Type、CloseOnBackdropClick         *@
 @*  插槽：ChildContent（主體）、FooterContent（底部按鈕）、HeaderActions    *@
 @* ====================================================================== *@
-@if (IsVisible)
+@if (ShouldRenderModal)
 {
     <!-- Backdrop -->
-    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 transition-opacity duration-300"
+    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 transition-opacity duration-300 @(IsVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none")"
          @onclick="HandleBackdropClick">
     </div>
 
@@ -15,9 +15,9 @@
     @if (Type == ModalType.Center)
     {
         <!-- Center Box Modal -->
-        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
-            <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl pointer-events-auto flex flex-col max-h-[90vh] overflow-hidden"
-                 style="animation: modalIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+        <div class="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none transition-opacity duration-300 @(IsVisible ? "opacity-100" : "opacity-0")">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh] overflow-hidden @(KeepAlive ? "transition-transform duration-300 ease-out" : "") @(BuildCenterContentClass())"
+                 style="@(KeepAlive ? null : "animation: modalIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);")">
                 <div class="flex justify-between items-center p-5 border-b border-gray-100 bg-gray-50/50">
                     <h3 class="text-xl font-bold text-slate-main">@Title</h3>
                     <button type="button" @onclick="CloseAsync" class="text-gray-400 hover:text-red-500 hover:bg-red-50 w-8 h-8 rounded-full flex items-center justify-center transition-colors cursor-pointer">
@@ -40,8 +40,8 @@
     {
         <!-- Slide Over (Right side) — 參考 Prototype projects.html 配色 -->
         <div class="fixed inset-y-0 right-0 z-50 flex max-w-full pl-10 sm:pl-16 pointer-events-none">
-            <div class="w-screen @MaxWidth bg-white shadow-2xl flex flex-col pointer-events-auto"
-                 style="animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+            <div class="w-screen @MaxWidth bg-white shadow-2xl flex flex-col @(KeepAlive ? "transition-transform duration-300 ease-out" : "") @(BuildSlideOverContentClass())"
+                 style="@(KeepAlive ? null : "animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);")">
 
                 <!-- Header: bg-gray-50 + 深色文字 + morandi icon（同 Prototype） -->
                 <div class="px-6 py-5 border-b border-gray-200 bg-gray-50 flex items-center justify-between shadow-sm z-10 flex-shrink-0">
@@ -76,8 +76,8 @@
     else if (Type == ModalType.FullScreen)
     {
         <!-- Full Screen Modal (For Tasks/Editing) -->
-        <div class="fixed inset-0 z-50 bg-gray-50 flex flex-col pointer-events-auto"
-             style="animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+        <div class="fixed inset-0 z-50 bg-gray-50 flex flex-col @(KeepAlive ? "transition-all duration-300 ease-out" : "") @(BuildFullScreenContentClass())"
+             style="@(KeepAlive ? null : "animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);")">
             <div class="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10 shrink-0">
                 <div class="flex items-center gap-4 text-emerald-800">
                     <div class="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center">
@@ -137,6 +137,10 @@
     [Parameter]
     public bool CloseOnBackdropClick { get; set; } = true;
 
+    /// <summary>開啟過後保留 Modal DOM，避免大型內容反覆重建。</summary>
+    [Parameter]
+    public bool KeepAlive { get; set; } = false;
+
     [Parameter]
     public RenderFragment? ChildContent { get; set; }
 
@@ -155,6 +159,33 @@
     /// <summary>僅 backdrop 點擊時觸發（區分 X 按鈕 / 取消按鈕的關閉）</summary>
     [Parameter]
     public EventCallback OnBackdropClose { get; set; }
+
+    private bool hasRenderedOnce;
+
+    private bool ShouldRenderModal => IsVisible || (KeepAlive && hasRenderedOnce);
+
+    protected override void OnParametersSet()
+    {
+        if (IsVisible)
+        {
+            hasRenderedOnce = true;
+        }
+    }
+
+    private string BuildCenterContentClass()
+        => KeepAlive
+            ? IsVisible ? "scale-100 pointer-events-auto" : "scale-95 pointer-events-none"
+            : "pointer-events-auto";
+
+    private string BuildSlideOverContentClass()
+        => KeepAlive
+            ? IsVisible ? "translate-x-0 pointer-events-auto" : "translate-x-full pointer-events-none"
+            : "pointer-events-auto";
+
+    private string BuildFullScreenContentClass()
+        => KeepAlive
+            ? IsVisible ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-full opacity-0 pointer-events-none"
+            : "pointer-events-auto";
 
     private async Task CloseAsync()
     {

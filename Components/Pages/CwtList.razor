@@ -168,7 +168,7 @@
 </div>
 
 <!-- FullScreen 命題表單 Modal -->
-<CustomModal @bind-IsVisible="showComposeModal" Type="CustomModal.ModalType.FullScreen" Title="@composeModalTitle" CloseOnBackdropClick="false">
+<CustomModal @bind-IsVisible="showComposeModal" Type="CustomModal.ModalType.FullScreen" Title="@composeModalTitle" CloseOnBackdropClick="false" KeepAlive="true">
     <HeaderActions>
         <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-bold border border-gray-200">草稿</span>
         <button @onclick="() => showPreviewModal = true" class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer">
@@ -182,54 +182,56 @@
         </button>
     </HeaderActions>
     <ChildContent>
-        <div class="flex-grow flex overflow-hidden relative min-h-0 h-full">
-            <!-- 左側邊欄：屬性設定（可收合） -->
-            <div class="@(sidebarCollapsed ? "w-0" : "w-60 lg:w-72") flex-shrink-0 bg-white border-r border-gray-200 overflow-hidden flex flex-col transition-all duration-300 ease-in-out">
-                <QuestionAttributesSidebar QuestionType="@selectedType" QuestionTypeChanged="OnQuestionTypeChanged"
-                    @bind-Level="selectedLevel" @bind-Difficulty="selectedDifficulty"
-                    @bind-Topic="attrTopic" @bind-Subtopic="attrSubtopic"
-                    @bind-WritingMode="attrWritingMode" @bind-Genre="attrGenre"
-                    @bind-AudioType="attrAudioType" @bind-Material="attrMaterial"
-                    @bind-CoreAbility="attrCoreAbility" @bind-DetailIndicator="attrDetailIndicator" />
-            </div>
+        <QuillEditorHost>
+            <div class="flex-grow flex overflow-hidden relative min-h-0 h-full">
+                <!-- 左側邊欄：屬性設定（可收合） -->
+                <div class="@(sidebarCollapsed ? "w-0" : "w-60 lg:w-72") flex-shrink-0 bg-white border-r border-gray-200 overflow-hidden flex flex-col transition-all duration-300 ease-in-out">
+                    <QuestionAttributesSidebar QuestionType="@selectedType" QuestionTypeChanged="OnQuestionTypeChanged"
+                        @bind-Level="selectedLevel" @bind-Difficulty="selectedDifficulty"
+                        @bind-Topic="attrTopic" @bind-Subtopic="attrSubtopic"
+                        @bind-WritingMode="attrWritingMode" @bind-Genre="attrGenre"
+                        @bind-AudioType="attrAudioType" @bind-Material="attrMaterial"
+                        @bind-CoreAbility="attrCoreAbility" @bind-DetailIndicator="attrDetailIndicator" />
+                </div>
 
-            <!-- 伸縮標籤按鈕（浮動在邊欄邊緣） -->
-            <div class="relative flex-shrink-0">
-                <button @onclick="() => sidebarCollapsed = !sidebarCollapsed"
-                    class="absolute top-1/2 -translate-y-1/2 -left-px z-10 bg-white border border-gray-200 border-l-0 rounded-r-lg shadow-sm px-1.5 py-3 flex flex-col items-center gap-1 text-gray-400 hover:text-morandi hover:bg-gray-50 transition-colors cursor-pointer focus:outline-none"
-                    title="@(sidebarCollapsed ? "展開屬性欄" : "收合屬性欄")">
-                    <i class="fa-solid @(sidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-[10px]"></i>
-                    <span class="text-[10px] font-bold writing-vertical">屬性</span>
-                    <i class="fa-solid @(sidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-[10px]"></i>
-                </button>
-            </div>
+                <!-- 伸縮標籤按鈕（浮動在邊欄邊緣） -->
+                <div class="relative flex-shrink-0">
+                    <button @onclick="() => sidebarCollapsed = !sidebarCollapsed"
+                        class="absolute top-1/2 -translate-y-1/2 -left-px z-10 bg-white border border-gray-200 border-l-0 rounded-r-lg shadow-sm px-1.5 py-3 flex flex-col items-center gap-1 text-gray-400 hover:text-morandi hover:bg-gray-50 transition-colors cursor-pointer focus:outline-none"
+                        title="@(sidebarCollapsed ? "展開屬性欄" : "收合屬性欄")">
+                        <i class="fa-solid @(sidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-[10px]"></i>
+                        <span class="text-[10px] font-bold writing-vertical">屬性</span>
+                        <i class="fa-solid @(sidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-[10px]"></i>
+                    </button>
+                </div>
 
-            <!-- 右側：主要編輯區 -->
-            <div class="flex-grow overflow-y-auto custom-scroll bg-oatmeal min-h-0">
-                @switch (selectedType)
-                {
-                    case "single":
-                    case "select":
-                        <QuestionFormSingle @bind-Stem="formStem" @bind-Options="formOptions" @bind-Answer="formAnswer" @bind-Analysis="formAnalysis" />
-                        break;
-                    case "longText":
-                        <QuestionFormLongText @bind-Stem="formStem" @bind-Passage="formPassage" @bind-GradingNote="formGradingNote" />
-                        break;
-                    case "readGroup":
-                        <QuestionFormReadGroup @bind-Stem="formStem" @bind-Passage="formPassage" @bind-SubQuestions="formReadSubQuestions" />
-                        break;
-                    case "shortGroup":
-                        <QuestionFormShortGroup @bind-Stem="formStem" @bind-Passage="formPassage" @bind-SubQuestions="formShortSubQuestions" />
-                        break;
-                    case "listen":
-                        <QuestionFormListen @bind-AudioFileName="formAudioFileName" @bind-Stem="formStem" @bind-Options="formOptions" @bind-Answer="formAnswer" @bind-Analysis="formAnalysis" />
-                        break;
-                    case "listenGroup":
-                        <QuestionFormListenGroup @bind-AudioFileName="formAudioFileName" @bind-Passage="formPassage" @bind-SubQuestions="formListenGroupSubQuestions" />
-                        break;
-                }
+                <!-- 右側：主要編輯區 -->
+                <div class="flex-grow overflow-y-auto custom-scroll bg-oatmeal min-h-0">
+                    @switch (selectedType)
+                    {
+                        case "single":
+                        case "select":
+                            <QuestionFormSingle @bind-Stem="formStem" @bind-Options="formOptions" @bind-Answer="formAnswer" @bind-Analysis="formAnalysis" />
+                            break;
+                        case "longText":
+                            <QuestionFormLongText @bind-Stem="formStem" @bind-Passage="formPassage" @bind-GradingNote="formGradingNote" />
+                            break;
+                        case "readGroup":
+                            <QuestionFormReadGroup @bind-Stem="formStem" @bind-Passage="formPassage" @bind-SubQuestions="formReadSubQuestions" />
+                            break;
+                        case "shortGroup":
+                            <QuestionFormShortGroup @bind-Stem="formStem" @bind-Passage="formPassage" @bind-SubQuestions="formShortSubQuestions" />
+                            break;
+                        case "listen":
+                            <QuestionFormListen @bind-AudioFileName="formAudioFileName" @bind-Stem="formStem" @bind-Options="formOptions" @bind-Answer="formAnswer" @bind-Analysis="formAnalysis" />
+                            break;
+                        case "listenGroup":
+                            <QuestionFormListenGroup @bind-AudioFileName="formAudioFileName" @bind-Passage="formPassage" @bind-SubQuestions="formListenGroupSubQuestions" />
+                            break;
+                    }
+                </div>
             </div>
-        </div>
+        </QuillEditorHost>
     </ChildContent>
 </CustomModal>
 

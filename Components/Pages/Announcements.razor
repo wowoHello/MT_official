@@ -6,7 +6,6 @@
 @page "/announcements"
 @inject IAnnouncementService AnnouncementService
 @inject ILogger<Announcements> Logger
-@implements IDisposable
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
 
@@ -219,7 +218,7 @@
 <!-- ============================================== -->
 <!-- SlideOver：新增 / 編輯公告                       -->
 <!-- ============================================== -->
-<CustomModal @bind-IsVisible="showSlideOver" Type="CustomModal.ModalType.SlideOver" Title="@panelTitle" MaxWidth="max-w-2xl" CloseOnBackdropClick="true" OnBackdropClose="HandleBackdropSaveDraft">
+<CustomModal @bind-IsVisible="showSlideOver" Type="CustomModal.ModalType.SlideOver" Title="@panelTitle" MaxWidth="max-w-2xl" CloseOnBackdropClick="true" OnBackdropClose="HandleBackdropSaveDraft" KeepAlive="true">
     <ChildContent>
         <EditForm Model="formModel" class="space-y-6">
 
@@ -292,7 +291,7 @@
                 </div>
                 <div>
                     <label class="block text-sm font-medium mb-2 text-gray-700">公告內容 <span class="text-red-500">*</span></label>
-                    <QuillEditor @bind-Value="formModel.Content" FieldLabel="公告內容" Placeholder="在此輸入公告內容..." />
+                    <InlineQuillEditor @bind-Value="formModel.Content" EditorClass="min-h-[220px]" />
                 </div>
             </div>
         </EditForm>
@@ -397,9 +396,6 @@
     private bool showViewModal;
     private AnnouncementListItem? viewingAnnouncement;
 
-    // ─── 定時器：每 10 秒刷新 UI，讓 DisplayStatus 自動跟隨時間更新 ───
-    private Timer? _statusTimer;
-
     // ─── 前端計算統計卡片 ───
     private AnnouncementStats ComputedStats
     {
@@ -457,36 +453,21 @@
     // ─── 生命週期 ───
     protected override async Task OnInitializedAsync()
     {
+        await RunAnnouncementMaintenanceAsync();
         await LoadDataAsync();
-        _statusTimer = new Timer(_ => InvokeAsync(AutoUnpinExpiredAsync), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
     }
 
-    public void Dispose()
+    private async Task RunAnnouncementMaintenanceAsync()
     {
-        _statusTimer?.Dispose();
-    }
-
-    // ─── Timer 回呼：自動取消已下架/草稿公告的置頂，並同步 DB ───
-    private async Task AutoUnpinExpiredAsync()
-    {
-        var toUnpin = announcements.Where(a => a.IsPinned && a.DisplayStatus is "已下架" or "草稿").ToList();
-        if (toUnpin.Count > 0)
+        try
         {
-            try
-            {
-                var userId = await GetCurrentUserIdAsync();
-                foreach (var ann in toUnpin)
-                {
-                    ann.IsPinned = false;
-                    await AnnouncementService.TogglePinAsync(ann.Id, userId);
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "自動取消置頂失敗");
-            }
+            var userId = await GetCurrentUserIdAsync();
+            await AnnouncementService.AutoUnpinExpiredAsync(userId);
         }
-        StateHasChanged();
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "公告自動清理失敗");
+        }
     }
 
     private async Task LoadDataAsync()

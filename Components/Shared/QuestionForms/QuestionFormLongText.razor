@@ -12,7 +12,7 @@
         <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
             <i class="fa-solid fa-pen text-morandi"></i> 題目
         </label>
-        <QuillEditor Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="題目" Placeholder="點擊此處開始編輯題目..." />
+        <QuillField Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="題目" Placeholder="點擊此處開始編輯題目..." />
     </div>
 
     <!-- 文章內容 -->
@@ -29,7 +29,7 @@
                 點擊文章內容後，可用底部編輯器工具列插入圖片，適合放題幹情境圖或資料圖表。
             </p>
         </div>
-        <QuillEditor Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }" FieldLabel="文章內容" Placeholder="點擊此處開始輸入文章內容..." />
+        <QuillField Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }" FieldLabel="文章內容" Placeholder="點擊此處開始輸入文章內容..." />
     </div>
 
     <!-- 批閱說明 -->
@@ -37,7 +37,7 @@
         <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
             <i class="fa-solid fa-lightbulb text-amber-500"></i> 批閱說明
         </label>
-        <QuillEditor Value="@GradingNote" ValueChanged="v => { GradingNote = v; GradingNoteChanged.InvokeAsync(v); }" FieldLabel="批閱說明" Placeholder="請簡要說明長文題目的批閱說明..." />
+        <QuillField Value="@GradingNote" ValueChanged="v => { GradingNote = v; GradingNoteChanged.InvokeAsync(v); }" FieldLabel="批閱說明" Placeholder="請簡要說明長文題目的批閱說明..." />
     </div>
 </div>
 
@@ -51,3 +51,4 @@
     [Parameter] public string GradingNote { get; set; } = "";
     [Parameter] public EventCallback<string> GradingNoteChanged { get; set; }
 }
+

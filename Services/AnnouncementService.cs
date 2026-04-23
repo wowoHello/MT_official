@@ -13,6 +13,7 @@ public interface IAnnouncementService
     Task<int> CreateAsync(AnnouncementFormModel model, int operatorId);
     Task UpdateAsync(int id, AnnouncementFormModel model, int operatorId);
     Task TogglePinAsync(int id, int operatorId);
+    Task<int> AutoUnpinExpiredAsync(int operatorId);
     Task DeleteAsync(int id, int operatorId);
     Task<List<AnnouncementListItem>> GetHomeAnnouncementsAsync(int? projectId);
 }
@@ -220,6 +221,59 @@ public class AnnouncementService : IAnnouncementService
             }, tx);
 
             tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    // ─── 自動取消草稿或已下架公告的置頂狀態 ───
+    public async Task<int> AutoUnpinExpiredAsync(int operatorId)
+    {
+        const string sql = """
+            DECLARE @Updated TABLE (Id INT NOT NULL);
+
+            UPDATE dbo.MT_Announcements
+            SET IsPinned = 0,
+                UpdatedAt = SYSDATETIME()
+            OUTPUT INSERTED.Id INTO @Updated(Id)
+            WHERE IsPinned = 1
+              AND (
+                  Status = @DraftStatus
+                  OR (
+                      Status = @PublishedStatus
+                      AND UnpublishDate IS NOT NULL
+                      AND SYSDATETIME() > UnpublishDate
+                  )
+              );
+
+            INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue)
+            SELECT @UserId, @Action, @TargetType, Id, @NewValue
+            FROM @Updated;
+
+            SELECT COUNT(*) FROM @Updated;
+            """;
+
+        using var conn = _db.CreateConnection();
+        conn.Open();
+        using var tx = conn.BeginTransaction();
+
+        try
+        {
+            var affectedRows = await conn.ExecuteScalarAsync<int>(sql, new
+            {
+                UserId = operatorId,
+                DraftStatus = (byte)AnnouncementStatus.Draft,
+                PublishedStatus = (byte)AnnouncementStatus.Published,
+                Action = (byte)AuditAction.Update,
+                TargetType = (byte)AuditTargetType.Announcements,
+                NewValue = "自動取消過期或草稿公告置頂"
+            }, tx);
+
+            tx.Commit();
+            return affectedRows;
         }
         catch
         {

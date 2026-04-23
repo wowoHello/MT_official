@@ -1,0 +1,171 @@
+@* ====================================================================== *@
+@*  QuillEditorHost — 頁面級共用 Quill 編輯器宿主                          *@
+@*  ChildContent 內的 QuillField 共用同一顆 Quill instance                  *@
+@* ====================================================================== *@
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<CascadingValue Value="editorContext" IsFixed="true">
+    @ChildContent
+</CascadingValue>
+
+<!-- 共用底部滑入式 Quill 面板 -->
+<div class="fixed inset-0 bg-slate-900/10 z-[150] transition-opacity duration-300 @(isOpen ? "opacity-100" : "opacity-0 pointer-events-none")"
+     @onclick="CloseEditorAsync"></div>
+
+<div class="fixed inset-x-0 bottom-0 z-[150] transition-transform duration-300 ease-in-out @(isOpen ? "translate-y-0" : "translate-y-full")">
+    <div class="bg-white border-t-2 border-morandi shadow-[0_-8px_30px_rgba(0,0,0,0.12)] h-[25vh] flex flex-col rounded-t-2xl overflow-visible">
+        <div class="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200 gap-2 flex-shrink-0">
+            <div class="flex items-center gap-2 text-sm text-gray-600 min-w-0 flex-wrap">
+                <i class="fa-solid fa-pen-to-square text-morandi"></i>
+                <span class="text-gray-500">正在編輯：</span>
+                <span class="font-bold text-slate-main truncate">@CurrentFieldLabel</span>
+                <span class="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                    字數：@wordCount
+                </span>
+                <label class="inline-flex items-center gap-1 cursor-pointer select-none flex-shrink-0">
+                    <input type="checkbox" class="accent-morandi w-3.5 h-3.5 cursor-pointer" @bind="excludePunctuation" @bind:after="OnExcludeToggleChanged" />
+                    <span class="text-xs text-gray-500">標點與空白不算</span>
+                </label>
+            </div>
+            <div class="flex items-center gap-1 overflow-x-auto custom-scroll flex-shrink">
+                <span class="text-xs text-gray-400 mr-1 flex-shrink-0">快速插入</span>
+                @foreach (var p in punctuations)
+                {
+                    <button type="button"
+                        onclick="QuillInterop.insertPunctuation('@containerId', '@p.Char', @(p.IsPair ? "true" : "false"))"
+                        class="punct-btn px-2 py-0.5 text-sm text-gray-500 border border-gray-200 rounded bg-white hover:bg-morandi hover:text-white hover:border-morandi transition-all cursor-pointer flex-shrink-0">
+                        @p.Char
+                    </button>
+                }
+            </div>
+            <button type="button" @onclick="CloseEditorAsync"
+                class="text-sm text-gray-400 hover:text-gray-600 font-medium transition-colors cursor-pointer flex items-center gap-1 flex-shrink-0 ml-2">
+                <i class="fa-solid fa-chevron-down"></i> 收起
+            </button>
+        </div>
+
+        <div id="@containerId" class="quill-editor-container flex-grow min-h-0"></div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private readonly SharedQuillEditorContext editorContext = new();
+    private readonly string containerId = $"shared-quill-{Guid.NewGuid():N}";
+    private SharedQuillEditRequest? activeRequest;
+    private DotNetObjectReference<QuillEditorHost>? dotNetRef;
+    private bool isOpen;
+    private bool pendingShow;
+    private bool quillInitialized;
+    private bool excludePunctuation;
+    private int wordCount;
+
+    private string CurrentFieldLabel => activeRequest?.FieldLabel ?? "內容";
+    private string CurrentValue => activeRequest?.Value ?? "";
+
+    private record PunctuationItem(string Char, bool IsPair);
+
+    private static readonly PunctuationItem[] punctuations = [
+        new("，", false), new("。", false), new("、", false),
+        new("；", false), new("：", false),
+        new("「」", true), new("『』", true), new("（）", true),
+        new("！", false), new("？", false),
+        new("——", false), new("……", false)
+    ];
+
+    protected override void OnInitialized()
+    {
+        editorContext.OpenEditorAsync = OpenEditorAsync;
+    }
+
+    private Task OpenEditorAsync(SharedQuillEditRequest request)
+    {
+        activeRequest = request;
+        isOpen = true;
+        pendingShow = true;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!pendingShow || activeRequest is null)
+        {
+            return;
+        }
+
+        pendingShow = false;
+        dotNetRef ??= DotNetObjectReference.Create(this);
+
+        await JS.InvokeVoidAsync("QuillInterop.show", containerId, dotNetRef, CurrentValue, excludePunctuation);
+        quillInitialized = true;
+    }
+
+    private async Task CloseEditorAsync()
+    {
+        if (!isOpen)
+        {
+            return;
+        }
+
+        if (quillInitialized && activeRequest is not null)
+        {
+            try
+            {
+                var html = await JS.InvokeAsync<string>("QuillInterop.getHtml", containerId);
+                if (html != activeRequest.Value)
+                {
+                    await activeRequest.ValueChanged.Invoke(html);
+                }
+            }
+            catch (Exception ex) when (ex is TaskCanceledException || ex.GetType().Name == "JSDisconnectedException")
+            {
+            }
+        }
+
+        isOpen = false;
+        activeRequest = null;
+        wordCount = 0;
+    }
+
+    private async Task OnExcludeToggleChanged()
+    {
+        if (quillInitialized)
+        {
+            await JS.InvokeVoidAsync("QuillInterop.setExcludePunct", containerId, excludePunctuation);
+        }
+    }
+
+    [JSInvokable]
+    public void OnWordCountChanged(int count)
+    {
+        wordCount = count;
+        InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public Task OnContentChanged(string html)
+    {
+        return Task.CompletedTask;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        editorContext.OpenEditorAsync = null;
+
+        if (quillInitialized)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("QuillInterop.dispose", containerId);
+            }
+            catch (Exception ex) when (ex is TaskCanceledException || ex.GetType().Name == "JSDisconnectedException")
+            {
+            }
+        }
+
+        dotNetRef?.Dispose();
+    }
+}

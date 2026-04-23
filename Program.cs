@@ -3,6 +3,7 @@ using MT.Hubs;
 using MT.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +16,9 @@ builder.Services.AddRazorComponents()
 
 // SignalR：提供應用程式層級即時同步
 builder.Services.AddSignalR();
+
+// MudBlazor：日期/時間選擇器等元件所需的 Popover/Dialog/Snackbar 服務
+builder.Services.AddMudServices();
 
 // =========================================================
 // 驗證與授權

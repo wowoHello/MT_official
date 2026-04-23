@@ -8,7 +8,6 @@ namespace MT.Services
 {
     public interface IEmailService
     {
-        Task SendVerifyEmailAsync(string? toEmail, string subject, string basehref, string verifyCode);
         Task SendResetPWEmailAsync(string? toEmail, string subject, string basehref, string resetPasswordURL);
     }
 
@@ -35,60 +34,6 @@ namespace MT.Services
             if (string.IsNullOrWhiteSpace(_smtpUser) || string.IsNullOrWhiteSpace(_smtpPassword))
             {
                 throw new InvalidOperationException("系統尚未完成 SMTP 設定，暫時無法寄送通知信。");
-            }
-        }
-
-        /// <summary>
-        /// 發送驗證郵件
-        /// </summary>
-        public async Task SendVerifyEmailAsync(string? toEmail, string subject, string basehref, string verifyCode)
-        {
-            EnsureSmtpConfigured();
-            var smtpUser = _smtpUser!;
-            var smtpPassword = _smtpPassword!;
-
-            if (string.IsNullOrWhiteSpace(toEmail))
-                throw new ArgumentException("收件者 Email 不得為空");
-
-            if (string.IsNullOrWhiteSpace(subject))
-                throw new ArgumentException("Email 主題不得為空");
-
-            string message = $@"
-                    親愛的 申請人 您好：<br /><br />
-                    感謝您申請CWT 命題工作平臺系統帳號。<br />
-                    以下為您的信箱驗證碼，請於系統中輸入此驗證碼以完成認證：<br /><br />
-                    請手動複製以下驗證碼：<br />
-                    <strong>
-                    <input value='{verifyCode}' readonly style='border:1px solid #ccc;padding:8px;font-size:20px;width:120px;text-align:center;' />
-                    </strong><br /><br />
-                    若有其他問題可再來電客服專線或來信客服服務信箱洽詢。<br /><br />
-                    服務信箱：{smtpUser}<br />
-                    <a href='{basehref}'>CWT 命題工作平臺</a><br /><br />
-                    ***本封信由系統自動寄出，請勿直接回覆!***<br /><br />";
-
-            var smtpClient = new SmtpClient(_smtpServer)
-            {
-                Port = _smtpPort,
-                Credentials = new NetworkCredential(smtpUser, smtpPassword),
-                EnableSsl = true,
-            };
-
-            var mailMessage = new MailMessage
-            {
-                From = new MailAddress(smtpUser, "CWT 命題工作平臺"),
-                Subject = subject,
-                Body = message,
-                IsBodyHtml = true,
-            };
-            mailMessage.To.Add(toEmail);
-
-            try
-            {
-                await smtpClient.SendMailAsync(mailMessage);
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException($"發送 Email 失敗：{ex.Message}", ex);
             }
         }
 
