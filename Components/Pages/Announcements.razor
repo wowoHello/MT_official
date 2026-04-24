@@ -132,7 +132,7 @@
             <div class="flex-grow overflow-y-auto custom-scroll">
                 @if (FilteredList.Count == 0)
                 {
-                    <div class="p-4">
+                    <div class="h-full p-4">
                         <EmptyState IconClass="fa-bullhorn" Message="目前尚無公告" SubMessage="點擊右上角「新增公告」向全站或特定梯次廣播。" />
                     </div>
                 }
@@ -391,6 +391,7 @@
     private bool showSlideOver;
     private string panelTitle = "新增公告";
     private int? editingId;
+    private const int SlideOverTransitionMs = 300;
 
     // ─── 檢視 Modal ───
     private bool showViewModal;
@@ -570,7 +571,7 @@
             await JS.InvokeVoidAsync("Swal.fire", new { icon = "warning", title = "下架日期不可早於上架日期", confirmButtonColor = "#6B8EAD" });
             return false;
         }
-        if (string.IsNullOrWhiteSpace(formModel.Content) || formModel.Content == "<p><br></p>")
+        if (IsContentEmpty(formModel.Content))
         {
             await JS.InvokeVoidAsync("Swal.fire", new { icon = "warning", title = "請填寫公告內容", confirmButtonColor = "#6B8EAD" });
             return false;
@@ -614,7 +615,7 @@
     // ─── 日期秒數歸零（datetime-local 精度到分鐘，避免秒數造成狀態判斷誤差） ───
     private static DateTime TruncateSeconds(DateTime dt) => new(dt.Year, dt.Month, dt.Day, dt.Hour, dt.Minute, 0);
 
-    // ─── 共用儲存邏輯（先收合面板，再非同步儲存 + Toast） ───
+    // ─── 共用儲存邏輯（先收合面板，避開轉場後再儲存與重載列表） ───
     private async Task DoSaveAsync(string successMsg)
     {
         try
@@ -625,7 +626,7 @@
             if (formModel.UnpublishDate.HasValue)
                 formModel.UnpublishDate = TruncateSeconds(formModel.UnpublishDate.Value);
 
-            showSlideOver = false;
+            await CloseSlideOverAndWaitAsync();
 
             var userId = await GetCurrentUserIdAsync();
 
@@ -644,17 +645,19 @@
         }
     }
 
-    // ─── Backdrop 點擊：自動存為草稿 ───
+    // ─── Backdrop 點擊：自動存為草稿（僅當標題 + 內容皆有值時才執行） ───
     private async Task HandleBackdropSaveDraft()
     {
-        if (string.IsNullOrWhiteSpace(formModel.Title) &&
-            (string.IsNullOrWhiteSpace(formModel.Content) || formModel.Content == "<p><br></p>"))
-            return;
+        // 任一必填欄位空白就不自動存草稿（含上架日期）
+        if (string.IsNullOrWhiteSpace(formModel.Title)) return;
+        if (formModel.PublishDate is null) return;
+        if (IsContentEmpty(formModel.Content)) return;
 
         try
         {
-            if (formModel.PublishDate.HasValue)
-                formModel.PublishDate = TruncateSeconds(formModel.PublishDate.Value);
+            await WaitForSlideOverTransitionAsync();
+
+            formModel.PublishDate = TruncateSeconds(formModel.PublishDate.Value);
             if (formModel.UnpublishDate.HasValue)
                 formModel.UnpublishDate = TruncateSeconds(formModel.UnpublishDate.Value);
 
@@ -664,7 +667,7 @@
 
             if (editingId.HasValue)
                 await AnnouncementService.UpdateAsync(editingId.Value, formModel, userId);
-            else if (!string.IsNullOrWhiteSpace(formModel.Title))
+            else
                 await AnnouncementService.CreateAsync(formModel, userId);
 
             _ = JS.InvokeVoidAsync("Swal.fire", new { icon = "success", title = "已自動存為草稿", toast = true, position = "top-end", showConfirmButton = false, timer = 2000 });
@@ -674,6 +677,26 @@
         {
             Logger.LogError(ex, "自動存草稿失敗");
         }
+    }
+
+    // ─── Quill 內容空白判斷（去 HTML 標籤後看是否有純文字） ───
+    private static bool IsContentEmpty(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return true;
+        var plain = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]+>", "").Trim();
+        return string.IsNullOrWhiteSpace(plain);
+    }
+
+    private async Task CloseSlideOverAndWaitAsync()
+    {
+        showSlideOver = false;
+        await WaitForSlideOverTransitionAsync();
+    }
+
+    private async Task WaitForSlideOverTransitionAsync()
+    {
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(SlideOverTransitionMs);
     }
 
     // ─── 置頂切換 ───

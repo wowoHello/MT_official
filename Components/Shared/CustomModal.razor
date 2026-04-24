@@ -7,7 +7,7 @@
 @if (ShouldRenderModal)
 {
     <!-- Backdrop -->
-    <div class="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 transition-opacity duration-300 @(IsVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none")"
+    <div class="fixed inset-0 bg-black/50 z-50 transition-opacity duration-300 @(IsVisible ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none")"
          @onclick="HandleBackdropClick">
     </div>
 
@@ -40,7 +40,7 @@
     {
         <!-- Slide Over (Right side) — 參考 Prototype projects.html 配色 -->
         <div class="fixed inset-y-0 right-0 z-50 flex max-w-full pl-10 sm:pl-16 pointer-events-none">
-            <div class="w-screen @MaxWidth bg-white shadow-2xl flex flex-col @(KeepAlive ? "transition-transform duration-300 ease-out" : "") @(BuildSlideOverContentClass())"
+            <div class="modal-slide-over-panel w-screen @MaxWidth bg-white shadow-2xl flex flex-col @(KeepAlive ? "transition-transform duration-300 ease-out" : "") @(BuildSlideOverContentClass())"
                  style="@(KeepAlive ? null : "animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);")">
 
                 <!-- Header: bg-gray-50 + 深色文字 + morandi icon（同 Prototype） -->

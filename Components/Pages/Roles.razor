@@ -124,7 +124,7 @@
                                         <div class="flex items-center gap-1.5">
                                             <span class="w-2 h-2 rounded-full flex-shrink-0 @(a.Status == 1 ? "bg-sage" : "bg-terracotta")"></span>
                                             <span class="text-sm font-bold text-slate-main truncate">@a.DisplayName</span>
-                                            <span class="text-[10px] font-medium px-1.5 py-0.5 rounded flex-shrink-0 bg-purple-100 text-purple-700">@a.RoleName</span>
+                                            <span class="text-xs font-medium px-1.5 py-0.5 rounded flex-shrink-0 bg-purple-100 text-purple-700">@a.RoleName</span>
                                         </div>
                                         <div class="text-xs text-gray-500 font-mono truncate">@a.Username</div>
                                         @if (!string.IsNullOrWhiteSpace(a.CompanyTitle))
@@ -253,7 +253,7 @@
                                                 <span class="font-medium text-slate-main">@selectedAccount.RoleName</span>
                                                 @if (selectedAccount.IsDefaultRole)
                                                 {
-                                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">預設角色</span>
+                                                    <span class="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">預設角色</span>
                                                 }
                                             </span>
                                         </div>
@@ -273,7 +273,7 @@
                                                     @foreach (var m in selectedAccount.EnabledModules)
                                                     {
                                                         <span class="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 flex items-center gap-1">
-                                                            <i class="fa-solid @m.Icon text-[10px] @m.ColorClass"></i>
+                                                            <i class="fa-solid @m.Icon text-xs @m.ColorClass"></i>
                                                             @m.Name
                                                         </span>
                                                     }
@@ -355,7 +355,7 @@
                                     @foreach (var m in role.EnabledModules.Take(6))
                                     {
                                         <span class="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600 flex items-center gap-1" title="@m.Name">
-                                            <i class="fa-solid @m.Icon text-[10px] @m.ColorClass"></i>
+                                            <i class="fa-solid @m.Icon text-xs @m.ColorClass"></i>
                                             @m.Name
                                         </span>
                                     }
@@ -405,7 +405,7 @@
              Type="CustomModal.ModalType.SlideOver"
              Title="@(isAccountEditMode ? "編輯人員" : "新增人員")"
              HeaderIcon="@(isAccountEditMode ? "fa-solid fa-user-pen" : "fa-solid fa-user-plus")"
-             MaxWidth="max-w-xl" CloseOnBackdropClick="true">
+             MaxWidth="max-w-xl" CloseOnBackdropClick="true" KeepAlive="true">
     <ChildContent>
         <EditForm Model="newAccountModel" class="space-y-6">
             <DataAnnotationsValidator />
@@ -529,7 +529,7 @@
 
 <!-- Add / Edit / View Role Modal -->
 <CustomModal IsVisible="showRoleModal" IsVisibleChanged="OnRoleModalVisibleChanged"
-             Type="CustomModal.ModalType.Center" Title="@RoleModalTitle" CloseOnBackdropClick="true">
+             Type="CustomModal.ModalType.Center" Title="@RoleModalTitle" CloseOnBackdropClick="true" KeepAlive="true">
     <ChildContent>
         <EditForm Model="newRoleModel" class="space-y-6">
             <DataAnnotationsValidator />
@@ -640,7 +640,7 @@
 
 <!-- Role Users Modal：檢視使用此角色的所有人員 -->
 <CustomModal @bind-IsVisible="showRoleUsersModal" Type="CustomModal.ModalType.Center"
-             Title="@($"使用「{roleUsersRoleName}」的人員")" CloseOnBackdropClick="true">
+             Title="@($"使用「{roleUsersRoleName}」的人員")" CloseOnBackdropClick="true" KeepAlive="true">
     <ChildContent>
         @if (isLoadingRoleUsers)
         {
@@ -671,16 +671,16 @@
                                 {
                                     @if (roleUsersCategory == 1)
                                     {
-                                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">教師角色</span>
+                                        <span class="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">教師角色</span>
                                     }
                                     else
                                     {
-                                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">系統角色</span>
+                                        <span class="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">系統角色</span>
                                     }
                                 }
                                 else
                                 {
-                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">梯次指派</span>
+                                    <span class="text-xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">梯次指派</span>
                                 }
                             </div>
                             @if (u.Source == 1 && !string.IsNullOrWhiteSpace(u.ProjectName))

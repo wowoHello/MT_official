@@ -199,9 +199,9 @@
                     <button @onclick="() => sidebarCollapsed = !sidebarCollapsed"
                         class="absolute top-1/2 -translate-y-1/2 -left-px z-10 bg-white border border-gray-200 border-l-0 rounded-r-lg shadow-sm px-1.5 py-3 flex flex-col items-center gap-1 text-gray-400 hover:text-morandi hover:bg-gray-50 transition-colors cursor-pointer focus:outline-none"
                         title="@(sidebarCollapsed ? "展開屬性欄" : "收合屬性欄")">
-                        <i class="fa-solid @(sidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-[10px]"></i>
-                        <span class="text-[10px] font-bold writing-vertical">屬性</span>
-                        <i class="fa-solid @(sidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-[10px]"></i>
+                        <i class="fa-solid @(sidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-xs"></i>
+                        <span class="text-xs font-bold writing-vertical">屬性</span>
+                        <i class="fa-solid @(sidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-xs"></i>
                     </button>
                 </div>
 
@@ -395,7 +395,7 @@
                 @title <i class="fa-solid @icon @iconColor opacity-50"></i>
             </div>
             <div class="text-2xl font-bold @valueColor">@value</div>
-            <div class="text-[11px] text-gray-400 mt-1">@subtitle</div>
+            <div class="text-xs text-gray-400 mt-1">@subtitle</div>
         </div>
     };
 

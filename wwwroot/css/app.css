@@ -1,6 +1,11 @@
 /* 全站基底字體設定在 input.css → html { font-size: 120%; } */
 /* FontController 會以 120% 為基準做相對縮放，控制器顯示仍維持 100% 起跳 */
 
+.modal-slide-over-panel {
+    will-change: transform;
+    backface-visibility: hidden;
+}
+
 /* --- Blazor 框架必備驗證樣式 (不建議刪除) --- */
 .valid.modified:not([type=checkbox]) {
     outline: 1px solid #26b050;
@@ -156,6 +161,32 @@
 .quill-editor-container .ql-editor:focus {
     outline: none;
 }
+
+/* --- InlineQuillEditor：讓 .ql-editor 撐滿外層 min-height 容器，整區皆可點擊聚焦 --- */
+.inline-quill-wrapper { position: relative; }
+.inline-quill-wrapper .ql-toolbar.ql-snow {
+    border: none !important;
+    border-bottom: 1px solid #e5e7eb !important;
+    background: #f9fafb;
+    flex-shrink: 0;
+}
+.inline-quill-wrapper .ql-container.ql-snow {
+    border: none !important;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    cursor: text;
+}
+.inline-quill-wrapper .ql-editor {
+    flex: 1 1 auto;
+    min-height: 180px;
+    overflow-y: auto;
+    line-height: 1.7;
+    cursor: text;
+}
+.inline-quill-wrapper .ql-editor.ql-blank:focus::before { opacity: 0; }
+.inline-quill-wrapper .ql-editor:focus { outline: none; }
 
 /* --- Quill 預覽區：移除文字背景填色 --- */
 /* 預覽欄位：與 Quill 編輯器一致的字體與樣式 */

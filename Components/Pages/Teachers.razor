@@ -144,7 +144,7 @@
                                             }
                                             else
                                             {
-                                                <span class="px-1.5 py-0.5 text-[10px] font-bold rounded bg-gray-100 text-gray-400">未參與此梯次</span>
+                                                <span class="px-1.5 py-0.5 text-xs font-bold rounded bg-gray-100 text-gray-400">未參與此梯次</span>
                                             }
                                         </div>
                                     </div>
@@ -331,7 +331,7 @@
                                             </div>
                                             <div class="flex items-center gap-3">
                                                 <span class="text-xs text-gray-500">@item.ProjectName</span>
-                                                <span class="px-2 py-0.5 text-[10px] font-bold rounded @GetQuestionStatusBadge(item.Status)">@GetQuestionStatusText(item.Status)</span>
+                                                <span class="px-2 py-0.5 text-xs font-bold rounded @GetQuestionStatusBadge(item.Status)">@GetQuestionStatusText(item.Status)</span>
                                             </div>
                                         </div>
                                     }
@@ -389,8 +389,8 @@
                                             </div>
                                             <div class="flex items-center gap-3">
                                                 <span class="text-xs text-gray-500">@item.ProjectName</span>
-                                                <span class="px-2 py-0.5 text-[10px] font-bold rounded @GetStageBadgeClass(item.ReviewStage)">@item.StageText</span>
-                                                <span class="px-2 py-0.5 text-[10px] font-bold rounded @GetDecisionBadgeClass(item.Decision)">@item.DecisionText</span>
+                                                <span class="px-2 py-0.5 text-xs font-bold rounded @GetStageBadgeClass(item.ReviewStage)">@item.StageText</span>
+                                                <span class="px-2 py-0.5 text-xs font-bold rounded @GetDecisionBadgeClass(item.Decision)">@item.DecisionText</span>
                                             </div>
                                         </div>
                                     }
@@ -527,11 +527,11 @@
                                 class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm disabled:bg-gray-100 disabled:cursor-not-allowed" />
                             @if (isEditMode)
                             {
-                                <p class="text-[10px] text-gray-400 mt-1"><i class="fa-solid fa-circle-info mr-0.5"></i> 帳號建立後信箱不可修改。</p>
+                                <p class="text-xs text-gray-400 mt-1"><i class="fa-solid fa-circle-info mr-0.5"></i> 帳號建立後信箱不可修改。</p>
                             }
                             else
                             {
-                                <p class="text-[10px] text-gray-400 mt-1"><i class="fa-solid fa-circle-info mr-0.5"></i> 此信箱即為登入帳號，預設密碼為 <span class="font-bold font-mono">CSF@01024304</span>，首次登入系統將強制修改密碼。</p>
+                                <p class="text-xs text-gray-400 mt-1"><i class="fa-solid fa-circle-info mr-0.5"></i> 此信箱即為登入帳號，預設密碼為 <span class="font-bold font-mono">CSF@01024304</span>，首次登入系統將強制修改密碼。</p>
                             }
                         </div>
                         <div>

@@ -5,8 +5,8 @@
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
-<div class="rounded-lg border border-gray-300 bg-white overflow-hidden focus-within:ring-2 focus-within:ring-morandi focus-within:border-morandi transition-all">
-    <div id="@containerId" class="@EditorClass"></div>
+<div class="inline-quill-wrapper rounded-lg border border-gray-300 bg-white overflow-hidden focus-within:ring-2 focus-within:ring-morandi focus-within:border-morandi transition-all flex flex-col">
+    <div id="@containerId" class="@EditorClass flex flex-col"></div>
 </div>
 
 @if (ShowWordCount)

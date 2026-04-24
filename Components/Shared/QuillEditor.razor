@@ -43,7 +43,7 @@
                 </label>
             </div>
             <div class="flex items-center gap-1 overflow-x-auto custom-scroll flex-shrink">
-                <span class="text-[10px] text-gray-400 mr-1 flex-shrink-0">快速插入</span>
+                <span class="text-xs text-gray-400 mr-1 flex-shrink-0">快速插入</span>
                 @foreach (var p in punctuations)
                 {
                     @* 改為純 JS onclick，繞過 Blazor Server SignalR 往返，點擊延遲降至 0ms *@
