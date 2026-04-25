@@ -4,7 +4,7 @@
 @*  依題型動態渲染專屬屬性欄位（主題/次類/文體/模式/音檔類型...）           *@
 @* ====================================================================== *@
 
-<div class="p-4 space-y-4 flex-grow overflow-y-auto custom-scroll">
+<div class="p-4 space-y-4 flex-grow overflow-y-auto custom-scroll transition-opacity duration-200 @(IsCollapsed ? "opacity-0 invisible pointer-events-none" : "opacity-100 visible delay-100")">
     <div class="flex items-center justify-between gap-3">
         <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
             <i class="fa-solid fa-sliders"></i> 題目屬性
@@ -366,12 +366,14 @@
 </div>
 
 <!-- 底部提示 -->
-<div class="px-4 py-3 border-t border-gray-100 bg-gray-50/50 text-xs text-gray-400 leading-snug flex-shrink-0">
+<div class="px-4 py-3 border-t border-gray-100 bg-gray-50/50 text-xs text-gray-400 leading-snug flex-shrink-0 transition-opacity duration-200 @(IsCollapsed ? "opacity-0 invisible pointer-events-none" : "opacity-100 visible delay-100")">
     <i class="fa-solid fa-circle-info mr-1"></i>
     點右側欄位，就會滑出底部編輯器。
 </div>
 
 @code {
+    [Parameter] public bool IsCollapsed { get; set; } = false;
+
     [Parameter] public string QuestionType { get; set; } = "single";
     [Parameter] public EventCallback<string> QuestionTypeChanged { get; set; }
 

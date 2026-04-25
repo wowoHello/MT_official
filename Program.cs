@@ -72,6 +72,9 @@ builder.Services.AddScoped<IAnnouncementService, AnnouncementService>();
 // 教師人才庫 CRUD、命題/審題歷程查詢、梯次指派（Teachers.razor）
 builder.Services.AddScoped<ITeacherService, TeacherService>();
 
+// 命題任務 CRUD、配額進度、當前階段偵測（CwtList.razor）
+builder.Services.AddScoped<IQuestionService, QuestionService>();
+
 var app = builder.Build();
 
 // =========================================================

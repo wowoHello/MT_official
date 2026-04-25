@@ -6,6 +6,7 @@
 @page "/cwt-list"
 @using MT.Components.Shared.QuestionForms
 @using MT.Components.Shared.QuestionPreviews
+@inject IQuestionService QuestionService
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
 
@@ -33,10 +34,28 @@
                         <i class="fa-solid fa-pen-ruler text-morandi"></i> 命題任務
                     </h1>
                     <!-- 當前階段指示燈 -->
-                    <span class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full bg-sage/15 text-sage border border-sage/30">
-                        <span class="w-2 h-2 rounded-full bg-sage animate-pulse"></span>
-                        命題階段進行中
-                    </span>
+                    @if (currentPhase is not null)
+                    {
+                        var urgentCss = currentPhase.IsUrgent
+                            ? "bg-terracotta/15 text-terracotta border-terracotta/30"
+                            : "bg-sage/15 text-sage border-sage/30";
+                        var dotCss = currentPhase.IsUrgent ? "bg-terracotta" : "bg-sage";
+                        <span class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full border @urgentCss">
+                            <span class="w-2 h-2 rounded-full @dotCss animate-pulse"></span>
+                            @currentPhase.PhaseName 進行中
+                            @if (currentPhase.IsUrgent)
+                            {
+                                <span>（剩 @currentPhase.DaysLeft 天）</span>
+                            }
+                        </span>
+                    }
+                    else if (!isLoadingQuota)
+                    {
+                        <span class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full bg-gray-100 text-gray-400 border border-gray-200">
+                            <span class="w-2 h-2 rounded-full bg-gray-300"></span>
+                            目前無進行中階段
+                        </span>
+                    }
                 </div>
             </div>
             <button @onclick="OpenComposeModal"
@@ -53,16 +72,35 @@
         <div class="px-4 sm:px-6 lg:px-8 pt-5 pb-3">
             <div class="flex items-center gap-2 mb-3">
                 <h2 class="text-sm font-bold text-gray-500"><i class="fa-solid fa-chart-pie mr-1"></i> 我的命題配額進度</h2>
-                <span class="text-xs text-gray-400 font-medium">0 / 0</span>
+                <span class="text-xs text-gray-400 font-medium">
+                    @quotaProgress.Sum(q => q.Completed) / @quotaProgress.Sum(q => q.Target)
+                </span>
             </div>
             <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-                @QuotaCard("一般單選題", 0, 0)
-                @QuotaCard("精選單選題", 0, 0)
-                @QuotaCard("閱讀題組", 0, 0)
-                @QuotaCard("長文題目", 0, 0)
-                @QuotaCard("短文題組", 0, 0)
-                @QuotaCard("聽力測驗", 0, 0)
-                @QuotaCard("聽力題組", 0, 0)
+                @if (isLoadingQuota)
+                {
+                    @for (int i = 0; i < 7; i++)
+                    {
+                        <div class="bg-white rounded-lg border border-gray-200 p-3 shadow-sm animate-pulse">
+                            <div class="h-3 bg-gray-200 rounded w-3/4 mb-2"></div>
+                            <div class="h-6 bg-gray-200 rounded w-1/2 mb-2"></div>
+                            <div class="h-1.5 bg-gray-200 rounded-full"></div>
+                        </div>
+                    }
+                }
+                else if (quotaProgress.Any())
+                {
+                    @foreach (var q in quotaProgress)
+                    {
+                        @QuotaCard(q.TypeName, q.Completed, q.Target)
+                    }
+                }
+                else
+                {
+                    <div class="col-span-7 text-sm text-gray-400 text-center py-2">
+                        <i class="fa-solid fa-circle-info mr-1"></i> 尚未分配命題配額
+                    </div>
+                }
             </div>
         </div>
 
@@ -186,7 +224,8 @@
             <div class="flex-grow flex overflow-hidden relative min-h-0 h-full">
                 <!-- 左側邊欄：屬性設定（可收合） -->
                 <div class="@(sidebarCollapsed ? "w-0" : "w-60 lg:w-72") flex-shrink-0 bg-white border-r border-gray-200 overflow-hidden flex flex-col transition-all duration-300 ease-in-out">
-                    <QuestionAttributesSidebar QuestionType="@selectedType" QuestionTypeChanged="OnQuestionTypeChanged"
+                    <QuestionAttributesSidebar IsCollapsed="sidebarCollapsed"
+                        QuestionType="@selectedType" QuestionTypeChanged="OnQuestionTypeChanged"
                         @bind-Level="selectedLevel" @bind-Difficulty="selectedDifficulty"
                         @bind-Topic="attrTopic" @bind-Subtopic="attrSubtopic"
                         @bind-WritingMode="attrWritingMode" @bind-Genre="attrGenre"
@@ -272,6 +311,17 @@
 </QuestionPreviewModal>
 
 @code {
+    [CascadingParameter(Name = "CurrentProject")]
+    private ProjectSwitcherItem? CurrentProject { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private int? currentUserId;
+    private List<QuotaProgressItem> quotaProgress = [];
+    private ProjectPhaseInfo? currentPhase;
+    private bool isLoadingQuota = true;
+
     private string currentTab = "compose";
     private bool showComposeModal = false;
     private bool sidebarCollapsed = false;
@@ -315,6 +365,38 @@
         ["listen"] = "聽力測驗",
         ["listenGroup"] = "聽力題組"
     };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthState;
+        var claim = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (int.TryParse(claim, out var uid))
+            currentUserId = uid;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (CurrentProject is null || currentUserId is null) return;
+        await LoadPageDataAsync();
+    }
+
+    private async Task LoadPageDataAsync()
+    {
+        isLoadingQuota = true;
+        try
+        {
+            var quotaTask = QuestionService.GetMyQuotaProgressAsync(currentUserId!.Value, CurrentProject!.Id);
+            var phaseTask = QuestionService.GetCurrentPhaseAsync(CurrentProject!.Id);
+            await Task.WhenAll(quotaTask, phaseTask);
+            quotaProgress = quotaTask.Result;
+            currentPhase = phaseTask.Result;
+        }
+        finally
+        {
+            isLoadingQuota = false;
+            StateHasChanged();
+        }
+    }
 
     private void OnQuestionTypeChanged(string newType)
     {
