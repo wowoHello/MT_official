@@ -248,23 +248,23 @@
                 <div class="flex-grow overflow-y-auto custom-scroll bg-oatmeal min-h-0">
                     @switch (selectedType)
                     {
-                        case "single":
-                        case "select":
+                        case QuestionTypeCodes.Single:
+                        case QuestionTypeCodes.Select:
                             <QuestionFormSingle @bind-Stem="formStem" @bind-Options="formOptions" @bind-Answer="formAnswer" @bind-Analysis="formAnalysis" />
                             break;
-                        case "longText":
+                        case QuestionTypeCodes.LongText:
                             <QuestionFormLongText @bind-Stem="formStem" @bind-Passage="formPassage" @bind-GradingNote="formGradingNote" />
                             break;
-                        case "readGroup":
+                        case QuestionTypeCodes.ReadGroup:
                             <QuestionFormReadGroup @bind-Stem="formStem" @bind-Passage="formPassage" @bind-SubQuestions="formReadSubQuestions" />
                             break;
-                        case "shortGroup":
+                        case QuestionTypeCodes.ShortGroup:
                             <QuestionFormShortGroup @bind-Stem="formStem" @bind-Passage="formPassage" @bind-SubQuestions="formShortSubQuestions" />
                             break;
-                        case "listen":
+                        case QuestionTypeCodes.Listen:
                             <QuestionFormListen @bind-AudioFileName="formAudioFileName" @bind-Stem="formStem" @bind-Options="formOptions" @bind-Answer="formAnswer" @bind-Analysis="formAnalysis" />
                             break;
-                        case "listenGroup":
+                        case QuestionTypeCodes.ListenGroup:
                             <QuestionFormListenGroup @bind-AudioFileName="formAudioFileName" @bind-Passage="formPassage" @bind-SubQuestions="formListenGroupSubQuestions" />
                             break;
                     }
@@ -278,33 +278,38 @@
 <QuestionPreviewModal Visible="showPreviewModal" OnClose="() => showPreviewModal = false">
     @switch (selectedType)
     {
-        case "single":
-        case "select":
-            <PreviewSingle QuestionType="@(TypeLabels.GetValueOrDefault(selectedType, ""))" Level="@selectedLevel" Difficulty="@selectedDifficulty"
+        case QuestionTypeCodes.Single:
+        case QuestionTypeCodes.Select:
+            <PreviewSingle QuestionType="@QuestionConstants.TypeLabels.GetValueOrDefault(selectedType, "")" Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel"
                 Tags="@GetPreviewTags()" Stem="@formStem" Options="@formOptions" Answer="@formAnswer" />
             break;
-        case "readGroup":
-            <PreviewReadGroup Level="@selectedLevel" Difficulty="@selectedDifficulty" Tags="@GetPreviewTags()"
+        case QuestionTypeCodes.ReadGroup:
+            <PreviewReadGroup Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel" Tags="@GetPreviewTags()"
                 Stem="@formStem" Passage="@formPassage"
                 SubQuestions="@formReadSubQuestions.Select(sq => new PreviewReadGroup.SubQuestionData { Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer }).ToList()" />
             break;
-        case "longText":
-            <PreviewLongText Level="@selectedLevel" Difficulty="@selectedDifficulty" Tags="@GetPreviewTags()"
+        case QuestionTypeCodes.LongText:
+            <PreviewLongText Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel" Tags="@GetPreviewTags()"
                 Stem="@formStem" Passage="@formPassage" />
             break;
-        case "shortGroup":
-            <PreviewShortGroup Level="@selectedLevel" Difficulty="@selectedDifficulty" Tags="@GetPreviewTags()"
+        case QuestionTypeCodes.ShortGroup:
+            <PreviewShortGroup Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel" Tags="@GetPreviewTags()"
                 Stem="@formStem" Passage="@formPassage"
-                SubQuestions="@formShortSubQuestions.Select(sq => new PreviewShortGroup.SubQuestionData { Stem = sq.Stem, Dimension = sq.CoreAbility, Indicator = sq.Indicator }).ToList()" />
+                SubQuestions="@formShortSubQuestions.Select(sq => new PreviewShortGroup.SubQuestionData {
+                    Stem = sq.Stem,
+                    Dimension = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ShortGroup),
+                    Indicator = QuestionConstants.DecodeSubIndicator(sq.Indicator, QuestionTypeCodes.ShortGroup) }).ToList()" />
             break;
-        case "listen":
-            <PreviewListen Level="@selectedLevel" Difficulty="@selectedDifficulty" Tags="@GetPreviewTags()"
+        case QuestionTypeCodes.Listen:
+            <PreviewListen Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel" Tags="@GetPreviewTags()"
                 AudioFileName="@formAudioFileName" Stem="@formStem" Options="@formOptions" Answer="@formAnswer" />
             break;
-        case "listenGroup":
+        case QuestionTypeCodes.ListenGroup:
             <PreviewListenGroup Tags="@GetPreviewTags()" AudioFileName="@formAudioFileName" Passage="@formPassage"
-                SubQuestions="@formListenGroupSubQuestions.Select((sq, i) => new PreviewListenGroup.SubQuestionData {
-                    Level = i == 0 ? "難度三" : "難度四", CoreAbility = sq.CoreAbility, DetailIndicator = sq.DetailIndicator,
+                SubQuestions="@formListenGroupSubQuestions.Select(sq => new PreviewListenGroup.SubQuestionData {
+                    Level = QuestionConstants.ListenLevelLabels.GetValueOrDefault(sq.FixedDifficulty, ""),
+                    CoreAbility = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ListenGroup),
+                    DetailIndicator = QuestionConstants.DecodeSubIndicator(sq.DetailIndicator, QuestionTypeCodes.ListenGroup),
                     Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer }).ToList()" />
             break;
     }
@@ -330,20 +335,20 @@
     // 預覽 Modal
     private bool showPreviewModal = false;
 
-    // 題型表單屬性
-    private string selectedType = "single";
-    private string selectedLevel = "";
-    private string selectedDifficulty = "";
-    private string attrTopic = "";
-    private string attrSubtopic = "";
-    private string attrWritingMode = "";
-    private string attrGenre = "";
-    private string attrAudioType = "";
-    private string attrMaterial = "";
-    private string attrCoreAbility = "";
-    private string attrDetailIndicator = "";
+    // 題型表單屬性（屬性 enum 改用 byte? 配合 MT_Questions schema）
+    private string selectedType = QuestionTypeCodes.Single;
+    private byte? selectedLevel;
+    private byte? selectedDifficulty;
+    private byte? attrTopic;
+    private byte? attrSubtopic;
+    private byte? attrWritingMode;
+    private byte? attrGenre;
+    private byte? attrAudioType;
+    private byte? attrMaterial;
+    private byte? attrCoreAbility;
+    private byte? attrDetailIndicator;
 
-    // 表單資料（所有題型共用欄位）
+    // 表單資料（所有題型共用欄位，子題類別來自 MT.Models）
     private string formStem = "";
     private string formPassage = "";
     private string formAnalysis = "";
@@ -351,20 +356,10 @@
     private string[] formOptions = ["", "", "", ""];
     private string formAnswer = "";
     private string formAudioFileName = "";
-    private List<QuestionFormReadGroup.SubQuestionChoice> formReadSubQuestions = [new()];
-    private List<QuestionFormShortGroup.SubQuestionFreeResponse> formShortSubQuestions = [new()];
-    private List<QuestionFormListenGroup.ListenGroupSubQuestion> formListenGroupSubQuestions = [new(), new()];
-
-    private static readonly Dictionary<string, string> TypeLabels = new()
-    {
-        ["single"] = "一般單選題",
-        ["select"] = "精選單選題",
-        ["readGroup"] = "閱讀題組",
-        ["longText"] = "長文題目",
-        ["shortGroup"] = "短文題組",
-        ["listen"] = "聽力測驗",
-        ["listenGroup"] = "聽力題組"
-    };
+    private List<SubQuestionChoice> formReadSubQuestions = [new()];
+    private List<SubQuestionFreeResponse> formShortSubQuestions = [new()];
+    private List<ListenGroupSubQuestion> formListenGroupSubQuestions =
+        [new() { FixedDifficulty = 3 }, new() { FixedDifficulty = 4 }];
 
     protected override async Task OnInitializedAsync()
     {
@@ -401,23 +396,23 @@
     private void OnQuestionTypeChanged(string newType)
     {
         selectedType = newType;
-        selectedLevel = "";
-        selectedDifficulty = "";
-        attrTopic = ""; attrSubtopic = "";
-        attrWritingMode = ""; attrGenre = "";
-        attrAudioType = ""; attrMaterial = "";
-        attrCoreAbility = ""; attrDetailIndicator = "";
+        selectedLevel = null;
+        selectedDifficulty = null;
+        attrTopic = null; attrSubtopic = null;
+        attrWritingMode = null; attrGenre = null;
+        attrAudioType = null; attrMaterial = null;
+        attrCoreAbility = null; attrDetailIndicator = null;
     }
 
     private void OpenComposeModal()
     {
-        selectedType = "single";
-        selectedLevel = "";
-        selectedDifficulty = "";
-        attrTopic = ""; attrSubtopic = "";
-        attrWritingMode = ""; attrGenre = "";
-        attrAudioType = ""; attrMaterial = "";
-        attrCoreAbility = ""; attrDetailIndicator = "";
+        selectedType = QuestionTypeCodes.Single;
+        selectedLevel = null;
+        selectedDifficulty = null;
+        attrTopic = null; attrSubtopic = null;
+        attrWritingMode = null; attrGenre = null;
+        attrAudioType = null; attrMaterial = null;
+        attrCoreAbility = null; attrDetailIndicator = null;
         // 重置表單資料
         formStem = ""; formPassage = ""; formAnalysis = ""; formGradingNote = "";
         formOptions = ["", "", "", ""];
@@ -429,42 +424,62 @@
         showComposeModal = true;
     }
 
+    // 將 byte? 解碼為對應的中文標籤；若為 null 回傳 fallback
+    private static string Label(byte? value, IReadOnlyDictionary<byte, string> map, string fallback) =>
+        value is null ? fallback : map.GetValueOrDefault(value.Value, fallback);
+
     private Dictionary<string, string> GetPreviewTags()
     {
         var tags = new Dictionary<string, string>();
-        var fallback = "未設定";
+        const string fallback = "未設定";
 
         switch (selectedType)
         {
-            case "single":
-            case "select":
-                tags["主題"] = string.IsNullOrEmpty(attrTopic) ? fallback : attrTopic;
-                tags["次類"] = string.IsNullOrEmpty(attrSubtopic) ? fallback : attrSubtopic;
+            case QuestionTypeCodes.Single:
+            case QuestionTypeCodes.Select:
+                tags["主類"] = Label(attrTopic, QuestionConstants.TopicLabels, fallback);
+                tags["次類"] = Label(attrSubtopic, QuestionConstants.SubtopicLabels, fallback);
                 break;
-            case "longText":
-                tags["寫作模式"] = string.IsNullOrEmpty(attrWritingMode) ? fallback : attrWritingMode;
+            case QuestionTypeCodes.LongText:
+                tags["寫作模式"] = Label(attrWritingMode, QuestionConstants.WritingModeLabels, fallback);
                 break;
-            case "readGroup":
-                tags["文體"] = string.IsNullOrEmpty(attrGenre) ? fallback : attrGenre;
+            case QuestionTypeCodes.ReadGroup:
+                tags["文體"] = Label(attrGenre, QuestionConstants.GenreLabels, fallback);
                 break;
-            case "shortGroup":
-                tags["主類"] = string.IsNullOrEmpty(attrTopic) ? "文義判讀" : attrTopic;
-                tags["次類"] = string.IsNullOrEmpty(attrSubtopic) ? "篇章辨析" : attrSubtopic;
-                tags["文體"] = string.IsNullOrEmpty(attrGenre) ? fallback : attrGenre;
+            case QuestionTypeCodes.ShortGroup:
+                // 短文題組固定主類=文意判讀(6) / 次類=篇章辨析(17)
+                tags["主類"] = "文意判讀";
+                tags["次類"] = "篇章辨析";
+                tags["文體"] = Label(attrGenre, QuestionConstants.GenreLabels, fallback);
                 break;
-            case "listen":
-                tags["核心能力"] = string.IsNullOrEmpty(attrCoreAbility) ? fallback : attrCoreAbility;
-                tags["細目指標"] = string.IsNullOrEmpty(attrDetailIndicator) ? fallback : attrDetailIndicator;
-                tags["語音類型"] = string.IsNullOrEmpty(attrAudioType) ? fallback : attrAudioType;
-                tags["素材分類"] = string.IsNullOrEmpty(attrMaterial) ? fallback : attrMaterial;
+            case QuestionTypeCodes.Listen:
+                tags["核心能力"] = Label(attrCoreAbility, QuestionConstants.CoreAbilityLabels, fallback);
+                tags["細目指標"] = Label(attrDetailIndicator, QuestionConstants.DetailIndicatorLabels, fallback);
+                tags["語音類型"] = Label(attrAudioType, QuestionConstants.AudioTypeLabels, fallback);
+                tags["素材分類"] = Label(attrMaterial, QuestionConstants.MaterialLabels, fallback);
                 break;
-            case "listenGroup":
-                tags["語音類型"] = string.IsNullOrEmpty(attrAudioType) ? fallback : attrAudioType;
-                tags["素材分類"] = string.IsNullOrEmpty(attrMaterial) ? fallback : attrMaterial;
+            case QuestionTypeCodes.ListenGroup:
+                tags["語音類型"] = Label(attrAudioType, QuestionConstants.AudioTypeLabels, fallback);
+                tags["素材分類"] = Label(attrMaterial, QuestionConstants.MaterialLabels, fallback);
                 break;
         }
         return tags;
     }
+
+    // 等級顯示用：聽力與一般題型的等級標籤系統不同
+    private string SelectedLevelLabel
+    {
+        get
+        {
+            if (selectedLevel is null) return "";
+            return selectedType is QuestionTypeCodes.Listen or QuestionTypeCodes.ListenGroup
+                ? QuestionConstants.ListenLevelLabels.GetValueOrDefault(selectedLevel.Value, "")
+                : QuestionConstants.GeneralLevelLabels.GetValueOrDefault(selectedLevel.Value, "");
+        }
+    }
+
+    private string SelectedDifficultyLabel =>
+        selectedDifficulty is null ? "" : QuestionConstants.DifficultyLabels.GetValueOrDefault(selectedDifficulty.Value, "");
 
     private string activeFilter = "all";
 

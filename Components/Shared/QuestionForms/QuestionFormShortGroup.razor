@@ -1,8 +1,8 @@
 @* ====================================================================== *@
 @*  QuestionFormShortGroup — 短文題組 命題表單                              *@
-@*  結構：題目（Quill）+ 文章內容（Quill）+ N 個子題（題幹Quill+主向度+指標+解析Quill）*@
+@*  結構：題目（Quill）+ 文章內容（Quill）+ N 個子題（題幹+主向度+指標+解析）*@
 @*  屬性側欄：文體（文言文 / 應用文 / 語體文）                              *@
-@*  固定屬性：主類 = 文義判讀、次類 = 篇章辨析                              *@
+@*  固定屬性：主類 = 文意判讀(6)、次類 = 篇章辨析(17)                       *@
 @* ====================================================================== *@
 @using MT.Components.Shared
 @inject IJSRuntime JS
@@ -80,23 +80,23 @@
                                 <select @bind="sq.CoreAbility" @bind:after="() => OnCoreAbilityChanged(sq)"
                                     class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                                     <option value="">請選擇</option>
-                                    @foreach (var dim in CoreAbilityOptions)
+                                    @foreach (var pair in QuestionConstants.ShortGroupCoreAbilityLabels)
                                     {
-                                        <option value="@dim">@dim</option>
+                                        <option value="@pair.Key">@pair.Value</option>
                                     }
                                 </select>
                             </div>
                             <div>
                                 <label class="block text-xs font-medium text-gray-600 mb-1">能力指標 <span class="text-red-400">*</span></label>
                                 <select @bind="sq.Indicator"
-                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer @(string.IsNullOrEmpty(sq.CoreAbility) ? "bg-gray-50 text-gray-300" : "")"
-                                    disabled="@(string.IsNullOrEmpty(sq.CoreAbility))">
-                                    <option value="">@(string.IsNullOrEmpty(sq.CoreAbility) ? "先選主向度" : "請選擇")</option>
-                                    @if (!string.IsNullOrEmpty(sq.CoreAbility) && CoreAbilityIndicatorMap.ContainsKey(sq.CoreAbility))
+                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer @(sq.CoreAbility is null ? "bg-gray-50 text-gray-300" : "")"
+                                    disabled="@(sq.CoreAbility is null)">
+                                    <option value="">@(sq.CoreAbility is null ? "先選主向度" : "請選擇")</option>
+                                    @if (sq.CoreAbility is not null && QuestionConstants.ShortGroupCoreAbilityIndicatorMap.TryGetValue(sq.CoreAbility.Value, out var indicators))
                                     {
-                                        @foreach (var ind in CoreAbilityIndicatorMap[sq.CoreAbility])
+                                        @foreach (var ind in indicators)
                                         {
-                                            <option value="@ind">@ind</option>
+                                            <option value="@ind">@QuestionConstants.ShortGroupIndicatorLabels.GetValueOrDefault(ind, "")</option>
                                         }
                                     }
                                 </select>
@@ -128,35 +128,9 @@
     [Parameter] public List<SubQuestionFreeResponse> SubQuestions { get; set; } = [new()];
     [Parameter] public EventCallback<List<SubQuestionFreeResponse>> SubQuestionsChanged { get; set; }
 
-    private static readonly string[] CoreAbilityOptions = ["條列敘述", "歸納統整", "分析推理"];
-
-    private static readonly Dictionary<string, string[]> CoreAbilityIndicatorMap = new()
-    {
-        ["條列敘述"] = [
-            "1-1 條列敘述人、事、物特徵與特質",
-            "1-2 條列敘述起始原因、發生情況、結論等時空先後順序",
-            "1-3 條列敘述人、事、物的差異"
-        ],
-        ["歸納統整"] = [
-            "2-1 歸納作者主張",
-            "2-2 歸納文章主旨",
-            "2-3 歸納共同特點"
-        ],
-        ["分析推理"] = [
-            "3-1 分析線索",
-            "3-2 推論緣由",
-            "3-3 判斷結果",
-            "3-4 判斷詞性、主語",
-            "3-5 判斷字句的解釋、文意說明是否正確",
-            "3-6 推測行為的原因或用意",
-            "3-7 推測寫作手法的目的",
-            "3-8 判斷文體、格律、風格"
-        ]
-    };
-
     private void OnCoreAbilityChanged(SubQuestionFreeResponse sq)
     {
-        sq.Indicator = "";
+        sq.Indicator = null;
     }
 
     private async Task AddSubQuestion()
@@ -195,13 +169,4 @@
             SubQuestions.RemoveAt(idx);
         }
     }
-
-    public class SubQuestionFreeResponse
-    {
-        public string Stem { get; set; } = "";
-        public string CoreAbility { get; set; } = "";
-        public string Indicator { get; set; } = "";
-        public string Analysis { get; set; } = "";
-    }
 }
-

@@ -2,7 +2,9 @@
 @*  QuestionFormListenGroup — 聽力題組 命題表單                             *@
 @*  結構：音檔上傳 + 語音內容（Quill）+ 固定 2 個子題（選擇題）            *@
 @*  屬性側欄：語音類型 + 素材分類（母題無難度）                             *@
-@*  子題難度固定：第1題=難度三、第2題=難度四                                *@
+@*  子題難度固定：第 1 題=難度三 (FixedDifficulty=3)、第 2 題=難度四 (=4)   *@
+@*  子題核心能力與細目指標沿用 CoreAbilityLabels / DetailIndicatorLabels    *@
+@*  全表碼，不另立編碼                                                       *@
 @* ====================================================================== *@
 @using MT.Components.Shared
 @inject IJSRuntime JS
@@ -66,13 +68,13 @@
             {
                 var idx = i;
                 var sq = SubQuestions[idx];
-                var subLevel = SubLevels[idx];
+                var subLevelLabel = QuestionConstants.ListenLevelLabels.GetValueOrDefault(sq.FixedDifficulty, "");
 
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                     <!-- 子題標頭 -->
                     <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
                         <span class="text-sm font-bold text-slate-main">第 @(idx + 1) 題</span>
-                        <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-600 text-xs font-bold">@subLevel</span>
+                        <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-600 text-xs font-bold">@subLevelLabel</span>
                     </div>
                     <div class="p-4 space-y-4">
                         <!-- 核心能力 + 細目指標 -->
@@ -82,23 +84,26 @@
                                 <select @bind="sq.CoreAbility" @bind:after="() => OnSubCoreAbilityChanged(sq)"
                                     class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                                     <option value="">請選擇</option>
-                                    @foreach (var ability in SubLevelCoreAbilityMap[subLevel])
+                                    @if (QuestionConstants.ListenGroupSubFixedDifficultyCoreAbilityMap.TryGetValue(sq.FixedDifficulty, out var allowedAbilities))
                                     {
-                                        <option value="@ability">@ability</option>
+                                        @foreach (var ab in allowedAbilities)
+                                        {
+                                            <option value="@ab">@QuestionConstants.CoreAbilityLabels.GetValueOrDefault(ab, "")</option>
+                                        }
                                     }
                                 </select>
                             </div>
                             <div>
                                 <label class="block text-xs font-medium text-gray-600 mb-1">細目指標 <span class="text-red-400">*</span></label>
                                 <select @bind="sq.DetailIndicator"
-                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer @(string.IsNullOrEmpty(sq.CoreAbility) ? "bg-gray-50 text-gray-300" : "")"
-                                    disabled="@(string.IsNullOrEmpty(sq.CoreAbility))">
-                                    <option value="">@(string.IsNullOrEmpty(sq.CoreAbility) ? "先選核心能力" : "請選擇")</option>
-                                    @if (!string.IsNullOrEmpty(sq.CoreAbility) && SubCoreAbilityIndicatorMap.TryGetValue(sq.CoreAbility, out var indicators))
+                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer @(sq.CoreAbility is null ? "bg-gray-50 text-gray-300" : "")"
+                                    disabled="@(sq.CoreAbility is null)">
+                                    <option value="">@(sq.CoreAbility is null ? "先選核心能力" : "請選擇")</option>
+                                    @if (sq.CoreAbility is not null && QuestionConstants.CoreAbilityIndicatorMap.TryGetValue(sq.CoreAbility.Value, out var indicators))
                                     {
                                         @foreach (var ind in indicators)
                                         {
-                                            <option value="@ind">@ind</option>
+                                            <option value="@ind">@QuestionConstants.DetailIndicatorLabels.GetValueOrDefault(ind, "")</option>
                                         }
                                     }
                                 </select>
@@ -142,42 +147,12 @@
     [Parameter] public string Passage { get; set; } = "";
     [Parameter] public EventCallback<string> PassageChanged { get; set; }
 
-    [Parameter] public List<ListenGroupSubQuestion> SubQuestions { get; set; } = [new() { FixedDifficulty = 3 }, new() { FixedDifficulty = 4 }];
+    [Parameter] public List<ListenGroupSubQuestion> SubQuestions { get; set; }
+        = [new() { FixedDifficulty = 3 }, new() { FixedDifficulty = 4 }];
     [Parameter] public EventCallback<List<ListenGroupSubQuestion>> SubQuestionsChanged { get; set; }
-
-    // 子題固定難度
-    private static readonly string[] SubLevels = ["難度三", "難度四"];
-
-    // 子題難度 → 核心能力
-    private static readonly Dictionary<string, string[]> SubLevelCoreAbilityMap = new()
-    {
-        ["難度三"] = ["推斷訊息"],
-        ["難度四"] = ["歸納分析訊息", "區辨詞語多義性"]
-    };
-
-    // 核心能力 → 細目指標
-    private static readonly Dictionary<string, string[]> SubCoreAbilityIndicatorMap = new()
-    {
-        ["推斷訊息"] = ["推斷訊息邏輯性", "能掌握語意轉折", "能推斷語意變化"],
-        ["歸納分析訊息"] = ["歸納或總結訊息內容", "分解或辨析訊息內容", "區辨詞語的多義性"],
-        ["區辨詞語多義性"] = ["歸納或總結訊息內容", "分解或辨析訊息內容", "區辨詞語的多義性"]
-    };
 
     private void OnSubCoreAbilityChanged(ListenGroupSubQuestion sq)
     {
-        sq.DetailIndicator = "";
-    }
-
-    public class ListenGroupSubQuestion
-    {
-        public byte FixedDifficulty { get; set; }
-        public string Stem { get; set; } = "";
-        public string[] Options { get; set; } = ["", "", "", ""];
-        public string Answer { get; set; } = "";
-        public string Analysis { get; set; } = "";
-        public string CoreAbility { get; set; } = "";
-        public string DetailIndicator { get; set; } = "";
+        sq.DetailIndicator = null;
     }
 }
-
-
