@@ -125,9 +125,9 @@
             }
         }
 
+        // 僅關閉動畫；activeRequest 與 wordCount 保留至下次 OpenEditorAsync 覆寫，
+        // 避免收合動畫期間 label/字數 彈回 fallback「內容 / 0」造成視覺殘影
         isOpen = false;
-        activeRequest = null;
-        wordCount = 0;
     }
 
     private async Task OnExcludeToggleChanged()
