@@ -285,6 +285,7 @@ public static class QuestionConstants
 // ======================================================================
 public class SubQuestionChoice           // 用於閱讀題組
 {
+    public int Id { get; set; }              // 0 = 新增；> 0 = 既存（給 UpdateAsync 比對用）
     public string Stem { get; set; } = "";
     public string[] Options { get; set; } = ["", "", "", ""];
     public string Answer { get; set; } = "";
@@ -293,6 +294,7 @@ public class SubQuestionChoice           // 用於閱讀題組
 
 public class SubQuestionFreeResponse     // 用於短文題組
 {
+    public int Id { get; set; }              // 0 = 新增；> 0 = 既存
     public string Stem { get; set; } = "";
     public byte? CoreAbility { get; set; }   // 主向度（ShortGroupCoreAbilityLabels）
     public byte? Indicator { get; set; }     // 能力指標（ShortGroupIndicatorLabels）
@@ -301,6 +303,7 @@ public class SubQuestionFreeResponse     // 用於短文題組
 
 public class ListenGroupSubQuestion      // 用於聽力題組
 {
+    public int Id { get; set; }                  // 0 = 新增；> 0 = 既存
     public byte FixedDifficulty { get; set; }    // 3=難度三 / 4=難度四
     public string Stem { get; set; } = "";
     public string[] Options { get; set; } = ["", "", "", ""];
@@ -380,6 +383,9 @@ public class QuestionListFilter
     public string? Keyword { get; set; }
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 12;
+
+    /// <summary>是否包含已軟刪除題目（Overview=true、CwtList 預設 false）。</summary>
+    public bool IncludeDeleted { get; set; } = false;
 }
 
 public class QuestionListResult
@@ -443,4 +449,6 @@ public class QuestionListItem
     public string SummaryHtml { get; set; } = "";
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
+    public bool IsDeleted { get; set; }       // true = 已軟刪除（Overview 用紅色「命題刪除」標籤）
+    public int SubQuestionCount { get; set; } // 題組型才 > 0；非題組恆為 0
 }

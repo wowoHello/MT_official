@@ -14,6 +14,9 @@ public interface IOverviewService
     /// <summary>取單筆題目詳情（含子題）。</summary>
     Task<QuestionFormData?> GetDetailAsync(int questionId);
 
+    /// <summary>復原已軟刪除題目（包裝 IQuestionService.RestoreAsync）。</summary>
+    Task<bool> RestoreAsync(int questionId, int operatorUserId);
+
     /// <summary>依題型組成詳情面板用的標籤（主類/次類/文體/核心能力…）。</summary>
     Dictionary<string, string> BuildPreviewTags(QuestionFormData formData);
 
@@ -27,8 +30,12 @@ public class OverviewService(IQuestionService questionService) : IOverviewServic
 
     public async Task<OverviewListResult> LoadAsync(int projectId, OverviewFilter filter)
     {
+        // 命題總覽必須看到已刪除題目（紅色「命題刪除」標籤 + 復原按鈕）
+        var listFilter = filter.ToListFilter(projectId);
+        listFilter.IncludeDeleted = true;
+
         var countsTask = _questionService.GetStatusCountsAsync(projectId, creatorId: null);
-        var listTask   = _questionService.ListAsync(filter.ToListFilter(projectId));
+        var listTask   = _questionService.ListAsync(listFilter);
         await Task.WhenAll(countsTask, listTask);
 
         var list = listTask.Result;
@@ -44,6 +51,9 @@ public class OverviewService(IQuestionService questionService) : IOverviewServic
 
     public Task<QuestionFormData?> GetDetailAsync(int questionId)
         => _questionService.GetByIdAsync(questionId);
+
+    public Task<bool> RestoreAsync(int questionId, int operatorUserId)
+        => _questionService.RestoreAsync(questionId, operatorUserId);
 
     public Dictionary<string, string> BuildPreviewTags(QuestionFormData f)
     {

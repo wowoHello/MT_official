@@ -78,6 +78,9 @@ builder.Services.AddScoped<IQuestionService, QuestionService>();
 // 命題總覽列表彙整與詳情（Overview.razor，內部依賴 IQuestionService）
 builder.Services.AddScoped<IOverviewService, OverviewService>();
 
+// 首頁公告載入與急件警示（Home.razor）
+builder.Services.AddScoped<IHomeService, HomeService>();
+
 var app = builder.Build();
 
 // =========================================================

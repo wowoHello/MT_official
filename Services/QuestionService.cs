@@ -19,6 +19,7 @@ public interface IQuestionService
     Task<QuestionListResult> ListAsync(QuestionListFilter filter);
     Task<bool> SoftDeleteAsync(int questionId, int operatorUserId);
     Task<bool> SubmitForReviewAsync(int questionId, int operatorUserId);
+    Task<bool> RestoreAsync(int questionId, int operatorUserId);
 
     // P4 新增：列表頁統計卡片用（依 status 分桶計數）
     Task<Dictionary<byte, int>> GetStatusCountsAsync(int projectId, int? creatorId);
@@ -238,12 +239,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
             if (affected == 0) return false;
 
-            // 3. 子題：DELETE + INSERT
-            await conn.ExecuteAsync(
-                "DELETE FROM dbo.MT_SubQuestions WHERE ParentQuestionId = @Id",
-                new { Id = questionId }, tx);
-
-            await InsertSubQuestionsAsync(conn, tx, questionId, formData);
+            // 3. 子題：UPSERT by SubId + 缺席軟刪除（保留 Id 穩定）
+            await UpsertSubQuestionsAsync(conn, tx, questionId, formData, operatorUserId, projectId);
 
             // 4. 系統稽核：修改題目（狀態轉移寫進 OldValue/NewValue）
             await WriteAuditLogAsync(conn, tx, operatorUserId, projectId,
@@ -261,7 +258,11 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         }
     }
 
-    /// <summary>取單筆題目（含子題清單）。題目不存在或已軟刪除回 null。</summary>
+    /// <summary>
+    /// 取單筆題目（含子題清單）。題目不存在回 null。
+    /// 不過濾 IsDeleted —— Overview 管理員需要在復原前檢視已刪題目；
+    /// CwtList 端本來就只列未刪除題目，不會經此漏出已刪題目。
+    /// </summary>
     public async Task<QuestionFormData?> GetByIdAsync(int questionId)
     {
         const string masterSql = """
@@ -272,7 +273,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 ArticleTitle, ArticleContent, AudioUrl, GradingNote,
                 Topic, Subtopic, Genre, Material, WritingMode, AudioType, CoreAbility, DetailIndicator
             FROM dbo.MT_Questions
-            WHERE Id = @Id AND IsDeleted = 0;
+            WHERE Id = @Id;
             """;
 
         const string subSql = """
@@ -281,7 +282,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                    OptionA, OptionB, OptionC, OptionD,
                    Analysis, CoreAbility, Indicator, FixedDifficulty
             FROM dbo.MT_SubQuestions
-            WHERE ParentQuestionId = @Id
+            WHERE ParentQuestionId = @Id AND IsDeleted = 0
             ORDER BY SortOrder;
             """;
 
@@ -329,6 +330,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 ? [new()]
                 : subRows.Select(r => new SubQuestionChoice
                 {
+                    Id       = r.Id,
                     Stem     = r.Stem ?? "",
                     Options  = [r.OptionA ?? "", r.OptionB ?? "", r.OptionC ?? "", r.OptionD ?? ""],
                     Answer   = r.CorrectAnswer ?? "",
@@ -341,6 +343,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 ? [new()]
                 : subRows.Select(r => new SubQuestionFreeResponse
                 {
+                    Id          = r.Id,
                     Stem        = r.Stem ?? "",
                     CoreAbility = r.CoreAbility,
                     Indicator   = r.Indicator,
@@ -352,6 +355,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             data.ListenGroupSubQuestions = subRows.Count == 2
                 ? subRows.Select(r => new ListenGroupSubQuestion
                 {
+                    Id              = r.Id,
                     FixedDifficulty = r.FixedDifficulty ?? 3,
                     Stem            = r.Stem ?? "",
                     Options         = [r.OptionA ?? "", r.OptionB ?? "", r.OptionC ?? "", r.OptionD ?? ""],
@@ -393,50 +397,48 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         args.Add("Offset",         (page - 1) * pageSize);
         args.Add("PageSize",       pageSize);
 
-        string statusClause;
+        // ⚠️ Dapper 把 byte[] 當作 VARBINARY，不會展開為 IN (...)；必須轉成 List<int> 才會自動展開
         if (statuses.Length > 0)
-        {
-            // ⚠️ 重點：Dapper 把 byte[] 當作 VARBINARY，不會展開為 IN (...)；必須轉成 List<int> 才會自動展開
             args.Add("Statuses", statuses.Select(b => (int)b).ToList());
-            statusClause = "AND Status IN @Statuses";
-        }
-        else
-        {
-            statusClause = "";   // 不限狀態：完全不附加 status 條件，也不傳 @Statuses 參數
-        }
+
+        // 動態 IsDeleted 條件：CwtList 預設只看未刪；Overview 設 IncludeDeleted=true 拿全部
+        var deletedClauseQ = filter.IncludeDeleted ? "" : "AND q.IsDeleted = 0";
 
         var countSql = $"""
             SELECT COUNT(*)
-            FROM dbo.MT_Questions
-            WHERE IsDeleted = 0
-              AND ProjectId = @ProjectId
-              AND (@CreatorId IS NULL OR CreatorId = @CreatorId)
-              {statusClause}
-              AND (@QuestionTypeId IS NULL OR QuestionTypeId = @QuestionTypeId)
-              AND (@Level IS NULL OR Level = @Level)
-              AND (@Keyword IS NULL OR Stem LIKE '%' + @Keyword + '%' OR QuestionCode LIKE '%' + @Keyword + '%');
+            FROM dbo.MT_Questions q
+            WHERE q.ProjectId = @ProjectId
+              {deletedClauseQ}
+              AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
+              {(statuses.Length > 0 ? "AND q.Status IN @Statuses" : "")}
+              AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
+              AND (@Level IS NULL OR q.Level = @Level)
+              AND (@Keyword IS NULL OR q.Stem LIKE '%' + @Keyword + '%' OR q.QuestionCode LIKE '%' + @Keyword + '%');
             """;
 
         var listSql = $"""
             SELECT
-                Id, QuestionCode,
-                QuestionTypeId AS TypeId,
-                Level, Difficulty, Status,
-                Stem AS SummaryHtml,
-                CreatedAt, UpdatedAt
-            FROM dbo.MT_Questions
-            WHERE IsDeleted = 0
-              AND ProjectId = @ProjectId
-              AND (@CreatorId IS NULL OR CreatorId = @CreatorId)
-              {statusClause}
-              AND (@QuestionTypeId IS NULL OR QuestionTypeId = @QuestionTypeId)
-              AND (@Level IS NULL OR Level = @Level)
-              AND (@Keyword IS NULL OR Stem LIKE '%' + @Keyword + '%' OR QuestionCode LIKE '%' + @Keyword + '%')
+                q.Id, q.QuestionCode,
+                q.QuestionTypeId AS TypeId,
+                q.Level, q.Difficulty, q.Status,
+                q.Stem AS SummaryHtml,
+                q.CreatedAt, q.UpdatedAt,
+                q.IsDeleted,
+                (SELECT COUNT(*) FROM dbo.MT_SubQuestions sq
+                 WHERE sq.ParentQuestionId = q.Id AND sq.IsDeleted = 0) AS SubQuestionCount
+            FROM dbo.MT_Questions q
+            WHERE q.ProjectId = @ProjectId
+              {deletedClauseQ}
+              AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
+              {(statuses.Length > 0 ? "AND q.Status IN @Statuses" : "")}
+              AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
+              AND (@Level IS NULL OR q.Level = @Level)
+              AND (@Keyword IS NULL OR q.Stem LIKE '%' + @Keyword + '%' OR q.QuestionCode LIKE '%' + @Keyword + '%')
             ORDER BY
-                CASE WHEN Status = 0 THEN 0
-                     WHEN Status = 1 THEN 1
+                CASE WHEN q.Status = 0 THEN 0
+                     WHEN q.Status = 1 THEN 1
                      ELSE 2 END,
-                UpdatedAt DESC
+                q.UpdatedAt DESC
             OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
             """;
 
@@ -451,15 +453,17 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             PageSize   = pageSize,
             Items      = rows.Select(r => new QuestionListItem
             {
-                Id           = r.Id,
-                QuestionCode = r.QuestionCode,
-                TypeKey      = QuestionConstants.TypeIdToKey.GetValueOrDefault(r.TypeId, ""),
-                Level        = r.Level,
-                Difficulty   = r.Difficulty,
-                Status       = r.Status,
-                SummaryHtml  = r.SummaryHtml ?? "",
-                CreatedAt    = r.CreatedAt,
-                UpdatedAt    = r.UpdatedAt
+                Id               = r.Id,
+                QuestionCode     = r.QuestionCode,
+                TypeKey          = QuestionConstants.TypeIdToKey.GetValueOrDefault(r.TypeId, ""),
+                Level            = r.Level,
+                Difficulty       = r.Difficulty,
+                Status           = r.Status,
+                SummaryHtml      = r.SummaryHtml ?? "",
+                CreatedAt        = r.CreatedAt,
+                UpdatedAt        = r.UpdatedAt,
+                IsDeleted        = r.IsDeleted,
+                SubQuestionCount = r.SubQuestionCount
             }).ToList()
         };
     }
@@ -583,41 +587,81 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         }
     }
 
+    /// <summary>
+    /// 復原已軟刪除的題目（管理員用，於命題總覽 Overview 操作）。
+    /// 將 IsDeleted=1 的題目改回 0、清除 DeletedAt，並寫稽核紀錄。
+    /// </summary>
+    public async Task<bool> RestoreAsync(int questionId, int operatorUserId)
+    {
+        using var conn = _db.CreateConnection();
+        conn.Open();
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            // 1. 讀 ProjectId（驗證題目存在且為已刪狀態）
+            var projectId = await conn.QueryFirstOrDefaultAsync<int?>(
+                "SELECT ProjectId FROM dbo.MT_Questions WHERE Id = @Id AND IsDeleted = 1",
+                new { Id = questionId }, tx);
+
+            if (projectId is null)
+            {
+                tx.Rollback();
+                return false;
+            }
+
+            // 2. 復原：IsDeleted=0、DeletedAt=NULL、UpdatedAt 重置
+            await conn.ExecuteAsync("""
+                UPDATE dbo.MT_Questions
+                SET IsDeleted = 0, DeletedAt = NULL, UpdatedAt = SYSDATETIME()
+                WHERE Id = @Id;
+                """,
+                new { Id = questionId }, tx);
+
+            // 3. 系統稽核：用 Modify + JSON 描述變化（避免擴張 enum）
+            await WriteAuditLogAsync(conn, tx, operatorUserId, projectId.Value,
+                AuditLogAction.Modify, questionId,
+                oldValue: new { IsDeleted = true },
+                newValue: new { IsDeleted = false });
+
+            tx.Commit();
+            return true;
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
     // ====================================================================
     //  私有 Helper
     // ====================================================================
 
     /// <summary>
-    /// 取指定年度的下一個流水號。並發安全（UPDLOCK + HOLDLOCK）。
-    /// 該年度第一筆題目時，自動建立 row 並回傳 1。
+    /// 取指定年度的下一個流水號。並發安全（MERGE + HOLDLOCK 達到 SERIALIZABLE 鎖）。
+    /// 一條 SQL 原子完成「找 / 建 / +1 / 取值」，徹底消除年首筆並發撞 PK 的風險。
     /// </summary>
     private static async Task<int> GetNextQuestionNumberAsync(IDbConnection conn, IDbTransaction tx, int year)
     {
-        // 先看該年度有沒有紀錄（同時鎖該 row 直到 transaction 結束）
-        const string selectSql = """
-            SELECT NextValue
-            FROM dbo.MT_QuestionCodeSequence WITH (UPDLOCK, HOLDLOCK)
-            WHERE Year = @Year;
+        // MERGE：年度 row 已存在 → +1 後回傳舊值；不存在 → INSERT (Year, 2) 後回傳 1
+        // HOLDLOCK 保證 key range lock，避免兩個 transaction 都判定「不存在」而同時 INSERT 撞 PK
+        const string sql = """
+            MERGE dbo.MT_QuestionCodeSequence WITH (HOLDLOCK) AS target
+            USING (VALUES (@Year)) AS src(Year) ON target.Year = src.Year
+            WHEN MATCHED     THEN UPDATE SET NextValue = NextValue + 1
+            WHEN NOT MATCHED THEN INSERT (Year, NextValue) VALUES (@Year, 2)
+            OUTPUT
+                CASE WHEN $action = 'INSERT' THEN 1 ELSE deleted.NextValue END AS NextNo;
             """;
-        var current = await conn.QueryFirstOrDefaultAsync<int?>(selectSql, new { Year = year }, tx);
 
-        if (current is null)
-        {
-            // 該年首筆 → 建立起始紀錄（流水號 1 即將被本次使用，所以下一號設為 2）
-            await conn.ExecuteAsync(
-                "INSERT INTO dbo.MT_QuestionCodeSequence (Year, NextValue) VALUES (@Year, 2);",
-                new { Year = year }, tx);
-            return 1;
-        }
-
-        // 已有紀錄 → 把 NextValue +1
-        await conn.ExecuteAsync(
-            "UPDATE dbo.MT_QuestionCodeSequence SET NextValue = NextValue + 1 WHERE Year = @Year;",
-            new { Year = year }, tx);
-        return current.Value;
+        return await conn.QuerySingleAsync<int>(sql, new { Year = year }, tx);
     }
 
-    /// <summary>把對應題型的子題清單 INSERT 到 MT_SubQuestions。</summary>
+    /// <summary>
+    /// CreateAsync 用：把表單子題清單純 INSERT。
+    /// 因為母題剛 INSERT 完，子題不會有既存 Id（即使表單帶了 Id 也會被忽略）。
+    /// INSERT 後把新 Id 寫回 formData，以便後續 UpdateAsync 能一致追蹤。
+    /// </summary>
     private static async Task InsertSubQuestionsAsync(IDbConnection conn, IDbTransaction tx,
         int parentId, QuestionFormData formData)
     {
@@ -628,6 +672,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 OptionA, OptionB, OptionC, OptionD,
                 Analysis, CoreAbility, Indicator, FixedDifficulty
             )
+            OUTPUT INSERTED.Id
             VALUES (
                 @ParentId, @SortOrder,
                 @Stem, @Answer,
@@ -641,21 +686,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             for (var i = 0; i < formData.ReadSubQuestions.Count; i++)
             {
                 var sq = formData.ReadSubQuestions[i];
-                await conn.ExecuteAsync(sql, new
-                {
-                    ParentId        = parentId,
-                    SortOrder       = i + 1,
-                    Stem            = NullIfEmpty(sq.Stem),
-                    Answer          = NullIfEmpty(sq.Answer),
-                    OptA            = SafeOption(sq.Options, 0),
-                    OptB            = SafeOption(sq.Options, 1),
-                    OptC            = SafeOption(sq.Options, 2),
-                    OptD            = SafeOption(sq.Options, 3),
-                    Analysis        = NullIfEmpty(sq.Analysis),
-                    CoreAbility     = (byte?)null,
-                    Indicator       = (byte?)null,
-                    FixedDifficulty = (byte?)null
-                }, tx);
+                sq.Id = await conn.QuerySingleAsync<int>(sql, BuildReadSubParams(parentId, i + 1, sq), tx);
             }
         }
         else if (formData.QuestionType == QuestionTypeCodes.ShortGroup)
@@ -663,21 +694,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             for (var i = 0; i < formData.ShortSubQuestions.Count; i++)
             {
                 var sq = formData.ShortSubQuestions[i];
-                await conn.ExecuteAsync(sql, new
-                {
-                    ParentId        = parentId,
-                    SortOrder       = i + 1,
-                    Stem            = NullIfEmpty(sq.Stem),
-                    Answer          = (string?)null,
-                    OptA            = (string?)null,
-                    OptB            = (string?)null,
-                    OptC            = (string?)null,
-                    OptD            = (string?)null,
-                    Analysis        = NullIfEmpty(sq.Analysis),
-                    sq.CoreAbility,
-                    sq.Indicator,
-                    FixedDifficulty = (byte?)null
-                }, tx);
+                sq.Id = await conn.QuerySingleAsync<int>(sql, BuildShortSubParams(parentId, i + 1, sq), tx);
             }
         }
         else if (formData.QuestionType == QuestionTypeCodes.ListenGroup)
@@ -685,24 +702,175 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             for (var i = 0; i < formData.ListenGroupSubQuestions.Count; i++)
             {
                 var sq = formData.ListenGroupSubQuestions[i];
-                await conn.ExecuteAsync(sql, new
-                {
-                    ParentId        = parentId,
-                    SortOrder       = i + 1,
-                    Stem            = NullIfEmpty(sq.Stem),
-                    Answer          = NullIfEmpty(sq.Answer),
-                    OptA            = SafeOption(sq.Options, 0),
-                    OptB            = SafeOption(sq.Options, 1),
-                    OptC            = SafeOption(sq.Options, 2),
-                    OptD            = SafeOption(sq.Options, 3),
-                    Analysis        = NullIfEmpty(sq.Analysis),
-                    sq.CoreAbility,
-                    Indicator       = sq.DetailIndicator,
-                    FixedDifficulty = (byte?)sq.FixedDifficulty
-                }, tx);
+                sq.Id = await conn.QuerySingleAsync<int>(sql, BuildListenSubParams(parentId, i + 1, sq), tx);
             }
         }
         // 其他四種非題組型題目：不寫子題
+    }
+
+    /// <summary>
+    /// UpdateAsync 用：依 SubId 比對「DB 既有未刪 Id 集合 vs 表單帶來的 Id 集合」：
+    /// - Id == 0  → INSERT，OUTPUT 取回新 Id 寫回 formData
+    /// - Id  > 0  → UPDATE 該列所有欄位 + SortOrder
+    /// - 缺席者   → IsDeleted=1, DeletedAt=now，並寫一筆 AuditLog（每筆獨立）
+    /// </summary>
+    private async Task UpsertSubQuestionsAsync(IDbConnection conn, IDbTransaction tx,
+        int parentId, QuestionFormData formData, int operatorUserId, int projectId)
+    {
+        // 1. 撈出 DB 端目前未刪的子題 Id
+        var existingIds = (await conn.QueryAsync<int>(
+            "SELECT Id FROM dbo.MT_SubQuestions WHERE ParentQuestionId = @Id AND IsDeleted = 0",
+            new { Id = parentId }, tx)).ToHashSet();
+
+        // 2. 表單帶上來的子題（依題型）
+        var formIds = new HashSet<int>();
+
+        const string insertSql = """
+            INSERT INTO dbo.MT_SubQuestions (
+                ParentQuestionId, SortOrder,
+                Stem, CorrectAnswer,
+                OptionA, OptionB, OptionC, OptionD,
+                Analysis, CoreAbility, Indicator, FixedDifficulty
+            )
+            OUTPUT INSERTED.Id
+            VALUES (
+                @ParentId, @SortOrder,
+                @Stem, @Answer,
+                @OptA, @OptB, @OptC, @OptD,
+                @Analysis, @CoreAbility, @Indicator, @FixedDifficulty
+            );
+            """;
+
+        const string updateSql = """
+            UPDATE dbo.MT_SubQuestions SET
+                SortOrder       = @SortOrder,
+                Stem            = @Stem,
+                CorrectAnswer   = @Answer,
+                OptionA         = @OptA,
+                OptionB         = @OptB,
+                OptionC         = @OptC,
+                OptionD         = @OptD,
+                Analysis        = @Analysis,
+                CoreAbility     = @CoreAbility,
+                Indicator       = @Indicator,
+                FixedDifficulty = @FixedDifficulty
+            WHERE Id = @Id AND IsDeleted = 0;
+            """;
+
+        if (formData.QuestionType == QuestionTypeCodes.ReadGroup)
+        {
+            for (var i = 0; i < formData.ReadSubQuestions.Count; i++)
+            {
+                var sq = formData.ReadSubQuestions[i];
+                var p  = BuildReadSubParams(parentId, i + 1, sq);
+                if (sq.Id == 0)
+                    sq.Id = await conn.QuerySingleAsync<int>(insertSql, p, tx);
+                else
+                    await conn.ExecuteAsync(updateSql, MergeId(p, sq.Id), tx);
+                formIds.Add(sq.Id);
+            }
+        }
+        else if (formData.QuestionType == QuestionTypeCodes.ShortGroup)
+        {
+            for (var i = 0; i < formData.ShortSubQuestions.Count; i++)
+            {
+                var sq = formData.ShortSubQuestions[i];
+                var p  = BuildShortSubParams(parentId, i + 1, sq);
+                if (sq.Id == 0)
+                    sq.Id = await conn.QuerySingleAsync<int>(insertSql, p, tx);
+                else
+                    await conn.ExecuteAsync(updateSql, MergeId(p, sq.Id), tx);
+                formIds.Add(sq.Id);
+            }
+        }
+        else if (formData.QuestionType == QuestionTypeCodes.ListenGroup)
+        {
+            for (var i = 0; i < formData.ListenGroupSubQuestions.Count; i++)
+            {
+                var sq = formData.ListenGroupSubQuestions[i];
+                var p  = BuildListenSubParams(parentId, i + 1, sq);
+                if (sq.Id == 0)
+                    sq.Id = await conn.QuerySingleAsync<int>(insertSql, p, tx);
+                else
+                    await conn.ExecuteAsync(updateSql, MergeId(p, sq.Id), tx);
+                formIds.Add(sq.Id);
+            }
+        }
+
+        // 3. 缺席者（DB 有但表單沒了）→ 軟刪除 + 每筆獨立 AuditLog
+        var orphanIds = existingIds.Except(formIds).ToList();
+        if (orphanIds.Count == 0) return;
+
+        await conn.ExecuteAsync("""
+            UPDATE dbo.MT_SubQuestions
+            SET IsDeleted = 1, DeletedAt = SYSDATETIME()
+            WHERE Id IN @Ids;
+            """, new { Ids = orphanIds }, tx);
+
+        foreach (var subId in orphanIds)
+        {
+            await WriteAuditLogAsync(conn, tx, operatorUserId, projectId,
+                AuditLogAction.Modify, subId,
+                oldValue: new { IsDeleted = false, ParentQuestionId = parentId },
+                newValue: new { IsDeleted = true,  ParentQuestionId = parentId });
+        }
+    }
+
+    // ---- 子題 INSERT/UPDATE 共用參數組裝 ----
+    private static object BuildReadSubParams(int parentId, int sortOrder, SubQuestionChoice sq) => new
+    {
+        ParentId        = parentId,
+        SortOrder       = sortOrder,
+        Stem            = NullIfEmpty(sq.Stem),
+        Answer          = NullIfEmpty(sq.Answer),
+        OptA            = SafeOption(sq.Options, 0),
+        OptB            = SafeOption(sq.Options, 1),
+        OptC            = SafeOption(sq.Options, 2),
+        OptD            = SafeOption(sq.Options, 3),
+        Analysis        = NullIfEmpty(sq.Analysis),
+        CoreAbility     = (byte?)null,
+        Indicator       = (byte?)null,
+        FixedDifficulty = (byte?)null
+    };
+
+    private static object BuildShortSubParams(int parentId, int sortOrder, SubQuestionFreeResponse sq) => new
+    {
+        ParentId        = parentId,
+        SortOrder       = sortOrder,
+        Stem            = NullIfEmpty(sq.Stem),
+        Answer          = (string?)null,
+        OptA            = (string?)null,
+        OptB            = (string?)null,
+        OptC            = (string?)null,
+        OptD            = (string?)null,
+        Analysis        = NullIfEmpty(sq.Analysis),
+        sq.CoreAbility,
+        sq.Indicator,
+        FixedDifficulty = (byte?)null
+    };
+
+    private static object BuildListenSubParams(int parentId, int sortOrder, ListenGroupSubQuestion sq) => new
+    {
+        ParentId        = parentId,
+        SortOrder       = sortOrder,
+        Stem            = NullIfEmpty(sq.Stem),
+        Answer          = NullIfEmpty(sq.Answer),
+        OptA            = SafeOption(sq.Options, 0),
+        OptB            = SafeOption(sq.Options, 1),
+        OptC            = SafeOption(sq.Options, 2),
+        OptD            = SafeOption(sq.Options, 3),
+        Analysis        = NullIfEmpty(sq.Analysis),
+        sq.CoreAbility,
+        Indicator       = sq.DetailIndicator,
+        FixedDifficulty = (byte?)sq.FixedDifficulty
+    };
+
+    /// <summary>把 BuildXxxSubParams 的匿名物件再合併一個 Id 進去（給 UPDATE 用）。</summary>
+    private static DynamicParameters MergeId(object source, int id)
+    {
+        var dp = new DynamicParameters(source);
+        dp.Add("Id", id);
+        return dp;
     }
 
     /// <summary>
@@ -848,5 +1016,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         public string? SummaryHtml { get; set; }
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
+        public bool IsDeleted { get; set; }
+        public int SubQuestionCount { get; set; }
     }
 }

@@ -8,10 +8,10 @@ public interface IPasswordResetService
 {
     Task<(bool Success, string Message)> RequestPasswordResetAsync(string email, string baseUri);
     Task<(bool Success, string Message, int UserId, int TokenId)> ValidateTokenAsync(string token);
-    Task<(bool Success, string Message)> ResetPasswordAsync(string token, string newPassword);
+    Task<(bool Success, string Message, bool SamePassword)> ResetPasswordAsync(string token, string newPassword);
 
     /// <summary>直接變更密碼（無 token 流程，供強制改密碼或設定頁使用）</summary>
-    Task ChangePasswordAsync(int userId, string newPassword);
+    Task<(bool Success, string Message, bool SamePassword)> ChangePasswordAsync(int userId, string newPassword);
 }
 
 public class PasswordResetService : IPasswordResetService
@@ -144,7 +144,7 @@ public class PasswordResetService : IPasswordResetService
         return (true, "", row.UserId, row.Id);
     }
 
-    public async Task<(bool Success, string Message)> ResetPasswordAsync(string token, string newPassword)
+    public async Task<(bool Success, string Message, bool SamePassword)> ResetPasswordAsync(string token, string newPassword)
     {
         using var conn = (DbConnection)_db.CreateConnection();
         await conn.OpenAsync();
@@ -160,16 +160,25 @@ public class PasswordResetService : IPasswordResetService
                 new { Token = token }, tx);
 
             if (row is null)
-                return (false, "通行證無效或已被使用。");
+                return (false, "通行證無效或已被使用。", false);
 
             if (row.IsUsed)
-                return (false, "此重設連結已被使用，請重新申請。");
+                return (false, "此重設連結已被使用，請重新申請。", false);
 
             if (row.ExpiresAt < DateTime.Now)
-                return (false, "此重設連結已過期，請重新申請！");
+                return (false, "此重設連結已過期，請重新申請！", false);
 
-            // 更新密碼（與登入驗證使用相同的 SHA256 UTF-16LE 雜湊）
+            // 計算新密碼雜湊（與登入驗證使用相同的 SHA256 UTF-16LE 雜湊）
             var passwordHash = AuthService.ComputePasswordHash(newPassword);
+
+            // 新舊密碼比對防呆（PasswordHash 為 byte[]，用 SequenceEqual 比對）
+            var currentHash = await conn.QueryFirstOrDefaultAsync<byte[]?>(
+                @"SELECT PasswordHash FROM dbo.MT_Users WHERE Id = @UserId",
+                new { UserId = row.UserId }, tx);
+            if (currentHash is not null && currentHash.SequenceEqual(passwordHash))
+            {
+                return (false, "新密碼不可與舊密碼相同", true);
+            }
 
             await conn.ExecuteAsync(
                 @"UPDATE dbo.MT_Users
@@ -188,7 +197,7 @@ public class PasswordResetService : IPasswordResetService
                 new { UserId = row.UserId }, tx);
 
             await tx.CommitAsync();
-            return (true, "密碼已成功重設。");
+            return (true, "密碼已成功重設。", false);
         }
         catch
         {
@@ -197,11 +206,20 @@ public class PasswordResetService : IPasswordResetService
         }
     }
 
-    public async Task ChangePasswordAsync(int userId, string newPassword)
+    public async Task<(bool Success, string Message, bool SamePassword)> ChangePasswordAsync(int userId, string newPassword)
     {
         using var conn = _db.CreateConnection();
 
         var passwordHash = AuthService.ComputePasswordHash(newPassword);
+
+        // 新舊密碼比對防呆（PasswordHash 為 byte[]，用 SequenceEqual 比對）
+        var currentHash = await conn.QueryFirstOrDefaultAsync<byte[]?>(
+            @"SELECT PasswordHash FROM dbo.MT_Users WHERE Id = @UserId",
+            new { UserId = userId });
+        if (currentHash is not null && currentHash.SequenceEqual(passwordHash))
+        {
+            return (false, "新密碼不可與舊密碼相同", true);
+        }
 
         await conn.ExecuteAsync(
             @"UPDATE dbo.MT_Users
@@ -210,6 +228,8 @@ public class PasswordResetService : IPasswordResetService
                   UpdatedAt = SYSDATETIME()
               WHERE Id = @UserId",
             new { PasswordHash = passwordHash, UserId = userId });
+
+        return (true, "密碼已成功變更。", false);
     }
 
     private string? ResolveIpAddress()

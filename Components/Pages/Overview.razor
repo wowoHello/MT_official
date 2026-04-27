@@ -86,16 +86,8 @@
                 </div>
             </div>
 
-            <!-- Table Header -->
-            <div class="grid grid-cols-12 gap-4 px-6 py-3 border-b border-gray-200 bg-white text-xs font-bold text-gray-500 uppercase tracking-wider shrink-0 shadow-sm">
-                <div class="col-span-12 lg:col-span-2">題號</div>
-                <div class="col-span-12 lg:col-span-1">題型</div>
-                <div class="col-span-12 lg:col-span-1">等級/難度</div>
-                <div class="col-span-12 lg:col-span-7 hidden lg:block text-center">三審狀態軌跡（7 階段）</div>
-                <div class="col-span-12 lg:col-span-1 text-center">當前狀態</div>
-            </div>
-
-            <!-- List -->
+            @* 水平捲動容器：包住 Header + List，narrow 時整塊一起橫向捲動，
+               header 與 row 的 min-w-[960px] 才能真正撐開不被父層 overflow-hidden 壓扁 *@
             @if (isLoading)
             {
                 <div class="p-8 text-center text-gray-400 text-sm flex-grow">
@@ -110,21 +102,39 @@
             }
             else
             {
-                <div class="flex-grow overflow-y-auto custom-scroll">
+                @* 單層 overflow-auto 同時管橫向 + 縱向，避免巢狀雙 overflow 導致內層被擠扁；
+                   header 用 sticky top-0 保持在頂部，narrow 時整體水平捲動，header 與 row 對齊 *@
+                <div class="flex-grow overflow-auto custom-scroll min-h-0">
+                    <div class="min-w-[960px]">
+                        <!-- Table Header -->
+                        <div class="sticky top-0 z-10 grid grid-cols-12 gap-4 px-6 py-3 border-b border-gray-200 bg-white text-xs font-bold text-gray-500 uppercase tracking-wider shadow-sm">
+                            <div class="col-span-2">題號</div>
+                            <div class="col-span-1">題型</div>
+                            <div class="col-span-1">等級/難度</div>
+                            <div class="col-span-7 text-center">三審狀態軌跡（7 階段）</div>
+                            <div class="col-span-1 text-center">當前狀態</div>
+                        </div>
+
                     @foreach (var item in result.Items)
                     {
                         <div @onclick="() => OpenDetailAsync(item.Id)"
                             class="grid grid-cols-12 gap-4 px-6 py-4 border-b border-gray-100 relative hover:z-10 hover:bg-blue-50/40 hover:shadow-[inset_4px_0_0_var(--color-morandi),0_6px_16px_-4px_rgba(0,0,0,0.18)] transition-all items-center cursor-pointer group">
-                            <div class="col-span-12 lg:col-span-2 flex flex-col">
+                            <div class="col-span-2 flex flex-col">
                                 <span class="font-bold text-slate-main text-sm group-hover:text-morandi transition-colors">@item.QuestionCode</span>
                                 <span class="text-xs text-gray-400 mt-0.5">@item.UpdatedAt.ToString("yyyy/MM/dd HH:mm")</span>
+                                @if (item.SubQuestionCount > 0)
+                                {
+                                    <span class="inline-flex items-center self-start mt-1 px-1.5 py-0.5 bg-morandi/10 text-morandi rounded text-xs font-bold border border-morandi/20">
+                                        @item.SubQuestionCount 子題
+                                    </span>
+                                }
                             </div>
-                            <div class="col-span-12 lg:col-span-1">
+                            <div class="col-span-1">
                                 <span class="inline-block px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-bold border border-gray-200">
                                     @QuestionConstants.TypeLabels.GetValueOrDefault(item.TypeKey, "未知")
                                 </span>
                             </div>
-                            <div class="col-span-12 lg:col-span-1 flex flex-col items-start gap-1">
+                            <div class="col-span-1 flex flex-col items-start gap-1">
                                 @if (item.Level is not null)
                                 {
                                     <span class="inline-block px-1.5 py-0.5 bg-blue-50 text-morandi rounded text-xs font-bold border border-blue-100">@OverviewService.LevelLabel(item.TypeKey, item.Level)</span>
@@ -134,14 +144,28 @@
                                     <span class="inline-block px-1.5 py-0.5 bg-orange-50 text-terracotta rounded text-xs font-bold border border-orange-100">@QuestionConstants.DifficultyLabels.GetValueOrDefault(df, "")</span>
                                 }
                             </div>
-                            <div class="col-span-12 lg:col-span-7 overflow-hidden">
+                            <div class="col-span-7 overflow-hidden">
                                 <PhaseProgressStepper Status="item.Status" />
                             </div>
-                            <div class="col-span-12 lg:col-span-1 text-center">
-                                <StatusBadge StatusText="@QuestionStatus.Labels.GetValueOrDefault(item.Status, "未知")" Compact="true" />
+                            <div class="col-span-1 flex flex-col items-center gap-1.5">
+                                @if (item.IsDeleted)
+                                {
+                                    <StatusBadge StatusText="命題刪除" BadgeType="danger" Compact="true" />
+                                    <button @onclick:stopPropagation="true"
+                                            @onclick="() => RestoreAsync(item.Id, item.QuestionCode)"
+                                            title="復原此題"
+                                            class="text-xs text-sage hover:text-emerald-700 font-bold cursor-pointer focus:outline-none">
+                                        <i class="fa-solid fa-rotate-left mr-0.5"></i> 復原
+                                    </button>
+                                }
+                                else
+                                {
+                                    <StatusBadge StatusText="@QuestionStatus.Labels.GetValueOrDefault(item.Status, "未知")" Compact="true" />
+                                }
                             </div>
                         </div>
                     }
+                    </div>
                 </div>
 
                 @if (result.PageCount > 1)
@@ -209,6 +233,9 @@
 @code {
     [CascadingParameter(Name = "CurrentProject")]
     private ProjectSwitcherItem? CurrentProject { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthState { get; set; } = default!;
 
     private OverviewFilter filter = new();
     private OverviewListResult result = new();
@@ -285,6 +312,51 @@
         detailData = await OverviewService.GetDetailAsync(questionId);
         StateHasChanged();
     }
+
+    private async Task RestoreAsync(int questionId, string questionCode)
+    {
+        var auth = await AuthState;
+        var claim = auth.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(claim, out var uid)) return;
+
+        var confirm = await JS.InvokeAsync<SwalResult>("Swal.fire", new
+        {
+            icon = "question",
+            title = $"確定復原 {questionCode}？",
+            text = "題目將回到原本的狀態（IsDeleted = 0）",
+            showCancelButton = true,
+            confirmButtonText = "確定復原",
+            cancelButtonText = "取消",
+            confirmButtonColor = "#8EAB94",
+            cancelButtonColor  = "#6B8EAD"
+        });
+
+        if (!confirm.IsConfirmed) return;
+
+        var ok = await OverviewService.RestoreAsync(questionId, uid);
+        if (ok)
+        {
+            await ShowToastAsync("success", "已復原");
+            await LoadAsync();
+        }
+        else
+        {
+            await ShowToastAsync("error", "復原失敗，題目可能已不在刪除狀態");
+        }
+    }
+
+    private record SwalResult(bool IsConfirmed, bool IsDenied, bool IsDismissed);
+
+    private ValueTask ShowToastAsync(string icon, string title) =>
+        JS.InvokeVoidAsync("Swal.fire", new
+        {
+            icon,
+            title,
+            toast = true,
+            position = "top-end",
+            showConfirmButton = false,
+            timer = 2000
+        });
 
     private int CountOf(byte status) => result.StatusCounts.GetValueOrDefault(status, 0);
     private int SumCounts(byte[] statuses) => statuses.Sum(s => result.StatusCounts.GetValueOrDefault(s, 0));

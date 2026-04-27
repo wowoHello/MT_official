@@ -22,22 +22,40 @@
         </div>
     </div>
 
-    <!-- 子題 -->
+    <!-- 子題：題號＋題幹 → 自由作答提示 → 主向度/能力指標 pill → 解析黃底框 -->
     @for (int i = 0; i < SubQuestions.Count; i++)
     {
         var sq = SubQuestions[i];
         var num = i + 1;
         <div class="@(i > 0 ? "border-t border-gray-200 pt-5 mt-5" : "mt-6")">
-            <p class="font-bold text-gray-700 mb-2">@num.</p>
-            <div class="prose prose-sm max-w-none leading-relaxed text-gray-800">
-                @if (HasContent(sq.Stem))
-                {
-                    @((MarkupString)sq.Stem)
-                }
-                else
-                {
-                    <p class="text-gray-400 italic">子題題幹尚未填寫</p>
-                }
+            <!-- 題號 + 題幹 -->
+            <div class="flex items-start gap-2 mb-3">
+                <span class="font-bold text-gray-800 shrink-0">@num.</span>
+                <div class="min-w-0 flex-1 prose prose-sm max-w-none leading-relaxed text-gray-800">
+                    @if (HasContent(sq.Stem))
+                    {
+                        @((MarkupString)sq.Stem)
+                    }
+                    else
+                    {
+                        <span class="text-gray-400 italic">子題題幹尚未填寫</span>
+                    }
+                </div>
+            </div>
+
+            <!-- 自由作答提示框 -->
+            <div class="mb-3 p-3 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500">
+                本題為自由作答，請依題意作答。
+            </div>
+
+            <!-- 主向度 / 能力指標 pill -->
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+                <span class="inline-flex items-center rounded-full border border-morandi/20 bg-morandi/10 px-3 py-1 font-medium text-morandi">
+                    主向度：@(string.IsNullOrWhiteSpace(sq.Dimension) ? "未設定" : sq.Dimension)
+                </span>
+                <span class="inline-flex items-center rounded-full border border-sage/20 bg-sage/10 px-3 py-1 font-medium text-sage">
+                    能力指標：@(string.IsNullOrWhiteSpace(sq.Indicator) ? "未設定" : sq.Indicator)
+                </span>
             </div>
         </div>
     }

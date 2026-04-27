@@ -33,7 +33,7 @@
                     <h1 tabindex="-1" class="text-2xl font-bold flex items-center gap-2 focus:outline-none">
                         <i class="fa-solid fa-magnifying-glass-chart text-terracotta"></i> 審題任務
                     </h1>
-                    @* 當前階段指示燈：與 CwtList.razor 行 38–59 樣式一致 *@
+                    @* 當前階段指示燈：與 CwtList 一致 — 進行中 sage（綠）；急迫倒數 ≤5 天才轉 terracotta 警示 *@
                     @if (currentPhase is not null)
                     {
                         var urgentCss = currentPhase.IsUrgent
@@ -119,8 +119,9 @@
                             <div class="text-center text-xs text-gray-500 mt-3 font-medium">
                                 @if (currentPhase is not null)
                                 {
+                                    var daysCss = currentPhase.IsUrgent ? "text-terracotta" : "text-morandi";
                                     <span>
-                                        <i class="fa-solid fa-location-dot mr-1"></i> 目前階段：<strong>@currentPhase.PhaseName</strong>（剩餘 <strong class="text-terracotta">@currentPhase.DaysLeft</strong> 天）
+                                        <i class="fa-solid fa-location-dot mr-1 @daysCss"></i> 目前階段：<strong>@currentPhase.PhaseName</strong>（剩餘 <strong class="@daysCss">@currentPhase.DaysLeft</strong> 天）
                                     </span>
                                 }
                                 else if (phases.Any() && phases.All(p => p.DisplayState == PhaseDisplayState.Done))

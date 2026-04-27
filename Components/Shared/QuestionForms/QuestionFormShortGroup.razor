@@ -40,10 +40,14 @@
             <label class="text-sm font-bold text-gray-700 flex items-center gap-2">
                 <i class="fa-solid fa-layer-group text-morandi"></i> 子題區
             </label>
-            <button type="button" @onclick="AddSubQuestion"
-                class="px-3 py-1.5 text-xs font-bold text-white bg-sage rounded-lg hover:bg-[#7a9a82] transition-colors cursor-pointer shadow-sm flex items-center gap-1">
-                <i class="fa-solid fa-plus"></i> 新增子題
-            </button>
+            @* 新增子題僅在草稿狀態開放；命題完成後鎖定 *@
+            @if (Status == QuestionStatus.Draft)
+            {
+                <button type="button" @onclick="AddSubQuestion"
+                    class="px-3 py-1.5 text-xs font-bold text-white bg-sage rounded-lg hover:bg-[#7a9a82] transition-colors cursor-pointer shadow-sm flex items-center gap-1">
+                    <i class="fa-solid fa-plus"></i> 新增子題
+                </button>
+            }
         </div>
 
         <div class="space-y-4">
@@ -55,7 +59,8 @@
                     <!-- 子題標頭 -->
                     <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
                         <span class="text-sm font-bold text-slate-main">第 @(idx + 1) 題</span>
-                        @if (SubQuestions.Count > 1)
+                        @* 刪除子題僅在草稿狀態開放；命題完成後鎖定，避免送審/審題流程斷鏈 *@
+                        @if (Status == QuestionStatus.Draft && SubQuestions.Count > 1)
                         {
                             <button type="button" @onclick="() => RemoveSubQuestion(idx)"
                                 class="text-xs text-red-400 hover:text-red-600 transition-colors cursor-pointer flex items-center gap-1">
@@ -128,6 +133,9 @@
     [Parameter] public List<SubQuestionFreeResponse> SubQuestions { get; set; } = [new()];
     [Parameter] public EventCallback<List<SubQuestionFreeResponse>> SubQuestionsChanged { get; set; }
 
+    /// <summary>當前題目狀態，僅 Draft 開放刪除子題；其餘狀態（命題完成 / 送審後）按鈕隱藏</summary>
+    [Parameter] public byte Status { get; set; } = QuestionStatus.Draft;
+
     private void OnCoreAbilityChanged(SubQuestionFreeResponse sq)
     {
         sq.Indicator = null;
@@ -157,7 +165,7 @@
         var confirmed = await JS.InvokeAsync<bool>("swalInterop.confirm", new
         {
             title = "刪除子題",
-            text = $"確定要刪除第 {idx + 1} 題嗎？已填寫的內容將無法復原。",
+            text = $"確定要刪除第 {idx + 1} 題嗎？刪除後若要復原請聯繫管理員。",
             icon = "warning",
             showCancelButton = true,
             confirmButtonText = "確定刪除",

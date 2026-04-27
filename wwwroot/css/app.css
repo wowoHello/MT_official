@@ -48,9 +48,10 @@
 }
 
 /* --- 審題任務：七階段時程燈號條 --- */
+/* 配色：active = morandi (淡藍, 進行中)；done = sage (淡綠, 已完成)；upcoming = 灰 */
 @keyframes stage-pulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(217, 138, 108, 0.4); }
-    50% { box-shadow: 0 0 0 6px rgba(217, 138, 108, 0); }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(107, 142, 173, 0.4); }
+    50% { box-shadow: 0 0 0 6px rgba(107, 142, 173, 0); }
 }
 
 .stage-timeline {
@@ -91,9 +92,9 @@
 }
 
 .stage-dot.active {
-    background: var(--color-terracotta, #d98a6c);
+    background: var(--color-morandi, #6b8ead);
     color: white;
-    box-shadow: 0 2px 8px rgba(217, 138, 108, 0.4);
+    box-shadow: 0 2px 8px rgba(107, 142, 173, 0.4);
     animation: stage-pulse 2s infinite;
 }
 
@@ -112,7 +113,7 @@
 }
 
 .stage-label.done { color: var(--color-sage, #8eab94); }
-.stage-label.active { color: var(--color-terracotta, #d98a6c); font-weight: 700; }
+.stage-label.active { color: var(--color-morandi, #6b8ead); font-weight: 700; }
 
 .stage-line {
     position: absolute;

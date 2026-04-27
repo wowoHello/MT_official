@@ -240,8 +240,14 @@
                                             }
                                         </td>
                                         <td class="px-4 py-3 max-w-md">
-                                            <div class="text-gray-700 truncate" title="@StripHtml(item.SummaryHtml)">
-                                                @(string.IsNullOrWhiteSpace(item.SummaryHtml) ? "（尚未填寫題幹）" : StripHtml(item.SummaryHtml))
+                                            <div class="text-gray-700 truncate flex items-center gap-2" title="@StripHtml(item.SummaryHtml)">
+                                                @if (item.SubQuestionCount > 0)
+                                                {
+                                                    <span class="inline-flex items-center px-2 py-0.5 bg-morandi/10 text-morandi rounded text-xs font-bold border border-morandi/20 whitespace-nowrap shrink-0">
+                                                        @item.SubQuestionCount 子題
+                                                    </span>
+                                                }
+                                                <span class="truncate">@(string.IsNullOrWhiteSpace(item.SummaryHtml) ? "（尚未填寫題幹）" : StripHtml(item.SummaryHtml))</span>
                                             </div>
                                         </td>
                                         <td class="px-4 py-3 text-center whitespace-nowrap">
@@ -294,6 +300,13 @@
 <!-- FullScreen 命題表單 Modal -->
 <CustomModal @bind-IsVisible="showComposeModal" Type="CustomModal.ModalType.FullScreen" Title="@composeModalTitle" CloseOnBackdropClick="false" KeepAlive="true">
     <HeaderActions>
+        @if (currentFormUpdatedAt is not null)
+        {
+            <span class="text-xs text-gray-500 font-medium flex items-center gap-1.5">
+                <i class="fa-regular fa-clock"></i>
+                最後修改：@currentFormUpdatedAt.Value.ToString("yyyy/MM/dd HH:mm")
+            </span>
+        }
         <StatusBadge StatusText="@QuestionStatus.Labels.GetValueOrDefault(currentFormStatus, "命題草稿")" Compact="true" />
         <button @onclick="() => showPreviewModal = true" disabled="@isSaving"
             class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
@@ -359,10 +372,10 @@
                             <QuestionFormLongText @bind-Stem="formData.Stem" @bind-Passage="formData.ArticleContent" @bind-GradingNote="formData.GradingNote" />
                             break;
                         case QuestionTypeCodes.ReadGroup:
-                            <QuestionFormReadGroup @bind-Stem="formData.Stem" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ReadSubQuestions" />
+                            <QuestionFormReadGroup Status="@currentFormStatus" @bind-Stem="formData.Stem" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ReadSubQuestions" />
                             break;
                         case QuestionTypeCodes.ShortGroup:
-                            <QuestionFormShortGroup @bind-Stem="formData.Stem" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ShortSubQuestions" />
+                            <QuestionFormShortGroup Status="@currentFormStatus" @bind-Stem="formData.Stem" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ShortSubQuestions" />
                             break;
                         case QuestionTypeCodes.Listen:
                             <QuestionFormListen @bind-AudioFileName="formData.AudioUrl" @bind-Stem="formData.Stem" @bind-Options="formData.Options" @bind-Answer="formData.Answer" @bind-Analysis="formData.Analysis" />
@@ -444,6 +457,9 @@
     // Modal 表單目前顯示的狀態（決定 Header 標籤文字）
     private byte currentFormStatus = QuestionStatus.Draft;
 
+    // 編輯時顯示的「最後修改時間」（新增時為 null 不顯示）
+    private DateTime? currentFormUpdatedAt;
+
     // 儲存中防呆：避免重複送出
     private bool isSaving;
     private byte? pendingStatus;   // 哪一個按鈕觸發的（影響 spinner 顯示位置）
@@ -463,6 +479,9 @@
     // 後備防線：硬打 URL 進來但無配額 → 旗標化等 OnAfterRenderAsync 才彈 Swal（避免 prerender JS 錯誤）
     private bool needNoPermissionRedirect;
 
+    // 已載入的 ProjectId 守門 —— 避免父層重渲染時重跑 LoadPageDataAsync 導致配額卡片骨架閃爍
+    private int? loadedProjectId;
+
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthState;
@@ -474,6 +493,8 @@
     protected override async Task OnParametersSetAsync()
     {
         if (CurrentProject is null || currentUserId is null) return;
+        if (loadedProjectId == CurrentProject.Id) return;   // 同專案重派 → 不重載
+        loadedProjectId = CurrentProject.Id;
         await LoadPageDataAsync();
     }
 
@@ -641,10 +662,12 @@
             await ShowToastAsync("error", "題目不存在或已刪除");
             return;
         }
-        formData          = data;
-        currentFormStatus = listResult.Items.FirstOrDefault(x => x.Id == questionId)?.Status ?? QuestionStatus.Draft;
-        composeModalTitle = IsEditableStatus(currentFormStatus) ? "編輯試題" : "檢視試題";
-        showComposeModal  = true;
+        var listItem = listResult.Items.FirstOrDefault(x => x.Id == questionId);
+        formData             = data;
+        currentFormStatus    = listItem?.Status ?? QuestionStatus.Draft;
+        currentFormUpdatedAt = listItem?.UpdatedAt;
+        composeModalTitle    = IsEditableStatus(currentFormStatus) ? "編輯試題" : "檢視試題";
+        showComposeModal     = true;
     }
 
     /// <summary>軟刪除草稿題目（二次確認後呼叫 SoftDeleteAsync）。</summary>
@@ -656,7 +679,7 @@
         {
             icon = "warning",
             title = $"確定刪除 {questionCode}？",
-            text  = "刪除後若要復原，請聯繫管理員",
+            text  = "刪除後若要復原請聯繫管理員",
             showCancelButton  = true,
             confirmButtonText = "確定刪除",
             cancelButtonText  = "取消",
@@ -690,6 +713,7 @@
     {
         formData = new();
         currentFormStatus = QuestionStatus.Draft;
+        currentFormUpdatedAt = null;
         composeModalTitle = "新增試題";
         showComposeModal = true;
     }
@@ -729,7 +753,8 @@
                 }
             }
 
-            currentFormStatus = targetStatus;
+            currentFormStatus    = targetStatus;
+            currentFormUpdatedAt = DateTime.Now;
             await ShowToastAsync("success",
                 targetStatus == QuestionStatus.Completed ? "命題完成已儲存" : "已存為草稿");
 

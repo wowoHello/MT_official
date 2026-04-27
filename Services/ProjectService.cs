@@ -792,8 +792,8 @@ public class ProjectService : IProjectService
     }
 
     /// <summary>
-    /// 取得指定專案的 7 個實作階段（PhaseCode &gt; 0：命題 / 互審 / 互修 / 專審 / 專修 / 總審 / 總修）。
-    /// 排除 PhaseCode = 0 的「產學計畫區間」框架。
+    /// 取得指定專案的 7 個實作階段（PhaseCode 2~8：命題 / 互審 / 互修 / 專審 / 專修 / 總審 / 總修）。
+    /// 排除 PhaseCode = 1 的「產學計畫區間」框架。
     /// </summary>
     public async Task<List<ProjectPhaseInfo>> GetPhasesAsync(int projectId)
     {
@@ -806,7 +806,7 @@ public class ProjectService : IProjectService
                 DATEDIFF(DAY, CAST(GETDATE() AS DATE), EndDate) AS DaysLeft
             FROM dbo.MT_ProjectPhases
             WHERE ProjectId = @ProjectId
-              AND PhaseCode > 0
+              AND PhaseCode > 1
             ORDER BY SortOrder;
             """;
 
@@ -816,7 +816,7 @@ public class ProjectService : IProjectService
     }
 
     /// <summary>
-    /// 取得指定專案目前進行中的階段；若今日未落在任何階段區間，回傳 null。
+    /// 取得指定專案目前進行中的階段；排除「產學計畫區間」框架。若今日未落在任何階段區間，回傳 null。
     /// </summary>
     public async Task<ProjectPhaseInfo?> GetCurrentPhaseAsync(int projectId)
     {
@@ -829,7 +829,7 @@ public class ProjectService : IProjectService
                 DATEDIFF(DAY, CAST(GETDATE() AS DATE), EndDate) AS DaysLeft
             FROM dbo.MT_ProjectPhases
             WHERE ProjectId = @ProjectId
-              AND PhaseCode > 0
+              AND PhaseCode > 1
               AND CAST(GETDATE() AS DATE) BETWEEN StartDate AND EndDate
             ORDER BY SortOrder;
             """;
