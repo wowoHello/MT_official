@@ -1,0 +1,118 @@
+@* ====================================================================== *@
+@*  PhaseProgressStepper — 7 階段命審進度燈號                              *@
+@*  傳入 QuestionStatus byte，自動推導當前階段與燈色                        *@
+@*  階段：1 命題 / 2 互審 / 3 互修 / 4 專審 / 5 專修 / 6 總審 / 7 總修       *@
+@*  結構：兩層（球+線 / labels）對齊，避免單層 mb 補償計算誤差               *@
+@* ====================================================================== *@
+
+@{
+    var (stage, tone) = ResolveStage(Status);
+    var lamps = new string[7];
+    for (var i = 0; i < 7; i++) lamps[i] = GetLampTone(i + 1, stage, tone);
+}
+
+<div class="w-full max-w-[480px] mx-auto px-1">
+    <!-- 第一層：球與連線（垂直居中） -->
+    <div class="flex items-center">
+        @for (var i = 1; i <= 7; i++)
+        {
+            var lamp = lamps[i - 1];
+            <div class="w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs flex-shrink-0 @LampClass(lamp)">
+                @if (lamp == "gray")
+                {
+                    <span class="font-bold">@i</span>
+                }
+                else
+                {
+                    <i class="fa-solid @LampIcon(lamp)"></i>
+                }
+            </div>
+            @if (i < 7)
+            {
+                <div class="flex-1 h-1 @LineClass(i, stage, tone)"></div>
+            }
+        }
+    </div>
+
+    <!-- 第二層：階段名稱（每顆球正下方對齊） -->
+    <div class="flex items-center mt-1">
+        @for (var i = 1; i <= 7; i++)
+        {
+            var lamp = lamps[i - 1];
+            <div class="w-8 text-center text-xs font-bold flex-shrink-0 @(lamp == "gray" ? "text-gray-400" : "text-gray-700")">
+                @StageNames[i - 1]
+            </div>
+            @if (i < 7)
+            {
+                <div class="flex-1"></div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public byte Status { get; set; }
+
+    private static readonly string[] StageNames = ["命題", "互審", "互修", "專審", "專修", "總審", "總修"];
+
+    /// <summary>
+    /// 將 14 種 QuestionStatus 對應到 7 階段燈號的 (當前階段, 當前階段燈色)。
+    /// tone 特殊值："green" 全綠、"rejected" 卡關紅後續灰。
+    /// </summary>
+    private static (int Stage, string Tone) ResolveStage(byte status) => status switch
+    {
+        QuestionStatus.Draft             => (1, "blue"),
+        QuestionStatus.Completed         => (1, "blue"),
+        QuestionStatus.Submitted         => (2, "blue"),
+        QuestionStatus.PeerReviewing     => (2, "blue"),
+        QuestionStatus.PeerEditing       => (3, "red"),
+        QuestionStatus.ExpertReviewing   => (4, "blue"),
+        QuestionStatus.ExpertEditing     => (5, "red"),
+        QuestionStatus.FinalReviewing    => (6, "blue"),
+        QuestionStatus.FinalEditing      => (7, "red"),
+        QuestionStatus.SentBack          => (7, "red"),
+        QuestionStatus.Adopted           => (8, "green"),
+        QuestionStatus.Rejected          => (7, "rejected"),
+        QuestionStatus.ClosedNotAdopted  => (7, "rejected"),
+        _                                => (1, "gray")
+    };
+
+    private static string GetLampTone(int i, int stage, string tone)
+    {
+        if (tone == "green")    return "green";                       // 採用 → 全綠
+        if (tone == "rejected") return i < stage ? "green" : i == stage ? "red" : "gray";
+        if (i < stage) return "green";
+        if (i > stage) return "gray";
+        return tone;
+    }
+
+    private static string LampClass(string tone) => tone switch
+    {
+        "green" => "bg-sage border-sage text-white",
+        "blue"  => "bg-morandi border-morandi text-white animate-pulse shadow-sm",
+        "red"   => "bg-terracotta border-terracotta text-white shadow-sm",
+        _       => "bg-gray-100 border-gray-300 text-gray-400"
+    };
+
+    private static string LampIcon(string tone) => tone switch
+    {
+        "green" => "fa-check",
+        "blue"  => "fa-spinner fa-spin",
+        "red"   => "fa-pen",
+        _       => "fa-circle"
+    };
+
+    /// <summary>連線著色：左燈為基準（同色，不打折）。</summary>
+    private static string LineClass(int leftIdx, int stage, string tone)
+    {
+        if (tone == "green") return "bg-sage";
+        var leftLamp = GetLampTone(leftIdx, stage, tone);
+        return leftLamp switch
+        {
+            "green" => "bg-sage",
+            "blue"  => "bg-morandi",
+            "red"   => "bg-terracotta",
+            _       => "bg-gray-300"
+        };
+    }
+}

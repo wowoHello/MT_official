@@ -4,6 +4,8 @@
 @*  功能：審題作業區/審核結果雙分頁、七階段時程燈號條、統計摘要、題目列表     *@
 @* ====================================================================== *@
 @page "/reviews"
+@inject IQuestionService QuestionService
+@inject NavigationManager Navigation
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
 
@@ -197,7 +199,17 @@
 </div>
 
 @code {
+    [CascadingParameter(Name = "CurrentProject")]
+    private ProjectSwitcherItem? CurrentProject { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthState { get; set; } = default!;
+
     private string currentTab = "review";
+
+    // 後備防線：硬打 URL 進來但非專案成員 → 旗標化等 OnAfterRenderAsync 才彈 Swal
+    private bool needNoPermissionRedirect;
+    private bool permissionChecked;
 
     /// <summary>七階段時程定義（未來由後端 API 專案管理模組提供）</summary>
     private record StageInfo(string Key, string Label, string Icon, DateTime Start, DateTime End, string State);
@@ -209,6 +221,33 @@
     protected override void OnInitialized()
     {
         CalculateStages();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (permissionChecked || CurrentProject is null) return;
+        permissionChecked = true;
+
+        var authState = await AuthState;
+        var claim = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(claim, out var uid)) return;
+
+        var isMember = await QuestionService.IsProjectMemberAsync(uid, CurrentProject.Id);
+        if (!isMember) needNoPermissionRedirect = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!needNoPermissionRedirect) return;
+        needNoPermissionRedirect = false;
+        await JS.InvokeVoidAsync("Swal.fire", new
+        {
+            icon = "warning",
+            title = "此身分在該專案沒有審題任務",
+            text = "您目前的角色身分在此專案梯次未被指派為成員。",
+            confirmButtonColor = "#6B8EAD"
+        });
+        Navigation.NavigateTo("/");
     }
 
     /// <summary>

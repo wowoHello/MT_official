@@ -9,6 +9,7 @@
 @page "/home"
 @inject NavigationManager Navigation
 @inject IAnnouncementService AnnouncementService
+@inject IQuestionService QuestionService
 
 <div class="flex min-h-[calc(100vh-4rem)] flex-col px-4 pt-4 pb-2 sm:px-6 lg:px-8">
 
@@ -45,7 +46,7 @@
 
                         <div class="bg-white cursor-pointer group menu-card relative flex min-h-[170px] flex-col overflow-hidden rounded-xl p-5 shadow-sm transition-all duration-300"
                             style="@(isReady ? $"animation: fadeIn 0.4s ease-out {delay}ms both;" : "opacity: 0;")"
-                            @onclick="() => NavigateToModule(module)">
+                            @onclick="() => NavigateToModuleAsync(module)">
 
                             <div class="w-14 h-14 rounded-xl flex items-center justify-center text-3xl mb-4 @module.BgColorClass @module.ColorClass group-hover:scale-110 transition-transform">
                                 <i class="fa-solid @module.Icon"></i>
@@ -309,10 +310,53 @@
     // 導航
     // ================================================================
 
-    /// <summary>點擊卡片導航至對應頁面。</summary>
-    private void NavigateToModule(UserModuleCard module)
+    /// <summary>
+    /// 點擊卡片導航至對應頁面。
+    /// - 命題任務 (cwt-list)：無命題配額 → 攔下 SweetAlert
+    /// - 審題任務 (reviews) ：在當前梯次非成員 → 攔下 SweetAlert
+    /// </summary>
+    private async Task NavigateToModuleAsync(UserModuleCard module)
     {
         if (string.IsNullOrWhiteSpace(module.PageUrl)) return;
+
+        if (CurrentProject is not null)
+        {
+            var authState = await AuthState;
+            var claim = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (int.TryParse(claim, out var uid))
+            {
+                if (module.PageUrl.Contains("cwt-list", StringComparison.OrdinalIgnoreCase))
+                {
+                    var quota = await QuestionService.GetMyQuotaProgressAsync(uid, CurrentProject.Id);
+                    if (quota.Count == 0)
+                    {
+                        await ShowNoPermissionAlertAsync("此身分在該專案沒有命題任務",
+                            "您目前的角色身分在此專案梯次未被分配命題配額。如需進行命題作業，請聯絡專案管理者協助設定。");
+                        return;
+                    }
+                }
+                else if (module.PageUrl.Contains("reviews", StringComparison.OrdinalIgnoreCase))
+                {
+                    var isMember = await QuestionService.IsProjectMemberAsync(uid, CurrentProject.Id);
+                    if (!isMember)
+                    {
+                        await ShowNoPermissionAlertAsync("此身分在該專案沒有審題任務",
+                            "您目前的角色身分在此專案梯次未被指派為成員。如需進行審題作業，請聯絡專案管理者協助設定。");
+                        return;
+                    }
+                }
+            }
+        }
+
         Navigation.NavigateTo(module.PageUrl);
     }
+
+    private ValueTask ShowNoPermissionAlertAsync(string title, string text) =>
+        JS.InvokeVoidAsync("Swal.fire", new
+        {
+            icon = "warning",
+            title,
+            text,
+            confirmButtonColor = "#6B8EAD"
+        });
 }

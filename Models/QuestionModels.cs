@@ -228,6 +228,20 @@ public static class QuestionConstants
         [4] = [3, 4]          // 難度四 → 歸納分析訊息 (3) / 區辨詞語多義性 (4)
     };
 
+    // ----- 題型 string key ↔ TypeId (1~7) 互換 -----
+    public static readonly Dictionary<int, string> TypeIdToKey = new()
+    {
+        [1] = QuestionTypeCodes.Single,
+        [2] = QuestionTypeCodes.Select,
+        [3] = QuestionTypeCodes.ReadGroup,
+        [4] = QuestionTypeCodes.LongText,
+        [5] = QuestionTypeCodes.ShortGroup,
+        [6] = QuestionTypeCodes.Listen,
+        [7] = QuestionTypeCodes.ListenGroup
+    };
+    public static readonly Dictionary<string, int> TypeKeyToId =
+        TypeIdToKey.ToDictionary(kv => kv.Value, kv => kv.Key);
+
     // ======================================================================
     //  解碼 Helper：依母題題型決定子題 CoreAbility / Indicator 的中文
     // ======================================================================
@@ -285,10 +299,93 @@ public class ListenGroupSubQuestion      // 用於聽力題組
 }
 
 // ======================================================================
-//  共用表單資料模型（為 P2 鋪路：CwtList 散裝欄位收攏的目標）
+//  Status 14 種狀態 enum 常數（對應 MT_Questions.Status）
+// ======================================================================
+public static class QuestionStatus
+{
+    public const byte Draft              = 0;   // 命題草稿
+    public const byte Completed          = 1;   // 命題完成
+    public const byte Submitted          = 2;   // 命題送審
+    public const byte PeerReviewing      = 3;   // 互審中（鎖定）
+    public const byte PeerEditing        = 4;   // 互審修題中
+    public const byte ExpertReviewing    = 5;   // 專審中（鎖定）
+    public const byte ExpertEditing      = 6;   // 專審修題中
+    public const byte FinalReviewing     = 7;   // 總審中（鎖定）
+    public const byte FinalEditing       = 8;   // 總審修題中
+    public const byte Adopted            = 9;   // 採用
+    public const byte Rejected           = 10;  // 不採用
+    public const byte SentBack           = 11;  // 改後再審（過渡）
+    public const byte ClosedNotAdopted   = 12;  // 結案未採用
+
+    public static readonly Dictionary<byte, string> Labels = new()
+    {
+        [0] = "命題草稿", [1] = "命題完成", [2] = "命題送審",
+        [3] = "互審中", [4] = "互審修題中",
+        [5] = "專審中", [6] = "專審修題中",
+        [7] = "總審中", [8] = "總審修題中",
+        [9] = "採用", [10] = "不採用",
+        [11] = "改後再審", [12] = "結案未採用"
+    };
+
+    // 三 Tab 對應的 status 範圍
+    public static readonly byte[] ComposeTabStatuses  = [0, 1, 2];
+    public static readonly byte[] RevisionTabStatuses = [3, 4, 5, 6, 7, 8];
+    public static readonly byte[] HistoryTabStatuses  = [9, 10, 12];
+}
+
+// ======================================================================
+//  AuditLog Action enum 常數（對應 MT_AuditLogs.Action）
+// ======================================================================
+public static class AuditLogAction
+{
+    public const byte Create = 0;   // 建立
+    public const byte Modify = 1;   // 修改
+    public const byte Delete = 2;   // 刪除
+}
+
+public static class AuditLogTargetType
+{
+    public const byte Users         = 0;
+    public const byte Roles         = 1;
+    public const byte Projects      = 2;
+    public const byte Questions     = 3;
+    public const byte Announcements = 4;
+    public const byte Teachers      = 5;
+    public const byte Reviews       = 6;
+}
+
+// ======================================================================
+//  列表查詢參數 / 結果
+// ======================================================================
+public class QuestionListFilter
+{
+    public int ProjectId { get; set; }
+    public int? CreatorId { get; set; }       // 命題教師：自己 UserId；管理員：null
+    public string Tab { get; set; } = "compose";   // compose / revision / history
+    public byte? StatusFilter { get; set; }   // 點擊統計卡片時的單一狀態篩選
+    public int? QuestionTypeId { get; set; }
+    public byte? Level { get; set; }
+    public string? Keyword { get; set; }
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 12;
+}
+
+public class QuestionListResult
+{
+    public List<QuestionListItem> Items { get; set; } = [];
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int PageCount => PageSize > 0 ? (TotalCount + PageSize - 1) / PageSize : 0;
+}
+
+// ======================================================================
+//  共用表單資料模型（P2 收攏目標 / P3 CRUD 進出參數）
 // ======================================================================
 public class QuestionFormData
 {
+    public int Id { get; set; }                          // 0 = 新增；> 0 = 編輯既有題目
+    public string QuestionCode { get; set; } = "";       // INSERT 後填入，UI 顯示用
     public string QuestionType { get; set; } = QuestionTypeCodes.Single;
     public byte? Level { get; set; }
     public byte? Difficulty { get; set; }

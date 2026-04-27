@@ -7,6 +7,7 @@
 @using MT.Components.Shared.QuestionForms
 @using MT.Components.Shared.QuestionPreviews
 @inject IQuestionService QuestionService
+@inject NavigationManager Navigation
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
 
@@ -110,20 +111,20 @@
 
                 <!-- Tab Bar -->
                 <div class="flex border-b border-gray-200 bg-white sticky top-0 z-20 overflow-x-auto">
-                    <button @onclick='() => { currentTab = "compose"; activeFilter = "all"; }'
+                    <button @onclick='() => SwitchTab("compose")'
                         class="@(currentTab == "compose" ? "text-sage border-b-sage font-bold" : "text-gray-500 border-transparent") px-5 py-3 text-sm border-b-2 transition-colors hover:text-sage cursor-pointer focus:outline-none whitespace-nowrap">
                         <i class="fa-solid fa-pen-nib mr-1.5 text-sage"></i>命題作業區
-                        <span class="ml-2 text-xs bg-sage/15 text-sage px-2 py-0.5 rounded-full font-bold">0</span>
+                        <span class="ml-2 text-xs bg-sage/15 text-sage px-2 py-0.5 rounded-full font-bold">@SumCounts(QuestionStatus.ComposeTabStatuses)</span>
                     </button>
-                    <button @onclick='() => { currentTab = "revision"; activeFilter = "all"; }'
+                    <button @onclick='() => SwitchTab("revision")'
                         class="@(currentTab == "revision" ? "text-terracotta border-b-terracotta font-bold" : "text-gray-500 border-transparent") px-5 py-3 text-sm border-b-2 transition-colors hover:text-terracotta cursor-pointer focus:outline-none whitespace-nowrap">
                         <i class="fa-solid fa-rotate-left mr-1.5 text-terracotta"></i>審修作業區
-                        <span class="ml-2 text-xs bg-terracotta/15 text-terracotta px-2 py-0.5 rounded-full font-bold">0</span>
+                        <span class="ml-2 text-xs bg-terracotta/15 text-terracotta px-2 py-0.5 rounded-full font-bold">@SumCounts(QuestionStatus.RevisionTabStatuses)</span>
                     </button>
-                    <button @onclick='() => { currentTab = "history"; activeFilter = "all"; }'
+                    <button @onclick='() => SwitchTab("history")'
                         class="@(currentTab == "history" ? "text-morandi border-b-morandi font-bold" : "text-gray-500 border-transparent") px-5 py-3 text-sm border-b-2 transition-colors hover:text-morandi cursor-pointer focus:outline-none whitespace-nowrap">
                         <i class="fa-solid fa-box-archive mr-1.5 text-morandi"></i>審核結果與歷史
-                        <span class="ml-2 text-xs bg-morandi/15 text-morandi px-2 py-0.5 rounded-full font-bold">0</span>
+                        <span class="ml-2 text-xs bg-morandi/15 text-morandi px-2 py-0.5 rounded-full font-bold">@SumCounts(QuestionStatus.HistoryTabStatuses)</span>
                     </button>
                 </div>
 
@@ -132,22 +133,22 @@
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                         @if (currentTab == "compose")
                         {
-                            @StatCard("命題總計", "0", "fa-layer-group", "text-morandi", "text-slate-main", "all", "顯示全部題目")
-                            @StatCard("命題草稿", "0", "fa-file-pen", "text-gray-400", "text-slate-main", "draft", "點一下套用篩選")
-                            @StatCard("命題完成", "0", "fa-circle-check", "text-sage", "text-sage", "done", "點一下套用篩選")
-                            @StatCard("已送審", "0", "fa-paper-plane", "text-morandi", "text-morandi", "submitted", "點一下套用篩選")
+                            @StatCard("命題總計", SumCounts(QuestionStatus.ComposeTabStatuses), "fa-layer-group", "text-morandi", "text-slate-main", "all", "顯示全部題目")
+                            @StatCard("命題草稿", CountOf(QuestionStatus.Draft), "fa-file-pen", "text-gray-400", "text-slate-main", "draft", "點一下套用篩選")
+                            @StatCard("命題完成", CountOf(QuestionStatus.Completed), "fa-circle-check", "text-sage", "text-sage", "done", "點一下套用篩選")
+                            @StatCard("已送審", CountOf(QuestionStatus.Submitted), "fa-paper-plane", "text-morandi", "text-morandi", "submitted", "點一下套用篩選")
                         }
                         else if (currentTab == "revision")
                         {
-                            @StatCard("審題總計", "0", "fa-layer-group", "text-terracotta", "text-slate-main", "all", "顯示全部題目")
-                            @StatCard("審題鎖定", "0", "fa-lock", "text-morandi", "text-morandi", "locked", "點一下套用篩選")
-                            @StatCard("修題中", "0", "fa-lock-open", "text-terracotta", "text-terracotta", "editing", "點一下套用篩選")
+                            @StatCard("審題總計", SumCounts(QuestionStatus.RevisionTabStatuses), "fa-layer-group", "text-terracotta", "text-slate-main", "all", "顯示全部題目")
+                            @StatCard("審題鎖定", SumCounts([QuestionStatus.PeerReviewing, QuestionStatus.ExpertReviewing, QuestionStatus.FinalReviewing]), "fa-lock", "text-morandi", "text-morandi", "locked", "點一下套用篩選")
+                            @StatCard("修題中", SumCounts([QuestionStatus.PeerEditing, QuestionStatus.ExpertEditing, QuestionStatus.FinalEditing]), "fa-lock-open", "text-terracotta", "text-terracotta", "editing", "點一下套用篩選")
                         }
                         else
                         {
-                            @StatCard("全部題目", "0", "fa-layer-group", "text-morandi", "text-slate-main", "all", "顯示全部題目")
-                            @StatCard("已採用", "0", "fa-circle-check", "text-sage", "text-sage", "adopted", "點一下套用篩選")
-                            @StatCard("不採用", "0", "fa-circle-xmark", "text-gray-400", "text-gray-400", "rejected", "點一下套用篩選")
+                            @StatCard("全部題目", SumCounts(QuestionStatus.HistoryTabStatuses), "fa-layer-group", "text-morandi", "text-slate-main", "all", "顯示全部題目")
+                            @StatCard("已採用", CountOf(QuestionStatus.Adopted), "fa-circle-check", "text-sage", "text-sage", "adopted", "點一下套用篩選")
+                            @StatCard("不採用", CountOf(QuestionStatus.Rejected) + CountOf(QuestionStatus.ClosedNotAdopted), "fa-circle-xmark", "text-gray-400", "text-gray-400", "rejected", "點一下套用篩選")
                         }
                     </div>
                 </div>
@@ -155,51 +156,136 @@
                 <!-- 篩選列 -->
                 <div class="p-4 border-b border-gray-100 bg-white flex flex-col xl:flex-row gap-3 items-start xl:items-center justify-between flex-shrink-0">
                     <div class="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-                        <div class="relative w-full md:w-56">
-                            <i class="fa-solid fa-magnifying-glass left-3 top-2.5 absolute text-gray-400"></i>
-                            <input type="text" class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi" placeholder="搜尋題號或關鍵字...">
+                        <div class="w-full md:w-56">
+                            <DebouncedSearchInput Value="@(queryKeyword ?? "")" ValueChanged="OnKeywordChanged"
+                                Placeholder="搜尋題號或關鍵字..." />
                         </div>
-                        <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                            <option value="all">所有題型</option>
-                            <option value="single">一般單選題</option>
-                            <option value="select">精選單選題</option>
-                            <option value="readGroup">閱讀題組</option>
-                            <option value="longText">長文題目</option>
-                            <option value="shortGroup">短文題組</option>
-                            <option value="listen">聽力測驗</option>
-                            <option value="listenGroup">聽力題組</option>
+                        <select value="@queryTypeId" @onchange="OnTypeFilterChanged"
+                            class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                            <option value="">所有題型</option>
+                            @foreach (var (id, key) in QuestionConstants.TypeIdToKey)
+                            {
+                                <option value="@id">@QuestionConstants.TypeLabels.GetValueOrDefault(key, key)</option>
+                            }
                         </select>
-                        <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                            <option value="all">所有等級</option>
-                            <option value="初級">初級</option>
-                            <option value="中級">中級</option>
-                            <option value="中高級">中高級</option>
-                            <option value="高級">高級</option>
-                            <option value="優級">優級</option>
-                        </select>
-                        <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                            <option value="all">所有狀態</option>
+                        <select value="@queryLevel" @onchange="OnLevelFilterChanged"
+                            class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                            <option value="">所有等級</option>
+                            @foreach (var kv in QuestionConstants.GeneralLevelLabels)
+                            {
+                                <option value="@kv.Key">@kv.Value</option>
+                            }
                         </select>
                     </div>
                     <div class="flex flex-wrap items-center justify-between gap-3 w-full xl:w-auto xl:justify-end">
                         <label class="flex items-center gap-2 text-sm text-gray-500 font-medium whitespace-nowrap">
                             每頁顯示
-                            <select class="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                            <select value="@pageSize" @onchange="OnPageSizeChanged"
+                                class="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                                 <option value="12">12 題</option>
                                 <option value="24">24 題</option>
                                 <option value="48">48 題</option>
                             </select>
                         </label>
                         <div class="text-sm text-gray-500 font-medium flex-shrink-0">
-                            共 <span class="text-morandi font-bold">0</span> 題
+                            共 <span class="text-morandi font-bold">@listResult.TotalCount</span> 題
                         </div>
                     </div>
                 </div>
 
-                <!-- 題目列表（空狀態） -->
-                <div class="p-8">
-                    <EmptyState IconClass="fa-file-circle-plus" Message="目前此區沒有試題" SubMessage="點擊上方「新增試題」開始命題。" />
-                </div>
+                <!-- 題目列表 -->
+                @if (isLoadingList)
+                {
+                    <div class="p-8 text-center text-gray-400 text-sm">
+                        <i class="fa-solid fa-spinner fa-spin mr-2"></i>載入中…
+                    </div>
+                }
+                else if (listResult.Items.Count == 0)
+                {
+                    <div class="p-8">
+                        <EmptyState IconClass="fa-file-circle-plus" Message="目前此區沒有試題" SubMessage="點擊上方「新增試題」開始命題。" />
+                    </div>
+                }
+                else
+                {
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="text-xs text-gray-500 uppercase font-bold bg-gray-50 border-b border-gray-200">
+                                <tr>
+                                    <th class="px-4 py-2 text-left whitespace-nowrap">題號</th>
+                                    <th class="px-4 py-2 text-left whitespace-nowrap">題型</th>
+                                    <th class="px-4 py-2 text-left whitespace-nowrap">等級 / 難度</th>
+                                    <th class="px-4 py-2 text-left">題目摘要</th>
+                                    <th class="px-4 py-2 text-center whitespace-nowrap">狀態</th>
+                                    <th class="px-4 py-2 text-left whitespace-nowrap">最後修改</th>
+                                    <th class="px-4 py-2 text-center whitespace-nowrap">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in listResult.Items)
+                                {
+                                    <tr @onclick="() => OpenEditAsync(item.Id)"
+                                        class="border-b border-gray-100 relative hover:z-10 hover:bg-blue-50/40 hover:shadow-[inset_4px_0_0_var(--color-morandi),0_6px_16px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer group">
+                                        <td class="px-4 py-3 font-bold text-slate-main group-hover:text-morandi whitespace-nowrap transition-colors">@item.QuestionCode</td>
+                                        <td class="px-4 py-3 whitespace-nowrap">
+                                            <span class="inline-block px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-bold border border-gray-200">
+                                                @QuestionConstants.TypeLabels.GetValueOrDefault(item.TypeKey, "未知")
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-3 whitespace-nowrap">
+                                            <span class="text-xs text-morandi font-bold">@LevelLabel(item.TypeKey, item.Level)</span>
+                                            @if (item.Difficulty is byte d)
+                                            {
+                                                <span class="text-xs text-terracotta font-bold ml-2">@QuestionConstants.DifficultyLabels.GetValueOrDefault(d, "")</span>
+                                            }
+                                        </td>
+                                        <td class="px-4 py-3 max-w-md">
+                                            <div class="text-gray-700 truncate" title="@StripHtml(item.SummaryHtml)">
+                                                @(string.IsNullOrWhiteSpace(item.SummaryHtml) ? "（尚未填寫題幹）" : StripHtml(item.SummaryHtml))
+                                            </div>
+                                        </td>
+                                        <td class="px-4 py-3 text-center whitespace-nowrap">
+                                            <StatusBadge StatusText="@QuestionStatus.Labels.GetValueOrDefault(item.Status, "未知")" Compact="true" />
+                                        </td>
+                                        <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">@item.UpdatedAt.ToString("yyyy/MM/dd HH:mm")</td>
+                                        <td class="px-4 py-3 text-center whitespace-nowrap" @onclick:stopPropagation="true">
+                                            <div class="inline-flex items-center gap-3">
+                                                <button @onclick="() => OpenEditAsync(item.Id)"
+                                                    class="text-morandi hover:underline text-xs font-bold cursor-pointer focus:outline-none">
+                                                    <i class="fa-solid fa-pen-to-square mr-0.5"></i> @(IsEditableStatus(item.Status) ? "編輯" : "檢視")
+                                                </button>
+                                                @if (item.Status == QuestionStatus.Draft)
+                                                {
+                                                    <button @onclick="() => DeleteAsync(item.Id, item.QuestionCode)"
+                                                        title="刪除草稿"
+                                                        class="text-terracotta hover:text-red-600 text-xs font-bold cursor-pointer focus:outline-none">
+                                                        <i class="fa-solid fa-trash mr-0.5"></i> 刪除
+                                                    </button>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+
+                    @* 分頁器 *@
+                    @if (listResult.PageCount > 1)
+                    {
+                        <div class="flex items-center justify-center gap-2 py-4 border-t border-gray-100">
+                            <button @onclick="() => GoToPageAsync(currentPage - 1)" disabled="@(currentPage <= 1)"
+                                class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                                <i class="fa-solid fa-chevron-left"></i>
+                            </button>
+                            <span class="text-sm text-gray-600 font-medium">第 @currentPage / @listResult.PageCount 頁</span>
+                            <button @onclick="() => GoToPageAsync(currentPage + 1)" disabled="@(currentPage >= listResult.PageCount)"
+                                class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                                <i class="fa-solid fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    }
+                }
             </div>
         </div>
     </div>
@@ -208,15 +294,32 @@
 <!-- FullScreen 命題表單 Modal -->
 <CustomModal @bind-IsVisible="showComposeModal" Type="CustomModal.ModalType.FullScreen" Title="@composeModalTitle" CloseOnBackdropClick="false" KeepAlive="true">
     <HeaderActions>
-        <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-bold border border-gray-200">草稿</span>
-        <button @onclick="() => showPreviewModal = true" class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer">
+        <StatusBadge StatusText="@QuestionStatus.Labels.GetValueOrDefault(currentFormStatus, "命題草稿")" Compact="true" />
+        <button @onclick="() => showPreviewModal = true" disabled="@isSaving"
+            class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
             <i class="fa-solid fa-eye mr-1"></i> 預覽
         </button>
-        <button class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer">
-            <i class="fa-regular fa-floppy-disk mr-1"></i> 存為草稿
+        <button @onclick="() => SaveAsync(QuestionStatus.Draft)" disabled="@isSaving"
+            class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+            @if (isSaving && pendingStatus == QuestionStatus.Draft)
+            {
+                <i class="fa-solid fa-spinner fa-spin mr-1"></i> <span>儲存中…</span>
+            }
+            else
+            {
+                <i class="fa-regular fa-floppy-disk mr-1"></i> <span>存為草稿</span>
+            }
         </button>
-        <button class="px-4 py-1.5 text-sm bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold transition-colors cursor-pointer">
-            <i class="fa-solid fa-check mr-1"></i> 命題完成
+        <button @onclick="() => SaveAsync(QuestionStatus.Completed)" disabled="@isSaving"
+            class="px-4 py-1.5 text-sm bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+            @if (isSaving && pendingStatus == QuestionStatus.Completed)
+            {
+                <i class="fa-solid fa-spinner fa-spin mr-1"></i> <span>提交中…</span>
+            }
+            else
+            {
+                <i class="fa-solid fa-check mr-1"></i> <span>命題完成</span>
+            }
         </button>
     </HeaderActions>
     <ChildContent>
@@ -338,6 +441,28 @@
     // 表單狀態統一收攏（題型 / 等級 / 難度 / 8 屬性 / 主題內容 / 子題清單）
     private QuestionFormData formData = new();
 
+    // Modal 表單目前顯示的狀態（決定 Header 標籤文字）
+    private byte currentFormStatus = QuestionStatus.Draft;
+
+    // 儲存中防呆：避免重複送出
+    private bool isSaving;
+    private byte? pendingStatus;   // 哪一個按鈕觸發的（影響 spinner 顯示位置）
+
+    // 列表狀態
+    private QuestionListResult listResult = new();
+    private Dictionary<byte, int> statusCounts = [];
+    private bool isLoadingList;
+    private int currentPage = 1;
+    private int pageSize = 12;
+
+    // 篩選條件
+    private string? queryKeyword;
+    private string queryTypeId = "";   // "" or "1"~"7"
+    private string queryLevel = "";    // "" or "0"~"5"
+
+    // 後備防線：硬打 URL 進來但無配額 → 旗標化等 OnAfterRenderAsync 才彈 Swal（避免 prerender JS 錯誤）
+    private bool needNoPermissionRedirect;
+
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthState;
@@ -357,18 +482,203 @@
         isLoadingQuota = true;
         try
         {
-            var quotaTask = QuestionService.GetMyQuotaProgressAsync(currentUserId!.Value, CurrentProject!.Id);
-            var phaseTask = QuestionService.GetCurrentPhaseAsync(CurrentProject!.Id);
-            await Task.WhenAll(quotaTask, phaseTask);
+            var quotaTask  = QuestionService.GetMyQuotaProgressAsync(currentUserId!.Value, CurrentProject!.Id);
+            var phaseTask  = QuestionService.GetCurrentPhaseAsync(CurrentProject!.Id);
+            var countsTask = QuestionService.GetStatusCountsAsync(CurrentProject!.Id, currentUserId!.Value);
+            await Task.WhenAll(quotaTask, phaseTask, countsTask);
             quotaProgress = quotaTask.Result;
-            currentPhase = phaseTask.Result;
+            currentPhase  = phaseTask.Result;
+            statusCounts  = countsTask.Result;
         }
         finally
         {
             isLoadingQuota = false;
+        }
+
+        // 後備防線：硬打 URL 進來但沒命題配額 → 設旗標等 firstRender 後才 Swal+redirect
+        if (quotaProgress.Count == 0)
+        {
+            needNoPermissionRedirect = true;
+            return;
+        }
+
+        await LoadListAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!needNoPermissionRedirect) return;
+        needNoPermissionRedirect = false;
+        await JS.InvokeVoidAsync("Swal.fire", new
+        {
+            icon = "warning",
+            title = "此身分在該專案沒有命題任務",
+            text = "您目前的角色身分在此專案梯次未被分配命題配額。",
+            confirmButtonColor = "#6B8EAD"
+        });
+        Navigation.NavigateTo("/");
+    }
+
+    private async Task LoadListAsync()
+    {
+        if (CurrentProject is null || currentUserId is null) return;
+
+        isLoadingList = true;
+        try
+        {
+            var filter = new QuestionListFilter
+            {
+                ProjectId      = CurrentProject.Id,
+                CreatorId      = currentUserId.Value,
+                Tab            = currentTab,
+                StatusFilter   = ResolveStatusFilter(),
+                QuestionTypeId = int.TryParse(queryTypeId, out var t) ? t : null,
+                Level          = byte.TryParse(queryLevel, out var l) ? l : null,
+                Keyword        = string.IsNullOrWhiteSpace(queryKeyword) ? null : queryKeyword.Trim(),
+                Page           = currentPage,
+                PageSize       = pageSize
+            };
+            listResult = await QuestionService.ListAsync(filter);
+        }
+        finally
+        {
+            isLoadingList = false;
             StateHasChanged();
         }
     }
+
+    /// <summary>把 activeFilter 字串對應到 QuestionListFilter.StatusFilter（單一 byte 或 null）。</summary>
+    private byte? ResolveStatusFilter() => (currentTab, activeFilter) switch
+    {
+        ("compose",  "draft")     => QuestionStatus.Draft,
+        ("compose",  "done")      => QuestionStatus.Completed,
+        ("compose",  "submitted") => QuestionStatus.Submitted,
+        ("history",  "adopted")   => QuestionStatus.Adopted,
+        ("history",  "rejected")  => QuestionStatus.Rejected,
+        // revision 子分類（locked/editing）涉及多 status，由 ListAsync 用 Tab 範圍處理；此處不單一過濾
+        _                         => null
+    };
+
+    private async Task SwitchTab(string tab)
+    {
+        currentTab    = tab;
+        activeFilter  = "all";
+        currentPage   = 1;
+        await LoadListAsync();
+    }
+
+    private async Task OnFilterChanged(string filterKey)
+    {
+        activeFilter = filterKey;
+        currentPage  = 1;
+        await LoadListAsync();
+    }
+
+    private async Task OnKeywordChanged(string? keyword)
+    {
+        queryKeyword = keyword;
+        currentPage  = 1;
+        await LoadListAsync();
+    }
+
+    private async Task OnTypeFilterChanged(ChangeEventArgs e)
+    {
+        queryTypeId  = e.Value?.ToString() ?? "";
+        currentPage  = 1;
+        await LoadListAsync();
+    }
+
+    private async Task OnLevelFilterChanged(ChangeEventArgs e)
+    {
+        queryLevel   = e.Value?.ToString() ?? "";
+        currentPage  = 1;
+        await LoadListAsync();
+    }
+
+    private async Task OnPageSizeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var n)) pageSize = n;
+        currentPage = 1;
+        await LoadListAsync();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        if (page < 1 || page > listResult.PageCount || page == currentPage) return;
+        currentPage = page;
+        await LoadListAsync();
+    }
+
+    private int CountOf(byte status) => statusCounts.GetValueOrDefault(status, 0);
+    private int SumCounts(byte[] statuses) => statuses.Sum(s => statusCounts.GetValueOrDefault(s, 0));
+
+    private static bool IsEditableStatus(byte status) =>
+        status is QuestionStatus.Draft or QuestionStatus.Completed
+              or QuestionStatus.PeerEditing or QuestionStatus.ExpertEditing or QuestionStatus.FinalEditing;
+
+    private static string LevelLabel(string typeKey, byte? level)
+    {
+        if (level is null) return "";
+        return typeKey is QuestionTypeCodes.Listen or QuestionTypeCodes.ListenGroup
+            ? QuestionConstants.ListenLevelLabels.GetValueOrDefault(level.Value, "")
+            : QuestionConstants.GeneralLevelLabels.GetValueOrDefault(level.Value, "");
+    }
+
+    /// <summary>HTML 摘要去標籤，僅給列表預覽用（不做進階淨化，因為內容是自家 Quill 產出）。</summary>
+    private static string StripHtml(string html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return "";
+        var text = System.Text.RegularExpressions.Regex.Replace(html, "<.*?>", " ");
+        text = System.Net.WebUtility.HtmlDecode(text).Trim();
+        return text.Length > 100 ? text[..100] + "…" : text;
+    }
+
+    private async Task OpenEditAsync(int questionId)
+    {
+        var data = await QuestionService.GetByIdAsync(questionId);
+        if (data is null)
+        {
+            await ShowToastAsync("error", "題目不存在或已刪除");
+            return;
+        }
+        formData          = data;
+        currentFormStatus = listResult.Items.FirstOrDefault(x => x.Id == questionId)?.Status ?? QuestionStatus.Draft;
+        composeModalTitle = IsEditableStatus(currentFormStatus) ? "編輯試題" : "檢視試題";
+        showComposeModal  = true;
+    }
+
+    /// <summary>軟刪除草稿題目（二次確認後呼叫 SoftDeleteAsync）。</summary>
+    private async Task DeleteAsync(int questionId, string questionCode)
+    {
+        if (currentUserId is null) return;
+
+        var confirm = await JS.InvokeAsync<SwalResult>("Swal.fire", new
+        {
+            icon = "warning",
+            title = $"確定刪除 {questionCode}？",
+            text  = "刪除後若要復原，請聯繫管理員",
+            showCancelButton  = true,
+            confirmButtonText = "確定刪除",
+            cancelButtonText  = "取消",
+            confirmButtonColor = "#D98A6C",
+            cancelButtonColor  = "#6B8EAD"
+        });
+
+        if (!confirm.IsConfirmed) return;
+
+        var ok = await QuestionService.SoftDeleteAsync(questionId, currentUserId.Value);
+        if (ok)
+        {
+            await ShowToastAsync("success", "已刪除");
+            await LoadPageDataAsync();
+        }
+        else
+        {
+            await ShowToastAsync("error", "刪除失敗，題目可能已不在草稿狀態");
+        }
+    }
+
+    private record SwalResult(bool IsConfirmed, bool IsDenied, bool IsDismissed);
 
     // 切題型時保留題型本身、重置其他欄位（避免帶舊資料）
     private void OnQuestionTypeChanged(string newType)
@@ -379,9 +689,74 @@
     private void OpenComposeModal()
     {
         formData = new();
+        currentFormStatus = QuestionStatus.Draft;
         composeModalTitle = "新增試題";
         showComposeModal = true;
     }
+
+    /// <summary>
+    /// 存為草稿（status=0）或命題完成（status=1）。
+    /// formData.Id == 0 → CreateAsync；> 0 → UpdateAsync。
+    /// Service 層自動寫入 MT_AuditLogs。
+    /// </summary>
+    private async Task SaveAsync(byte targetStatus)
+    {
+        if (isSaving) return;
+        if (CurrentProject is null || currentUserId is null)
+        {
+            await ShowToastAsync("error", "找不到當前專案或使用者");
+            return;
+        }
+
+        isSaving = true;
+        pendingStatus = targetStatus;
+        try
+        {
+            if (formData.Id == 0)
+            {
+                var newId = await QuestionService.CreateAsync(
+                    formData, currentUserId.Value, CurrentProject.Id, targetStatus);
+                formData.Id = newId;
+            }
+            else
+            {
+                var ok = await QuestionService.UpdateAsync(
+                    formData.Id, formData, targetStatus, currentUserId.Value);
+                if (!ok)
+                {
+                    await ShowToastAsync("error", "題目不存在或已被刪除");
+                    return;
+                }
+            }
+
+            currentFormStatus = targetStatus;
+            await ShowToastAsync("success",
+                targetStatus == QuestionStatus.Completed ? "命題完成已儲存" : "已存為草稿");
+
+            showComposeModal = false;
+            await LoadPageDataAsync();
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync("error", $"儲存失敗：{ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+            pendingStatus = null;
+        }
+    }
+
+    private ValueTask ShowToastAsync(string icon, string title) =>
+        JS.InvokeVoidAsync("Swal.fire", new
+        {
+            icon,
+            title,
+            toast = true,
+            position = "top-end",
+            showConfirmButton = false,
+            timer = 2000
+        });
 
     // 將 byte? 解碼為對應的中文標籤；若為 null 回傳 fallback
     private static string Label(byte? value, IReadOnlyDictionary<byte, string> map, string fallback) =>
@@ -442,10 +817,10 @@
 
     private string activeFilter = "all";
 
-    private RenderFragment StatCard(string title, string value, string icon, string iconColor, string valueColor, string filterKey, string subtitle) => __builder =>
+    private RenderFragment StatCard(string title, int value, string icon, string iconColor, string valueColor, string filterKey, string subtitle) => __builder =>
     {
         var isActive = activeFilter == filterKey;
-        <div @onclick="() => activeFilter = filterKey"
+        <div @onclick="() => OnFilterChanged(filterKey)"
             class="@(isActive ? "ring-2 ring-morandi border-morandi bg-morandi/5" : "bg-white border-gray-200 hover:shadow-md") rounded-xl shadow-sm border p-4 transition duration-200 cursor-pointer select-none">
             <div class="text-gray-500 text-xs font-bold mb-1 flex items-center justify-between">
                 @title <i class="fa-solid @icon @iconColor opacity-50"></i>
