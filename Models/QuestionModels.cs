@@ -20,6 +20,18 @@ public class ProjectPhaseInfo
     public DateTime EndDate { get; set; }
     public int DaysLeft { get; set; }
     public bool IsUrgent => DaysLeft >= 0 && DaysLeft <= 5;
+
+    public PhaseDisplayState DisplayState =>
+        DateTime.Today > EndDate ? PhaseDisplayState.Done :
+        DateTime.Today >= StartDate ? PhaseDisplayState.Active :
+        PhaseDisplayState.Upcoming;
+}
+
+public enum PhaseDisplayState : byte
+{
+    Done = 0,
+    Active = 1,
+    Upcoming = 2
 }
 
 // ======================================================================

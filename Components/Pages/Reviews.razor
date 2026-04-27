@@ -5,6 +5,7 @@
 @* ====================================================================== *@
 @page "/reviews"
 @inject IQuestionService QuestionService
+@inject IProjectService ProjectService
 @inject NavigationManager Navigation
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
@@ -32,12 +33,27 @@
                     <h1 tabindex="-1" class="text-2xl font-bold flex items-center gap-2 focus:outline-none">
                         <i class="fa-solid fa-magnifying-glass-chart text-terracotta"></i> 審題任務
                     </h1>
-                    <!-- 當前階段指示燈 -->
-                    @if (activeStage is not null)
+                    @* 當前階段指示燈：與 CwtList.razor 行 38–59 樣式一致 *@
+                    @if (currentPhase is not null)
                     {
-                        <span class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full bg-terracotta/15 text-terracotta border border-terracotta/30">
-                            <span class="w-2 h-2 rounded-full bg-terracotta animate-pulse"></span>
-                            @activeStage.Label 階段進行中
+                        var urgentCss = currentPhase.IsUrgent
+                            ? "bg-terracotta/15 text-terracotta border-terracotta/30"
+                            : "bg-sage/15 text-sage border-sage/30";
+                        var dotCss = currentPhase.IsUrgent ? "bg-terracotta" : "bg-sage";
+                        <span class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full border @urgentCss">
+                            <span class="w-2 h-2 rounded-full @dotCss animate-pulse"></span>
+                            @currentPhase.PhaseName 進行中
+                            @if (currentPhase.IsUrgent)
+                            {
+                                <span>（剩 @currentPhase.DaysLeft 天）</span>
+                            }
+                        </span>
+                    }
+                    else if (!isLoadingPhases)
+                    {
+                        <span class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full bg-gray-100 text-gray-400 border border-gray-200">
+                            <span class="w-2 h-2 rounded-full bg-gray-300"></span>
+                            目前無進行中階段
                         </span>
                     }
                 </div>
@@ -70,45 +86,46 @@
                 <div class="p-4 border-b border-gray-100 bg-gray-50/50 flex-shrink-0">
                     @if (currentTab == "review")
                     {
-                        <!-- 七階段時程燈號條 -->
+                        <!-- 七階段時程燈號條（資料來源：MT_ProjectPhases，PhaseCode 1~7） -->
                         <div class="mb-4">
-                            <div class="stage-timeline relative" style="padding: 0 20px;">
-                                @for (int i = 0; i < stages.Count; i++)
+                            <div class="stage-timeline relative">
+                                @for (int i = 0; i < phases.Count; i++)
                                 {
-                                    var stage = stages[i];
-                                    var icon = stage.State == "done" ? "fa-solid fa-check"
-                                             : stage.State == "active" ? stage.Icon
+                                    var phase = phases[i];
+                                    var stateCss = phase.DisplayState switch
+                                    {
+                                        PhaseDisplayState.Done    => "done",
+                                        PhaseDisplayState.Active  => "active",
+                                        _                         => "upcoming"
+                                    };
+                                    var icon = phase.DisplayState == PhaseDisplayState.Done   ? "fa-solid fa-check"
+                                             : phase.DisplayState == PhaseDisplayState.Active ? "fa-solid fa-location-dot"
                                              : "fa-solid fa-ellipsis";
 
                                     <div class="stage-node">
                                         @if (i > 0)
                                         {
-                                            var prevState = stages[i - 1].State;
-                                            var lineClass = (prevState == "done" && (stage.State == "done" || stage.State == "active")) ? "done" : "upcoming";
-                                            <div class="stage-line @lineClass" style="left: calc(-50% + 14px); right: calc(50% + 14px);"></div>
+                                            var prev = phases[i - 1].DisplayState;
+                                            var lineCss = (prev == PhaseDisplayState.Done && phase.DisplayState != PhaseDisplayState.Upcoming) ? "done" : "upcoming";
+                                            <div class="stage-line @lineCss" style="left: calc(-50% + 14px); right: calc(50% + 14px);"></div>
                                         }
-                                        <div class="stage-dot @stage.State" title="@stage.Label：@stage.Start.ToString("yyyy/MM/dd") ~ @stage.End.ToString("yyyy/MM/dd")">
+                                        <div class="stage-dot @stateCss" title="@phase.PhaseName：@phase.StartDate.ToString("yyyy/MM/dd") ~ @phase.EndDate.ToString("yyyy/MM/dd")">
                                             <i class="@icon text-xs"></i>
                                         </div>
-                                        <div class="stage-label @stage.State">@stage.Label</div>
+                                        <div class="stage-label @stateCss">@phase.PhaseName</div>
                                     </div>
                                 }
                             </div>
                             <div class="text-center text-xs text-gray-500 mt-3 font-medium">
-                                @if (activeStage is not null)
+                                @if (currentPhase is not null)
                                 {
-                                    if (activeStage.State == "active")
-                                    {
-                                        <span>
-                                            <i class="fa-solid fa-location-dot mr-1"></i> 目前階段：<strong>@activeStage.Label</strong>（剩餘 <strong class="text-terracotta">@daysRemaining</strong> 天）
-                                        </span>
-                                    }
-                                    else
-                                    {
-                                        <span>
-                                            <i class="fa-solid fa-circle-check mr-1 text-sage"></i> 所有審題階段已完成
-                                        </span>
-                                    }
+                                    <span>
+                                        <i class="fa-solid fa-location-dot mr-1"></i> 目前階段：<strong>@currentPhase.PhaseName</strong>（剩餘 <strong class="text-terracotta">@currentPhase.DaysLeft</strong> 天）
+                                    </span>
+                                }
+                                else if (phases.Any() && phases.All(p => p.DisplayState == PhaseDisplayState.Done))
+                                {
+                                    <span><i class="fa-solid fa-circle-check mr-1 text-sage"></i> 所有審題階段已完成</span>
                                 }
                             </div>
                         </div>
@@ -211,21 +228,26 @@
     private bool needNoPermissionRedirect;
     private bool permissionChecked;
 
-    /// <summary>七階段時程定義（未來由後端 API 專案管理模組提供）</summary>
-    private record StageInfo(string Key, string Label, string Icon, DateTime Start, DateTime End, string State);
-
-    private List<StageInfo> stages = new();
-    private StageInfo? activeStage;
-    private int daysRemaining;
-
-    protected override void OnInitialized()
-    {
-        CalculateStages();
-    }
+    // 七階段資料（資料來源：MT_ProjectPhases，PhaseCode 1~7；排除 PhaseCode=0 產學區間）
+    private ProjectPhaseInfo? currentPhase;
+    private List<ProjectPhaseInfo> phases = new();
+    private bool isLoadingPhases = true;
 
     protected override async Task OnParametersSetAsync()
     {
-        if (permissionChecked || CurrentProject is null) return;
+        if (CurrentProject is null)
+        {
+            phases = new();
+            currentPhase = null;
+            isLoadingPhases = false;
+            return;
+        }
+
+        // 階段資料：每次 CurrentProject 變更都需要重新載入（切換梯次）
+        await LoadPhasesAsync(CurrentProject.Id);
+
+        // 權限檢查：每位使用者每次進頁面只跑一次
+        if (permissionChecked) return;
         permissionChecked = true;
 
         var authState = await AuthState;
@@ -234,6 +256,23 @@
 
         var isMember = await QuestionService.IsProjectMemberAsync(uid, CurrentProject.Id);
         if (!isMember) needNoPermissionRedirect = true;
+    }
+
+    private async Task LoadPhasesAsync(int projectId)
+    {
+        isLoadingPhases = true;
+        try
+        {
+            var phasesTask = ProjectService.GetPhasesAsync(projectId);
+            var currentTask = ProjectService.GetCurrentPhaseAsync(projectId);
+            await Task.WhenAll(phasesTask, currentTask);
+            phases = phasesTask.Result;
+            currentPhase = currentTask.Result;
+        }
+        finally
+        {
+            isLoadingPhases = false;
+        }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -248,56 +287,6 @@
             confirmButtonColor = "#6B8EAD"
         });
         Navigation.NavigateTo("/");
-    }
-
-    /// <summary>
-    /// 根據當前日期判定各階段狀態（done / active / upcoming）
-    /// TODO: 未來改為從資料庫讀取專案階段設定
-    /// </summary>
-    private void CalculateStages()
-    {
-        var stageDefinitions = new List<(string Key, string Label, string Icon, DateTime Start, DateTime End)>
-        {
-            ("proposing",    "命題", "fa-solid fa-pen-nib",        new(2026, 2, 1),  new(2026, 2, 28)),
-            ("peerReview",   "互審", "fa-solid fa-people-arrows",  new(2026, 3, 1),  new(2026, 3, 10)),
-            ("peerEdit",     "互修", "fa-solid fa-pen-to-square",  new(2026, 3, 11), new(2026, 3, 17)),
-            ("expertReview", "專審", "fa-solid fa-user-tie",       new(2026, 3, 18), new(2026, 3, 27)),
-            ("expertEdit",   "專修", "fa-solid fa-pen-to-square",  new(2026, 3, 28), new(2026, 4, 3)),
-            ("finalReview",  "總審", "fa-solid fa-crown",          new(2026, 4, 4),  new(2026, 4, 13)),
-            ("finalEdit",    "總修", "fa-solid fa-pen-to-square",  new(2026, 4, 14), new(2026, 4, 20))
-        };
-
-        var today = DateTime.Today;
-        activeStage = null;
-        daysRemaining = 0;
-
-        foreach (var (key, label, icon, start, end) in stageDefinitions)
-        {
-            string state;
-            if (today > end)
-            {
-                state = "done";
-            }
-            else if (today >= start && today <= end)
-            {
-                state = "active";
-                daysRemaining = (int)Math.Ceiling((end - today).TotalDays);
-            }
-            else
-            {
-                state = "upcoming";
-            }
-
-            stages.Add(new StageInfo(key, label, icon, start, end, state));
-        }
-
-        activeStage = stages.FirstOrDefault(s => s.State == "active");
-
-        // 若所有階段都已結束，標記最後一個為展示用
-        if (activeStage is null && stages.All(s => s.State == "done"))
-        {
-            activeStage = stages.Last();
-        }
     }
 
     private RenderFragment HistoryStatCard(string title, string value, string icon, string iconColor, string valueColor) => __builder =>

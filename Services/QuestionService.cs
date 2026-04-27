@@ -65,8 +65,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
     public async Task<ProjectPhaseInfo?> GetCurrentPhaseAsync(int projectId)
     {
-        // 排除 PhaseCode=0「產學計畫區間」（整體框架時程，不視為具體階段）
-        // 從 PhaseCode=1 命題階段起的 7 個實際階段才是要顯示的
+        // 排除 PhaseCode=1「產學計畫區間」（整體框架時程，不視為具體階段）
+        // 從 PhaseCode=2 命題階段起的 7 個實際任務階段才是要顯示的
         const string sql = """
             SELECT TOP 1
                 PhaseCode,
@@ -76,7 +76,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 DATEDIFF(DAY, CAST(GETDATE() AS DATE), EndDate) AS DaysLeft
             FROM dbo.MT_ProjectPhases
             WHERE ProjectId = @ProjectId
-              AND PhaseCode > 0
+              AND PhaseCode > 1
               AND CAST(GETDATE() AS DATE) BETWEEN StartDate AND EndDate
             ORDER BY SortOrder;
             """;

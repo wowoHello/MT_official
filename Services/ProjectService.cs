@@ -57,6 +57,16 @@ public interface IProjectService
     /// 更新既有專案主檔與相關設定資料。
     /// </summary>
     Task UpdateProjectAsync(UpdateProjectRequest request);
+
+    /// <summary>
+    /// 取得指定專案的 7 個實作階段（PhaseCode &gt; 0），依排序回傳。
+    /// </summary>
+    Task<List<ProjectPhaseInfo>> GetPhasesAsync(int projectId);
+
+    /// <summary>
+    /// 取得指定專案目前進行中的階段（依今日落在 StartDate ~ EndDate 區間判定）。
+    /// </summary>
+    Task<ProjectPhaseInfo?> GetCurrentPhaseAsync(int projectId);
 }
 
 /// <summary>
@@ -780,6 +790,54 @@ public class ProjectService : IProjectService
             }
         }
     }
+
+    /// <summary>
+    /// 取得指定專案的 7 個實作階段（PhaseCode &gt; 0：命題 / 互審 / 互修 / 專審 / 專修 / 總審 / 總修）。
+    /// 排除 PhaseCode = 0 的「產學計畫區間」框架。
+    /// </summary>
+    public async Task<List<ProjectPhaseInfo>> GetPhasesAsync(int projectId)
+    {
+        const string sql = """
+            SELECT
+                PhaseCode,
+                PhaseName,
+                StartDate,
+                EndDate,
+                DATEDIFF(DAY, CAST(GETDATE() AS DATE), EndDate) AS DaysLeft
+            FROM dbo.MT_ProjectPhases
+            WHERE ProjectId = @ProjectId
+              AND PhaseCode > 0
+            ORDER BY SortOrder;
+            """;
+
+        using var conn = _db.CreateConnection();
+        var rows = await conn.QueryAsync<ProjectPhaseInfo>(sql, new { ProjectId = projectId });
+        return rows.AsList();
+    }
+
+    /// <summary>
+    /// 取得指定專案目前進行中的階段；若今日未落在任何階段區間，回傳 null。
+    /// </summary>
+    public async Task<ProjectPhaseInfo?> GetCurrentPhaseAsync(int projectId)
+    {
+        const string sql = """
+            SELECT TOP 1
+                PhaseCode,
+                PhaseName,
+                StartDate,
+                EndDate,
+                DATEDIFF(DAY, CAST(GETDATE() AS DATE), EndDate) AS DaysLeft
+            FROM dbo.MT_ProjectPhases
+            WHERE ProjectId = @ProjectId
+              AND PhaseCode > 0
+              AND CAST(GETDATE() AS DATE) BETWEEN StartDate AND EndDate
+            ORDER BY SortOrder;
+            """;
+
+        using var conn = _db.CreateConnection();
+        return await conn.QueryFirstOrDefaultAsync<ProjectPhaseInfo>(sql, new { ProjectId = projectId });
+    }
+
     private sealed class ProjectMemberRow
     {
         public int UserId { get; set; }
