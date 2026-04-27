@@ -20,10 +20,13 @@ public class HomeService : IHomeService
     private const int AlertThresholdDays = 5;
     private const int CriticalThresholdDays = 2;
 
-    // 對應的角色名稱（與 MT_Roles.Name 一致）
+    // 預設角色名稱（IsDefault=1，前端鎖定改名，可信賴的「任務語意」標識）
     private const string RoleProposer = "命題教師";
     private const string RoleExpert = "審題委員";
     private const string RoleConvener = "總召";
+
+    // MT_Roles.Category：0 = 內部人員（管理員視角）、1 = 外部人員
+    private const byte CategoryInternal = 0;
 
     private readonly IDatabaseService _db;
     private readonly IAnnouncementService _announcementService;
@@ -48,7 +51,7 @@ public class HomeService : IHomeService
         {
             using var conn = _db.CreateConnection();
 
-            // 一次取回：當前進行中且 ≤5 天的階段、使用者在該梯次的角色名稱、命題配額/已完成、修題中題數、待審任務數
+            // 一次取回 8 個結果集：倒數階段 / 梯次角色 / 個人配額 / 修題中 / 待審 / 系統角色 / 配額缺口 / 逾期階段
             const string sql = """
                 -- 1) 倒數階段
                 SELECT
@@ -99,6 +102,30 @@ public class HomeService : IHomeService
                   AND ReviewerId = @UserId
                   AND ReviewStatus = 0
                 GROUP BY ReviewStage;
+
+                -- 6) 系統角色分類（Category：0=內部人員、1=外部人員，用於判斷管理員視角）
+                SELECT r.Category
+                FROM dbo.MT_Users u
+                INNER JOIN dbo.MT_Roles r ON r.Id = u.RoleId
+                WHERE u.Id = @UserId;
+
+                -- 7) 全梯次配額缺口（命題階段倒數時用）
+                SELECT
+                    ISNULL((SELECT SUM(TargetCount) FROM dbo.MT_ProjectTargets WHERE ProjectId = @ProjectId), 0) AS TargetTotal,
+                    ISNULL((SELECT COUNT(*) FROM dbo.MT_Questions
+                            WHERE ProjectId = @ProjectId AND IsDeleted = 0 AND Status >= 1), 0) AS ProducedTotal;
+
+                -- 8) 逾期階段（最新一個 EndDate < 今日 且下一階段尚未開始）
+                SELECT TOP 1 p.PhaseCode, p.PhaseName,
+                    DATEDIFF(DAY, p.EndDate, CAST(GETDATE() AS DATE)) AS DaysOverdue
+                FROM dbo.MT_ProjectPhases p
+                LEFT JOIN dbo.MT_ProjectPhases pNext
+                    ON pNext.ProjectId = p.ProjectId AND pNext.PhaseCode = p.PhaseCode + 1
+                WHERE p.ProjectId = @ProjectId
+                  AND p.PhaseCode > 1
+                  AND p.EndDate < CAST(GETDATE() AS DATE)
+                  AND (pNext.StartDate IS NULL OR pNext.StartDate > CAST(GETDATE() AS DATE))
+                ORDER BY p.PhaseCode DESC;
                 """;
 
             using var grid = await conn.QueryMultipleAsync(sql, new
@@ -109,24 +136,68 @@ public class HomeService : IHomeService
             });
 
             var phases = (await grid.ReadAsync<PhaseRow>()).ToList();
-            if (phases.Count == 0) return [];
-
             var roles = (await grid.ReadAsync<string>()).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var quotaRow = await grid.ReadFirstOrDefaultAsync<QuotaRow>() ?? new QuotaRow();
             var editingByStatus = (await grid.ReadAsync<StatusCountRow>())
                 .ToDictionary(r => r.Status, r => r.Cnt);
             var reviewByStage = (await grid.ReadAsync<StageCountRow>())
                 .ToDictionary(r => r.ReviewStage, r => r.Cnt);
+            var systemRoleCategory = await grid.ReadFirstOrDefaultAsync<byte?>();
+            var quotaGap = await grid.ReadFirstOrDefaultAsync<QuotaGapRow>() ?? new QuotaGapRow();
+            var overdue = await grid.ReadFirstOrDefaultAsync<OverdueRow>();
+
+            // 管理員視角 = 系統角色屬內部人員（Category=0）OR 梯次角色為總召
+            var isAdmin = systemRoleCategory == CategoryInternal
+                       || roles.Contains(RoleConvener);
 
             var alerts = new List<UrgentAlertItem>();
+
+            // [警示一] 階段逾期（任何角色，固定紅 + 跳閃）
+            if (overdue is not null)
+            {
+                alerts.Add(new UrgentAlertItem
+                {
+                    AlertType = AlertType.PhaseOverdue,
+                    Severity = AlertSeverity.Critical,
+                    PhaseCode = overdue.PhaseCode,
+                    PhaseName = overdue.PhaseName,
+                    DaysLeft = -overdue.DaysOverdue,
+                    Title = $"{overdue.PhaseName}已逾期 {overdue.DaysOverdue} 天",
+                    Subtitle = isAdmin ? "請盡速推進階段時程" : "請聯絡專案管理員協助處理",
+                    RedirectUrl = isAdmin ? "/projects" : "/overview"
+                });
+            }
+
+            // [警示二/三] 各階段倒數（個人積壓 + 純倒數 + 配額缺口）
             foreach (var phase in phases)
             {
                 BuildAlertForPhase(phase, roles, quotaRow, editingByStatus, reviewByStage, alerts);
+
+                // 管理員：對該階段補上純倒數提醒（若尚未因個人任務加入）
+                if (isAdmin && !alerts.Any(a => a.PhaseCode == phase.PhaseCode
+                    && (a.AlertType == AlertType.PhaseCountdown || a.AlertType == AlertType.PersonalBacklog)))
+                {
+                    alerts.Add(BuildAdminPhaseCountdown(phase));
+                }
+
+                // 管理員專屬：命題階段倒數時，加入「配額缺口」警示
+                if (isAdmin && phase.PhaseCode == 2
+                    && quotaGap.TargetTotal > 0
+                    && quotaGap.ProducedTotal < quotaGap.TargetTotal)
+                {
+                    alerts.Add(BuildQuotaGapAlert(phase, quotaGap));
+                }
             }
 
-            // 排序：個人任務優先 → 嚴重度 → 剩餘天數
+            // 排序：逾期 > 配額缺口 > 個人積壓 > 純倒數，再依嚴重度與剩餘天數
             return alerts
-                .OrderByDescending(a => a.AlertType == AlertType.PersonalBacklog)
+                .OrderBy(a => a.AlertType switch
+                {
+                    AlertType.PhaseOverdue => 0,
+                    AlertType.QuotaGap => 1,
+                    AlertType.PersonalBacklog => 2,
+                    _ => 3
+                })
                 .ThenByDescending(a => a.Severity)
                 .ThenBy(a => a.DaysLeft)
                 .ToList();
@@ -136,6 +207,47 @@ public class HomeService : IHomeService
             _logger.LogWarning(ex, "載入首頁急件警示失敗 (UserId={UserId}, ProjectId={ProjectId})", userId, projectId);
             return [];
         }
+    }
+
+    /// <summary>管理員視角：純階段倒數提醒（不論是否有任務）。</summary>
+    private static UrgentAlertItem BuildAdminPhaseCountdown(PhaseRow phase)
+    {
+        var severity = phase.DaysLeft <= CriticalThresholdDays
+            ? AlertSeverity.Critical
+            : AlertSeverity.Warning;
+
+        return new UrgentAlertItem
+        {
+            AlertType = AlertType.PhaseCountdown,
+            Severity = severity,
+            PhaseCode = phase.PhaseCode,
+            PhaseName = phase.PhaseName,
+            DaysLeft = phase.DaysLeft,
+            Title = $"{phase.PhaseName}剩 {phase.DaysLeft} 天結束",
+            Subtitle = "點擊查看梯次總覽",
+            RedirectUrl = "/overview"
+        };
+    }
+
+    /// <summary>管理員視角：命題階段倒數時的配額缺口警示。</summary>
+    private static UrgentAlertItem BuildQuotaGapAlert(PhaseRow phase, QuotaGapRow gap)
+    {
+        var shortage = gap.TargetTotal - gap.ProducedTotal;
+        var ratio = gap.TargetTotal > 0 ? gap.ProducedTotal * 100 / gap.TargetTotal : 0;
+        var severity = ratio < 70 ? AlertSeverity.Critical : AlertSeverity.Warning;
+
+        return new UrgentAlertItem
+        {
+            AlertType = AlertType.QuotaGap,
+            Severity = severity,
+            PhaseCode = phase.PhaseCode,
+            PhaseName = phase.PhaseName,
+            DaysLeft = phase.DaysLeft,
+            PendingCount = shortage,
+            Title = $"梯次還缺 {shortage} 題未產出",
+            Subtitle = $"達成率 {ratio}%，命題階段剩 {phase.DaysLeft} 天",
+            RedirectUrl = "/overview"
+        };
     }
 
     /// <summary>依角色與資料庫狀態，為單一階段產出對應警示卡片。</summary>
@@ -252,5 +364,18 @@ public class HomeService : IHomeService
     {
         public byte ReviewStage { get; set; }
         public int Cnt { get; set; }
+    }
+
+    private sealed class QuotaGapRow
+    {
+        public int TargetTotal { get; set; }
+        public int ProducedTotal { get; set; }
+    }
+
+    private sealed class OverdueRow
+    {
+        public int PhaseCode { get; set; }
+        public string PhaseName { get; set; } = string.Empty;
+        public int DaysOverdue { get; set; }
     }
 }

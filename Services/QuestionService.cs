@@ -425,8 +425,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 q.CreatedAt, q.UpdatedAt,
                 q.IsDeleted,
                 (SELECT COUNT(*) FROM dbo.MT_SubQuestions sq
-                 WHERE sq.ParentQuestionId = q.Id AND sq.IsDeleted = 0) AS SubQuestionCount
+                 WHERE sq.ParentQuestionId = q.Id AND sq.IsDeleted = 0) AS SubQuestionCount,
+                ISNULL(u.DisplayName, '') AS CreatorName
             FROM dbo.MT_Questions q
+            LEFT JOIN dbo.MT_Users u ON u.Id = q.CreatorId
             WHERE q.ProjectId = @ProjectId
               {deletedClauseQ}
               AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
@@ -463,7 +465,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 CreatedAt        = r.CreatedAt,
                 UpdatedAt        = r.UpdatedAt,
                 IsDeleted        = r.IsDeleted,
-                SubQuestionCount = r.SubQuestionCount
+                SubQuestionCount = r.SubQuestionCount,
+                CreatorName      = r.CreatorName ?? ""
             }).ToList()
         };
     }
@@ -1018,5 +1021,6 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         public DateTime UpdatedAt { get; set; }
         public bool IsDeleted { get; set; }
         public int SubQuestionCount { get; set; }
+        public string? CreatorName { get; set; }
     }
 }

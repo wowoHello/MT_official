@@ -87,7 +87,7 @@
             </div>
 
             @* 水平捲動容器：包住 Header + List，narrow 時整塊一起橫向捲動，
-               header 與 row 的 min-w-[960px] 才能真正撐開不被父層 overflow-hidden 壓扁 *@
+               header 與 row 的 min-w-[1080px] 才能真正撐開不被父層 overflow-hidden 壓扁 *@
             @if (isLoading)
             {
                 <div class="p-8 text-center text-gray-400 text-sm flex-grow">
@@ -105,13 +105,14 @@
                 @* 單層 overflow-auto 同時管橫向 + 縱向，避免巢狀雙 overflow 導致內層被擠扁；
                    header 用 sticky top-0 保持在頂部，narrow 時整體水平捲動，header 與 row 對齊 *@
                 <div class="flex-grow overflow-auto custom-scroll min-h-0">
-                    <div class="min-w-[960px]">
+                    <div class="min-w-[1080px]">
                         <!-- Table Header -->
                         <div class="sticky top-0 z-10 grid grid-cols-12 gap-4 px-6 py-3 border-b border-gray-200 bg-white text-xs font-bold text-gray-500 uppercase tracking-wider shadow-sm">
                             <div class="col-span-2">題號</div>
+                            <div class="col-span-1">命題教師</div>
                             <div class="col-span-1">題型</div>
                             <div class="col-span-1">等級/難度</div>
-                            <div class="col-span-7 text-center">三審狀態軌跡（7 階段）</div>
+                            <div class="col-span-6 min-w-[480px] text-center">三審狀態軌跡（7 階段）</div>
                             <div class="col-span-1 text-center">當前狀態</div>
                         </div>
 
@@ -129,6 +130,13 @@
                                     </span>
                                 }
                             </div>
+                            <!-- 命題教師 -->
+                            <div class="col-span-1 flex items-center gap-1.5 text-sm text-slate-main min-w-0">
+                                <i class="fa-regular fa-user text-morandi shrink-0"></i>
+                                <span class="font-medium truncate" title="@item.CreatorName">
+                                    @(string.IsNullOrWhiteSpace(item.CreatorName) ? "—" : item.CreatorName)
+                                </span>
+                            </div>
                             <div class="col-span-1">
                                 <span class="inline-block px-2 py-1 bg-gray-100 text-gray-600 rounded text-xs font-bold border border-gray-200">
                                     @QuestionConstants.TypeLabels.GetValueOrDefault(item.TypeKey, "未知")
@@ -144,7 +152,9 @@
                                     <span class="inline-block px-1.5 py-0.5 bg-orange-50 text-terracotta rounded text-xs font-bold border border-orange-100">@QuestionConstants.DifficultyLabels.GetValueOrDefault(df, "")</span>
                                 }
                             </div>
-                            <div class="col-span-7 overflow-hidden">
+                            @* col-span-6 在 min-w-[1080px] 容器內理應 ~510px，但實際上 fr 配置會被內容多寡擠壓，
+                               直接給 min-w-[480px] 鎖住 stepper 所需空間，確保 7 顆球與連線不被壓縮 *@
+                            <div class="col-span-6 min-w-[480px]">
                                 <PhaseProgressStepper Status="item.Status" />
                             </div>
                             <div class="col-span-1 flex flex-col items-center gap-1.5">
@@ -250,9 +260,14 @@
     private QuestionListItem? detailItem;
     private QuestionFormData? detailData;
 
+    // 已載入的 ProjectId 守門 —— 避免父層重渲染時重跑 LoadAsync 導致列表骨架閃爍
+    private int? loadedProjectId;
+
     protected override async Task OnParametersSetAsync()
     {
         if (CurrentProject is null) return;
+        if (loadedProjectId == CurrentProject.Id) return;   // 同專案重派 → 不重載
+        loadedProjectId = CurrentProject.Id;
         await LoadAsync();
     }
 

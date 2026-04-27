@@ -30,7 +30,13 @@
 
         <!-- 左側：功能模組卡片 Grid（僅渲染有權限的模組） -->
         <div class="flex flex-col lg:w-2/3 lg:min-h-0 lg:overflow-hidden xl:w-3/4">
-            @if (enabledModules.Count == 0)
+            @if (ModuleCards is null)
+            {
+                <div class="flex flex-grow items-center justify-center py-10">
+                    <i class="fa-solid fa-spinner fa-spin text-3xl text-morandi"></i>
+                </div>
+            }
+            else if (enabledModules.Count == 0)
             {
                 <EmptyState IconClass="fa-inbox"
                             Message="目前還沒指派的梯次唷！"
@@ -81,13 +87,19 @@
                 <div class="bg-red-50 rounded-xl border border-red-100 overflow-hidden shadow-sm shadow-red-100/50 flex-shrink-0">
                     <div class="bg-red-100 px-4 py-1.5 font-bold text-terracotta text-sm border-b border-red-200 flex items-center justify-between">
                         <span>急件 / 到期警示</span>
-                        @if (urgentAlerts.Count > 0)
+                        @if (!isLoadingHomeData && urgentAlerts.Count > 0)
                         {
                             <span class="text-xs font-bold bg-white text-terracotta px-2 py-0.5 rounded-full">@urgentAlerts.Count</span>
                         }
                     </div>
 
-                    @if (urgentAlerts.Count == 0)
+                    @if (isLoadingHomeData)
+                    {
+                        <div class="px-5 py-6 flex items-center justify-center">
+                            <i class="fa-solid fa-spinner fa-spin text-xl text-terracotta/70"></i>
+                        </div>
+                    }
+                    else if (urgentAlerts.Count == 0)
                     {
                         <div class="px-5 py-6 flex flex-col items-center justify-center text-center">
                             <div class="w-12 h-12 rounded-full bg-white flex items-center justify-center mb-3 shadow-sm border border-red-50">
@@ -98,20 +110,29 @@
                     }
                     else
                     {
-                        <ul class="divide-y divide-red-100">
+                        <ul class="flex flex-col gap-2 p-2">
                             @foreach (var alert in urgentAlerts)
                             {
                                 var isCritical = alert.Severity == AlertSeverity.Critical;
+                                var isOverdue = alert.AlertType == AlertType.PhaseOverdue;
+                                var isQuotaGap = alert.AlertType == AlertType.QuotaGap;
                                 var dotClass = isCritical ? "bg-red-500" : "bg-amber-500";
                                 var titleClass = isCritical ? "text-red-700" : "text-amber-700";
+                                var cardClass = isOverdue
+                                    ? "bg-red-50 border-red-200 hover:border-red-300"
+                                    : "bg-white border-red-100 hover:border-red-200";
+                                var iconClass = isOverdue
+                                    ? "fa-solid fa-triangle-exclamation text-red-600"
+                                    : isQuotaGap ? "fa-solid fa-chart-pie text-amber-600"
+                                    : "fa-regular fa-clock text-gray-400";
 
-                                <li class="px-4 py-2.5 hover:bg-red-100/40 transition-colors cursor-pointer flex items-start gap-3"
+                                <li class="rounded-lg border px-3 py-2.5 shadow-sm transition-all cursor-pointer flex items-start gap-3 hover:shadow-md @cardClass"
                                     @onclick="() => NavigateToAlertAsync(alert)">
-                                    <span class="mt-1.5 inline-block w-2.5 h-2.5 rounded-full @dotClass @(isCritical ? "animate-pulse" : "")"></span>
+                                    <span class="mt-1.5 inline-block w-2.5 h-2.5 rounded-full @dotClass @((isCritical || isOverdue) ? "animate-pulse" : "")"></span>
                                     <div class="flex-1 min-w-0">
                                         <p class="text-sm font-bold @titleClass leading-snug">@alert.Title</p>
                                         <p class="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
-                                            <i class="fa-regular fa-clock"></i>
+                                            <i class="@iconClass"></i>
                                             <span>@alert.Subtitle</span>
                                         </p>
                                     </div>
@@ -126,10 +147,19 @@
                 <div class="flex min-h-[240px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm lg:min-h-0 lg:flex-grow">
                     <div class="bg-gray-50 px-4 py-2.5 font-bold text-gray-700 text-sm border-b border-gray-200 flex justify-between items-center flex-shrink-0">
                         <span>公告與通知</span>
-                        <span class="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">@announcements.Count</span>
+                        @if (!isLoadingHomeData)
+                        {
+                            <span class="text-xs font-normal text-gray-500 bg-gray-200 px-2 py-0.5 rounded-full">@announcements.Count</span>
+                        }
                     </div>
 
-                    @if (announcements.Count == 0)
+                    @if (isLoadingHomeData)
+                    {
+                        <div class="overflow-y-auto custom-scroll flex-grow flex items-center justify-center p-6 bg-gray-50/50">
+                            <i class="fa-solid fa-spinner fa-spin text-2xl text-morandi"></i>
+                        </div>
+                    }
+                    else if (announcements.Count == 0)
                     {
                         <div class="overflow-y-auto custom-scroll flex-grow flex flex-col items-center justify-center p-6 bg-gray-50/50">
                             <div class="mb-4">
@@ -247,6 +277,7 @@
     private bool showAnnouncementModal;
     private int? previousProjectId;
     private bool hasLoadedHomeData;
+    private bool isLoadingHomeData = true;
     private int? cachedUserId;
 
     /// <summary>僅取有權限的模組用於渲染卡片。</summary>
@@ -292,6 +323,8 @@
     /// <summary>同時載入公告與急件警示，依當前梯次與使用者過濾。</summary>
     private async Task LoadHomeDataAsync()
     {
+        isLoadingHomeData = true;
+
         var projectId = CurrentProject?.Id;
         var userId = await ResolveUserIdAsync();
 
@@ -310,6 +343,10 @@
         {
             announcements = announcementTask.IsCompletedSuccessfully ? announcementTask.Result : [];
             urgentAlerts = alertTask.IsCompletedSuccessfully ? alertTask.Result : [];
+        }
+        finally
+        {
+            isLoadingHomeData = false;
         }
     }
 

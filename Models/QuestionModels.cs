@@ -451,4 +451,5 @@ public class QuestionListItem
     public DateTime UpdatedAt { get; set; }
     public bool IsDeleted { get; set; }       // true = 已軟刪除（Overview 用紅色「命題刪除」標籤）
     public int SubQuestionCount { get; set; } // 題組型才 > 0；非題組恆為 0
+    public string CreatorName { get; set; } = "";   // 命題教師顯示名稱（Overview 用，CwtList 自家題目不需要）
 }

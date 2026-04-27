@@ -16,10 +16,14 @@ public enum AlertSeverity : byte
 /// <summary>急件警示型別。</summary>
 public enum AlertType : byte
 {
-    /// <summary>階段倒數提醒（梯次層級）。</summary>
+    /// <summary>階段倒數提醒（梯次層級，純資訊）。</summary>
     PhaseCountdown = 0,
     /// <summary>個人任務積壓警示（合併倒數）。</summary>
-    PersonalBacklog = 1
+    PersonalBacklog = 1,
+    /// <summary>配額缺口警示（管理員視角，命題階段倒數時觸發）。</summary>
+    QuotaGap = 2,
+    /// <summary>階段逾期警示（不分角色，紅色 + 跳閃）。</summary>
+    PhaseOverdue = 3
 }
 
 /// <summary>單筆急件警示資料。</summary>

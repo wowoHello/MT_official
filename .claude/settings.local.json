@@ -6,7 +6,9 @@
       "Read(//d/MTrefer/**)",
       "Read(//d/MTrefer/MT_prototype/**)",
       "Bash(find . -name \"*.cs\" -not -path \"./bin/*\" -not -path \"./obj/*\" -exec wc -l {} \\\\;)",
-      "Bash(dotnet build:*)"
+      "Bash(dotnet build:*)",
+      "Bash(dotnet msbuild *)",
+      "PowerShell(dotnet msbuild *)"
     ]
   }
 }

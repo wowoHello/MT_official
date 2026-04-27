@@ -204,7 +204,7 @@
                 <div class="space-y-3 text-sm">
                     <div class="flex justify-between gap-4">
                         <span class="text-gray-500">登入帳號</span>
-                        <span class="font-mono text-slate-main">@userProfile.Username</span>
+                        <span class="text-slate-main">@userProfile.Username</span>
                     </div>
                     <div class="flex justify-between gap-4">
                         <span class="text-gray-500">電子信箱</span>
@@ -336,8 +336,9 @@
     private List<ProjectSwitcherItem> availableProjects = [];
     private ProjectSwitcherItem? currentProject;
 
-    /// <summary>使用者在當前梯次下的功能模組權限清單（供子頁面 CascadingParameter 使用）。</summary>
-    private List<UserModuleCard> moduleCards = [];
+    /// <summary>使用者在當前梯次下的功能模組權限清單（供子頁面 CascadingParameter 使用）。
+    /// null = 尚未載入；子頁面以此判斷是否顯示骨架/Spinner，避免閃爍空狀態。</summary>
+    private List<UserModuleCard>? moduleCards;
 
     // ================================================================
     // 計算屬性
@@ -432,6 +433,9 @@
 
         // 空路徑（首頁）或無法解析 → 放行
         if (string.IsNullOrEmpty(pagePath)) return;
+
+        // 模組清單尚未載入完成 → 放行（避免在資料未到位前誤踢）
+        if (moduleCards is null) return;
 
         // 比對模組清單，找不到代表不是模組頁面（login、not-found 等）→ 放行
         var module = moduleCards.FirstOrDefault(m =>
