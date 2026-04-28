@@ -54,6 +54,11 @@ public interface IProjectService
     Task SoftDeleteProjectAsync(int projectId, int deletedBy);
 
     /// <summary>
+    /// 提前結案：將梯次設為已結案、非「採用」題目一律改為「不採用」入庫。
+    /// </summary>
+    Task CloseProjectAsync(int projectId, int closedBy);
+
+    /// <summary>
     /// 更新既有專案主檔與相關設定資料。
     /// </summary>
     Task UpdateProjectAsync(UpdateProjectRequest request);
@@ -355,6 +360,72 @@ public class ProjectService : IProjectService
     }
 
     /// <summary>
+    /// 提前結案：標記梯次為結案，並把非「採用」狀態的題目全部改為「不採用」入庫。
+    /// </summary>
+    public async Task CloseProjectAsync(int projectId, int closedBy)
+    {
+        using var conn = (System.Data.Common.DbConnection)_db.CreateConnection();
+        await conn.OpenAsync();
+
+        using var trans = await conn.BeginTransactionAsync(IsolationLevel.Serializable);
+
+        try
+        {
+            // 1) 梯次主檔：標記結案（已結案者保持原 ClosedAt 不變）
+            const string closeSql = """
+                UPDATE dbo.MT_Projects
+                SET ClosedAt = GETDATE(),
+                    UpdatedAt = SYSDATETIME()
+                WHERE Id = @ProjectId
+                  AND IsDeleted = 0
+                  AND ClosedAt IS NULL;
+                """;
+
+            var affected = await conn.ExecuteAsync(closeSql, new { ProjectId = projectId }, trans);
+            if (affected == 0)
+            {
+                throw new InvalidOperationException("專案已結案或不存在，無法重複結案。");
+            }
+
+            // 2) 非採用題目改為「結案未採用」(Status = 12)
+            const string updateQuestionsSql = """
+                UPDATE dbo.MT_Questions
+                SET Status = 12,
+                    UpdatedAt = SYSDATETIME()
+                WHERE ProjectId = @ProjectId
+                  AND IsDeleted = 0
+                  AND Status <> 9;
+                """;
+
+            await conn.ExecuteAsync(updateQuestionsSql, new { ProjectId = projectId }, trans);
+
+            // 3) 稽核紀錄
+            const string auditSql = """
+                INSERT INTO dbo.MT_AuditLogs (UserId, ProjectId, Action, TargetType, TargetId, NewValue)
+                VALUES (@UserId, @ProjectId, @Action, @TargetType, @TargetId, N'提前結案入庫');
+                """;
+
+            await conn.ExecuteAsync(auditSql, new
+            {
+                UserId = closedBy,
+                ProjectId = projectId,
+                Action = (byte)AuditAction.Update,
+                TargetType = (byte)AuditTargetType.Projects,
+                TargetId = projectId
+            }, trans);
+
+            await trans.CommitAsync();
+        }
+        catch
+        {
+            await trans.RollbackAsync();
+            throw;
+        }
+
+        await BroadcastProjectChangedAsync(ProjectRealtimeChangeType.Updated, projectId);
+    }
+
+    /// <summary>
     /// 建立專案主檔與其相關設定資料，完成後回傳新專案識別碼。
     /// </summary>
     public async Task<int> CreateProjectAsync(CreateProjectRequest req)
@@ -463,6 +534,15 @@ public class ProjectService : IProjectService
             if (oldSnapshot is null)
             {
                 throw new InvalidOperationException("找不到要編輯的專案，或該專案已被移除。");
+            }
+
+            // 命題階段（PhaseCode=2）結束後鎖定：題數需求 / 配額 / 命題教師新增
+            var compositionPhaseEnd = oldSnapshot.Phases
+                .FirstOrDefault(p => p.PhaseCode == 2)?.EndDate;
+            if (compositionPhaseEnd is DateTime compEnd && compEnd < DateTime.Today)
+            {
+                EnsureCompositionPhaseLockRespected(oldSnapshot, req);
+                await EnsureNoNewPropositionTeacherAsync(conn, trans, oldSnapshot, req);
             }
 
             var year = int.Parse(req.Year);
@@ -847,6 +927,71 @@ public class ProjectService : IProjectService
 
         using var conn = _db.CreateConnection();
         return await conn.QueryFirstOrDefaultAsync<ProjectPhaseInfo>(sql, new { ProjectId = projectId });
+    }
+
+    /// <summary>
+    /// 命題階段結束後比對題數需求與配額，禁止任何修改。
+    /// </summary>
+    private static void EnsureCompositionPhaseLockRespected(ProjectEditDto oldSnapshot, UpdateProjectRequest req)
+    {
+        // 1. TargetCount 比對
+        var oldTargets = oldSnapshot.Targets.ToDictionary(t => t.QuestionTypeId, t => t.TargetCount);
+        var newTargets = req.Targets.ToDictionary(t => t.QuestionTypeId, t => t.TargetCount);
+        var allTargetKeys = oldTargets.Keys.Union(newTargets.Keys);
+        foreach (var key in allTargetKeys)
+        {
+            var oldCount = oldTargets.TryGetValue(key, out var o) ? o : 0;
+            var newCount = newTargets.TryGetValue(key, out var n) ? n : 0;
+            if (oldCount != newCount)
+            {
+                throw new InvalidOperationException("命題階段已結束，無法修改題數需求。");
+            }
+        }
+
+        // 2. 配額比對：以 (UserId, QuestionTypeId) 為鍵
+        var oldQuotas = oldSnapshot.MemberAllocations
+            .SelectMany(m => m.Quotas.Select(q => new { m.UserId, q.QuestionTypeId, q.QuotaCount }))
+            .ToDictionary(x => (x.UserId, x.QuestionTypeId), x => x.QuotaCount);
+        var newQuotas = req.MemberAllocations
+            .SelectMany(m => m.Quotas.Select(q => new { m.UserId, q.QuestionTypeId, q.QuotaCount }))
+            .ToDictionary(x => (x.UserId, x.QuestionTypeId), x => x.QuotaCount);
+        var allQuotaKeys = oldQuotas.Keys.Union(newQuotas.Keys);
+        foreach (var key in allQuotaKeys)
+        {
+            var oldCount = oldQuotas.TryGetValue(key, out var o) ? o : 0;
+            var newCount = newQuotas.TryGetValue(key, out var n) ? n : 0;
+            if (oldCount != newCount)
+            {
+                throw new InvalidOperationException("命題階段已結束，無法修改命題配額。");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 命題階段結束後禁止新增「命題教師」身份（允許移除既有命題教師）。
+    /// </summary>
+    private async Task EnsureNoNewPropositionTeacherAsync(
+        IDbConnection conn,
+        IDbTransaction trans,
+        ProjectEditDto oldSnapshot,
+        UpdateProjectRequest req)
+    {
+        const string roleSql = "SELECT TOP 1 Id FROM dbo.MT_Roles WHERE Name = N'命題教師';";
+        var propositionRoleId = await conn.ExecuteScalarAsync<int?>(roleSql, transaction: trans);
+        if (propositionRoleId is null) return;
+
+        var oldPropositionUserIds = oldSnapshot.MemberAllocations
+            .Where(m => m.RoleIds.Contains(propositionRoleId.Value))
+            .Select(m => m.UserId)
+            .ToHashSet();
+
+        foreach (var alloc in req.MemberAllocations)
+        {
+            if (alloc.RoleIds.Contains(propositionRoleId.Value) && !oldPropositionUserIds.Contains(alloc.UserId))
+            {
+                throw new InvalidOperationException("命題階段已結束，無法新增命題教師。");
+            }
+        }
     }
 
     private sealed class ProjectMemberRow

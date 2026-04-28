@@ -223,7 +223,7 @@ public class HomeService : IHomeService
             PhaseCode = phase.PhaseCode,
             PhaseName = phase.PhaseName,
             DaysLeft = phase.DaysLeft,
-            Title = $"{phase.PhaseName}剩 {phase.DaysLeft} 天結束",
+            Title = $"{phase.PhaseName}{FormatPhaseDeadline(phase.DaysLeft)}",
             Subtitle = "點擊查看梯次總覽",
             RedirectUrl = "/overview"
         };
@@ -245,10 +245,18 @@ public class HomeService : IHomeService
             DaysLeft = phase.DaysLeft,
             PendingCount = shortage,
             Title = $"梯次還缺 {shortage} 題未產出",
-            Subtitle = $"達成率 {ratio}%，命題階段剩 {phase.DaysLeft} 天",
+            Subtitle = $"達成率 {ratio}%，命題階段{FormatPhaseRemaining(phase.DaysLeft)}",
             RedirectUrl = "/overview"
         };
     }
+
+    /// <summary>格式化「階段結束」描述；當天截止時顯示「今天過後截止」。</summary>
+    private static string FormatPhaseDeadline(int daysLeft)
+        => daysLeft <= 0 ? "今天過後截止" : $"剩 {daysLeft} 天結束";
+
+    /// <summary>格式化「剩餘天數」描述；當天截止時顯示「今天過後截止」。</summary>
+    private static string FormatPhaseRemaining(int daysLeft)
+        => daysLeft <= 0 ? "今天過後截止" : $"剩 {daysLeft} 天";
 
     /// <summary>依角色與資料庫狀態，為單一階段產出對應警示卡片。</summary>
     private static void BuildAlertForPhase(
@@ -319,7 +327,7 @@ public class HomeService : IHomeService
                 DaysLeft = phase.DaysLeft,
                 PendingCount = pending,
                 Title = $"您還有 {pending} 題{taskLabel}",
-                Subtitle = $"{phase.PhaseName}剩 {phase.DaysLeft} 天結束",
+                Subtitle = $"{phase.PhaseName}{FormatPhaseDeadline(phase.DaysLeft)}",
                 RedirectUrl = redirectUrl
             });
         }
@@ -334,7 +342,7 @@ public class HomeService : IHomeService
                 PhaseName = phase.PhaseName,
                 DaysLeft = phase.DaysLeft,
                 PendingCount = 0,
-                Title = $"{phase.PhaseName}剩 {phase.DaysLeft} 天結束",
+                Title = $"{phase.PhaseName}{FormatPhaseDeadline(phase.DaysLeft)}",
                 Subtitle = "目前任務皆已完成",
                 RedirectUrl = redirectUrl
             });

@@ -81,6 +81,9 @@ builder.Services.AddScoped<IOverviewService, OverviewService>();
 // 首頁公告載入與急件警示（Home.razor）
 builder.Services.AddScoped<IHomeService, HomeService>();
 
+// 命題儀表板 KPI 統計（Dashboard.razor）
+builder.Services.AddScoped<IDashboardService, DashboardService>();
+
 var app = builder.Build();
 
 // =========================================================

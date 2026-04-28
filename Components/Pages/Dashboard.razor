@@ -4,6 +4,8 @@
 @*  功能：統計卡片（目標題數、採用、審修、退回）、題型缺口圖表、緊急待辦     *@
 @* ====================================================================== *@
 @page "/dashboard"
+@inject IDashboardService DashboardService
+@inject ILogger<Dashboard> Logger
 
 <div class="flex-grow w-full mx-auto flex flex-col">
     <!-- Breadcrumb & Header -->
@@ -47,93 +49,286 @@
     <!-- Main Content -->
     <div class="flex-grow p-4 sm:p-6 lg:p-8">
 
-    <!-- 4 Stat Cards (Empty State: 0) -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        @StatCard("總目標題數", "0", "fa-bullseye", "text-slate-main", "bg-blue-50 text-morandi")
-        @StatCard("已納入題庫 (採用)", "0", "fa-check-double", "text-sage", "bg-green-50 text-sage")
-        @StatCard("各階段審修中", "0", "fa-spinner fa-spin-pulse", "text-amber-600", "bg-amber-50 text-amber-600")
-        <div class="bg-white rounded-xl p-5 shadow-sm flex items-center justify-between border-l-4 border-l-terracotta hover:shadow-md transition-all">
-            <div>
-                <p class="text-sm font-bold text-terracotta mb-1">退回修題 / 嚴重落後</p>
-                <div class="flex items-baseline gap-2">
-                    <h3 class="text-3xl font-black text-terracotta">0</h3>
+        <!-- 4 KPI Cards：統一結構 Header → Main → Divider → Footer（mt-auto 推底） -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+
+            @* ── 卡片 1：總目標題數（morandi 灰藍） ── *@
+            <div class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all border-l-[3px] border-l-[var(--color-morandi)] p-5 flex flex-col min-h-[200px]">
+                <!-- Header -->
+                <div class="flex items-center gap-2.5 mb-2">
+                    <div class="w-8 h-8 rounded-lg bg-blue-50 text-[var(--color-morandi)] flex items-center justify-center shrink-0">
+                        <i class="fa-solid fa-bullseye text-sm"></i>
+                    </div>
+                    <p class="text-sm font-semibold text-gray-600">總目標題數</p>
+                </div>
+                <!-- Main -->
+                <div class="flex items-baseline gap-1.5 mb-3">
+                    <h3 class="text-4xl font-black text-[var(--color-morandi)] tabular-nums leading-none">
+                        @(isLoading ? "…" : kpi.TotalTarget.ToString())
+                    </h3>
                     <span class="text-sm text-gray-400">題</span>
                 </div>
-            </div>
-            <div class="w-12 h-12 rounded-full bg-red-50 text-terracotta flex items-center justify-center text-xl">
-                <i class="fa-solid fa-triangle-exclamation"></i>
-            </div>
-        </div>
-    </div>
-
-    <!-- Charts Row -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        <!-- Chart 1 -->
-        <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-1 flex flex-col h-[350px] overflow-hidden">
-            <h3 class="text-lg font-bold text-slate-main mb-1">題型缺口達成率</h3>
-            <p class="text-xs text-gray-500 mb-2">展示目前各題型「已產出」與「目標」比例。</p>
-            <div class="flex-grow min-h-0">
-                <EmptyState IconClass="fa-chart-pie" Message="尚無數據" SubMessage="目前梯次無資料可供分析" Compact="true" />
-            </div>
-        </div>
-
-        <!-- Chart 2 -->
-        <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-2 flex flex-col h-[350px] overflow-hidden">
-            <div class="flex justify-between items-start mb-2">
-                <div>
-                    <h3 class="text-lg font-bold text-slate-main mb-1">依題型狀態分佈表</h3>
-                    <p class="text-xs text-gray-500">展示草稿、送審、審修、退回等不同狀態在各題型的分佈數量。</p>
+                <!-- Footer：永遠顯示題型明細（即使全為 0 也顯示列表） -->
+                <div class="mt-auto pt-3 border-t border-gray-100">
+                    @if (isLoading)
+                    {
+                        <div class="text-xs text-gray-300">載入中…</div>
+                    }
+                    else
+                    {
+                        <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                            @foreach (var t in kpi.TargetBreakdown)
+                            {
+                                <div class="flex justify-between gap-2">
+                                    <span class="text-gray-500 truncate">@t.TypeName</span>
+                                    <span class="font-semibold text-[var(--color-slate-main)] tabular-nums shrink-0">@t.TargetCount</span>
+                                </div>
+                            }
+                            @if (!kpi.TargetBreakdown.Any())
+                            {
+                                <span class="col-span-2 text-gray-400">請先設定各題型目標數量</span>
+                            }
+                        </div>
+                    }
                 </div>
             </div>
-            <div class="flex-grow min-h-0">
-                <EmptyState IconClass="fa-chart-column" Message="尚無數據" SubMessage="新增題目後將自動產生統計" Compact="true" />
+
+            @* ── 卡片 2：已納入題庫（採用）（sage 鼠尾草綠） ── *@
+            <div class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all border-l-[3px] border-l-[var(--color-sage)] p-5 flex flex-col min-h-[200px]">
+                <!-- Header -->
+                <div class="flex items-center gap-2.5 mb-2">
+                    <div class="w-8 h-8 rounded-lg bg-green-50 text-[var(--color-sage)] flex items-center justify-center shrink-0">
+                        <i class="fa-solid fa-check-double text-sm"></i>
+                    </div>
+                    <p class="text-sm font-semibold text-gray-600">已納入題庫（採用）</p>
+                </div>
+                <!-- Main -->
+                <div class="flex items-baseline gap-1.5 mb-3">
+                    <h3 class="text-4xl font-black text-[var(--color-sage)] tabular-nums leading-none">
+                        @(isLoading ? "…" : kpi.AdoptedCount.ToString())
+                    </h3>
+                    <span class="text-sm text-gray-400">題</span>
+                </div>
+                <!-- Footer：永遠顯示進度條，0% 也呈現結構 -->
+                <div class="mt-auto pt-3 border-t border-gray-100">
+                    @if (isLoading)
+                    {
+                        <div class="text-xs text-gray-300">載入中…</div>
+                    }
+                    else
+                    {
+                        <div class="flex justify-between items-center text-xs mb-1.5">
+                            <span class="text-gray-500">採用率</span>
+                            <span class="font-bold text-[var(--color-sage)] tabular-nums">@kpi.AdoptedPercent%</span>
+                        </div>
+                        <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div class="h-full bg-[var(--color-sage)] rounded-full transition-all duration-500" style="width:@(kpi.AdoptedPercent)%"></div>
+                        </div>
+                        <div class="text-xs text-gray-400 mt-1.5 tabular-nums">@kpi.AdoptedCount / @kpi.TotalTarget 已採用</div>
+                    }
+                </div>
+            </div>
+
+            @* ── 卡片 3：各階段審修中（amber-600）── *@
+            @* Footer 依 PhaseStatusType 切換，修正舊版在「梯次已選但未進入階段」時錯誤顯示「請選擇梯次」的問題 *@
+            <div class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all border-l-[3px] border-l-amber-500 p-5 flex flex-col min-h-[200px]">
+                <!-- Header -->
+                <div class="flex items-center gap-2.5 mb-2">
+                    <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                        <i class="fa-solid @(isLoading ? "fa-spinner fa-spin-pulse" : "fa-hourglass-half") text-sm"></i>
+                    </div>
+                    <p class="text-sm font-semibold text-gray-600">各階段審修中</p>
+                </div>
+                <!-- Main -->
+                <div class="flex items-baseline gap-1.5 mb-3">
+                    <h3 class="text-4xl font-black text-amber-600 tabular-nums leading-none">
+                        @(isLoading ? "…" : kpi.InReviewCount.ToString())
+                    </h3>
+                    <span class="text-sm text-gray-400">題</span>
+                </div>
+                <!-- Footer：依 PhaseStatusType 顯示不同樣式，永遠有內容 -->
+                <div class="mt-auto pt-3 border-t border-gray-100">
+                    @if (isLoading)
+                    {
+                        <div class="text-xs text-gray-300">載入中…</div>
+                    }
+                    else
+                    {
+                        @switch (kpi.PhaseStatusType)
+                        {
+                            case PhaseStatusType.InPhase:
+                                <div class="flex items-center gap-2 text-xs">
+                                    <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0"></span>
+                                    <span class="font-semibold text-amber-700 truncate">@kpi.PhaseStatusText</span>
+                                    @if (kpi.PhaseDaysRemaining.HasValue)
+                                    {
+                                        @if (kpi.PhaseDaysRemaining.Value >= 0)
+                                        {
+                                            <span class="ml-auto text-gray-500 tabular-nums shrink-0">剩 @kpi.PhaseDaysRemaining 天</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="ml-auto text-[var(--color-terracotta)] tabular-nums shrink-0">逾期 @Math.Abs(kpi.PhaseDaysRemaining.Value) 天</span>
+                                        }
+                                    }
+                                </div>
+                                break;
+                            case PhaseStatusType.BetweenPhases:
+                                <div class="flex items-center gap-2 text-xs text-amber-600">
+                                    <i class="fa-solid fa-hourglass-half shrink-0"></i>
+                                    <span>@kpi.PhaseStatusText</span>
+                                </div>
+                                break;
+                            default:
+                                <div class="flex items-center gap-2 text-xs text-gray-400">
+                                    <i class="fa-solid fa-circle-info shrink-0"></i>
+                                    <span>@kpi.PhaseStatusText</span>
+                                </div>
+                                break;
+                        }
+                    }
+                </div>
+            </div>
+
+            @* ── 卡片 4：退回修題（terracotta 赤陶色） ── *@
+            <div class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all border-l-[3px] border-l-[var(--color-terracotta)] p-5 flex flex-col min-h-[200px]">
+                <!-- Header -->
+                <div class="flex items-center gap-2.5 mb-2">
+                    <div class="w-8 h-8 rounded-lg bg-red-50 text-[var(--color-terracotta)] flex items-center justify-center shrink-0">
+                        <i class="fa-solid fa-triangle-exclamation text-sm"></i>
+                    </div>
+                    <p class="text-sm font-semibold text-gray-600">退回修題</p>
+                </div>
+                <!-- Main -->
+                <div class="flex items-baseline gap-1.5 mb-3">
+                    <h3 class="text-4xl font-black text-[var(--color-terracotta)] tabular-nums leading-none">
+                        @(isLoading ? "…" : kpi.ReturnEditCount.ToString())
+                    </h3>
+                    <span class="text-sm text-gray-400">題</span>
+                </div>
+                <!-- Footer：3 等分 grid，即使全為 0 也完整顯示欄位 -->
+                <div class="mt-auto pt-3 border-t border-gray-100">
+                    @if (isLoading)
+                    {
+                        <div class="text-xs text-gray-300">載入中…</div>
+                    }
+                    else
+                    {
+                        <div class="grid grid-cols-3 gap-2 text-center">
+                            <div>
+                                <div class="text-base font-bold text-[var(--color-terracotta)] tabular-nums">@kpi.PeerEditCount</div>
+                                <div class="text-xs text-gray-500 mt-0.5">互審修題</div>
+                            </div>
+                            <div class="border-x border-gray-100">
+                                <div class="text-base font-bold text-[var(--color-terracotta)] tabular-nums">@kpi.ExpertEditCount</div>
+                                <div class="text-xs text-gray-500 mt-0.5">專審修題</div>
+                            </div>
+                            <div>
+                                <div class="text-base font-bold text-[var(--color-terracotta)] tabular-nums">@kpi.FinalEditCount</div>
+                                <div class="text-xs text-gray-500 mt-0.5">總審修題</div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Charts Row -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <!-- Chart 1 -->
+            <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-1 flex flex-col h-[350px] overflow-hidden">
+                <h3 class="text-lg font-bold text-slate-main mb-1">題型缺口達成率</h3>
+                <p class="text-xs text-gray-500 mb-2">展示目前各題型「已產出」與「目標」比例。</p>
+                <div class="flex-grow min-h-0">
+                    <EmptyState IconClass="fa-chart-pie" Message="尚無數據" SubMessage="目前梯次無資料可供分析" Compact="true" />
+                </div>
+            </div>
+
+            <!-- Chart 2 -->
+            <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-2 flex flex-col h-[350px] overflow-hidden">
+                <div class="flex justify-between items-start mb-2">
+                    <div>
+                        <h3 class="text-lg font-bold text-slate-main mb-1">依題型狀態分佈表</h3>
+                        <p class="text-xs text-gray-500">展示草稿、送審、審修、退回等不同狀態在各題型的分佈數量。</p>
+                    </div>
+                </div>
+                <div class="flex-grow min-h-0">
+                    <EmptyState IconClass="fa-chart-column" Message="尚無數據" SubMessage="新增題目後將自動產生統計" Compact="true" />
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Row: Alerts & Audits -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12">
+            <!-- Urgent Tasks -->
+            <div class="bg-white rounded-xl shadow-sm border border-red-100 flex flex-col h-[300px] overflow-hidden">
+                <div class="bg-red-50 px-5 py-3 border-b border-red-100 flex justify-between items-center shrink-0">
+                    <h3 class="font-bold text-terracotta text-sm flex items-center gap-2">
+                        <i class="fa-regular fa-clock"></i> 逾期與緊急待辦 (Top 5)
+                    </h3>
+                </div>
+                <div class="flex-grow min-h-0 p-4">
+                    <EmptyState CssClass="h-full" IconClass="fa-face-smile-wink" Message="目前無急件" SubMessage="太棒了！所有任務皆在進度內完成。" Compact="true" />
+                </div>
+            </div>
+
+            <!-- Audit Logs -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-[300px] overflow-hidden">
+                <div class="bg-gray-50 px-5 py-3 border-b border-gray-200 flex justify-between items-center shrink-0">
+                    <h3 class="font-bold text-gray-700 text-sm flex items-center gap-2">
+                        <i class="fa-solid fa-list-ul text-gray-400"></i> 最新稽核歷程 (LOG)
+                    </h3>
+                </div>
+                <div class="flex-grow min-h-0 p-4">
+                    <EmptyState CssClass="h-full" IconClass="fa-clipboard-user" Message="暫無活動紀錄" SubMessage="當有操作發生時會顯示於此處。" Compact="true" />
+                </div>
             </div>
         </div>
     </div>
-
-    <!-- Bottom Row: Alerts & Audits -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12">
-        <!-- Urgent Tasks -->
-        <div class="bg-white rounded-xl shadow-sm border border-red-100 flex flex-col h-[300px] overflow-hidden">
-            <div class="bg-red-50 px-5 py-3 border-b border-red-100 flex justify-between items-center shrink-0">
-                <h3 class="font-bold text-terracotta text-sm flex items-center gap-2">
-                    <i class="fa-regular fa-clock"></i> 逾期與緊急待辦 (Top 5)
-                </h3>
-            </div>
-            <div class="flex-grow min-h-0 p-4">
-                <EmptyState IconClass="fa-face-smile-wink" Message="目前無急件" SubMessage="太棒了！所有任務皆在進度內完成。" Compact="true" />
-            </div>
-        </div>
-
-        <!-- Audit Logs -->
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-[300px] overflow-hidden">
-            <div class="bg-gray-50 px-5 py-3 border-b border-gray-200 flex justify-between items-center shrink-0">
-                <h3 class="font-bold text-gray-700 text-sm flex items-center gap-2">
-                    <i class="fa-solid fa-list-ul text-gray-400"></i> 最新稽核歷程 (LOG)
-                </h3>
-            </div>
-            <div class="flex-grow min-h-0 p-4">
-                <EmptyState IconClass="fa-clipboard-user" Message="暫無活動紀錄" SubMessage="當有操作發生時會顯示於此處。" Compact="true" />
-            </div>
-        </div>
-    </div>
-</div>
 </div>
 
 @code {
-    private RenderFragment StatCard(string Title, string Value, string Icon, string ColorClass, string BgClass) => __builder =>
+    [CascadingParameter(Name = "CurrentProject")] private ProjectSwitcherItem? CurrentProject { get; set; }
+
+    private DashboardKpiDto kpi = new();
+    private bool isLoading;
+    private int? previousProjectId;
+
+    protected override async Task OnParametersSetAsync()
     {
-        <div class="bg-white rounded-xl p-5 shadow-sm flex items-center justify-between border border-gray-100 hover:border-gray-200 hover:shadow-md transition-all">
-            <div>
-                <p class="text-sm font-bold text-gray-500 mb-1">@Title</p>
-                <div class="flex items-baseline gap-2">
-                    <h3 class="text-3xl font-black @ColorClass">@Value</h3>
-                    <span class="text-sm text-gray-400">題</span>
-                </div>
-            </div>
-            <div class="w-12 h-12 rounded-full @BgClass flex items-center justify-center text-xl">
-                <i class="fa-solid @Icon"></i>
-            </div>
-        </div>
-    };
+        // 梯次切換偵測（同 Teachers.razor 模式）
+        var newProjectId = CurrentProject?.Id;
+        if (newProjectId != previousProjectId)
+        {
+            previousProjectId = newProjectId;
+            await LoadKpiAsync();
+        }
+    }
+
+    private async Task LoadKpiAsync()
+    {
+        if (CurrentProject is null)
+        {
+            kpi = new DashboardKpiDto();
+            return;
+        }
+
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            kpi = await DashboardService.GetKpiAsync(CurrentProject.Id);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入 Dashboard KPI 失敗，ProjectId={ProjectId}", CurrentProject.Id);
+            kpi = new DashboardKpiDto();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
 }

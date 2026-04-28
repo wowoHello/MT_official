@@ -160,7 +160,7 @@
                                         class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors shadow-sm flex items-center gap-2">
                                         <i class="fa-solid fa-pen-to-square text-morandi"></i> 編輯專案
                                     </button>
-                                    <button type="button" @onclick="() => { /* TODO: 結案邏輯 */ }"
+                                    <button type="button" @onclick="HandleCloseProject"
                                         class="cursor-pointer px-4 py-2 bg-slate-main text-white rounded-lg text-sm font-bold hover:opacity-90 transition-colors shadow-sm flex items-center gap-2">
                                         <i class="fa-solid fa-box-archive"></i> 結案入庫
                                     </button>
@@ -189,6 +189,31 @@
                             else
                             {
                                 <div class="relative">
+                                    @{
+                                        // 第 0 階段「產學計畫區間」是涵蓋全期的總階段，視為 umbrella；
+                                        // 真正的子階段從 index 1 開始，找出 ClosedAt 落在哪一個子階段。
+                                        var closedAtDate = selectedDetail.ClosedAt?.Date;
+                                        var closedSubPhaseIndex = -1;
+                                        if (closedAtDate.HasValue)
+                                        {
+                                            for (int j = 1; j < selectedDetail.Phases.Count; j++)
+                                            {
+                                                var p = selectedDetail.Phases[j];
+                                                if (closedAtDate.Value >= p.StartDate && closedAtDate.Value <= p.EndDate)
+                                                {
+                                                    closedSubPhaseIndex = j;
+                                                    break;
+                                                }
+                                            }
+                                            // 邊界保護：ClosedAt 落於子階段範圍外時，依日期靠近哪一端
+                                            if (closedSubPhaseIndex == -1 && selectedDetail.Phases.Count > 1)
+                                            {
+                                                closedSubPhaseIndex = closedAtDate.Value < selectedDetail.Phases[1].StartDate
+                                                    ? 1
+                                                    : selectedDetail.Phases.Count - 1;
+                                            }
+                                        }
+                                    }
                                     @for (int i = 0; i < selectedDetail.Phases.Count; i++)
                                     {
                                         var phase = selectedDetail.Phases[i];
@@ -197,11 +222,44 @@
                                         var isPast = phase.EndDate < today;
                                         var isCurrent = !isPast && phase.StartDate <= today;
 
-                                        // 節點顏色
-                                        var nodeColor = isPast ? "bg-sage" : (isCurrent ? "bg-morandi ring-4 ring-blue-50" : "bg-gray-200");
-                                        var lineColor = isPast ? "border-sage" : "border-gray-200 border-dashed";
-                                        var textColor = isCurrent ? "text-morandi font-bold" : (isPast ? "text-gray-500" : "text-gray-400");
-                                        var dateColor = isCurrent ? "text-morandi font-bold" : (isPast ? "text-gray-400" : "text-gray-400");
+                                        string nodeColor;
+                                        string lineColor;
+                                        string textColor;
+                                        string dateColor;
+
+                                        if (closedSubPhaseIndex >= 0)
+                                        {
+                                            // 已結案視覺：產學計畫區間（i==0）+ 結案發生子階段都標 terracotta
+                                            if (i == 0 || i == closedSubPhaseIndex)
+                                            {
+                                                nodeColor = "bg-terracotta ring-4 ring-orange-50";
+                                                lineColor = "border-gray-200 border-dashed";
+                                                textColor = "text-terracotta font-bold";
+                                                dateColor = "text-terracotta font-bold";
+                                            }
+                                            else if (i < closedSubPhaseIndex)
+                                            {
+                                                nodeColor = "bg-sage";
+                                                lineColor = "border-sage";
+                                                textColor = "text-gray-500";
+                                                dateColor = "text-gray-400";
+                                            }
+                                            else
+                                            {
+                                                nodeColor = "bg-gray-200";
+                                                lineColor = "border-gray-200 border-dashed";
+                                                textColor = "text-gray-400";
+                                                dateColor = "text-gray-400";
+                                            }
+                                        }
+                                        else
+                                        {
+                                            // 進行中：依今日判斷
+                                            nodeColor = isPast ? "bg-sage" : (isCurrent ? "bg-morandi ring-4 ring-blue-50" : "bg-gray-200");
+                                            lineColor = isPast ? "border-sage" : "border-gray-200 border-dashed";
+                                            textColor = isCurrent ? "text-morandi font-bold" : (isPast ? "text-gray-500" : "text-gray-400");
+                                            dateColor = isCurrent ? "text-morandi font-bold" : (isPast ? "text-gray-400" : "text-gray-400");
+                                        }
 
                                         <div class="relative pb-6">
                                             @if (!isLast)
@@ -392,8 +450,17 @@
                 </h3>
 
                 <!-- 專案需求題數 / 組數 -->
-                <div class="bg-gray-50 p-3 rounded border border-gray-200">
-                    <label class="block text-sm font-bold text-gray-700 mb-2">專案需求題數 / 組數</label>
+                <div class="@(IsCompositionPhaseEnded ? "bg-gray-100 p-3 rounded border border-gray-300 cursor-not-allowed" : "bg-gray-50 p-3 rounded border border-gray-200")"
+                     title="@(IsCompositionPhaseEnded ? "命題階段已結束，題數需求不可再修改" : null)">
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="block text-sm font-bold text-gray-700">專案需求題數 / 組數</label>
+                        @if (IsCompositionPhaseEnded)
+                        {
+                            <span class="inline-flex items-center gap-1 text-xs text-gray-500 font-medium">
+                                <i class="fa-solid fa-lock text-gray-400"></i> 已鎖定（命題階段已結束）
+                            </span>
+                        }
+                    </div>
                     <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-sm">
                         @foreach (var qt in questionTypes)
                         {
@@ -401,7 +468,8 @@
                                 <label class="text-xs text-gray-500 mb-0.5 block truncate" title="@qt.Label">@qt.Label</label>
                                 <div class="relative">
                                     <input type="number" min="0" @bind="qt.Count" placeholder="0"
-                                        class="w-full pl-1 pr-7 py-1 border border-gray-300 rounded focus:outline-none text-sm text-center" />
+                                        disabled="@IsCompositionPhaseEnded"
+                                        class="w-full pl-1 pr-7 py-1 border border-gray-300 rounded focus:outline-none text-sm text-center disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
                                     <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">@qt.Unit</span>
                                 </div>
                             </div>
@@ -411,6 +479,13 @@
                         <i class="fa-solid fa-circle-info text-morandi"></i>
                         題組類以「組」為單位分配；每組實際子題數由命題老師依內容決定（聽力題組固定 2 子題）。
                     </p>
+                    @if (IsCompositionPhaseEnded)
+                    {
+                        <p class="text-xs text-terracotta mt-2 font-bold flex items-center gap-1">
+                            <i class="fa-solid fa-triangle-exclamation"></i>
+                            命題階段於 @CompositionPhaseEndDisplay 結束，題數需求不可再修改。
+                        </p>
+                    }
                 </div>
 
                 <!-- 指派人員（來源：教師管理系統人才庫） -->
@@ -467,8 +542,18 @@
                                                     @onchange="(e) => OnRoleSlotChanged(person, idx, e)"
                                                     class="flex-grow text-xs border border-gray-300 rounded px-2 py-1.5 focus:ring-morandi focus:border-morandi bg-white disabled:bg-gray-100 disabled:text-gray-400">
                                                     <option value="0">@(isFirst ? "請選派主要身份..." : "請選派附加身份...")</option>
+                                                    @{
+                                                        var propositionRoleId = GetPropositionTeacherRoleId();
+                                                    }
                                                     @foreach (var role in projectRoles)
                                                     {
+                                                        // 命題階段已結束時隱藏「命題教師」選項，但保留已選為命題教師者（避免下拉顯示空白）
+                                                        var hidePropositionDuringLock = IsCompositionPhaseEnded
+                                                                                         && propositionRoleId.HasValue
+                                                                                         && role.Id == propositionRoleId.Value
+                                                                                         && role.Id != currentRoleId;
+                                                        if (hidePropositionDuringLock) { continue; }
+
                                                         // 排除已被同人選走的身份（但保留自己目前選的，避免顯示空白）
                                                         if (role.Id == currentRoleId || !person.SelectedRoleIds.Contains(role.Id))
                                                         {
@@ -508,14 +593,22 @@
             </div>
 
             <!-- ═══ 區塊 4: 人員命題數量配置 ═══ -->
-            <div class="space-y-4 pt-2 border-t border-gray-100">
+            <div class="space-y-4 pt-2 border-t border-gray-100 @(IsCompositionPhaseEnded ? "cursor-not-allowed" : "")"
+                 title="@(IsCompositionPhaseEnded ? "命題階段已結束，配額不可再修改" : null)">
                 <div class="flex justify-between items-center border-b border-morandi/30 pb-2">
                     <h3 class="text-base font-bold text-gray-800 flex items-center gap-2">
                         <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">4</span>
                         人員命題數量配置
+                        @if (IsCompositionPhaseEnded)
+                        {
+                            <span class="inline-flex items-center gap-1 text-xs text-gray-500 font-medium ml-2">
+                                <i class="fa-solid fa-lock text-gray-400"></i> 已鎖定（命題階段已結束）
+                            </span>
+                        }
                     </h3>
                     <button type="button" @onclick="HandleAutoDistribute"
-                        class="text-xs bg-white border border-morandi text-morandi px-3 py-1 rounded hover:bg-blue-50 transition-colors font-bold flex items-center gap-1 shadow-sm cursor-pointer">
+                        disabled="@IsCompositionPhaseEnded"
+                        class="text-xs bg-white border border-morandi text-morandi px-3 py-1 rounded hover:bg-blue-50 transition-colors font-bold flex items-center gap-1 shadow-sm cursor-pointer disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-300 disabled:cursor-not-allowed">
                         <i class="fa-solid fa-wand-magic-sparkles"></i> 依命題教師人數平均分配
                     </button>
                 </div>
@@ -553,7 +646,8 @@
                                             <div class="relative">
                                                 <input type="number" min="0" value="@teacher.Quotas[qIdx]"
                                                     @onchange="(e) => OnQuotaChanged(idx, qIdx, e)"
-                                                    class="w-full pl-1 pr-6 py-1 border border-gray-300 rounded text-xs text-center focus:ring-1 focus:ring-morandi focus:outline-none" />
+                                                    disabled="@IsCompositionPhaseEnded"
+                                                    class="w-full pl-1 pr-6 py-1 border border-gray-300 rounded text-xs text-center focus:ring-1 focus:ring-morandi focus:outline-none disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
                                                 <span class="absolute right-1.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">@questionTypes[qIdx].Unit</span>
                                             </div>
                                         </div>
@@ -601,6 +695,13 @@
                         }
                     </div>
                 </div>
+                @if (IsCompositionPhaseEnded)
+                {
+                    <p class="text-xs text-terracotta font-bold flex items-center gap-1">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        命題階段於 @CompositionPhaseEndDisplay 結束，配額不可再修改。
+                    </p>
+                }
             </div>
 
         </EditForm>
@@ -666,6 +767,23 @@
 
     // --- 命題教師配額表（區塊 4：僅含被勾選且身分為「命題教師」的人員） ---
     private List<AllocationItem> allocationTeachers = new();
+
+    /// <summary>
+    /// 命題階段（stages[1]，PhaseCode=2）是否已結束。
+    /// 編輯模式下命題階段結束日 < 今日，則鎖定題數需求 / 配額 / 命題教師新增。
+    /// 新增模式永遠不鎖。
+    /// </summary>
+    private bool IsCompositionPhaseEnded
+        => isEditMode
+           && stages.Length > 1
+           && stages[1].End is DateTime endDate
+           && endDate < DateTime.Today;
+
+    /// <summary>命題階段結束日的顯示文字（鎖定提示用）。</summary>
+    private string CompositionPhaseEndDisplay
+        => stages.Length > 1 && stages[1].End is DateTime endDate
+            ? endDate.ToString("yyyy-MM-dd")
+            : "—";
 
     protected override async Task OnInitializedAsync()
     {
@@ -1032,6 +1150,94 @@
     private void CloseProjectModal()
     {
         showProjectModal = false;
+    }
+
+    // ──── 結案入庫 ────
+
+    /// <summary>提前結案：兩階段確認 → 標記結案並將非採用題目入庫為不採用</summary>
+    private async Task HandleCloseProject()
+    {
+        if (selectedDetail == null || selectedDetail.IsClosed)
+        {
+            return;
+        }
+
+        // 第一階段：警示三大後果
+        var firstStep = await JS.InvokeAsync<bool>("swalInterop.confirm", new
+        {
+            title = "確認提前結案？",
+            html = $"<div class='text-left text-sm'>" +
+                   $"<p class='font-bold text-red-600 mb-2'>此動作不可逆，請謹慎確認以下後果：</p>" +
+                   $"<ol class='list-decimal pl-5 space-y-1 text-gray-700'>" +
+                   $"<li>梯次「{System.Net.WebUtility.HtmlEncode(selectedDetail.Name)}」狀態將直接變為「已結案」</li>" +
+                   $"<li>所有<span class='font-bold text-red-600'>非「採用」狀態</span>的題目將全部變更為「不採用」入庫</li>" +
+                   $"<li>結案發生階段會在時程上以橘色標示</li>" +
+                   $"</ol></div>",
+            icon = "warning",
+            showCancelButton = true,
+            confirmButtonColor = "#D98A6C",
+            cancelButtonColor = "#6B8EAD",
+            confirmButtonText = "我了解，繼續",
+            cancelButtonText = "取消"
+        });
+
+        if (!firstStep)
+        {
+            return;
+        }
+
+        // 第二階段：要求輸入「確認結案」字串
+        var inputResult = await JS.InvokeAsync<SwalInputResult>("swalInterop.fire", new
+        {
+            title = "最終確認",
+            html = "<p class='text-sm text-gray-600 mb-2'>為避免誤按，請輸入下列字串完成結案：</p>" +
+                   "<p class='text-base font-bold text-terracotta mb-2'>確認結案</p>",
+            input = "text",
+            inputPlaceholder = "請輸入「確認結案」",
+            icon = "warning",
+            showCancelButton = true,
+            confirmButtonColor = "#D98A6C",
+            cancelButtonColor = "#6B8EAD",
+            confirmButtonText = "確認結案入庫",
+            cancelButtonText = "取消"
+        });
+
+        if (inputResult is null || !inputResult.IsConfirmed || inputResult.Value?.Trim() != "確認結案")
+        {
+            if (inputResult?.IsConfirmed == true)
+            {
+                await ShowAlertAsync("error", "輸入錯誤", "輸入字串不符，已取消結案動作。");
+            }
+            return;
+        }
+
+        try
+        {
+            var userId = await GetCurrentUserIdAsync();
+            if (userId is null)
+            {
+                return;
+            }
+
+            await ProjectService.CloseProjectAsync(selectedDetail.Id, userId.Value);
+            await ShowAlertAsync("success", "結案完成", "梯次已結案，非採用題目已紀錄為不採用。");
+
+            await LoadProjectsAsync();
+            await SelectProject(selectedDetail.Id);
+        }
+        catch (Exception ex)
+        {
+            await ShowAlertAsync("error", "結案失敗", $"錯誤：{ex.Message}");
+        }
+    }
+
+    /// <summary>SweetAlert2 含 input 的回傳結構</summary>
+    private sealed class SwalInputResult
+    {
+        public bool IsConfirmed { get; set; }
+        public bool IsDenied { get; set; }
+        public bool IsDismissed { get; set; }
+        public string? Value { get; set; }
     }
 
     // ──── 內部模型類別 ────
