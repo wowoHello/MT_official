@@ -80,6 +80,15 @@
                             <option value="@kv.Key">@kv.Value</option>
                         }
                     </select>
+                    @* 命題教師篩選：下拉只列此專案有命題紀錄的老師（含已刪題目者） *@
+                    <select value="@queryCreatorId" @onchange="OnCreatorFilterChanged"
+                        class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                        <option value="">所有命題教師</option>
+                        @foreach (var c in creatorOptions)
+                        {
+                            <option value="@c.Id">@c.DisplayName（@c.QuestionCount）</option>
+                        }
+                    </select>
                 </div>
                 <div class="text-sm text-gray-500 font-medium">
                     共 <span class="text-morandi font-bold">@result.TotalCount</span> 題
@@ -252,8 +261,12 @@
     private bool isLoading;
 
     // razor 端 dropdown 用字串值，事件觸發時轉成 byte/int 寫進 filter
-    private string queryTypeId = "";
-    private string queryStatus = "";
+    private string queryTypeId    = "";
+    private string queryStatus    = "";
+    private string queryCreatorId = "";
+
+    // 命題教師下拉選項（依專案載入；切換梯次時重抓）
+    private List<OverviewCreatorOption> creatorOptions = [];
 
     private bool showDetailModal;
     private string modalTitle = "試題詳情";
@@ -268,6 +281,11 @@
         if (CurrentProject is null) return;
         if (loadedProjectId == CurrentProject.Id) return;   // 同專案重派 → 不重載
         loadedProjectId = CurrentProject.Id;
+
+        // 切換專案時重抓命題教師清單；同時重置篩選回預設
+        creatorOptions  = await OverviewService.GetCreatorOptionsAsync(CurrentProject.Id);
+        queryCreatorId  = "";
+        filter.CreatorId = null;
         await LoadAsync();
     }
 
@@ -305,6 +323,14 @@
     {
         queryStatus = e.Value?.ToString() ?? "";
         filter.StatusFilter = byte.TryParse(queryStatus, out var s) ? s : null;
+        filter.Page = 1;
+        await LoadAsync();
+    }
+
+    private async Task OnCreatorFilterChanged(ChangeEventArgs e)
+    {
+        queryCreatorId = e.Value?.ToString() ?? "";
+        filter.CreatorId = int.TryParse(queryCreatorId, out var cid) ? cid : null;
         filter.Page = 1;
         await LoadAsync();
     }

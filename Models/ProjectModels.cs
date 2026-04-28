@@ -51,6 +51,9 @@ public class ProjectMemberAllocationDto
     public int UserId { get; set; }
     public List<int> RoleIds { get; set; } = new();
     public List<ProjectMemberQuotaDto> Quotas { get; set; } = new();
+
+    /// <summary>該人員在此專案已實際命題的題數（IsDeleted=0），編輯模式防呆用。</summary>
+    public int CreatedQuestionCount { get; set; }
 }
 
 public class ProjectMemberQuotaDto

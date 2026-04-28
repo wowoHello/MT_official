@@ -625,6 +625,14 @@ public class ProjectService : IProjectService
             INNER JOIN dbo.MT_ProjectMembers pm ON pm.Id = mq.ProjectMemberId
             WHERE pm.ProjectId = @ProjectId
             ORDER BY mq.ProjectMemberId, mq.QuestionTypeId;
+
+            SELECT
+                q.CreatorId AS UserId,
+                COUNT(*) AS QuestionCount
+            FROM dbo.MT_Questions q
+            WHERE q.ProjectId = @ProjectId
+              AND q.IsDeleted = 0
+            GROUP BY q.CreatorId;
             """;
 
         using var multi = await conn.QueryMultipleAsync(sql, new { ProjectId = projectId }, transaction);
@@ -641,6 +649,8 @@ public class ProjectService : IProjectService
         var memberRows = (await multi.ReadAsync<ProjectEditMemberRow>()).ToList();
         var roleRows = (await multi.ReadAsync<ProjectEditMemberRoleRow>()).ToList();
         var quotaRows = (await multi.ReadAsync<ProjectEditMemberQuotaRow>()).ToList();
+        var questionCountRows = (await multi.ReadAsync<ProjectEditMemberQuestionCountRow>()).ToList();
+        var questionCountByUser = questionCountRows.ToDictionary(r => r.UserId, r => r.QuestionCount);
 
         project.MemberAllocations = memberRows
             .Select(member => new ProjectMemberAllocationDto
@@ -657,7 +667,8 @@ public class ProjectService : IProjectService
                         QuestionTypeId = quota.QuestionTypeId,
                         QuotaCount = quota.QuotaCount
                     })
-                    .ToList()
+                    .ToList(),
+                CreatedQuestionCount = questionCountByUser.TryGetValue(member.UserId, out var cnt) ? cnt : 0
             })
             .ToList();
 
@@ -864,5 +875,11 @@ public class ProjectService : IProjectService
         public int ProjectMemberId { get; set; }
         public int QuestionTypeId { get; set; }
         public int QuotaCount { get; set; }
+    }
+
+    private sealed class ProjectEditMemberQuestionCountRow
+    {
+        public int UserId { get; set; }
+        public int QuestionCount { get; set; }
     }
 }

@@ -1,3 +1,4 @@
+using Dapper;
 using MT.Models;
 
 namespace MT.Services;
@@ -10,6 +11,9 @@ public interface IOverviewService
 {
     /// <summary>合併「列表」+「status 分桶計數」一次回傳。</summary>
     Task<OverviewListResult> LoadAsync(int projectId, OverviewFilter filter);
+
+    /// <summary>取此專案有命題紀錄的教師清單（給篩選下拉用）。</summary>
+    Task<List<OverviewCreatorOption>> GetCreatorOptionsAsync(int projectId);
 
     /// <summary>取單筆題目詳情（含子題）。</summary>
     Task<QuestionFormData?> GetDetailAsync(int questionId);
@@ -24,9 +28,10 @@ public interface IOverviewService
     string LevelLabel(string typeKey, byte? level);
 }
 
-public class OverviewService(IQuestionService questionService) : IOverviewService
+public class OverviewService(IQuestionService questionService, IDatabaseService db) : IOverviewService
 {
     private readonly IQuestionService _questionService = questionService;
+    private readonly IDatabaseService _db = db;
 
     public async Task<OverviewListResult> LoadAsync(int projectId, OverviewFilter filter)
     {
@@ -47,6 +52,26 @@ public class OverviewService(IQuestionService questionService) : IOverviewServic
             Page         = list.Page,
             PageSize     = list.PageSize
         };
+    }
+
+    public async Task<List<OverviewCreatorOption>> GetCreatorOptionsAsync(int projectId)
+    {
+        // 只列實際有出題的命題教師（含已軟刪除的題目，避免老師全部草稿被刪後就消失於下拉）
+        const string sql = """
+            SELECT
+                u.Id          AS Id,
+                u.DisplayName AS DisplayName,
+                COUNT(q.Id)   AS QuestionCount
+            FROM dbo.MT_Questions q
+            INNER JOIN dbo.MT_Users u ON u.Id = q.CreatorId
+            WHERE q.ProjectId = @ProjectId
+            GROUP BY u.Id, u.DisplayName
+            ORDER BY u.DisplayName;
+            """;
+
+        using var conn = _db.CreateConnection();
+        var rows = await conn.QueryAsync<OverviewCreatorOption>(sql, new { ProjectId = projectId });
+        return rows.AsList();
     }
 
     public Task<QuestionFormData?> GetDetailAsync(int questionId)

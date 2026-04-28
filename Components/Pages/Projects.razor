@@ -370,10 +370,12 @@
                             </div>
                             <div class="flex-grow flex items-center gap-2 w-full">
                                 <input type="date" value="@stages[idx].Start?.ToString("yyyy-MM-dd")"
+                                    @key="@($"start-{idx}-{stages[idx].StartKey}")"
                                     @onchange="(e) => OnStageStartChanged(idx, e)"
                                     class="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-morandi" />
                                 <span class="text-gray-400 text-xs text-center"><i class="fa-solid fa-arrow-right"></i></span>
                                 <input type="date" value="@stages[idx].End?.ToString("yyyy-MM-dd")"
+                                    @key="@($"end-{idx}-{stages[idx].EndKey}")"
                                     @onchange="(e) => OnStageEndChanged(idx, e)"
                                     class="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-morandi" />
                             </div>
@@ -440,6 +442,7 @@
                                 <div class="flex items-start gap-3 p-3 hover:bg-gray-50 transition-colors">
                                     <label class="flex items-center gap-3 cursor-pointer mt-1">
                                         <input type="checkbox" checked="@person.IsSelected"
+                                            @key="@($"chk-{person.UserId}-{person.CheckboxKey}")"
                                             @onchange="() => TogglePersonSelection(person)"
                                             class="w-4 h-4 text-morandi rounded border-gray-300 focus:ring-morandi mt-0.5 cursor-pointer" />
                                         <div class="flex flex-col w-20">
@@ -768,7 +771,7 @@
         formModel = new();
         personSearchKeyword = "";
         foreach (var qt in questionTypes) qt.Count = null;
-        foreach (var p in talentPool) { p.IsSelected = false; p.SelectedRoleIds.Clear(); }
+        foreach (var p in talentPool) { p.IsSelected = false; p.SelectedRoleIds.Clear(); p.CreatedQuestionCount = 0; }
         allocationTeachers.Clear();
         InitStages();
     }
@@ -795,10 +798,20 @@
     // ──── 時程連動引擎 ────
 
     /// <summary>第一階段開始日變更時，自動推算後續所有階段</summary>
-    private void OnStageStartChanged(int idx, ChangeEventArgs e)
+    private async Task OnStageStartChanged(int idx, ChangeEventArgs e)
     {
         if (!DateTimeOffset.TryParse(e.Value?.ToString(), out var dt)) return;
         var date = dt.Date;
+
+        // 防呆：非首階段時，新開始日不可晚於現存結束日
+        if (idx > 0 && stages[idx].End is DateTime existingEnd && date > existingEnd)
+        {
+            stages[idx].StartKey++; // 強制重建 input，將 UI 顯示還原為原值
+            StateHasChanged(); // 立即重新渲染，讓 input 在警示彈出前先還原
+            await ShowAlertAsync("warning", "日期設定錯誤", $"「{stages[idx].Name}」的開始日不可晚於結束日（{existingEnd:yyyy-MM-dd}）。");
+            return;
+        }
+
         stages[idx].Start = date;
 
         if (idx == 0)
@@ -820,14 +833,25 @@
     }
 
     /// <summary>結束日變更 → 下一階段的開始日自動推進為隔天</summary>
-    private void OnStageEndChanged(int idx, ChangeEventArgs e)
+    private async Task OnStageEndChanged(int idx, ChangeEventArgs e)
     {
         if (!DateTimeOffset.TryParse(e.Value?.ToString(), out var dt)) return;
-        stages[idx].End = dt.Date;
+        var newEnd = dt.Date;
+
+        // 防呆：新結束日不可早於現存開始日
+        if (stages[idx].Start is DateTime existingStart && newEnd < existingStart)
+        {
+            stages[idx].EndKey++; // 強制重建 input，將 UI 顯示還原為原值
+            StateHasChanged(); // 立即重新渲染，讓 input 在警示彈出前先還原
+            await ShowAlertAsync("warning", "日期設定錯誤", $"「{stages[idx].Name}」的結束日不可早於開始日（{existingStart:yyyy-MM-dd}）。");
+            return;
+        }
+
+        stages[idx].End = newEnd;
 
         if (idx + 1 < stages.Length)
         {
-            stages[idx + 1].Start = dt.Date.AddDays(1);
+            stages[idx + 1].Start = newEnd.AddDays(1);
         }
     }
 
@@ -842,8 +866,20 @@
     }
 
     /// <summary>勾選/取消勾選人員 → 同步更新配額表</summary>
-    private void TogglePersonSelection(PersonItem person)
+    private async Task TogglePersonSelection(PersonItem person)
     {
+        // 防呆：編輯模式下，已有命題紀錄者禁止取消勾選
+        if (isEditMode && person.IsSelected && person.CreatedQuestionCount > 0)
+        {
+            person.CheckboxKey++; // 強制重建 checkbox，將 UI 顯示還原為勾選狀態
+            StateHasChanged();    // 立即重新渲染，讓 checkbox 在警示彈出前先還原
+            await ShowAlertAsync(
+                "warning",
+                "無法移除指派人員",
+                $"「{person.Name}」老師在此專案已產出 {person.CreatedQuestionCount} 題，無法移除。如需調整，請聯繫該名教師處理或於梯次結案後再行調整。");
+            return;
+        }
+
         person.IsSelected = !person.IsSelected;
 
         if (!person.IsSelected)
@@ -1266,11 +1302,13 @@
             {
                 person.IsSelected = true;
                 person.SelectedRoleIds = allocation.RoleIds.Where(id => id > 0).Distinct().ToList();
+                person.CreatedQuestionCount = allocation.CreatedQuestionCount;
             }
             else
             {
                 person.IsSelected = false;
                 person.SelectedRoleIds.Clear();
+                person.CreatedQuestionCount = 0;
             }
         }
 
@@ -1337,6 +1375,9 @@
         public string Hint { get; set; } = "";
         public DateTime? Start { get; set; }
         public DateTime? End { get; set; }
+        // 防呆失敗時遞增，用於 @key 強制重建 input 還原顯示值
+        public int StartKey { get; set; }
+        public int EndKey { get; set; }
     }
 
     private sealed class QuestionTypeTarget
@@ -1363,6 +1404,10 @@
         public bool IsSelected { get; set; }
         /// <summary>有序的身份清單：第一筆為主要身份，後續為附加身份（0 代表尚未選擇）</summary>
         public List<int> SelectedRoleIds { get; set; } = new();
+        /// <summary>編輯模式下：該人員在此專案已實際命題的題數，>0 時禁止取消勾選。</summary>
+        public int CreatedQuestionCount { get; set; }
+        /// <summary>防呆失敗時遞增，用於 @key 強制重建 checkbox 還原顯示狀態。</summary>
+        public int CheckboxKey { get; set; }
     }
 
     private sealed class AllocationItem
