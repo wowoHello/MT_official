@@ -78,26 +78,31 @@
         <!-- Full Screen Modal (For Tasks/Editing) -->
         <div class="fixed inset-0 z-50 bg-gray-50 flex flex-col @(KeepAlive ? "transition-all duration-300 ease-out" : "") @(BuildFullScreenContentClass())"
              style="@(KeepAlive ? null : "animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);")">
-            <div class="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10 shrink-0">
-                <div class="flex items-center gap-4 text-emerald-800">
-                    <div class="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center">
-                        <i class="fa-solid fa-pen-ruler text-xl"></i>
+            <div class="flex items-center justify-between px-8 py-5 bg-white border-b border-gray-100 shadow-sm sticky top-0 z-10 shrink-0">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-sage/15 flex items-center justify-center shrink-0">
+                        <i class="fa-solid fa-pen-nib text-sage text-lg"></i>
                     </div>
-                    <div>
-                        <h2 class="text-xl font-bold tracking-wide">@Title</h2>
+                    <div class="min-w-0">
+                        <h2 class="text-xl font-bold text-slate-main leading-none mb-1 truncate">@Title</h2>
+                        @if (TitleSubtitle != null)
+                        {
+                            <div class="text-xs text-gray-400 flex items-center gap-1.5 flex-wrap">
+                                @TitleSubtitle
+                            </div>
+                        }
                     </div>
                 </div>
 
-                <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2">
                     @if (HeaderActions != null)
                     {
                         @HeaderActions
                     }
-                    <div class="w-px h-6 bg-gray-300 mx-1"></div>
                     <button type="button" @onclick="CloseAsync"
-                            class="px-4 py-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg font-bold transition-colors flex items-center gap-2 cursor-pointer">
-                        <i class="fa-solid fa-arrow-right-from-bracket"></i>
-                        回列表
+                            title="關閉"
+                            class="ml-2 w-9 h-9 flex items-center justify-center text-gray-400 hover:text-slate-main hover:bg-gray-100 rounded-lg transition-colors cursor-pointer focus:outline-none">
+                        <i class="fa-solid fa-xmark text-lg"></i>
                     </button>
                 </div>
             </div>
@@ -149,6 +154,10 @@
 
     [Parameter]
     public RenderFragment? HeaderActions { get; set; }
+
+    /// <summary>FullScreen 模式下，標題下方的副標欄位（最後修改時間、狀態徽章等）</summary>
+    [Parameter]
+    public RenderFragment? TitleSubtitle { get; set; }
 
     [Parameter]
     public EventCallback<bool> IsVisibleChanged { get; set; }

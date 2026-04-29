@@ -1,0 +1,56 @@
+@* ====================================================================== *@
+@*  ReviewHistoryTimeline — 歷程軌跡摺疊區                                   *@
+@*  資料源：union of MT_AuditLogs + MT_ReviewAssignments + MT_RevisionReplies *@
+@*  視覺：左 4px 彩色 border 區分三種 Kind                                    *@
+@*    QuestionEvent (sage 綠)、ReviewComment (morandi 藍)、RevisionReply (terracotta 橘) *@
+@*  預設摺疊（progressive-disclosure）                                       *@
+@* ====================================================================== *@
+
+<details class="border-b border-gray-100">
+    <summary class="px-5 py-4 cursor-pointer font-bold text-slate-main text-sm flex items-center gap-2 hover:bg-gray-50 transition list-none">
+        <i class="fa-solid fa-clock-rotate-left text-morandi"></i>
+        歷程軌跡
+        <span class="text-xs bg-morandi/10 text-morandi px-2 py-0.5 rounded-full font-bold ml-1">@Entries.Count 筆</span>
+        <i class="fa-solid fa-chevron-down ml-auto text-xs text-gray-400 transition-transform"></i>
+    </summary>
+
+    <div class="px-5 pb-5 space-y-4 bg-gray-50/30">
+        @if (Entries.Count == 0)
+        {
+            <p class="text-xs text-gray-400 italic text-center py-3">尚無歷程紀錄</p>
+        }
+        else
+        {
+            @foreach (var entry in Entries)
+            {
+                var (borderCss, badgeCss) = entry.Kind switch
+                {
+                    ReviewHistoryKind.QuestionEvent => ("border-sage",       "bg-sage text-white"),
+                    ReviewHistoryKind.ReviewComment => ("border-morandi",    "bg-morandi text-white"),
+                    ReviewHistoryKind.RevisionReply => ("border-terracotta", "bg-terracotta text-white"),
+                    _                               => ("border-gray-300",   "bg-gray-300 text-white")
+                };
+                <div class="border-l-4 @borderCss pl-4 py-1">
+                    <div class="flex items-center gap-2 mb-1 flex-wrap">
+                        <span class="text-xs px-2 py-0.5 rounded font-bold @badgeCss">@entry.Label</span>
+                        <span class="text-xs text-gray-400">@entry.At.ToString("yyyy/MM/dd HH:mm")</span>
+                    </div>
+                    @if (!string.IsNullOrEmpty(entry.ActorName))
+                    {
+                        <p class="text-xs text-gray-600 mb-2">@(entry.Kind == ReviewHistoryKind.RevisionReply ? "命題教師" : "操作人")：@entry.ActorName</p>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(entry.ContentHtml))
+                    {
+                        <div class="text-sm text-slate-main bg-white p-2.5 rounded-md border border-gray-100 italic leading-relaxed">
+                            @((MarkupString)entry.ContentHtml)
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </div>
+</details>
+
+@code {
+    [Parameter, EditorRequired] public List<ReviewHistoryEntry> Entries { get; set; } = new();
+}

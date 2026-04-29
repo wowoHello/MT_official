@@ -22,12 +22,25 @@
     [Parameter] public string EditorClass { get; set; } = "min-h-[220px]";
     [Parameter] public bool ShowWordCount { get; set; } = true;
     [Parameter] public bool ExcludePunctuation { get; set; } = false;
+    /// <summary>是否唯讀（同步呼叫 Quill enable / 隱藏 toolbar）</summary>
+    [Parameter] public bool IsReadOnly { get; set; } = false;
 
     private readonly string containerId = $"inline-quill-{Guid.NewGuid():N}";
     private DotNetObjectReference<InlineQuillEditor>? dotNetRef;
     private bool initialized;
     private string lastSyncedValue = "";
+    private bool lastReadOnly;
     private int wordCount;
+
+    /// <summary>
+    /// 在游標位置插入純文字（給罐頭訊息按鈕呼叫）。
+    /// 若編輯器為唯讀或尚未初始化則 no-op。
+    /// </summary>
+    public async ValueTask InsertTextAsync(string text)
+    {
+        if (!initialized || IsReadOnly || string.IsNullOrEmpty(text)) return;
+        await JS.InvokeVoidAsync("QuillInterop.insertText", containerId, text);
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -38,8 +51,13 @@
 
         dotNetRef = DotNetObjectReference.Create(this);
         lastSyncedValue = Value ?? "";
+        lastReadOnly = IsReadOnly;
 
         await JS.InvokeVoidAsync("QuillInterop.show", containerId, dotNetRef, lastSyncedValue, ExcludePunctuation);
+        if (IsReadOnly)
+        {
+            await JS.InvokeVoidAsync("QuillInterop.enable", containerId, false);
+        }
         initialized = true;
     }
 
@@ -51,13 +69,17 @@
         }
 
         var nextValue = Value ?? "";
-        if (nextValue == lastSyncedValue)
+        if (nextValue != lastSyncedValue)
         {
-            return;
+            lastSyncedValue = nextValue;
+            await JS.InvokeVoidAsync("QuillInterop.setHtml", containerId, nextValue);
         }
 
-        lastSyncedValue = nextValue;
-        await JS.InvokeVoidAsync("QuillInterop.setHtml", containerId, nextValue);
+        if (IsReadOnly != lastReadOnly)
+        {
+            lastReadOnly = IsReadOnly;
+            await JS.InvokeVoidAsync("QuillInterop.enable", containerId, !IsReadOnly);
+        }
     }
 
     [JSInvokable]

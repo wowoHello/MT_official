@@ -3,8 +3,7 @@
 @*  只負責顯示預覽與通知共用 QuillHost，不再各自建立完整編輯器面板          *@
 @* ====================================================================== *@
 
-<div class="editable-field cursor-text border-[1.5px] border-gray-200 rounded-lg min-h-[100px] max-h-[200px] overflow-y-auto custom-scroll p-4 hover:border-blue-300 transition-all"
-     @onclick="OpenEditor">
+<div class="@FieldClass" @onclick="OpenEditor">
     @if (string.IsNullOrEmpty(Value))
     {
         <p class="text-gray-400 text-sm">@Placeholder</p>
@@ -17,14 +16,20 @@
 
 @code {
     [CascadingParameter] private SharedQuillEditorContext? EditorContext { get; set; }
+    [CascadingParameter(Name = "IsFormReadOnly")] private bool IsFormReadOnly { get; set; }
 
     [Parameter] public string Value { get; set; } = "";
     [Parameter] public EventCallback<string> ValueChanged { get; set; }
     [Parameter] public string FieldLabel { get; set; } = "內容";
     [Parameter] public string Placeholder { get; set; } = "點擊此處開始編輯...";
 
+    private string FieldClass => IsFormReadOnly
+        ? "editable-field border-[1.5px] border-gray-200 rounded-lg min-h-[100px] max-h-[200px] overflow-y-auto custom-scroll p-4 bg-gray-50 text-gray-600 cursor-not-allowed"
+        : "editable-field cursor-text border-[1.5px] border-gray-200 rounded-lg min-h-[100px] max-h-[200px] overflow-y-auto custom-scroll p-4 hover:border-blue-300 transition-all";
+
     private async Task OpenEditor()
     {
+        if (IsFormReadOnly) return;
         if (EditorContext?.IsAvailable != true)
         {
             return;

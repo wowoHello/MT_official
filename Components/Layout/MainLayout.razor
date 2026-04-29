@@ -80,14 +80,18 @@
                                     var isSelected = currentProject?.Id == project.Id;
                                     <button type="button"
                                             @onclick="() => SelectProject(project)"
-                                            class="flex w-full cursor-pointer items-center justify-between border-b border-gray-50 px-4 py-2.5 text-left text-sm transition-colors hover:bg-morandi/5 @(isSelected ? "bg-blue-50/50" : "")">
-                                        <div class="flex flex-col">
-                                            <span class="@(isSelected ? "font-bold text-morandi" : "font-medium text-gray-700")">@project.DisplayName</span>
-                                            <span class="text-xs text-gray-400">ID: @project.ProjectCode</span>
+                                            title="@($"專案編號 {project.ProjectCode}")"
+                                            class="flex w-full cursor-pointer items-center justify-between gap-3 border-b border-gray-50 px-4 py-2.5 text-left text-sm transition-colors hover:bg-morandi/5 @(isSelected ? "bg-blue-50/50" : "")">
+                                        <div class="flex min-w-0 flex-col gap-0.5">
+                                            <span class="truncate @(isSelected ? "font-bold text-morandi" : "font-medium text-gray-700")">@project.DisplayName</span>
+                                            <span class="flex items-center gap-1.5 text-xs text-gray-500 tabular-nums">
+                                                <i class="fa-regular fa-calendar text-[10px] text-gray-400"></i>
+                                                @project.StartDate.ToString("yyyy/MM/dd") — @project.EndDate.ToString("yyyy/MM/dd")
+                                            </span>
                                         </div>
                                         @if (isSelected)
                                         {
-                                            <i class="fa-solid fa-check text-morandi"></i>
+                                            <i class="fa-solid fa-check flex-shrink-0 text-morandi"></i>
                                         }
                                     </button>
                                 }
@@ -101,14 +105,18 @@
                                     var isSelected = currentProject?.Id == project.Id;
                                     <button type="button"
                                             @onclick="() => SelectProject(project)"
-                                            class="flex w-full cursor-pointer items-center justify-between border-b border-gray-50 px-4 py-2.5 text-left text-sm transition-colors hover:bg-morandi/5 @(isSelected ? "bg-blue-50/50" : "")">
-                                        <div class="flex flex-col">
-                                            <span class="@(isSelected ? "font-bold text-morandi" : "font-medium text-gray-700")">@project.DisplayName</span>
-                                            <span class="text-xs text-gray-400">ID: @project.ProjectCode</span>
+                                            title="@($"專案編號 {project.ProjectCode}")"
+                                            class="flex w-full cursor-pointer items-center justify-between gap-3 border-b border-gray-50 px-4 py-2.5 text-left text-sm transition-colors hover:bg-morandi/5 @(isSelected ? "bg-blue-50/50" : "")">
+                                        <div class="flex min-w-0 flex-col gap-0.5">
+                                            <span class="truncate @(isSelected ? "font-bold text-morandi" : "font-medium text-gray-700")">@project.DisplayName</span>
+                                            <span class="flex items-center gap-1.5 text-xs text-gray-500 tabular-nums">
+                                                <i class="fa-regular fa-calendar text-[10px] text-gray-400"></i>
+                                                @project.StartDate.ToString("yyyy/MM/dd") — @project.EndDate.ToString("yyyy/MM/dd")
+                                            </span>
                                         </div>
                                         @if (isSelected)
                                         {
-                                            <i class="fa-solid fa-check text-morandi"></i>
+                                            <i class="fa-solid fa-check flex-shrink-0 text-morandi"></i>
                                         }
                                     </button>
                                 }
@@ -189,21 +197,12 @@
                     <div>
                         <div class="text-lg font-bold text-slate-main">@userProfile.DisplayName</div>
                         <div class="flex items-center gap-2 mt-1 flex-wrap">
-                            @* 若當前梯次有身分 → 顯示梯次身分（可能多個，依每筆 Category 配色）；否則顯示系統角色 *@
-                            @if (userProfile.ProjectRoles.Count > 0)
+                            @* 永遠顯示系統角色（如：系統管理員），再串接當前梯次的所有身分標籤；同名者去重 *@
+                            <StatusBadge StatusText="@userProfile.RoleName" IsInternal="@(userProfile.RoleCategory == 0)" Compact="true" ShowIcon="false" />
+                            @foreach (var role in userProfile.ProjectRoles.Where(r => !string.Equals(r.Name, userProfile.RoleName, StringComparison.Ordinal)))
                             {
-                                @foreach (var role in userProfile.ProjectRoles)
-                                {
-                                    <StatusBadge StatusText="@role.Name" IsInternal="@(role.Category == 0)" Compact="true" ShowIcon="false" />
-                                }
+                                <StatusBadge StatusText="@role.Name" IsInternal="@(role.Category == 0)" Compact="true" ShowIcon="false" />
                             }
-                            else
-                            {
-                                <StatusBadge StatusText="@userProfile.RoleName" IsInternal="@(userProfile.RoleCategory == 0)" Compact="true" ShowIcon="false" />
-                            }
-                            <span class="text-xs px-2 py-0.5 rounded @(userProfile.RoleCategory == 0 ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700")">
-                                @(userProfile.RoleCategory == 0 ? "內部人員" : "外部人員")
-                            </span>
                             <span class="text-xs font-bold px-2 py-0.5 rounded @(userProfile.Status == 1 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700")">
                                 @(userProfile.Status == 1 ? "啟用" : "停用")
                             </span>

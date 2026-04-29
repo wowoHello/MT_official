@@ -8,7 +8,10 @@
       "Bash(find . -name \"*.cs\" -not -path \"./bin/*\" -not -path \"./obj/*\" -exec wc -l {} \\\\;)",
       "Bash(dotnet build:*)",
       "Bash(dotnet msbuild *)",
-      "PowerShell(dotnet msbuild *)"
+      "PowerShell(dotnet msbuild *)",
+      "Bash(sqlcmd -S 192.168.10.135 -d MT -U sa -P 'CSF@01024304' -C -h-1 -W -s\"|\" -Q \"SET NOCOUNT ON; SELECT Email, COUNT\\(*\\) AS Cnt FROM dbo.MT_Users WHERE Email IS NOT NULL AND Email <> '' GROUP BY Email HAVING COUNT\\(*\\) > 1;\")",
+      "Bash(sqlcmd -S 192.168.10.135 -d MT -U sa -P 'CSF@01024304' -C -h-1 -W -s\"|\" -Q \"SET NOCOUNT ON; SELECT Id, Username, DisplayName, Email, RoleId FROM dbo.MT_Users WHERE Email IN \\(SELECT Email FROM dbo.MT_Users WHERE Email IS NOT NULL AND Email <> '' GROUP BY Email HAVING COUNT\\(*\\) > 1\\) ORDER BY Email, Id;\")",
+      "Bash(sqlcmd -S 192.168.10.135 -d MT -U sa -P 'CSF@01024304' -C -h-1 -W -s\"|\" -Q \"SET NOCOUNT ON; SELECT 'MT_PasswordResetTokens' AS T, COUNT\\(*\\) FROM dbo.MT_PasswordResetTokens WHERE UserId = 3 UNION ALL SELECT 'MT_LoginLogs', COUNT\\(*\\) FROM dbo.MT_LoginLogs WHERE UserId = 3 UNION ALL SELECT 'MT_Teachers', COUNT\\(*\\) FROM dbo.MT_Teachers WHERE UserId = 3;\")"
     ]
   }
 }

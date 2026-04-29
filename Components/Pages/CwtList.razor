@@ -59,8 +59,10 @@
                     }
                 </div>
             </div>
-            <button @onclick="OpenComposeModal"
-                class="px-5 py-2.5 bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold text-sm transition-colors shadow-sm flex items-center gap-2 cursor-pointer focus:outline-none">
+            <button @onclick="() => OpenComposeModal(null)"
+                disabled="@IsCompositionPhaseClosed"
+                title="@(IsCompositionPhaseClosed ? "命題階段已結束，無法再新增題目" : null)"
+                class="px-5 py-2.5 bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold text-sm transition-colors shadow-sm flex items-center gap-2 cursor-pointer focus:outline-none disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed disabled:hover:bg-gray-300">
                 <i class="fa-solid fa-plus"></i> 新增試題
             </button>
         </div>
@@ -71,11 +73,18 @@
 
         <!-- 配額進度卡片區 -->
         <div class="px-4 sm:px-6 lg:px-8 pt-5 pb-3">
-            <div class="flex items-center gap-2 mb-3">
+            <div class="flex items-center gap-2 mb-3 flex-wrap">
                 <h2 class="text-sm font-bold text-gray-500"><i class="fa-solid fa-chart-pie mr-1"></i> 我的命題配額進度</h2>
                 <span class="text-xs text-gray-400 font-medium">
                     @quotaProgress.Sum(q => q.Completed) / @quotaProgress.Sum(q => q.Target)
                 </span>
+                @if (IsCompositionPhaseClosed)
+                {
+                    <span class="inline-flex items-center gap-1 text-xs text-terracotta font-bold ml-2">
+                        <i class="fa-solid fa-lock"></i>
+                        命題階段已於 @compositionPhaseEndDate!.Value.ToString("yyyy-MM-dd") 結束，配額不再變動
+                    </span>
+                }
             </div>
             <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
                 @if (isLoadingQuota)
@@ -93,7 +102,7 @@
                 {
                     @foreach (var q in quotaProgress)
                     {
-                        @QuotaCard(q.TypeName, q.Completed, q.Target)
+                        @QuotaCard(q.QuestionTypeId, q.TypeName, q.Completed, q.Target)
                     }
                 }
                 else
@@ -141,7 +150,7 @@
                         else if (currentTab == "revision")
                         {
                             @StatCard("審題總計", SumCounts(QuestionStatus.RevisionTabStatuses), "fa-layer-group", "text-terracotta", "text-slate-main", "all", "顯示全部題目")
-                            @StatCard("審題鎖定", SumCounts([QuestionStatus.PeerReviewing, QuestionStatus.ExpertReviewing, QuestionStatus.FinalReviewing]), "fa-lock", "text-morandi", "text-morandi", "locked", "點一下套用篩選")
+                            @StatCard("審題鎖定", SumCounts([QuestionStatus.Submitted, QuestionStatus.PeerReviewing, QuestionStatus.ExpertReviewing, QuestionStatus.FinalReviewing]), "fa-lock", "text-morandi", "text-morandi", "locked", "點一下套用篩選")
                             @StatCard("修題中", SumCounts([QuestionStatus.PeerEditing, QuestionStatus.ExpertEditing, QuestionStatus.FinalEditing]), "fa-lock-open", "text-terracotta", "text-terracotta", "editing", "點一下套用篩選")
                         }
                         else
@@ -251,7 +260,7 @@
                                             </div>
                                         </td>
                                         <td class="px-4 py-3 text-center whitespace-nowrap">
-                                            <StatusBadge StatusText="@QuestionStatus.Labels.GetValueOrDefault(item.Status, "未知")" Compact="true" />
+                                            <StatusBadge StatusText="@RowStatusLabel(item.Status)" Compact="true" />
                                         </td>
                                         <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">@item.UpdatedAt.ToString("yyyy/MM/dd HH:mm")</td>
                                         <td class="px-4 py-3 text-center whitespace-nowrap" @onclick:stopPropagation="true">
@@ -260,7 +269,7 @@
                                                     class="text-morandi hover:underline text-xs font-bold cursor-pointer focus:outline-none">
                                                     <i class="fa-solid fa-pen-to-square mr-0.5"></i> @(IsEditableStatus(item.Status) ? "編輯" : "檢視")
                                                 </button>
-                                                @if (item.Status == QuestionStatus.Draft)
+                                                @if (item.Status == QuestionStatus.Draft && !IsCompositionPhaseClosed)
                                                 {
                                                     <button @onclick="() => DeleteAsync(item.Id, item.QuestionCode)"
                                                         title="刪除草稿"
@@ -299,66 +308,74 @@
 
 <!-- FullScreen 命題表單 Modal -->
 <CustomModal @bind-IsVisible="showComposeModal" Type="CustomModal.ModalType.FullScreen" Title="@composeModalTitle" CloseOnBackdropClick="false" KeepAlive="true">
-    <HeaderActions>
+    <TitleSubtitle>
         @if (currentFormUpdatedAt is not null)
         {
-            <span class="text-xs text-gray-500 font-medium flex items-center gap-1.5">
+            <span class="inline-flex items-center gap-1">
                 <i class="fa-regular fa-clock"></i>
                 最後修改：@currentFormUpdatedAt.Value.ToString("yyyy/MM/dd HH:mm")
             </span>
+            <span class="mx-1 text-gray-300">•</span>
         }
         <StatusBadge StatusText="@QuestionStatus.Labels.GetValueOrDefault(currentFormStatus, "命題草稿")" Compact="true" />
+    </TitleSubtitle>
+    <HeaderActions>
         <button @onclick="() => showPreviewModal = true" disabled="@isSaving"
-            class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
-            <i class="fa-solid fa-eye mr-1"></i> 預覽
+            class="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
+            <i class="fa-regular fa-eye"></i> 預覽
         </button>
-        <button @onclick="() => SaveAsync(QuestionStatus.Draft)" disabled="@isSaving"
-            class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
-            @if (isSaving && pendingStatus == QuestionStatus.Draft)
-            {
-                <i class="fa-solid fa-spinner fa-spin mr-1"></i> <span>儲存中…</span>
-            }
-            else
-            {
-                <i class="fa-regular fa-floppy-disk mr-1"></i> <span>存為草稿</span>
-            }
-        </button>
-        <button @onclick="() => SaveAsync(QuestionStatus.Completed)" disabled="@isSaving"
-            class="px-4 py-1.5 text-sm bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
-            @if (isSaving && pendingStatus == QuestionStatus.Completed)
-            {
-                <i class="fa-solid fa-spinner fa-spin mr-1"></i> <span>提交中…</span>
-            }
-            else
-            {
-                <i class="fa-solid fa-check mr-1"></i> <span>命題完成</span>
-            }
-        </button>
+        @if (IsEditableStatus(currentFormStatus))
+        {
+            <button @onclick="() => SaveAsync(QuestionStatus.Draft)" disabled="@isSaving"
+                class="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                @if (isSaving && pendingStatus == QuestionStatus.Draft)
+                {
+                    <i class="fa-solid fa-spinner fa-spin mr-1"></i> <span>儲存中…</span>
+                }
+                else
+                {
+                    <span>存為草稿</span>
+                }
+            </button>
+            <button @onclick="() => SaveAsync(QuestionStatus.Completed)" disabled="@isSaving"
+                class="px-5 py-2 text-sm bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
+                @if (isSaving && pendingStatus == QuestionStatus.Completed)
+                {
+                    <i class="fa-solid fa-spinner fa-spin"></i> <span>提交中…</span>
+                }
+                else
+                {
+                    <i class="fa-solid fa-check"></i> <span>命題完成</span>
+                }
+            </button>
+        }
     </HeaderActions>
     <ChildContent>
         <QuillEditorHost>
+            @{ var isFormReadOnly = !IsEditableStatus(currentFormStatus); }
+            <CascadingValue Name="IsFormReadOnly" Value="@isFormReadOnly" IsFixed="false">
             <div class="flex-grow flex overflow-hidden relative min-h-0 h-full">
-                <!-- 左側邊欄：屬性設定（可收合） -->
-                <div class="@(sidebarCollapsed ? "w-0" : "w-60 lg:w-72") flex-shrink-0 bg-white border-r border-gray-200 overflow-hidden flex flex-col transition-all duration-300 ease-in-out">
-                    <QuestionAttributesSidebar IsCollapsed="sidebarCollapsed"
-                        QuestionType="@formData.QuestionType" QuestionTypeChanged="OnQuestionTypeChanged"
-                        @bind-Level="formData.Level" @bind-Difficulty="formData.Difficulty"
-                        @bind-Topic="formData.Topic" @bind-Subtopic="formData.Subtopic"
-                        @bind-WritingMode="formData.WritingMode" @bind-Genre="formData.Genre"
-                        @bind-AudioType="formData.AudioType" @bind-Material="formData.Material"
-                        @bind-CoreAbility="formData.CoreAbility" @bind-DetailIndicator="formData.DetailIndicator" />
-                </div>
+                <!-- 伸縮標籤按鈕（外置於 fieldset 之上，避免檢視模式被一併禁用） -->
+                <button type="button" @onclick="() => sidebarCollapsed = !sidebarCollapsed"
+                    class="absolute top-1/2 -translate-y-1/2 z-20 bg-white border border-gray-200 border-l-0 rounded-r-lg shadow-sm px-1.5 py-3 flex flex-col items-center gap-1 text-gray-400 hover:text-morandi hover:bg-gray-50 transition-all duration-300 cursor-pointer focus:outline-none @(sidebarCollapsed ? "left-0" : "left-60 lg:left-72")"
+                    title="@(sidebarCollapsed ? "展開屬性欄" : "收合屬性欄")">
+                    <i class="fa-solid @(sidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-xs"></i>
+                    <span class="text-xs font-bold writing-vertical">屬性</span>
+                    <i class="fa-solid @(sidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-xs"></i>
+                </button>
 
-                <!-- 伸縮標籤按鈕（浮動在邊欄邊緣） -->
-                <div class="relative flex-shrink-0">
-                    <button @onclick="() => sidebarCollapsed = !sidebarCollapsed"
-                        class="absolute top-1/2 -translate-y-1/2 -left-px z-10 bg-white border border-gray-200 border-l-0 rounded-r-lg shadow-sm px-1.5 py-3 flex flex-col items-center gap-1 text-gray-400 hover:text-morandi hover:bg-gray-50 transition-colors cursor-pointer focus:outline-none"
-                        title="@(sidebarCollapsed ? "展開屬性欄" : "收合屬性欄")">
-                        <i class="fa-solid @(sidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-xs"></i>
-                        <span class="text-xs font-bold writing-vertical">屬性</span>
-                        <i class="fa-solid @(sidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-xs"></i>
-                    </button>
-                </div>
+                <fieldset disabled="@isFormReadOnly"
+                    class="flex-grow flex overflow-hidden min-h-0 h-full m-0 p-0 border-0 disabled:opacity-95">
+                    <!-- 左側邊欄：屬性設定（可收合） -->
+                    <div class="@(sidebarCollapsed ? "w-0" : "w-60 lg:w-72") flex-shrink-0 bg-white border-r border-gray-200 overflow-hidden flex flex-col transition-all duration-300 ease-in-out">
+                        <QuestionAttributesSidebar IsCollapsed="sidebarCollapsed"
+                            QuestionType="@formData.QuestionType" QuestionTypeChanged="OnQuestionTypeChanged"
+                            @bind-Level="formData.Level" @bind-Difficulty="formData.Difficulty"
+                            @bind-Topic="formData.Topic" @bind-Subtopic="formData.Subtopic"
+                            @bind-WritingMode="formData.WritingMode" @bind-Genre="formData.Genre"
+                            @bind-AudioType="formData.AudioType" @bind-Material="formData.Material"
+                            @bind-CoreAbility="formData.CoreAbility" @bind-DetailIndicator="formData.DetailIndicator" />
+                    </div>
 
                 <!-- 右側：主要編輯區 -->
                 <div class="flex-grow overflow-y-auto custom-scroll bg-oatmeal min-h-0">
@@ -385,7 +402,9 @@
                             break;
                     }
                 </div>
+                </fieldset>
             </div>
+            </CascadingValue>
         </QuillEditorHost>
     </ChildContent>
 </CustomModal>
@@ -482,6 +501,11 @@
     // 已載入的 ProjectId 守門 —— 避免父層重渲染時重跑 LoadPageDataAsync 導致配額卡片骨架閃爍
     private int? loadedProjectId;
 
+    // Plan_008：命題階段結束相關
+    private DateTime? compositionPhaseEndDate;
+    private bool IsCompositionPhaseClosed
+        => compositionPhaseEndDate.HasValue && compositionPhaseEndDate.Value.Date < DateTime.Today;
+
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthState;
@@ -495,6 +519,18 @@
         if (CurrentProject is null || currentUserId is null) return;
         if (loadedProjectId == CurrentProject.Id) return;   // 同專案重派 → 不重載
         loadedProjectId = CurrentProject.Id;
+
+        // Plan_008：進入頁面前先觸發命題階段結束的批次轉換 + 互審分配（Idempotent）
+        try
+        {
+            await QuestionService.EnsureCompositionPhaseClosedAsync(CurrentProject.Id);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // 命題教師不足 2 人時 throw —— 提示後仍繼續載入頁面（讓總召看到草稿/完成題目）
+            await ShowToastAsync("warning", ex.Message);
+        }
+
         await LoadPageDataAsync();
     }
 
@@ -503,13 +539,15 @@
         isLoadingQuota = true;
         try
         {
-            var quotaTask  = QuestionService.GetMyQuotaProgressAsync(currentUserId!.Value, CurrentProject!.Id);
-            var phaseTask  = QuestionService.GetCurrentPhaseAsync(CurrentProject!.Id);
-            var countsTask = QuestionService.GetStatusCountsAsync(CurrentProject!.Id, currentUserId!.Value);
-            await Task.WhenAll(quotaTask, phaseTask, countsTask);
-            quotaProgress = quotaTask.Result;
-            currentPhase  = phaseTask.Result;
-            statusCounts  = countsTask.Result;
+            var quotaTask    = QuestionService.GetMyQuotaProgressAsync(currentUserId!.Value, CurrentProject!.Id);
+            var phaseTask    = QuestionService.GetCurrentPhaseAsync(CurrentProject!.Id);
+            var countsTask   = QuestionService.GetStatusCountsAsync(CurrentProject!.Id, currentUserId!.Value);
+            var phaseEndTask = QuestionService.GetCompositionPhaseEndAsync(CurrentProject!.Id);
+            await Task.WhenAll(quotaTask, phaseTask, countsTask, phaseEndTask);
+            quotaProgress             = quotaTask.Result;
+            currentPhase              = phaseTask.Result;
+            statusCounts              = countsTask.Result;
+            compositionPhaseEndDate   = phaseEndTask.Result;
         }
         finally
         {
@@ -633,9 +671,38 @@
     private int CountOf(byte status) => statusCounts.GetValueOrDefault(status, 0);
     private int SumCounts(byte[] statuses) => statuses.Sum(s => statusCounts.GetValueOrDefault(s, 0));
 
-    private static bool IsEditableStatus(byte status) =>
-        status is QuestionStatus.Draft or QuestionStatus.Completed
-              or QuestionStatus.PeerEditing or QuestionStatus.ExpertEditing or QuestionStatus.FinalEditing;
+    private bool IsEditableStatus(byte status)
+    {
+        // Plan_008：命題階段結束後，草稿與命題完成皆視為唯讀
+        if (IsCompositionPhaseClosed && status is QuestionStatus.Draft or QuestionStatus.Completed)
+            return false;
+        return status is QuestionStatus.Draft or QuestionStatus.Completed
+                      or QuestionStatus.PeerEditing or QuestionStatus.ExpertEditing or QuestionStatus.FinalEditing;
+    }
+
+    /// <summary>
+    /// 列表狀態欄顯示文字。
+    /// 在「審修作業區」內，命題教師只需區分「審題鎖定 / 修題中」；
+    /// 互審/專審/總審的階段差異在後台處理，老師不需要在這顆 pill 上看到。
+    /// </summary>
+    private string RowStatusLabel(byte status)
+    {
+        if (currentTab == "revision")
+        {
+            return status switch
+            {
+                QuestionStatus.Submitted
+                or QuestionStatus.PeerReviewing
+                or QuestionStatus.ExpertReviewing
+                or QuestionStatus.FinalReviewing  => "審題鎖定",
+                QuestionStatus.PeerEditing
+                or QuestionStatus.ExpertEditing
+                or QuestionStatus.FinalEditing    => "修題中",
+                _                                 => QuestionStatus.Labels.GetValueOrDefault(status, "未知")
+            };
+        }
+        return QuestionStatus.Labels.GetValueOrDefault(status, "未知");
+    }
 
     private static string LevelLabel(string typeKey, byte? level)
     {
@@ -709,9 +776,13 @@
         formData = new() { QuestionType = newType };
     }
 
-    private void OpenComposeModal()
+    private void OpenComposeModal(string? presetTypeKey = null)
     {
         formData = new();
+        if (!string.IsNullOrEmpty(presetTypeKey) && QuestionConstants.TypeKeyToId.ContainsKey(presetTypeKey))
+        {
+            formData.QuestionType = presetTypeKey;
+        }
         currentFormStatus = QuestionStatus.Draft;
         currentFormUpdatedAt = null;
         composeModalTitle = "新增試題";
@@ -855,13 +926,33 @@
         </div>
     };
 
-    private RenderFragment QuotaCard(string typeName, int current, int target) => __builder =>
+    private RenderFragment QuotaCard(int questionTypeId, string typeName, int current, int target) => __builder =>
     {
-        var percent = target > 0 ? (int)((double)current / target * 100) : 0;
+        var percent  = target > 0 ? (int)((double)current / target * 100) : 0;
         var barColor = percent >= 100 ? "bg-sage" : percent > 0 ? "bg-morandi" : "bg-gray-200";
+        var typeKey  = QuestionConstants.TypeIdToKey.GetValueOrDefault(questionTypeId, "single");
+        var locked   = IsCompositionPhaseClosed;
+        var reached  = target > 0 && current >= target;
+        var tooltip  = locked  ? "命題階段已結束，無法新增題目"
+                     : reached ? $"已達標，仍可超量命題（{current}/{target}）"
+                               : $"點擊新增「{typeName}」題目";
 
-        <div class="bg-white rounded-lg border border-gray-200 p-3 shadow-sm hover:shadow-md transition-all">
-            <div class="text-xs font-bold text-gray-600 mb-1 truncate">@typeName</div>
+        <button type="button"
+            @onclick="() => OpenComposeModal(typeKey)"
+            disabled="@locked"
+            title="@tooltip"
+            class="@(locked
+                ? "bg-gray-50 border border-gray-200 cursor-not-allowed opacity-70"
+                : "bg-white border border-gray-200 hover:border-morandi/60 hover:shadow-md hover:-translate-y-0.5 cursor-pointer")
+                relative text-left rounded-lg p-3 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-morandi/40 group">
+
+            @if (reached && !locked)
+            {
+                <span class="absolute top-1.5 right-1.5 inline-flex items-center gap-0.5 text-[10px] font-bold text-sage bg-sage/10 px-1.5 py-0.5 rounded-full border border-sage/20">
+                    <i class="fa-solid fa-check text-[9px]"></i>已達標
+                </span>
+            }
+            <div class="text-xs font-bold text-gray-600 mb-1 truncate pr-12">@typeName</div>
             <div class="flex items-baseline gap-1 mb-2">
                 <span class="text-lg font-black text-slate-main">@current</span>
                 <span class="text-xs text-gray-400">/ @target</span>
@@ -869,6 +960,12 @@
             <div class="w-full bg-gray-100 rounded-full h-1.5">
                 <div class="@barColor h-1.5 rounded-full transition-all" style="width: @(percent)%"></div>
             </div>
-        </div>
+            @if (!locked)
+            {
+                <span class="absolute bottom-1.5 right-2 text-[10px] text-morandi font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                    <i class="fa-solid fa-plus text-[9px]"></i>新增
+                </span>
+            }
+        </button>
     };
 }

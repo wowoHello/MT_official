@@ -1,0 +1,286 @@
+@* ====================================================================== *@
+@*  ReviewQuestionDisplay — 審題 Modal 左 70% 題目展示                       *@
+@*  視覺：oatmeal 底色 + 白卡片（試卷紙感） + 襯線體                         *@
+@*  正解高亮：sage 綠框 + 白勾徽章                                           *@
+@*  解析預設展開（與命題者預覽相反，幫助審題者快速理解出題意圖）              *@
+@* ====================================================================== *@
+@using MT.Components.Shared.QuestionPreviews
+
+<div class="w-full bg-oatmeal overflow-y-auto custom-scroll">
+    <div class="max-w-3xl mx-auto px-6 sm:px-8 py-8 sm:py-10">
+        <div class="bg-white rounded-2xl shadow-md border border-gray-200 px-6 sm:px-10 py-8 sm:py-10">
+
+            @* 試卷標頭：題號 + 命題者元資訊 *@
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-6 pb-4 border-b-2 border-dashed border-gray-200">
+                <div class="text-xs text-gray-400 font-medium tracking-widest">
+                    題目 ID：<span class="text-slate-main font-bold">@Question.QuestionCode</span>
+                </div>
+                <div class="text-xs text-gray-400 font-medium flex items-center gap-3 flex-wrap">
+                    <span><i class="fa-solid fa-user-pen mr-1"></i> 命題：@(string.IsNullOrEmpty(CreatorName) ? "—" : CreatorName)</span>
+                </div>
+            </div>
+
+            @* 依題型渲染主體 *@
+            @switch (Question.QuestionType)
+            {
+                case QuestionTypeCodes.Single:
+                case QuestionTypeCodes.Select:
+                    @RenderChoice
+                    break;
+                case QuestionTypeCodes.LongText:
+                    @RenderLongText
+                    break;
+                case QuestionTypeCodes.ReadGroup:
+                    @RenderReadGroup
+                    break;
+                case QuestionTypeCodes.ShortGroup:
+                    @RenderShortGroup
+                    break;
+                case QuestionTypeCodes.Listen:
+                    @RenderListen
+                    break;
+                case QuestionTypeCodes.ListenGroup:
+                    @RenderListenGroup
+                    break;
+                default:
+                    <p class="text-sm text-gray-400 italic">未知題型：@Question.QuestionType</p>
+                    break;
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public QuestionFormData Question { get; set; } = default!;
+    [Parameter] public string CreatorName { get; set; } = string.Empty;
+
+    private static bool HasContent(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return false;
+        var stripped = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]*>", "").Trim();
+        return !string.IsNullOrEmpty(stripped) || html.Contains("<img");
+    }
+
+    // ==========================================================
+    //  各題型 sub-render（RenderFragment 屬性，用 @RenderXxx 呼叫）
+    // ==========================================================
+
+    private RenderFragment RenderChoice => __builder =>
+    {
+        <div class="font-serif text-lg leading-loose text-slate-main mb-6">
+            @if (HasContent(Question.Stem))
+            {
+                @((MarkupString)Question.Stem)
+            }
+            else
+            {
+                <span class="text-gray-400 italic">題幹尚未填寫</span>
+            }
+        </div>
+
+        <PreviewChoiceOptions Options="@Question.Options" Answer="@Question.Answer" />
+
+        @RenderAnalysis(Question.Analysis, false)
+    };
+
+    private RenderFragment RenderLongText => __builder =>
+    {
+        @if (HasContent(Question.Stem))
+        {
+            <h4 class="font-serif text-xl font-bold text-slate-main mb-4">@((MarkupString)Question.Stem)</h4>
+        }
+        <PreviewPassage Content="@Question.ArticleContent" Label="文章內容" />
+        @if (HasContent(Question.GradingNote))
+        {
+            <div class="mt-6 pt-5 border-t border-gray-100">
+                <p class="text-sm font-bold text-morandi mb-2">
+                    <i class="fa-solid fa-list-check mr-1.5"></i> 批閱說明
+                </p>
+                <div class="prose prose-sm max-w-none text-gray-700 font-serif leading-loose pl-4 border-l-4 border-morandi/30">
+                    @((MarkupString)Question.GradingNote)
+                </div>
+            </div>
+        }
+    };
+
+    private RenderFragment RenderReadGroup => __builder =>
+    {
+        <div class="border-l-4 border-gray-300 pl-5 py-3 rounded-r-lg bg-gray-50/60 mb-6">
+            <div class="font-serif font-bold text-slate-main mb-2">
+                <span class="text-gray-500 mr-2">標題：</span>
+                @if (HasContent(Question.Stem))
+                {
+                    @((MarkupString)Question.Stem)
+                }
+                else
+                {
+                    <span class="text-gray-400">未填寫標題</span>
+                }
+            </div>
+            <div class="font-serif text-base leading-relaxed text-gray-700">
+                @if (HasContent(Question.ArticleContent))
+                {
+                    @((MarkupString)Question.ArticleContent)
+                }
+                else
+                {
+                    <span class="text-gray-400 italic">內容尚未填寫</span>
+                }
+            </div>
+        </div>
+
+        @for (int i = 0; i < Question.ReadSubQuestions.Count; i++)
+        {
+            var sq = Question.ReadSubQuestions[i];
+            var num = i + 1;
+            <div class="@(i > 0 ? "border-t border-gray-200 pt-5 mt-5" : "")">
+                <p class="font-bold text-morandi mb-2 font-serif text-base">第 @num 子題</p>
+                <div class="font-serif text-base leading-loose text-slate-main mb-3">
+                    @if (HasContent(sq.Stem))
+                    {
+                        @((MarkupString)sq.Stem)
+                    }
+                    else
+                    {
+                        <span class="text-gray-400 italic">子題題幹尚未填寫</span>
+                    }
+                </div>
+                <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer" />
+                @if (HasContent(sq.Analysis))
+                {
+                    @RenderAnalysis(sq.Analysis, true)
+                }
+            </div>
+        }
+        @if (Question.ReadSubQuestions.Count == 0)
+        {
+            <p class="text-sm text-gray-400 italic text-center mt-6">尚未新增子題</p>
+        }
+    };
+
+    private RenderFragment RenderShortGroup => __builder =>
+    {
+        <div class="border-l-4 border-gray-300 pl-5 py-3 rounded-r-lg bg-gray-50/60 mb-6">
+            @if (HasContent(Question.Stem))
+            {
+                <div class="font-serif font-bold text-slate-main mb-2">@((MarkupString)Question.Stem)</div>
+            }
+            <PreviewPassage Content="@Question.ArticleContent" Label="文章內容" />
+        </div>
+
+        @for (int i = 0; i < Question.ShortSubQuestions.Count; i++)
+        {
+            var sq = Question.ShortSubQuestions[i];
+            var num = i + 1;
+            <div class="@(i > 0 ? "border-t border-gray-200 pt-5 mt-5" : "")">
+                <p class="font-bold text-morandi mb-2 font-serif text-base">第 @num 子題</p>
+                <div class="font-serif text-base leading-loose text-slate-main mb-3">
+                    @if (HasContent(sq.Stem))
+                    {
+                        @((MarkupString)sq.Stem)
+                    }
+                    else
+                    {
+                        <span class="text-gray-400 italic">子題題幹尚未填寫</span>
+                    }
+                </div>
+                <div class="text-xs text-gray-500 mb-3 flex flex-wrap gap-2">
+                    <span>主向度：<span class="font-bold text-morandi">@QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ShortGroup)</span></span>
+                    <span>能力指標：<span class="font-bold text-morandi">@QuestionConstants.DecodeSubIndicator(sq.Indicator, QuestionTypeCodes.ShortGroup)</span></span>
+                </div>
+                @if (HasContent(sq.Analysis))
+                {
+                    @RenderAnalysis(sq.Analysis, true)
+                }
+            </div>
+        }
+        @if (Question.ShortSubQuestions.Count == 0)
+        {
+            <p class="text-sm text-gray-400 italic text-center mt-6">尚未新增子題</p>
+        }
+    };
+
+    private RenderFragment RenderListen => __builder =>
+    {
+        <PreviewAudioSection AudioFileName="@Question.AudioUrl" />
+
+        <div class="font-serif text-lg leading-loose text-slate-main mb-6">
+            @if (HasContent(Question.Stem))
+            {
+                @((MarkupString)Question.Stem)
+            }
+            else
+            {
+                <span class="text-gray-400 italic">題幹尚未填寫</span>
+            }
+        </div>
+
+        <PreviewChoiceOptions Options="@Question.Options" Answer="@Question.Answer" />
+
+        @RenderAnalysis(Question.Analysis, false)
+    };
+
+    private RenderFragment RenderListenGroup => __builder =>
+    {
+        <PreviewAudioSection AudioFileName="@Question.AudioUrl" />
+
+        @if (HasContent(Question.ArticleContent))
+        {
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
+                <p class="text-xs font-bold text-gray-500 mb-2"><i class="fa-solid fa-quote-left mr-1"></i> 語音內容（文字稿）</p>
+                <div class="font-serif text-base leading-relaxed text-gray-700">@((MarkupString)Question.ArticleContent)</div>
+            </div>
+        }
+
+        @for (int i = 0; i < Question.ListenGroupSubQuestions.Count; i++)
+        {
+            var sq = Question.ListenGroupSubQuestions[i];
+            var num = i + 1;
+            <div class="@(i > 0 ? "border-t border-gray-200 pt-5 mt-5" : "")">
+                <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                    <p class="font-bold text-morandi font-serif text-base">第 @num 子題</p>
+                    <span class="text-xs text-gray-500">難度：<span class="font-bold text-morandi">@QuestionConstants.ListenLevelLabels.GetValueOrDefault(sq.FixedDifficulty, "—")</span></span>
+                </div>
+                <div class="font-serif text-base leading-loose text-slate-main mb-3">
+                    @if (HasContent(sq.Stem))
+                    {
+                        @((MarkupString)sq.Stem)
+                    }
+                    else
+                    {
+                        <span class="text-gray-400 italic">子題題幹尚未填寫</span>
+                    }
+                </div>
+                <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer" />
+                @if (HasContent(sq.Analysis))
+                {
+                    @RenderAnalysis(sq.Analysis, true)
+                }
+            </div>
+        }
+    };
+
+    /// <summary>
+    /// 解析摺疊區（預設展開）。compact=true 時減少上方留白，給子題用。
+    /// </summary>
+    private RenderFragment RenderAnalysis(string content, bool compact) => __builder =>
+    {
+        <details open class="@(compact ? "mt-4" : "mt-8") border-t border-gray-200 pt-4">
+            <summary class="cursor-pointer font-bold text-morandi text-sm flex items-center gap-2 hover:text-morandi/80 list-none">
+                <i class="fa-solid fa-lightbulb"></i>
+                試題解析
+                <i class="fa-solid fa-chevron-down ml-auto text-xs"></i>
+            </summary>
+            <div class="mt-3 font-serif text-base text-gray-700 leading-loose pl-4 border-l-4 border-morandi/30">
+                @if (HasContent(content))
+                {
+                    @((MarkupString)content)
+                }
+                else
+                {
+                    <span class="text-gray-400 italic">尚未填寫解析</span>
+                }
+            </div>
+        </details>
+    };
+}

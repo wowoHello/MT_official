@@ -6,6 +6,7 @@
 @* ====================================================================== *@
 @page "/overview"
 @inject IOverviewService OverviewService
+@inject NavigationManager Nav
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
 
@@ -253,6 +254,10 @@
     [CascadingParameter(Name = "CurrentProject")]
     private ProjectSwitcherItem? CurrentProject { get; set; }
 
+    /// <summary>從 query string 接收 Dashboard 的教師篩選跳轉（/overview?creatorId=X）。</summary>
+    [SupplyParameterFromQuery]
+    public int? CreatorId { get; set; }
+
     [CascadingParameter]
     private Task<AuthenticationState> AuthState { get; set; } = default!;
 
@@ -282,10 +287,22 @@
         if (loadedProjectId == CurrentProject.Id) return;   // 同專案重派 → 不重載
         loadedProjectId = CurrentProject.Id;
 
-        // 切換專案時重抓命題教師清單；同時重置篩選回預設
-        creatorOptions  = await OverviewService.GetCreatorOptionsAsync(CurrentProject.Id);
-        queryCreatorId  = "";
-        filter.CreatorId = null;
+        // 切換專案時重抓命題教師清單
+        creatorOptions = await OverviewService.GetCreatorOptionsAsync(CurrentProject.Id);
+
+        // 若 query string 帶有 creatorId 且該教師存在於選項，自動套用篩選
+        // OverviewCreatorOption 欄位為 Id（非 UserId），以 o.Id 比對
+        if (CreatorId.HasValue && creatorOptions.Any(o => o.Id == CreatorId.Value))
+        {
+            queryCreatorId   = CreatorId.Value.ToString();
+            filter.CreatorId = CreatorId.Value;
+        }
+        else
+        {
+            queryCreatorId   = "";
+            filter.CreatorId = null;
+        }
+
         await LoadAsync();
     }
 

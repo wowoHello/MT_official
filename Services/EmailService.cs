@@ -54,14 +54,15 @@ namespace MT.Services
 
             string message = $@"
                     親愛的 老師 您好：<br /><br />
-                    感謝您申請CWT 命題工作平臺系統帳號。請點選以下連結更新您的新密碼：<br /><br />
-                    <strong><a href='{resetPasswordURL}'>點我更新密碼</a></strong><br /><br /><br />
-                    如上述連結失效，請複製貼上前往下面連結：<br /><br /><br />
-                    <strong><a href='{resetPasswordURL}'>{resetPasswordURL}</a></strong><br /><br /><br />
-                    若有其他問題可再來電客服專線或來信客服服務信箱洽詢。<br /><br />
-                    服務信箱：{smtpUser}<br />
+                    您正在進行 CWT 命題工作平臺 的密碼重設。請點選以下連結設定您的新密碼：<br /><br />
+                    <strong><a href='{resetPasswordURL}'>點我重設密碼</a></strong><br /><br />
+                    若上述連結無法點擊，請複製下列網址至瀏覽器開啟：<br />
+                    <a href='{resetPasswordURL}'>{resetPasswordURL}</a><br /><br />
+                    ※ 本連結 10 分鐘內有效，逾時請重新申請。<br /><br />
+                    若您並未發起此次密碼重設，請忽略本信件，您的帳號仍然安全。<br /><br />
+                    若有任何問題，歡迎來信客服信箱：{smtpUser}<br />
                     <a href='{basehref}'>CWT 命題工作平臺</a><br /><br />
-                    ***本封信由系統自動寄出，請勿直接回覆!***<br /><br />";
+                    ***本封信由系統自動寄出，請勿直接回覆!***<br />";
 
             var smtpClient = new SmtpClient(_smtpServer)
             {

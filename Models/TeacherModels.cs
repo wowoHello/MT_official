@@ -175,8 +175,9 @@ public class TeacherProjectItem
     public string ProjectName { get; set; } = "";
     public int ProjectYear { get; set; }
     public DateTime StartDate { get; set; }
+    public DateTime? EndDate { get; set; }
     public DateTime? ClosedAt { get; set; }
-    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, ClosedAt);
+    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, EndDate, ClosedAt);
     public List<RoleTag> Roles { get; set; } = [];
     public int QuestionCount { get; set; }
     public int AdoptedCount { get; set; }
@@ -189,6 +190,23 @@ public class TeacherProjectItem
             return $"{(double)AdoptedCount / QuestionCount:P0}";
         }
     }
+}
+
+// ─── 新增教師回傳結果 ───
+public class CreateTeacherResult
+{
+    public int TeacherId { get; set; }
+
+    /// <summary>
+    /// 是否沿用既有 MT_Users 帳號（Email 已存在於系統時自動綁定，不新建帳號）。
+    /// </summary>
+    public bool ReusedExistingUser { get; set; }
+
+    /// <summary>
+    /// 沿用時，提示前端的既有使用者顯示名稱與帳號（讓 toast 告知使用者）。
+    /// </summary>
+    public string? ExistingDisplayName { get; set; }
+    public string? ExistingUsername { get; set; }
 }
 
 // ─── 新增教師請求 ───

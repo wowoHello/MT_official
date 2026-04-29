@@ -1,0 +1,361 @@
+@* ====================================================================== *@
+@*  ReviewModal — 審題專用 Modal 主容器（FullScreen）                        *@
+@*  與 CwtList 命題 Modal 完全分離，避免互相干擾。                             *@
+@*  結構：Header（h-16）+ Body（左 70% 題目 + 右 30% 操作）+ Footer（決策列） *@
+@*  Phase 3.2：題目展示 OK；操作區 / 決策列待 3.3 / 3.5 補上。                *@
+@* ====================================================================== *@
+@inject IReviewService ReviewService
+@inject IJSRuntime JS
+
+@if (IsVisible)
+{
+    <div class="fixed inset-0 z-50 bg-gray-50 flex flex-col" style="animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+
+        @* ====== 相似題警示橫幅（依 Plan_003 Q4：頂部常駐） ====== *@
+        @if (data is not null && data.SimilarQuestions.Count > 0)
+        {
+            <ReviewSimilarityBanner Entries="@data.SimilarQuestions"
+                                    Mode="ReviewSimilarityBanner.BannerMode.Banner"
+                                    OnExpandRequested="OnExpandSimilarityRequested" />
+        }
+
+        @* ====== Header（sticky h-16） ====== *@
+        <div class="h-16 flex-shrink-0 px-6 flex items-center justify-between border-b border-gray-200 bg-white shadow-sm">
+            <div class="flex items-center gap-3 flex-wrap min-w-0">
+                <button type="button" @onclick="CloseAsync"
+                        class="text-sm text-gray-500 hover:text-morandi font-bold flex items-center gap-1.5 transition shrink-0 cursor-pointer focus:outline-none">
+                    <i class="fa-solid fa-arrow-left"></i> 返回列表
+                </button>
+                <div class="h-6 w-px bg-gray-300 shrink-0"></div>
+
+                @if (isLoading)
+                {
+                    <span class="text-sm text-gray-400">
+                        <i class="fa-solid fa-spinner fa-spin mr-1"></i> 載入中…
+                    </span>
+                }
+                else if (data is not null)
+                {
+                    <span class="font-black text-slate-main text-base shrink-0">@data.Question.QuestionCode</span>
+                    <span class="px-2.5 py-0.5 bg-gray-100 text-gray-700 rounded-md text-xs font-bold border border-gray-200 shrink-0">
+                        @QuestionConstants.TypeLabels.GetValueOrDefault(data.Question.QuestionType, "未知題型")
+                    </span>
+                    @if (!string.IsNullOrEmpty(LevelLabel))
+                    {
+                        <span class="px-2.5 py-0.5 bg-morandi/10 text-morandi rounded-md text-xs font-bold border border-morandi/20 shrink-0">@LevelLabel</span>
+                    }
+                    @if (!string.IsNullOrEmpty(DifficultyLabel))
+                    {
+                        <span class="px-2.5 py-0.5 bg-terracotta/10 text-terracotta rounded-md text-xs font-bold border border-terracotta/20 shrink-0">難度：@DifficultyLabel</span>
+                    }
+                    @* 階段標籤 *@
+                    @if (data.MyAssignment is not null)
+                    {
+                        var stage = data.MyAssignment.Stage;
+                        var stageCss = stage switch
+                        {
+                            ReviewStage.Mutual => "bg-morandi/15 text-morandi border-morandi/30",
+                            ReviewStage.Expert => "bg-terracotta/15 text-terracotta border-terracotta/30",
+                            ReviewStage.Final  => "bg-red-50 text-red-700 border-red-200",
+                            _                  => "bg-gray-100 text-gray-500 border-gray-300"
+                        };
+                        var stageIcon = stage switch
+                        {
+                            ReviewStage.Mutual => "fa-clipboard-check",
+                            ReviewStage.Expert => "fa-user-graduate",
+                            ReviewStage.Final  => "fa-crown",
+                            _                  => "fa-circle"
+                        };
+                        var stageName = stage switch
+                        {
+                            ReviewStage.Mutual => "互審 第 1 階段",
+                            ReviewStage.Expert => "專審 第 2 階段",
+                            ReviewStage.Final  => "總審 第 3 階段",
+                            _                  => ""
+                        };
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ml-2 shrink-0 @stageCss">
+                            <i class="fa-solid @stageIcon mr-1"></i> @stageName
+                        </span>
+
+                        @if (data.FinalReturnCount >= 2 && stage == ReviewStage.Final)
+                        {
+                            <span class="ml-2 inline-flex items-center px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold border border-red-200 shrink-0">
+                                <i class="fa-solid fa-triangle-exclamation mr-1"></i> 已退回 2 次，第 3 次解鎖編輯
+                            </span>
+                        }
+                    }
+                }
+            </div>
+
+            <button type="button" @onclick="CloseAsync"
+                    title="關閉"
+                    class="text-gray-400 hover:text-terracotta hover:bg-gray-100 text-2xl w-10 h-10 flex items-center justify-center rounded-lg transition cursor-pointer focus:outline-none">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        @* ====== Body：左 70% 題目 + 右 30% 操作 ====== *@
+        <div class="flex-grow flex overflow-hidden">
+
+            @* ===== 左 70% — 題目展示 ===== *@
+            <div class="w-[70%] flex flex-col overflow-hidden">
+                @if (isLoading)
+                {
+                    <div class="flex-grow flex items-center justify-center text-gray-400">
+                        <i class="fa-solid fa-spinner fa-spin text-2xl mr-3"></i> 載入題目中…
+                    </div>
+                }
+                else if (loadError is not null)
+                {
+                    <div class="flex-grow flex items-center justify-center">
+                        <div class="text-center text-terracotta">
+                            <i class="fa-solid fa-circle-exclamation text-3xl mb-2"></i>
+                            <p class="text-sm">@loadError</p>
+                        </div>
+                    </div>
+                }
+                else if (data is not null)
+                {
+                    <ReviewQuestionDisplay Question="@data.Question" CreatorName="@data.CreatorName" />
+                }
+            </div>
+
+            @* ===== 右 30% — 操作區 ===== *@
+            <div class="w-[30%] border-l border-gray-200 bg-white flex flex-col">
+                @if (data is not null)
+                {
+                    <ReviewActionPanel @ref="actionPanel"
+                                       @bind-Comment="commentDraft"
+                                       IsReadOnly="@(data.MyAssignment?.IsDecided ?? true)"
+                                       History="@data.History"
+                                       SimilarQuestions="@data.SimilarQuestions" />
+                }
+                else
+                {
+                    <div class="flex-grow flex items-center justify-center text-gray-400 text-sm">
+                        <i class="fa-solid fa-spinner fa-spin mr-2"></i> 等待題目載入…
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* ====== Footer：決策列 ====== *@
+        @if (data is not null)
+        {
+            <ReviewDecisionBar Assignment="@data.MyAssignment"
+                               CanFinalReviewerEdit="@data.CanFinalReviewerEdit"
+                               IsSubmitting="@isSubmitting"
+                               PendingAction="@pendingAction"
+                               OnSaveDraft="OnSaveDraftAsync"
+                               OnSubmitDecision="OnSubmitDecisionAsync"
+                               OnRequestEdit="OnRequestEditAsync"
+                               OnRequestClose="CloseAsync" />
+        }
+        else
+        {
+            <div class="h-16 flex-shrink-0 border-t-2 border-gray-200 bg-white px-6 flex items-center justify-end">
+                <button type="button" @onclick="CloseAsync"
+                        class="px-5 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition cursor-pointer">
+                    關閉
+                </button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
+
+    /// <summary>要開啟的題目 Id（NULL 時不載入；切換到非 null 才觸發 Load）</summary>
+    [Parameter] public int? QuestionId { get; set; }
+
+    /// <summary>當前登入者 Id（用於撈自己的 Assignment / 決策權限判斷）</summary>
+    [Parameter, EditorRequired] public int CurrentUserId { get; set; }
+
+    /// <summary>關閉後若有發生決策變動，通知父層 reload 列表</summary>
+    [Parameter] public EventCallback OnDecisionMade { get; set; }
+
+    private ReviewModalData? data;
+    private bool isLoading;
+    private string? loadError;
+    private int? loadedQuestionId;
+
+    /// <summary>
+    /// 意見草稿（雙向綁定到 ReviewActionPanel）。
+    /// 載入時從 MyAssignment.Comment 灌入；Phase 3.5 才會將此值送到後端儲存/決策 API。
+    /// </summary>
+    private string commentDraft = string.Empty;
+
+    private ReviewActionPanel? actionPanel;
+
+    /// <summary>正在儲存/決策中 — 控制按鈕 disabled 與 spinner</summary>
+    private bool isSubmitting;
+
+    /// <summary>當前觸發儲存的按鈕識別（save / approve / revise / reject），用於 spinner 定位</summary>
+    private string? pendingAction;
+
+    /// <summary>頂部相似題橫幅「展開比對」按鈕點擊 → 滾動右側列表進視野並展開</summary>
+    private async Task OnExpandSimilarityRequested()
+    {
+        if (actionPanel is not null) await actionPanel.ExpandSimilarityAsync();
+    }
+
+    private async Task OnSaveDraftAsync()
+    {
+        if (data?.MyAssignment is null || isSubmitting) return;
+
+        isSubmitting = true;
+        pendingAction = "save";
+        try
+        {
+            var ok = await ReviewService.SaveCommentDraftAsync(new SaveReviewCommentRequest
+            {
+                AssignmentId = data.MyAssignment.Id,
+                Comment      = commentDraft
+            }, CurrentUserId);
+
+            await ShowToastAsync(ok ? "success" : "error",
+                                  ok ? "意見草稿已儲存" : "儲存失敗（題目可能已決策或不再分配給您）");
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync("error", $"儲存失敗：{ex.Message}");
+        }
+        finally
+        {
+            isSubmitting = false;
+            pendingAction = null;
+        }
+    }
+
+    private async Task OnSubmitDecisionAsync(ReviewDecision decision)
+    {
+        if (data?.MyAssignment is null || isSubmitting) return;
+
+        // 決策按鈕對應 spinner 位置
+        pendingAction = decision switch
+        {
+            ReviewDecision.Approve => "approve",
+            ReviewDecision.Revise  => "revise",
+            ReviewDecision.Reject  => "reject",
+            _                       => null
+        };
+        isSubmitting = true;
+
+        try
+        {
+            var ok = await ReviewService.SubmitDecisionAsync(new SubmitReviewDecisionRequest
+            {
+                AssignmentId = data.MyAssignment.Id,
+                Comment      = commentDraft,
+                Decision     = decision
+            }, CurrentUserId);
+
+            if (ok)
+            {
+                var label = decision switch
+                {
+                    ReviewDecision.Approve => "採用",
+                    ReviewDecision.Revise  => "改後再審",
+                    ReviewDecision.Reject  => "不採用",
+                    _                       => "已送出"
+                };
+                await ShowToastAsync("success", $"決策已提交：{label}");
+                await OnDecisionMade.InvokeAsync();   // 通知父層 reload 列表
+                await CloseAsync();
+            }
+            else
+            {
+                await ShowToastAsync("error", "提交失敗（題目可能已決策或不再分配給您）");
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            await ShowToastAsync("warning", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync("error", $"提交失敗：{ex.Message}");
+        }
+        finally
+        {
+            isSubmitting = false;
+            pendingAction = null;
+        }
+    }
+
+    /// <summary>
+    /// 總審第 3 次「編輯題目」按鈕：依 Plan_003 Q3 — 跳出去用命題 Modal 編輯。
+    /// 完整流程屬 Plan_006 範圍；本階段先顯示提示，避免用戶以為按了沒反應。
+    /// </summary>
+    private async Task OnRequestEditAsync()
+    {
+        await ShowToastAsync("info", "「編輯題目」流程將於 Plan_006 開放（跳出 Modal 開啟命題編輯）");
+    }
+
+    private ValueTask ShowToastAsync(string icon, string title) =>
+        JS.InvokeVoidAsync("Swal.fire", new
+        {
+            icon,
+            title,
+            toast = true,
+            position = "top-end",
+            showConfirmButton = false,
+            timer = 2200
+        });
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // 只在 IsVisible=true 且 QuestionId 切換時才重新載入
+        if (!IsVisible || QuestionId is null) return;
+        if (loadedQuestionId == QuestionId) return;
+
+        loadedQuestionId = QuestionId;
+        await LoadAsync(QuestionId.Value);
+    }
+
+    private async Task LoadAsync(int questionId)
+    {
+        isLoading = true;
+        loadError = null;
+        data = null;
+        commentDraft = string.Empty;
+        try
+        {
+            data = await ReviewService.GetModalDataAsync(questionId, CurrentUserId);
+            if (data is null) loadError = "找不到此題目，可能已被刪除。";
+            else commentDraft = data.MyAssignment?.Comment ?? string.Empty;
+        }
+        catch (Exception ex)
+        {
+            loadError = $"載入失敗：{ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private string LevelLabel => data?.Question switch
+    {
+        null => "",
+        var q when q.Level is null => "",
+        var q => q.QuestionType is QuestionTypeCodes.Listen or QuestionTypeCodes.ListenGroup
+                    ? QuestionConstants.ListenLevelLabels.GetValueOrDefault(q.Level!.Value, "")
+                    : QuestionConstants.GeneralLevelLabels.GetValueOrDefault(q.Level!.Value, "")
+    };
+
+    private string DifficultyLabel => data?.Question?.Difficulty is null
+        ? ""
+        : QuestionConstants.DifficultyLabels.GetValueOrDefault(data.Question.Difficulty.Value, "");
+
+    private async Task CloseAsync()
+    {
+        IsVisible = false;
+        loadedQuestionId = null;   // 下次再開同題時強制重撈最新狀態
+        data = null;
+        commentDraft = string.Empty;
+        await IsVisibleChanged.InvokeAsync(false);
+    }
+}

@@ -65,9 +65,9 @@
 
             <!-- Login Form -->
             <EditForm Model="loginModel" OnValidSubmit="HandleLogin" FormName="loginForm" class="space-y-3">
-                <!-- Account -->
+                <!-- Account or Email -->
                 <div>
-                    <label for="username" class="block text-sm font-medium mb-1">帳號</label>
+                    <label for="username" class="block text-sm font-medium mb-1">帳號或信箱</label>
                     <div class="relative">
                         <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
                             <i class="fa-regular fa-user"></i>
@@ -75,7 +75,7 @@
                         <InputText id="username" @bind-Value="loginModel.Username" disabled="@isLoading"
                             @bind-Value:after="() => ClearFieldError(nameof(loginModel.Username))"
                             class="@BuildLoginInputClass(nameof(loginModel.Username), true)"
-                            placeholder="請輸入帳號" />
+                            placeholder="請輸入帳號或信箱" />
                     </div>
                 </div>
 
@@ -91,23 +91,24 @@
                             class="@BuildLoginInputClass(nameof(loginModel.Password), true, "pr-10")"
                             placeholder="請輸入密碼" />
                         <button type="button" @onclick="TogglePasswordVisibility"
-                            class="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600 focus:outline-none cursor-pointer">
+                            aria-label="切換密碼顯示"
+                            class="absolute inset-y-0 right-2 my-1.5 px-2 flex items-center text-gray-400 hover:text-gray-600 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-morandi)] focus-visible:bg-[var(--color-morandi)]/5 transition-colors cursor-pointer">
                             <i class="fa-regular @(showPassword ? "fa-eye" : "fa-eye-slash")"></i>
                         </button>
                     </div>
                     <!-- Remember Me & Forgot Password -->
                     <div class="flex items-center justify-between mt-2">
-                        <label class="flex items-center gap-2 cursor-pointer group">
+                        <label class="flex items-center gap-2 cursor-pointer group rounded-md px-1 py-0.5 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--color-morandi)] has-[:focus-visible]:ring-offset-2 transition-shadow">
                             <div class="relative flex items-center justify-center">
                                 <InputCheckbox @bind-Value="loginModel.RememberMe" class="peer sr-only" />
-                                <div class="w-4 h-4 border border-gray-300 rounded flex items-center justify-center transition-colors peer-checked:bg-[var(--color-morandi)] peer-checked:border-[var(--color-morandi)] group-hover:border-[var(--color-morandi)]">
+                                <div class="w-4 h-4 border border-gray-300 rounded flex items-center justify-center transition-colors peer-checked:bg-[var(--color-morandi)] peer-checked:border-[var(--color-morandi)] group-hover:border-[var(--color-morandi)] peer-focus-visible:border-[var(--color-morandi)]">
                                     <i class="fa-solid fa-check text-white text-xs opacity-0 peer-checked:opacity-100 transition-opacity"></i>
                                 </div>
                             </div>
                             <span class="text-sm text-gray-600 group-hover:text-gray-800 transition-colors">記住登入狀態</span>
                         </label>
                         <button type="button" @onclick="OpenForgotPwdModal"
-                            class="text-sm text-[var(--color-morandi)] hover:text-blue-700 hover:underline transition-colors focus:outline-none cursor-pointer">忘記密碼？</button>
+                            class="text-sm text-[var(--color-morandi)] hover:text-blue-700 hover:underline transition-all rounded-md px-1.5 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-morandi)] focus-visible:ring-offset-2 focus-visible:bg-[var(--color-morandi)]/5 cursor-pointer">忘記密碼？</button>
                     </div>
                 </div>
 
@@ -332,6 +333,8 @@
             "focus:outline-none",
             "focus:ring-2",
             "focus:ring-[var(--color-morandi)]",
+            "focus:ring-offset-2",
+            "focus:ring-offset-white",
             "focus:border-[var(--color-morandi)]",
             "transition-all"
         };

@@ -1,0 +1,98 @@
+@* ====================================================================== *@
+@*  ReviewSimilarityBanner — 相似題比對                                     *@
+@*  雙模式（透過 Mode 參數切換）：                                            *@
+@*    Banner  — 頂部紅色警示橫幅，永遠常駐（若有相似題）                       *@
+@*    Section — 右側操作區內的可摺疊詳細列表                                  *@
+@*  決議依據：Plan_003 Q4 — 警示橫幅常駐 + 列表預設摺疊                        *@
+@*  並排檢視按鈕：Phase 5 才實作                                             *@
+@* ====================================================================== *@
+
+@if (Entries.Count == 0)
+{
+    @* 無相似題 → 不渲染任何東西 *@
+}
+else if (Mode == BannerMode.Banner)
+{
+    var topScore = Entries.Max(e => e.SimilarityScore);
+    <div class="bg-gradient-to-r from-red-50 to-red-100/50 border-b-2 border-red-300 px-6 py-3 flex items-center gap-4 flex-shrink-0">
+        <div class="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+            <i class="fa-solid fa-triangle-exclamation text-red-600 text-lg"></i>
+        </div>
+        <div class="flex-grow min-w-0">
+            <p class="text-sm font-bold text-red-800">已偵測到 @Entries.Count 題高相似度試題</p>
+            <p class="text-xs text-red-700">建議檢視後再做決策；最高相似度達 @topScore.ToString("0.#")%</p>
+        </div>
+        @if (OnExpandRequested.HasDelegate)
+        {
+            <button type="button" @onclick="OnExpandRequested"
+                    class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg transition shadow-sm shrink-0 cursor-pointer focus:outline-none">
+                展開比對 <i class="fa-solid fa-arrow-right ml-1"></i>
+            </button>
+        }
+    </div>
+}
+else
+{
+    <div id="@sectionId" class="border-b border-gray-100">
+        <button type="button" @onclick="() => isOpen = !isOpen"
+                class="w-full px-5 py-4 cursor-pointer font-bold text-slate-main text-sm flex items-center gap-2 hover:bg-red-50/30 transition focus:outline-none">
+            <i class="fa-solid fa-magnifying-glass text-red-500"></i>
+            相似題比對
+            <span class="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-bold ml-1">@Entries.Count 筆</span>
+            <i class="fa-solid fa-chevron-@(isOpen ? "up" : "down") ml-auto text-xs text-gray-400"></i>
+        </button>
+        @if (isOpen)
+        {
+        <div class="px-5 pb-5 space-y-3">
+            @foreach (var item in Entries)
+            {
+                var (borderCss, scoreCss) = ResolveSimilarityCss(item.SimilarityScore);
+                <div class="border @borderCss rounded-lg p-3">
+                    <div class="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                        <span class="font-bold text-sm text-slate-main">@item.ComparedQuestionCode</span>
+                        <span class="text-xs px-2 py-0.5 rounded font-bold @scoreCss">@item.SimilarityScore.ToString("0.#")% 相似</span>
+                    </div>
+                    <p class="text-xs text-gray-600 mb-2 leading-relaxed">@(string.IsNullOrEmpty(item.SummaryText) ? "（無摘要）" : item.SummaryText)</p>
+                    <button type="button"
+                            class="text-xs text-morandi font-bold hover:underline opacity-50 cursor-not-allowed"
+                            disabled
+                            title="並排檢視功能將於後續 Phase 開放">
+                        並排檢視 → <span class="text-gray-400">(待開放)</span>
+                    </button>
+                </div>
+            }
+        </div>
+        }
+    </div>
+}
+
+@code {
+    public enum BannerMode { Banner, Section }
+
+    [Parameter, EditorRequired] public List<ReviewSimilarityEntry> Entries { get; set; } = new();
+    [Parameter] public BannerMode Mode { get; set; } = BannerMode.Banner;
+
+    /// <summary>頂部橫幅「展開比對」按鈕的點擊回呼（讓父層滾動到 Section 並展開）</summary>
+    [Parameter] public EventCallback OnExpandRequested { get; set; }
+
+    private bool isOpen;
+    private readonly string sectionId = $"sim-{Guid.NewGuid():N}";
+
+    /// <summary>外部呼叫：強制展開 Section 並滾動進視野（給頂部橫幅按鈕用）</summary>
+    /// <remarks>JS 由 _Imports.razor 全域注入</remarks>
+    public async Task ExpandAsync()
+    {
+        if (Mode != BannerMode.Section) return;
+        isOpen = true;
+        StateHasChanged();
+        await JS.InvokeVoidAsync("eval",
+            $"document.getElementById('{sectionId}')?.scrollIntoView({{behavior:'smooth', block:'nearest'}})");
+    }
+
+    private static (string Border, string Badge) ResolveSimilarityCss(decimal score) => score switch
+    {
+        >= 80 => ("border-red-200 bg-red-50/50",       "bg-red-600 text-white"),
+        >= 60 => ("border-orange-200 bg-orange-50/50", "bg-orange-500 text-white"),
+        _     => ("border-yellow-200 bg-yellow-50/50", "bg-yellow-500 text-white")
+    };
+}

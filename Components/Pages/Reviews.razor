@@ -4,8 +4,10 @@
 @*  功能：審題作業區/審核結果雙分頁、七階段時程燈號條、統計摘要、題目列表     *@
 @* ====================================================================== *@
 @page "/reviews"
+@using MT.Components.Shared.ReviewForms
 @inject IQuestionService QuestionService
 @inject IProjectService ProjectService
+@inject IReviewService ReviewService
 @inject NavigationManager Navigation
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
@@ -131,26 +133,30 @@
                             </div>
                         </div>
 
-                        <!-- 統計摘要條 -->
-                        <div class="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 bg-white rounded-xl border border-gray-200 px-5 py-3 text-sm font-medium shadow-sm">
-                            <div class="flex items-center gap-1.5 text-gray-700">
-                                <i class="fa-solid fa-list-check text-morandi"></i>
-                                本區題目
-                                <span class="text-lg font-bold text-slate-main ml-0.5">0</span>
+                        @* 命題階段（PhaseCode=2）= 題目尚未進入審題流程，顯示等待狀態取代統計列 *@
+                        @if (!IsCompositionPhase)
+                        {
+                            <!-- 統計摘要條 -->
+                            <div class="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 bg-white rounded-xl border border-gray-200 px-5 py-3 text-sm font-medium shadow-sm">
+                                <div class="flex items-center gap-1.5 text-gray-700">
+                                    <i class="fa-solid fa-list-check text-morandi"></i>
+                                    本區題目
+                                    <span class="text-lg font-bold text-slate-main ml-0.5">0</span>
+                                </div>
+                                <span class="text-gray-300">|</span>
+                                <div class="flex items-center gap-1.5 text-gray-700">
+                                    <i class="fa-solid fa-hourglass-half text-terracotta"></i>
+                                    待處理
+                                    <span class="text-lg font-bold text-terracotta ml-0.5">0</span>
+                                </div>
+                                <span class="text-gray-300">|</span>
+                                <div class="flex items-center gap-1.5 text-gray-700">
+                                    <i class="fa-solid fa-circle-check text-sage"></i>
+                                    已決策
+                                    <span class="text-lg font-bold text-sage ml-0.5">0</span>
+                                </div>
                             </div>
-                            <span class="text-gray-300">|</span>
-                            <div class="flex items-center gap-1.5 text-gray-700">
-                                <i class="fa-solid fa-hourglass-half text-terracotta"></i>
-                                待處理
-                                <span class="text-lg font-bold text-terracotta ml-0.5">0</span>
-                            </div>
-                            <span class="text-gray-300">|</span>
-                            <div class="flex items-center gap-1.5 text-gray-700">
-                                <i class="fa-solid fa-circle-check text-sage"></i>
-                                已決策
-                                <span class="text-lg font-bold text-sage ml-0.5">0</span>
-                            </div>
-                        </div>
+                        }
                     }
                     else
                     {
@@ -163,58 +169,200 @@
                     }
                 </div>
 
-                <!-- 篩選列 -->
-                <div class="p-4 border-b border-gray-100 bg-white flex flex-col xl:flex-row gap-3 items-start xl:items-center justify-between flex-shrink-0">
-                    <div class="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-                        <div class="relative w-full md:w-56">
-                            <i class="fa-solid fa-magnifying-glass left-3 top-2.5 absolute text-gray-400"></i>
-                            <input type="text" class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi" placeholder="搜尋題號或關鍵字...">
-                        </div>
-                        <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                            <option value="all">所有題型</option>
-                            <option value="single">一般單選題</option>
-                            <option value="select">精選單選題</option>
-                            <option value="readGroup">閱讀題組</option>
-                            <option value="longText">長文題目</option>
-                            <option value="shortGroup">短文題組</option>
-                            <option value="listen">聽力測驗</option>
-                            <option value="listenGroup">聽力題組</option>
-                        </select>
-                        <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                            <option value="all">所有等級</option>
-                            <option value="初級">初級</option>
-                            <option value="中級">中級</option>
-                            <option value="中高級">中高級</option>
-                            <option value="高級">高級</option>
-                            <option value="優級">優級</option>
-                        </select>
-                        <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                            <option value="all">所有狀態</option>
-                        </select>
-                    </div>
-                    <div class="flex flex-wrap items-center justify-between gap-3 w-full xl:w-auto xl:justify-end">
-                        <label class="flex items-center gap-2 text-sm text-gray-500 font-medium whitespace-nowrap">
-                            每頁顯示
-                            <select class="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                                <option value="12">12 題</option>
-                                <option value="24">24 題</option>
-                                <option value="48">48 題</option>
+                @* 命題階段：篩選列無意義（沒有題目可篩） *@
+                @if (currentTab == "history" || !IsCompositionPhase)
+                {
+                    <!-- 篩選列 -->
+                    <div class="p-4 border-b border-gray-100 bg-white flex flex-col xl:flex-row gap-3 items-start xl:items-center justify-between flex-shrink-0">
+                        <div class="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+                            <div class="relative w-full md:w-56">
+                                <i class="fa-solid fa-magnifying-glass left-3 top-2.5 absolute text-gray-400"></i>
+                                <input type="text" class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi" placeholder="搜尋題號或關鍵字...">
+                            </div>
+                            <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                                <option value="all">所有題型</option>
+                                <option value="single">一般單選題</option>
+                                <option value="select">精選單選題</option>
+                                <option value="readGroup">閱讀題組</option>
+                                <option value="longText">長文題目</option>
+                                <option value="shortGroup">短文題組</option>
+                                <option value="listen">聽力測驗</option>
+                                <option value="listenGroup">聽力題組</option>
                             </select>
-                        </label>
-                        <div class="text-sm text-gray-500 font-medium flex-shrink-0">
-                            共 <span class="text-morandi font-bold">0</span> 題
+                            <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                                <option value="all">所有等級</option>
+                                <option value="初級">初級</option>
+                                <option value="中級">中級</option>
+                                <option value="中高級">中高級</option>
+                                <option value="高級">高級</option>
+                                <option value="優級">優級</option>
+                            </select>
+                            <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                                <option value="all">所有狀態</option>
+                            </select>
+                        </div>
+                        <div class="flex flex-wrap items-center justify-between gap-3 w-full xl:w-auto xl:justify-end">
+                            <label class="flex items-center gap-2 text-sm text-gray-500 font-medium whitespace-nowrap">
+                                每頁顯示
+                                <select class="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                                    <option value="12">12 題</option>
+                                    <option value="24">24 題</option>
+                                    <option value="48">48 題</option>
+                                </select>
+                            </label>
+                            <div class="text-sm text-gray-500 font-medium flex-shrink-0">
+                                共 <span class="text-morandi font-bold">0</span> 題
+                            </div>
                         </div>
                     </div>
-                </div>
+                }
 
-                <!-- 題目列表（空狀態） -->
-                <div class="p-8">
-                    <EmptyState IconClass="fa-clipboard-check" Message="目前無待審試題" SubMessage="當有試題分配給您審查時將顯示於此。" />
-                </div>
+                <!-- 題目列表 / 階段等待狀態 -->
+                @if (currentTab == "review" && IsCompositionPhase)
+                {
+                    @* 命題階段專用空狀態：四層次 — 圖示／主訊息／倒數連結／引導動作 *@
+                    <div class="p-6 sm:p-8">
+                        <div class="bg-white rounded-2xl border-2 border-dashed border-morandi/30 px-8 py-16 text-center shadow-sm">
+
+                            @* 第一層：大型情境圖示（莫蘭迪光暈） *@
+                            <div class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-morandi/10 mb-6">
+                                <i class="fa-solid fa-feather-pointed text-3xl text-morandi"></i>
+                            </div>
+
+                            @* 第二層：主訊息 — 為什麼空白 *@
+                            <h3 class="text-xl font-bold text-slate-main mb-3">
+                                命題階段進行中
+                            </h3>
+                            <p class="text-base text-gray-600 mb-6 max-w-md mx-auto leading-relaxed">
+                                老師們正在努力命題中。待
+                                <strong class="text-morandi">@currentPhase!.EndDate.ToString("yyyy/MM/dd")</strong>
+                                命題截止後，系統將自動把題目平均分配給每位審題教師。
+                            </p>
+
+                            @* 第三層：倒數情緒連結 — 讓等待有方向感（≤5 天才轉 terracotta 警示） *@
+                            @{
+                                var dotColor = currentPhase!.IsUrgent ? "bg-terracotta" : "bg-sage";
+                                var pillCss = currentPhase!.IsUrgent
+                                    ? "text-terracotta border-terracotta/20 bg-terracotta/10"
+                                    : "text-sage border-sage/20 bg-sage/10";
+                            }
+                            <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full border @pillCss">
+                                <span class="w-2 h-2 rounded-full @dotColor animate-pulse"></span>
+                                <span class="text-sm font-bold">
+                                    距離命題結束剩餘 @currentPhase!.DaysLeft 天
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                }
+                else if (currentTab == "review")
+                {
+                    @* 審題作業區列表（自己被分配且階段對應的題目） *@
+                    @if (isLoadingList)
+                    {
+                        <div class="p-8 text-center text-gray-400 text-sm">
+                            <i class="fa-solid fa-spinner fa-spin mr-2"></i>載入中…
+                        </div>
+                    }
+                    else if (assignments.Count == 0)
+                    {
+                        <div class="p-8">
+                            <EmptyState IconClass="fa-clipboard-check"
+                                Message="目前無待審試題"
+                                SubMessage="當有試題分配給您審查時將顯示於此。" />
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead class="text-xs text-gray-500 uppercase font-bold bg-gray-50 border-b border-gray-200">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap">題號</th>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap">題型</th>
+                                        <th class="px-4 py-2 text-left">題目摘要</th>
+                                        <th class="px-4 py-2 text-center whitespace-nowrap">階段</th>
+                                        <th class="px-4 py-2 text-center whitespace-nowrap">狀態</th>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap">分配時間</th>
+                                        <th class="px-4 py-2 text-center whitespace-nowrap">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in assignments)
+                                    {
+                                        <tr @onclick="() => OpenReviewModal(item.QuestionId)"
+                                            class="border-b border-gray-100 relative hover:z-10 hover:bg-blue-50/40 hover:shadow-[inset_4px_0_0_var(--color-morandi),0_6px_16px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer group">
+                                            <td class="px-4 py-3 font-bold text-slate-main group-hover:text-morandi whitespace-nowrap transition-colors">@item.QuestionCode</td>
+                                            <td class="px-4 py-3 whitespace-nowrap">
+                                                <span class="inline-block px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-bold border border-gray-200">
+                                                    @QuestionConstants.TypeLabels.GetValueOrDefault(item.TypeKey, "未知")
+                                                </span>
+                                            </td>
+                                            <td class="px-4 py-3 max-w-md">
+                                                <div class="text-gray-700 truncate" title="@item.SummaryText">
+                                                    @(string.IsNullOrEmpty(item.SummaryText) ? "（尚未填寫題幹）" : item.SummaryText)
+                                                </div>
+                                            </td>
+                                            <td class="px-4 py-3 text-center whitespace-nowrap">
+                                                @{
+                                                    var stageCss = item.Stage switch
+                                                    {
+                                                        ReviewStage.Mutual => "bg-morandi/15 text-morandi border-morandi/30",
+                                                        ReviewStage.Expert => "bg-terracotta/15 text-terracotta border-terracotta/30",
+                                                        ReviewStage.Final  => "bg-red-50 text-red-700 border-red-200",
+                                                        _                  => "bg-gray-100 text-gray-500 border-gray-300"
+                                                    };
+                                                    var stageName = item.Stage switch
+                                                    {
+                                                        ReviewStage.Mutual => "互審",
+                                                        ReviewStage.Expert => "專審",
+                                                        ReviewStage.Final  => "總審",
+                                                        _                  => ""
+                                                    };
+                                                }
+                                                <span class="inline-block px-2 py-0.5 rounded text-xs font-bold border @stageCss">@stageName</span>
+                                            </td>
+                                            <td class="px-4 py-3 text-center whitespace-nowrap">
+                                                @if (item.IsDecided)
+                                                {
+                                                    <span class="inline-block px-2 py-0.5 rounded text-xs font-bold bg-sage/15 text-sage border border-sage/30">已決策</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="inline-block px-2 py-0.5 rounded text-xs font-bold bg-terracotta/15 text-terracotta border border-terracotta/30">待審</span>
+                                                }
+                                            </td>
+                                            <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">@item.AssignedAt.ToString("yyyy/MM/dd HH:mm")</td>
+                                            <td class="px-4 py-3 text-center whitespace-nowrap" @onclick:stopPropagation="true">
+                                                <button @onclick="() => OpenReviewModal(item.QuestionId)"
+                                                        class="text-morandi hover:underline text-xs font-bold cursor-pointer focus:outline-none">
+                                                    <i class="fa-solid fa-clipboard-check mr-0.5"></i> @(item.IsDecided ? "檢視" : "審題")
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                }
+                else
+                {
+                    @* 審核結果與歷史 Tab — Phase 3.2 先放空狀態，後續實作 *@
+                    <div class="p-8">
+                        <EmptyState IconClass="fa-box-archive" Message="尚無審核結果" SubMessage="總審判決後的題目將顯示於此。" />
+                    </div>
+                }
             </div>
         </div>
     </div>
 </div>
+
+@* ====== 審題 Modal ====== *@
+<ReviewModal @bind-IsVisible="showReviewModal"
+             QuestionId="@selectedQuestionId"
+             CurrentUserId="@(currentUserId ?? 0)"
+             OnDecisionMade="OnDecisionMadeAsync" />
 
 @code {
     [CascadingParameter(Name = "CurrentProject")]
@@ -229,10 +377,31 @@
     private bool needNoPermissionRedirect;
     private bool permissionChecked;
 
-    // 七階段資料（資料來源：MT_ProjectPhases，PhaseCode 1~7；排除 PhaseCode=0 產學區間）
+    // 七階段資料（資料來源：MT_ProjectPhases，PhaseCode 2~8；排除 PhaseCode=1 產學區間）
     private ProjectPhaseInfo? currentPhase;
     private List<ProjectPhaseInfo> phases = new();
     private bool isLoadingPhases = true;
+
+    // 命題階段判定：題目尚未進入待審佇列，審題作業區應顯示等待狀態而非空表格
+    private bool IsCompositionPhase => currentPhase?.PhaseCode == 2;
+
+    // 列表狀態（審題作業區）
+    private List<ReviewListItem> assignments = new();
+    private bool isLoadingList;
+    private int? currentUserId;
+
+    // ReviewModal 開關
+    private bool showReviewModal;
+    private int? selectedQuestionId;
+
+    /// <summary>當前階段對應的審題 stage（命題/修題階段時為 null，列表為空）</summary>
+    private ReviewStage? CurrentReviewStage => currentPhase?.PhaseCode switch
+    {
+        3 => ReviewStage.Mutual,   // 交互審題
+        5 => ReviewStage.Expert,   // 專家審題
+        7 => ReviewStage.Final,    // 總召審題
+        _ => null                   // 命題階段、各修題階段、產學區間 → 列表空
+    };
 
     protected override async Task OnParametersSetAsync()
     {
@@ -244,19 +413,71 @@
             return;
         }
 
+        // Plan_002b：與 CwtList 並列為兩個觸發點，避免審題專家不進 CwtList 時分配卡住。
+        // EnsureCompositionPhaseClosedAsync 為 Idempotent，重複呼叫安全且短路。
+        try
+        {
+            await QuestionService.EnsureCompositionPhaseClosedAsync(CurrentProject.Id);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // 命題教師不足 2 人 → 警示但仍載入頁面（讓總召看得到當前狀態）
+            await ShowToastAsync("warning", ex.Message);
+        }
+
         // 階段資料：每次 CurrentProject 變更都需要重新載入（切換梯次）
         await LoadPhasesAsync(CurrentProject.Id);
+
+        // 取得當前登入者 Id（每次進頁面都會取，但 currentUserId 一旦取得就快取）
+        if (currentUserId is null)
+        {
+            var authState = await AuthState;
+            var claim = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (int.TryParse(claim, out var uid)) currentUserId = uid;
+        }
+
+        // 載入審題作業區列表（依當前階段對應的 ReviewStage）
+        await LoadAssignmentsAsync();
 
         // 權限檢查：每位使用者每次進頁面只跑一次
         if (permissionChecked) return;
         permissionChecked = true;
 
-        var authState = await AuthState;
-        var claim = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (!int.TryParse(claim, out var uid)) return;
-
-        var isMember = await QuestionService.IsProjectMemberAsync(uid, CurrentProject.Id);
+        if (currentUserId is null) return;
+        var isMember = await QuestionService.IsProjectMemberAsync(currentUserId.Value, CurrentProject.Id);
         if (!isMember) needNoPermissionRedirect = true;
+    }
+
+    private async Task LoadAssignmentsAsync()
+    {
+        if (CurrentProject is null || currentUserId is null || CurrentReviewStage is null)
+        {
+            assignments = new();
+            return;
+        }
+
+        isLoadingList = true;
+        try
+        {
+            assignments = await ReviewService.GetMyAssignmentsAsync(
+                CurrentProject.Id, currentUserId.Value, CurrentReviewStage.Value);
+        }
+        finally
+        {
+            isLoadingList = false;
+        }
+    }
+
+    private void OpenReviewModal(int questionId)
+    {
+        selectedQuestionId = questionId;
+        showReviewModal = true;
+    }
+
+    private async Task OnDecisionMadeAsync()
+    {
+        // 決策完成後重新載入列表（Phase 3.5 才會真的觸發）
+        await LoadAssignmentsAsync();
     }
 
     private async Task LoadPhasesAsync(int projectId)
@@ -289,6 +510,17 @@
         });
         Navigation.NavigateTo("/");
     }
+
+    private ValueTask ShowToastAsync(string icon, string title) =>
+        JS.InvokeVoidAsync("Swal.fire", new
+        {
+            icon,
+            title,
+            toast = true,
+            position = "top-end",
+            showConfirmButton = false,
+            timer = 2000
+        });
 
     private RenderFragment HistoryStatCard(string title, string value, string icon, string iconColor, string valueColor) => __builder =>
     {

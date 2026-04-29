@@ -334,7 +334,7 @@ public static class QuestionStatus
 
     public static readonly Dictionary<byte, string> Labels = new()
     {
-        [0] = "命題草稿", [1] = "命題完成", [2] = "命題送審",
+        [0] = "命題草稿", [1] = "命題完成", [2] = "已送審",
         [3] = "互審中", [4] = "互審修題中",
         [5] = "專審中", [6] = "專審修題中",
         [7] = "總審中", [8] = "總審修題中",
@@ -343,8 +343,10 @@ public static class QuestionStatus
     };
 
     // 三 Tab 對應的 status 範圍
+    // ※ Status=2「已送審」同時出現在 compose 與 revision：命題端視為命題流程結束，
+    //    審題端視為「鎖定等待審題」，後續審後修題作業皆於審修作業區進行。
     public static readonly byte[] ComposeTabStatuses  = [0, 1, 2];
-    public static readonly byte[] RevisionTabStatuses = [3, 4, 5, 6, 7, 8];
+    public static readonly byte[] RevisionTabStatuses = [2, 3, 4, 5, 6, 7, 8];
     public static readonly byte[] HistoryTabStatuses  = [9, 10, 12];
 }
 

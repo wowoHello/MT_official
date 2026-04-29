@@ -26,6 +26,11 @@ public interface IQuestionService
 
     // P4 新增：使用者在某專案是否為成員（用於審題任務權限攔截）
     Task<bool> IsProjectMemberAsync(int userId, int projectId);
+
+    // Plan_008：命題階段結束後的批次轉換與互審分配（Idempotent）
+    Task<DateTime?> GetCompositionPhaseEndAsync(int projectId);
+    Task<bool> IsCompositionPhaseClosedAsync(int projectId);
+    Task<int> EnsureCompositionPhaseClosedAsync(int projectId);
 }
 
 public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAccessor) : IQuestionService
@@ -84,6 +89,43 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
         using var conn = _db.CreateConnection();
         return await conn.QueryFirstOrDefaultAsync<ProjectPhaseInfo>(sql, new { ProjectId = projectId });
+    }
+
+    /// <summary>
+    /// 取得指定專案「命題階段（PhaseCode=2）」的結束日期。
+    /// 若該專案沒有命題階段紀錄，回傳 null。
+    /// </summary>
+    public async Task<DateTime?> GetCompositionPhaseEndAsync(int projectId)
+    {
+        const string sql = """
+            SELECT EndDate
+            FROM dbo.MT_ProjectPhases
+            WHERE ProjectId = @ProjectId AND PhaseCode = 2;
+            """;
+
+        using var conn = _db.CreateConnection();
+        return await conn.ExecuteScalarAsync<DateTime?>(sql, new { ProjectId = projectId });
+    }
+
+    /// <summary>
+    /// 命題階段是否已結束（EndDate &lt; 今日）。
+    /// </summary>
+    public async Task<bool> IsCompositionPhaseClosedAsync(int projectId)
+    {
+        var endDate = await GetCompositionPhaseEndAsync(projectId);
+        return endDate.HasValue && endDate.Value.Date < DateTime.Today;
+    }
+
+    /// <summary>
+    /// 在現有 Transaction 內檢查命題階段是否已結束（給 UpdateAsync / SoftDeleteAsync 防呆用）。
+    /// </summary>
+    private static async Task<bool> IsCompositionPhaseClosedInTxAsync(
+        IDbConnection conn, IDbTransaction tx, int projectId)
+    {
+        var endDate = await conn.ExecuteScalarAsync<DateTime?>(
+            "SELECT EndDate FROM dbo.MT_ProjectPhases WHERE ProjectId = @ProjectId AND PhaseCode = 2;",
+            new { ProjectId = projectId }, tx);
+        return endDate.HasValue && endDate.Value.Date < DateTime.Today;
     }
 
     // ====================================================================
@@ -178,6 +220,13 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             if (meta is null) return false;
             var oldStatus = meta.Status;
             var projectId = meta.ProjectId;
+
+            // 1.5 命題階段結束防呆：禁止對草稿/完成題目做修改（Plan_008）
+            if (oldStatus is QuestionStatus.Draft or QuestionStatus.Completed
+                && await IsCompositionPhaseClosedInTxAsync(conn, tx, projectId))
+            {
+                throw new InvalidOperationException("命題階段已結束，無法修改題目。");
+            }
 
             // 2. UPDATE 主題
             const string updateSql = """
@@ -524,6 +573,12 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 return false;
             }
 
+            // 1.5 命題階段結束防呆：禁止刪除草稿（Plan_008）
+            if (await IsCompositionPhaseClosedInTxAsync(conn, tx, projectId.Value))
+            {
+                throw new InvalidOperationException("命題階段已結束，無法刪除題目。");
+            }
+
             // 2. 軟刪除
             await conn.ExecuteAsync("""
                 UPDATE dbo.MT_Questions
@@ -628,6 +683,173 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
             tx.Commit();
             return true;
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 命題階段結束後的批次自動轉換 + 互審分配（Plan_008）。
+    /// Idempotent：可重複呼叫，無事可做時直接 return 0。
+    /// 行為：將該專案 (Status=1, IsDeleted=0) 題目升級為 Status=2，並按 Load-balanced
+    /// Round-Robin（自命不自審）分配給「命題教師」進行互審（ReviewStage=1）。
+    /// </summary>
+    /// <returns>本次轉換的題目數量。</returns>
+    public async Task<int> EnsureCompositionPhaseClosedAsync(int projectId)
+    {
+        // 1. 確認命題階段已結束
+        var endDate = await GetCompositionPhaseEndAsync(projectId);
+        if (endDate is null || endDate.Value.Date >= DateTime.Today) return 0;
+
+        using var conn = _db.CreateConnection();
+        conn.Open();
+        using var tx = conn.BeginTransaction(IsolationLevel.Serializable);
+
+        try
+        {
+            // 2. 撈待升級題目（含 CreatorId，用於互審迴避）
+            var candidates = (await conn.QueryAsync<(int Id, int CreatorId)>(
+                """
+                SELECT Id, CreatorId
+                FROM dbo.MT_Questions
+                WHERE ProjectId = @ProjectId
+                  AND Status = @Completed
+                  AND IsDeleted = 0
+                ORDER BY Id;
+                """,
+                new { ProjectId = projectId, Completed = QuestionStatus.Completed }, tx)).AsList();
+
+            if (candidates.Count == 0)
+            {
+                tx.Commit();
+                return 0;
+            }
+
+            // 3. 取得本梯次「命題教師」清單（互審池）
+            var peerReviewerIds = (await conn.QueryAsync<int>(
+                """
+                SELECT pm.UserId
+                FROM dbo.MT_ProjectMembers pm
+                INNER JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
+                INNER JOIN dbo.MT_Roles r ON r.Id = pmr.RoleId
+                WHERE pm.ProjectId = @ProjectId AND r.Name = N'命題教師';
+                """,
+                new { ProjectId = projectId }, tx)).Distinct().ToList();
+
+            if (peerReviewerIds.Count < 2)
+            {
+                throw new InvalidOperationException(
+                    "命題階段已結束，但本梯次命題教師不足 2 人，無法執行互審分配。");
+            }
+
+            // 4. 批次升級狀態 1 → 2
+            await conn.ExecuteAsync(
+                """
+                UPDATE dbo.MT_Questions
+                SET Status = @Submitted, UpdatedAt = SYSDATETIME()
+                WHERE ProjectId = @ProjectId
+                  AND Status = @Completed
+                  AND IsDeleted = 0;
+                """,
+                new
+                {
+                    ProjectId = projectId,
+                    Submitted = QuestionStatus.Submitted,
+                    Completed = QuestionStatus.Completed
+                }, tx);
+
+            // 5. 載入既有 ReviewStage=1 負載基準（避免重跑時負載失衡）
+            var loadCounts = peerReviewerIds.ToDictionary(id => id, _ => 0);
+            var existingLoads = await conn.QueryAsync<(int ReviewerId, int Cnt)>(
+                """
+                SELECT ReviewerId, COUNT(*) AS Cnt
+                FROM dbo.MT_ReviewAssignments
+                WHERE ProjectId = @ProjectId AND ReviewStage = 1
+                GROUP BY ReviewerId;
+                """,
+                new { ProjectId = projectId }, tx);
+            foreach (var (rid, cnt) in existingLoads)
+            {
+                if (loadCounts.ContainsKey(rid)) loadCounts[rid] = cnt;
+            }
+
+            // 6. 撈該專案所有 ReviewStage=1 既有 (QuestionId, ReviewerId) 防重複
+            var existingPairs = (await conn.QueryAsync<(int QuestionId, int ReviewerId)>(
+                """
+                SELECT QuestionId, ReviewerId
+                FROM dbo.MT_ReviewAssignments
+                WHERE ProjectId = @ProjectId AND ReviewStage = 1;
+                """,
+                new { ProjectId = projectId }, tx))
+                .Select(x => (x.QuestionId, x.ReviewerId))
+                .ToHashSet();
+
+            // 7. 逐題分配：選擇「負載最低 + ≠ Creator + 該題尚未分配給此人」的審題者
+            const string insertAssignmentSql = """
+                INSERT INTO dbo.MT_ReviewAssignments
+                    (QuestionId, ProjectId, ReviewerId, ReviewStage, ReviewStatus, CreatedAt)
+                VALUES
+                    (@QuestionId, @ProjectId, @ReviewerId, 1, 0, SYSDATETIME());
+                """;
+
+            const string auditSql = """
+                INSERT INTO dbo.MT_AuditLogs
+                    (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
+                VALUES
+                    (NULL, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
+                """;
+
+            var processed = 0;
+            foreach (var (questionId, creatorId) in candidates)
+            {
+                // 候選：排除自命教師、排除該題已存在的 ReviewerId（避免唯一鍵衝突）
+                var bestReviewer = loadCounts
+                    .Where(kv => kv.Key != creatorId
+                              && !existingPairs.Contains((questionId, kv.Key)))
+                    .OrderBy(kv => kv.Value)
+                    .ThenBy(kv => kv.Key)
+                    .Select(kv => (int?)kv.Key)
+                    .FirstOrDefault();
+
+                if (bestReviewer is null)
+                {
+                    // 該題已分配過或無人可分配 → 跳過（idempotent 場景：第二次呼叫已分配完畢）
+                    continue;
+                }
+
+                await conn.ExecuteAsync(insertAssignmentSql, new
+                {
+                    QuestionId = questionId,
+                    ProjectId  = projectId,
+                    ReviewerId = bestReviewer.Value
+                }, tx);
+
+                loadCounts[bestReviewer.Value]++;
+                existingPairs.Add((questionId, bestReviewer.Value));
+
+                await conn.ExecuteAsync(auditSql, new
+                {
+                    ProjectId  = projectId,
+                    Action     = AuditLogAction.Modify,
+                    TargetType = AuditLogTargetType.Questions,
+                    TargetId   = questionId,
+                    OldValue   = JsonSerializer.Serialize(new { Status = QuestionStatus.Completed }),
+                    NewValue   = JsonSerializer.Serialize(new
+                    {
+                        Status     = QuestionStatus.Submitted,
+                        Reason     = "CompositionPhaseEnded",
+                        ReviewerId = bestReviewer.Value
+                    })
+                }, tx);
+
+                processed++;
+            }
+
+            tx.Commit();
+            return processed;
         }
         catch
         {

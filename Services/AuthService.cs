@@ -75,14 +75,15 @@ public class AuthService : IAuthService
         var normalizedUserAgent = ResolveUserAgent(userAgent);
         var now = DateTime.Now;
 
+        // 支援以「帳號」或「信箱」登入（兩者在 MT_Users 都有 UNIQUE 過濾索引）
         var authRow = await conn.QueryFirstOrDefaultAsync<UserAuthRow>(
             @"SELECT u.Id, u.Username, u.DisplayName, u.PasswordHash,
                      u.RoleId, u.Status, u.IsFirstLogin, r.Name AS RoleName,
                      u.LockoutUntil
               FROM dbo.MT_Users u
               INNER JOIN dbo.MT_Roles r ON r.Id = u.RoleId
-              WHERE u.Username = @Username",
-            new { Username = normalizedUsername });
+              WHERE u.Username = @Input OR u.Email = @Input",
+            new { Input = normalizedUsername });
 
         if (authRow is null)
         {

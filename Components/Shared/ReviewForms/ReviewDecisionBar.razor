@@ -1,0 +1,298 @@
+@* ====================================================================== *@
+@*  ReviewDecisionBar — 審題 Modal 底部決策按鈕列                              *@
+@*  依當前 Assignment.Stage 與 IsDecided 狀態切換 5 種按鈕配置：                *@
+@*    1. 互審：[儲存意見]                                                     *@
+@*    2. 專審：[儲存草稿] + [改後再審] + [採用]                                  *@
+@*    3. 總審：[儲存草稿] + [改後再審] + [不採用] + [採用]                        *@
+@*    4. 總審第 3 次：[儲存草稿] + [編輯題目] + [不採用] + [採用]                  *@
+@*    5. 已決策：唯讀提示列                                                   *@
+@*  destructive-emphasis：「不採用」用 red-700 + 視覺隔離                      *@
+@* ====================================================================== *@
+
+<div class="h-16 flex-shrink-0 border-t-2 border-gray-200 bg-white px-6 flex items-center justify-between">
+
+    @if (Assignment is null)
+    {
+        <p class="text-xs text-gray-400 italic">
+            <i class="fa-solid fa-circle-info mr-1"></i> 此題目尚未分配給您
+        </p>
+        <button type="button" @onclick="OnRequestClose"
+                class="px-5 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition cursor-pointer">
+            關閉
+        </button>
+    }
+    else if (Assignment.IsDecided)
+    {
+        var (decLabel, decColor) = Assignment.Decision switch
+        {
+            ReviewDecision.Approve => ("採用",     "text-sage"),
+            ReviewDecision.Revise  => ("改後再審", "text-terracotta"),
+            ReviewDecision.Reject  => ("不採用",   "text-red-700"),
+            _                      => ("—",       "text-gray-500")
+        };
+        <div class="flex items-center gap-3 text-sm text-slate-main font-medium">
+            <i class="fa-solid fa-circle-check text-sage text-xl"></i>
+            <span>
+                您已於
+                <strong>@(Assignment.DecidedAt?.ToString("yyyy/MM/dd HH:mm") ?? "—")</strong>
+                對此題評定為「<strong class="@decColor">@decLabel</strong>」
+            </span>
+        </div>
+        <button type="button" @onclick="OnRequestClose"
+                class="px-5 py-2 text-sm bg-morandi hover:bg-[#5a7a99] text-white rounded-lg font-bold transition cursor-pointer">
+            關閉
+        </button>
+    }
+    else
+    {
+        @switch (Assignment.Stage)
+        {
+            case ReviewStage.Mutual:
+                @RenderMutualButtons
+                break;
+            case ReviewStage.Expert:
+                @RenderExpertButtons
+                break;
+            case ReviewStage.Final:
+                if (CanFinalReviewerEdit)
+                {
+                    @RenderFinalThirdButtons
+                }
+                else
+                {
+                    @RenderFinalButtons
+                }
+                break;
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ReviewAssignmentInfo? Assignment { get; set; }
+    [Parameter] public bool CanFinalReviewerEdit { get; set; }
+
+    /// <summary>儲存意見草稿（不下決策）</summary>
+    [Parameter] public EventCallback OnSaveDraft { get; set; }
+
+    /// <summary>提交決策（傳入 Decision 值）</summary>
+    [Parameter] public EventCallback<ReviewDecision> OnSubmitDecision { get; set; }
+
+    /// <summary>總審第 3 次「編輯題目」— 跳出 Modal 開啟命題 Modal（Plan_006 才實作真正流程）</summary>
+    [Parameter] public EventCallback OnRequestEdit { get; set; }
+
+    /// <summary>關閉 Modal（已決策狀態下的「關閉」按鈕）</summary>
+    [Parameter] public EventCallback OnRequestClose { get; set; }
+
+    /// <summary>父層通知正在儲存中 → 所有按鈕 disable + spinner 顯示</summary>
+    [Parameter] public bool IsSubmitting { get; set; }
+
+    /// <summary>父層通知目前哪個按鈕觸發儲存（控制 spinner 位置）</summary>
+    [Parameter] public string? PendingAction { get; set; }
+
+    private bool IsBusy(string action) => IsSubmitting && PendingAction == action;
+
+    // ==========================================================
+    //  各階段按鈕組（RenderFragment 屬性）
+    // ==========================================================
+
+    private RenderFragment RenderMutualButtons => __builder =>
+    {
+        <p class="text-xs text-gray-500 italic flex items-center gap-1.5">
+            <i class="fa-solid fa-circle-info text-morandi"></i>
+            互審階段僅提供意見回饋，老師將依您的建議修題
+        </p>
+        <button type="button"
+                disabled="@IsSubmitting"
+                @onclick="() => OnSaveDraft.InvokeAsync()"
+                class="px-6 py-2.5 bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+            @if (IsBusy("save"))
+            {
+                <i class="fa-solid fa-spinner fa-spin mr-1.5"></i>
+                <span>儲存中…</span>
+            }
+            else
+            {
+                <i class="fa-solid fa-floppy-disk mr-1.5"></i>
+                <span>儲存意見</span>
+            }
+        </button>
+    };
+
+    private RenderFragment RenderExpertButtons => __builder =>
+    {
+        <button type="button"
+                disabled="@IsSubmitting"
+                @onclick="() => OnSaveDraft.InvokeAsync()"
+                class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+            @if (IsBusy("save"))
+            {
+                <i class="fa-solid fa-spinner fa-spin mr-1"></i>
+                <span>儲存中…</span>
+            }
+            else
+            {
+                <i class="fa-regular fa-floppy-disk mr-1"></i>
+                <span>儲存意見草稿</span>
+            }
+        </button>
+        <div class="flex items-center gap-3">
+            <button type="button"
+                    disabled="@IsSubmitting"
+                    @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Revise)"
+                    class="px-5 py-2.5 bg-terracotta hover:bg-[#c87a5d] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+                @if (IsBusy("revise"))
+                {
+                    <i class="fa-solid fa-spinner fa-spin mr-1.5"></i>
+                    <span>送出中…</span>
+                }
+                else
+                {
+                    <i class="fa-solid fa-rotate-left mr-1.5"></i>
+                    <span>改後再審</span>
+                }
+            </button>
+            <button type="button"
+                    disabled="@IsSubmitting"
+                    @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Approve)"
+                    class="px-6 py-2.5 bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+                @if (IsBusy("approve"))
+                {
+                    <i class="fa-solid fa-spinner fa-spin mr-1.5"></i>
+                    <span>送出中…</span>
+                }
+                else
+                {
+                    <i class="fa-solid fa-check mr-1.5"></i>
+                    <span>採用</span>
+                }
+            </button>
+        </div>
+    };
+
+    private RenderFragment RenderFinalButtons => __builder =>
+    {
+        <button type="button"
+                disabled="@IsSubmitting"
+                @onclick="() => OnSaveDraft.InvokeAsync()"
+                class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+            @if (IsBusy("save"))
+            {
+                <i class="fa-solid fa-spinner fa-spin mr-1"></i>
+                <span>儲存中…</span>
+            }
+            else
+            {
+                <i class="fa-regular fa-floppy-disk mr-1"></i>
+                <span>儲存意見草稿</span>
+            }
+        </button>
+        <div class="flex items-center gap-3">
+            <button type="button"
+                    disabled="@IsSubmitting"
+                    @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Revise)"
+                    class="px-5 py-2.5 bg-terracotta hover:bg-[#c87a5d] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+                @if (IsBusy("revise"))
+                {
+                    <i class="fa-solid fa-spinner fa-spin mr-1.5"></i>
+                    <span>送出中…</span>
+                }
+                else
+                {
+                    <i class="fa-solid fa-rotate-left mr-1.5"></i>
+                    <span>改後再審</span>
+                }
+            </button>
+            @* destructive-emphasis：不採用單獨 red-700 + 額外 gap *@
+            <span class="w-px h-8 bg-gray-300 mx-2"></span>
+            <button type="button"
+                    disabled="@IsSubmitting"
+                    @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Reject)"
+                    class="px-5 py-2.5 bg-red-700 hover:bg-red-800 text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+                @if (IsBusy("reject"))
+                {
+                    <i class="fa-solid fa-spinner fa-spin mr-1.5"></i>
+                    <span>送出中…</span>
+                }
+                else
+                {
+                    <i class="fa-solid fa-xmark mr-1.5"></i>
+                    <span>不採用</span>
+                }
+            </button>
+            <button type="button"
+                    disabled="@IsSubmitting"
+                    @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Approve)"
+                    class="px-6 py-2.5 bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+                @if (IsBusy("approve"))
+                {
+                    <i class="fa-solid fa-spinner fa-spin mr-1.5"></i>
+                    <span>送出中…</span>
+                }
+                else
+                {
+                    <i class="fa-solid fa-check mr-1.5"></i>
+                    <span>採用</span>
+                }
+            </button>
+        </div>
+    };
+
+    private RenderFragment RenderFinalThirdButtons => __builder =>
+    {
+        <button type="button"
+                disabled="@IsSubmitting"
+                @onclick="() => OnSaveDraft.InvokeAsync()"
+                class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+            @if (IsBusy("save"))
+            {
+                <i class="fa-solid fa-spinner fa-spin mr-1"></i>
+                <span>儲存中…</span>
+            }
+            else
+            {
+                <i class="fa-regular fa-floppy-disk mr-1"></i>
+                <span>儲存意見草稿</span>
+            }
+        </button>
+        <div class="flex items-center gap-3">
+            <button type="button"
+                    disabled="@IsSubmitting"
+                    @onclick="() => OnRequestEdit.InvokeAsync()"
+                    class="px-5 py-2.5 bg-morandi hover:bg-[#5a7a99] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+                <i class="fa-solid fa-pen-to-square mr-1.5"></i>
+                <span>編輯題目</span>
+            </button>
+            <span class="w-px h-8 bg-gray-300 mx-2"></span>
+            <button type="button"
+                    disabled="@IsSubmitting"
+                    @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Reject)"
+                    class="px-5 py-2.5 bg-red-700 hover:bg-red-800 text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+                @if (IsBusy("reject"))
+                {
+                    <i class="fa-solid fa-spinner fa-spin mr-1.5"></i>
+                    <span>送出中…</span>
+                }
+                else
+                {
+                    <i class="fa-solid fa-xmark mr-1.5"></i>
+                    <span>不採用</span>
+                }
+            </button>
+            <button type="button"
+                    disabled="@IsSubmitting"
+                    @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Approve)"
+                    class="px-6 py-2.5 bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+                @if (IsBusy("approve"))
+                {
+                    <i class="fa-solid fa-spinner fa-spin mr-1.5"></i>
+                    <span>送出中…</span>
+                }
+                else
+                {
+                    <i class="fa-solid fa-check mr-1.5"></i>
+                    <span>採用</span>
+                }
+            </button>
+        </div>
+    };
+}

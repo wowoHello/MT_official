@@ -102,6 +102,13 @@
 
     private string GetIconClass()
     {
+        // 文字包含「鎖定」一律以鎖頭圖示呈現（保留 info 藍色調）
+        if (!string.IsNullOrEmpty(StatusText))
+        {
+            if (StatusText.Contains("鎖定")) return "fa-lock";
+            if (StatusText.Contains("送審")) return "fa-paper-plane";
+        }
+
         var type = BadgeType != "default" ? BadgeType : InferTypeFromStatus();
         return type switch
         {

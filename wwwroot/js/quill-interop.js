@@ -137,6 +137,33 @@ window.QuillInterop = {
         quill.setSelection(range.index + (isPair ? 1 : char.length), 0);
     },
 
+    /** 在游標位置插入純文字（罐頭訊息用，自動換行避免黏在前文後） */
+    insertText(containerId, text) {
+        const inst = this.instances[containerId];
+        if (!inst || !text) return;
+        const quill = inst.quill;
+        let range = quill.getSelection(true);
+        if (!range) {
+            // 沒有 focus 時插到結尾
+            quill.focus();
+            range = { index: quill.getLength() - 1, length: 0 };
+        }
+        const before = range.index > 0 ? quill.getText(range.index - 1, 1) : '\n';
+        const prefix = (before === '\n' || before === ' ') ? '' : '\n';
+        const payload = prefix + text;
+        quill.insertText(range.index, payload, 'user');
+        quill.setSelection(range.index + payload.length, 0);
+    },
+
+    /** 切換編輯權限（已決策時應唯讀；toolbar 同步隱藏） */
+    enable(containerId, enabled) {
+        const inst = this.instances[containerId];
+        if (!inst) return;
+        inst.quill.enable(!!enabled);
+        const toolbar = inst.quill.getModule('toolbar')?.container;
+        if (toolbar) toolbar.style.display = enabled ? '' : 'none';
+    },
+
     /** 聚焦編輯器 */
     focus(containerId) {
         this.instances[containerId]?.quill.focus();

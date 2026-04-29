@@ -447,20 +447,18 @@
                 <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
                     <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">3</span>
                     目標題數與人員指派
+                    @if (IsCompositionPhaseEnded)
+                    {
+                        <span class="inline-flex items-center gap-1 text-xs text-gray-500 font-medium ml-2">
+                            <i class="fa-solid fa-lock text-gray-400"></i> 已鎖定（命題階段已結束）
+                        </span>
+                    }
                 </h3>
 
                 <!-- 專案需求題數 / 組數 -->
                 <div class="@(IsCompositionPhaseEnded ? "bg-gray-100 p-3 rounded border border-gray-300 cursor-not-allowed" : "bg-gray-50 p-3 rounded border border-gray-200")"
                      title="@(IsCompositionPhaseEnded ? "命題階段已結束，題數需求不可再修改" : null)">
-                    <div class="flex items-center justify-between mb-2">
-                        <label class="block text-sm font-bold text-gray-700">專案需求題數 / 組數</label>
-                        @if (IsCompositionPhaseEnded)
-                        {
-                            <span class="inline-flex items-center gap-1 text-xs text-gray-500 font-medium">
-                                <i class="fa-solid fa-lock text-gray-400"></i> 已鎖定（命題階段已結束）
-                            </span>
-                        }
-                    </div>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">專案需求題數 / 組數</label>
                     <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-sm">
                         @foreach (var qt in questionTypes)
                         {
@@ -500,7 +498,8 @@
                                               CssClass="w-full pl-9 pr-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-morandi" />
                     </div>
                     <!-- 人員列表容器 -->
-                    <div class="border border-gray-300 rounded h-56 overflow-y-auto custom-scroll bg-white divide-y divide-gray-100">
+                    <div class="border border-gray-300 rounded h-56 overflow-y-auto custom-scroll bg-white divide-y divide-gray-100 @(IsCompositionPhaseEnded ? "opacity-60 cursor-not-allowed" : "")"
+                         title="@(IsCompositionPhaseEnded ? "命題階段已結束，已進入審題流程，無法再變更指派人員與身份" : null)">
                         @{ var filteredPersons = GetFilteredPersons(); }
                         @if (filteredPersons.Count == 0)
                         {
@@ -515,11 +514,12 @@
                             @foreach (var person in filteredPersons)
                             {
                                 <div class="flex items-start gap-3 p-3 hover:bg-gray-50 transition-colors">
-                                    <label class="flex items-center gap-3 cursor-pointer mt-1">
+                                    <label class="flex items-center gap-3 mt-1 @(IsCompositionPhaseEnded ? "cursor-not-allowed" : "cursor-pointer")">
                                         <input type="checkbox" checked="@person.IsSelected"
                                             @key="@($"chk-{person.UserId}-{person.CheckboxKey}")"
+                                            disabled="@IsCompositionPhaseEnded"
                                             @onchange="() => TogglePersonSelection(person)"
-                                            class="w-4 h-4 text-morandi rounded border-gray-300 focus:ring-morandi mt-0.5 cursor-pointer" />
+                                            class="w-4 h-4 text-morandi rounded border-gray-300 focus:ring-morandi mt-0.5 cursor-pointer disabled:cursor-not-allowed" />
                                         <div class="flex flex-col w-20">
                                             <span class="text-sm font-bold text-gray-700">@person.Name 老師</span>
                                             <span class="text-xs text-gray-500">@person.Identifier</span>
@@ -535,12 +535,13 @@
                                             var currentRoleId = roleSlots[idx];
                                             var isFirst = idx == 0;
                                             var isLast = idx == roleSlots.Count - 1;
-                                            var canAddMore = person.IsSelected && currentRoleId > 0 && isLast && roleSlots.Count < projectRoles.Count;
+                                            var canAddMore = !IsCompositionPhaseEnded && person.IsSelected && currentRoleId > 0 && isLast && roleSlots.Count < projectRoles.Count;
 
                                             <div class="flex items-center gap-1.5">
-                                                <select value="@currentRoleId" disabled="@(!person.IsSelected)"
+                                                <select value="@currentRoleId" disabled="@(IsCompositionPhaseEnded || !person.IsSelected)"
+                                                    @key="@($"role-{person.UserId}-{idx}-{person.RoleSlotKey}")"
                                                     @onchange="(e) => OnRoleSlotChanged(person, idx, e)"
-                                                    class="flex-grow text-xs border border-gray-300 rounded px-2 py-1.5 focus:ring-morandi focus:border-morandi bg-white disabled:bg-gray-100 disabled:text-gray-400">
+                                                    class="flex-grow text-xs border border-gray-300 rounded px-2 py-1.5 focus:ring-morandi focus:border-morandi bg-white disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed">
                                                     <option value="0">@(isFirst ? "請選派主要身份..." : "請選派附加身份...")</option>
                                                     @{
                                                         var propositionRoleId = GetPropositionTeacherRoleId();
@@ -573,8 +574,9 @@
                                                 else
                                                 {
                                                     <button type="button" title="移除此身份"
+                                                        disabled="@IsCompositionPhaseEnded"
                                                         @onclick="() => RemoveRoleSlot(person, idx)"
-                                                        class="flex-shrink-0 w-7 h-7 rounded text-red-500 text-xs hover:bg-red-50 transition-colors cursor-pointer flex items-center justify-center">
+                                                        class="flex-shrink-0 w-7 h-7 rounded text-red-500 text-xs hover:bg-red-50 transition-colors cursor-pointer disabled:text-gray-300 disabled:hover:bg-transparent disabled:cursor-not-allowed flex items-center justify-center">
                                                         <i class="fa-solid fa-xmark"></i>
                                                     </button>
                                                 }
@@ -1015,24 +1017,29 @@
     }
 
     /// <summary>下拉變更時更新對應 slot 的 RoleId</summary>
-    private void OnRoleSlotChanged(PersonItem person, int index, ChangeEventArgs e)
+    private async Task OnRoleSlotChanged(PersonItem person, int index, ChangeEventArgs e)
     {
         if (!int.TryParse(e.Value?.ToString(), out var newRoleId)) newRoleId = 0;
 
-        // 確保 list 至少有 index 這麼大
-        while (person.SelectedRoleIds.Count <= index)
+        // 模擬：先計算「若套用」後的最終 SelectedRoleIds，再決定是否核准
+        var simulated = new List<int>(person.SelectedRoleIds);
+        while (simulated.Count <= index)
         {
-            person.SelectedRoleIds.Add(0);
+            simulated.Add(0);
+        }
+        simulated[index] = newRoleId;
+        while (simulated.Count > 1 && simulated[^1] == 0)
+        {
+            simulated.RemoveAt(simulated.Count - 1);
         }
 
-        person.SelectedRoleIds[index] = newRoleId;
-
-        // 清除尾端 0（除了第一筆之外），保持資料乾淨
-        while (person.SelectedRoleIds.Count > 1 && person.SelectedRoleIds[^1] == 0)
+        // 防呆：編輯模式下，已有命題紀錄者不可移除「命題教師」身份
+        if (await BlockIfRemovingPropositionRoleAsync(person, simulated))
         {
-            person.SelectedRoleIds.RemoveAt(person.SelectedRoleIds.Count - 1);
+            return;
         }
 
+        person.SelectedRoleIds = simulated;
         RebuildAllocationTeachers();
     }
 
@@ -1047,11 +1054,44 @@
     }
 
     /// <summary>移除指定索引的身份</summary>
-    private void RemoveRoleSlot(PersonItem person, int index)
+    private async Task RemoveRoleSlot(PersonItem person, int index)
     {
         if (index < 0 || index >= person.SelectedRoleIds.Count) return;
+
+        // 模擬移除後的清單，供防呆檢查
+        var simulated = new List<int>(person.SelectedRoleIds);
+        simulated.RemoveAt(index);
+
+        if (await BlockIfRemovingPropositionRoleAsync(person, simulated))
+        {
+            return;
+        }
+
         person.SelectedRoleIds.RemoveAt(index);
         RebuildAllocationTeachers();
+    }
+
+    /// <summary>編輯模式下，若該人員已有命題紀錄但變更後將失去「命題教師」身份，則阻擋並彈警示。</summary>
+    private async Task<bool> BlockIfRemovingPropositionRoleAsync(PersonItem person, List<int> simulatedRoleIds)
+    {
+        if (!isEditMode || person.CreatedQuestionCount <= 0) return false;
+
+        var propositionRoleId = GetPropositionTeacherRoleId();
+        if (!propositionRoleId.HasValue) return false;
+
+        // 原本就沒有命題教師 → 不需保護
+        if (!person.SelectedRoleIds.Contains(propositionRoleId.Value)) return false;
+
+        // 變更後仍包含命題教師 → 放行
+        if (simulatedRoleIds.Contains(propositionRoleId.Value)) return false;
+
+        person.RoleSlotKey++; // 強制重建 select 還原顯示值
+        StateHasChanged();
+        await ShowAlertAsync(
+            "warning",
+            "無法變更身份",
+            $"「{person.Name}」老師在此專案已產出 {person.CreatedQuestionCount} 題，無法移除「命題教師」身份。如需調整，請聯繫該名教師處理或於梯次結案後再行調整。");
+        return true;
     }
 
     /// <summary>重建「命題教師」配額列表（保留已填入的配額數值）</summary>
@@ -1614,6 +1654,8 @@
         public int CreatedQuestionCount { get; set; }
         /// <summary>防呆失敗時遞增，用於 @key 強制重建 checkbox 還原顯示狀態。</summary>
         public int CheckboxKey { get; set; }
+        /// <summary>身份下拉防呆失敗時遞增，用於 @key 強制重建 select 還原顯示值。</summary>
+        public int RoleSlotKey { get; set; }
     }
 
     private sealed class AllocationItem

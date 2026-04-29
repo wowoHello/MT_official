@@ -1,6 +1,7 @@
 using System.Data;
 using System.Text.Json;
 using Dapper;
+using Microsoft.Data.SqlClient;
 using MT.Models;
 
 namespace MT.Services;
@@ -33,7 +34,7 @@ public interface ITeacherService
     Task RemoveFromProjectAsync(int teacherUserId, int projectId, int operatorId);
 
     // === CRUD ===
-    Task<int> CreateTeacherAsync(CreateTeacherRequest req, int operatorId);
+    Task<CreateTeacherResult> CreateTeacherAsync(CreateTeacherRequest req, int operatorId);
     Task UpdateTeacherAsync(UpdateTeacherRequest req, int operatorId);
     Task ToggleTeacherStatusAsync(int teacherId, int operatorId);
     Task ResetTeacherPasswordAsync(int teacherId, int operatorId);
@@ -339,6 +340,7 @@ public class TeacherService : ITeacherService
                 p.Name AS ProjectName,
                 p.Year AS ProjectYear,
                 ISNULL(pp.StartDate, SYSDATETIME()) AS StartDate,
+                p.EndDate,
                 p.ClosedAt
             FROM dbo.MT_ProjectMembers pm
             INNER JOIN dbo.MT_Projects p ON p.Id = pm.ProjectId
@@ -563,9 +565,12 @@ public class TeacherService : ITeacherService
     // ==================================================================
 
     /// <summary>
-    /// 新增教師：Transaction 內建立 MT_Users + MT_Teachers。
+    /// 新增教師：
+    ///  1. 若 Email 已對應到既有 MT_Users → 自動沿用該帳號（不新建 MT_Users），僅插入 MT_Teachers。
+    ///  2. 否則 → Transaction 內同時建立 MT_Users + MT_Teachers。
+    /// 沿用模式下不更動既有 MT_Users 的 DisplayName / Status / 密碼等欄位。
     /// </summary>
-    public async Task<int> CreateTeacherAsync(CreateTeacherRequest req, int operatorId)
+    public async Task<CreateTeacherResult> CreateTeacherAsync(CreateTeacherRequest req, int operatorId)
     {
         if (string.IsNullOrWhiteSpace(req.DisplayName)) throw new ArgumentException("教師姓名必填。");
         if (string.IsNullOrWhiteSpace(req.Email)) throw new ArgumentException("電子信箱必填。");
@@ -574,40 +579,73 @@ public class TeacherService : ITeacherService
         using var conn = (System.Data.Common.DbConnection)_db.CreateConnection();
         await conn.OpenAsync();
 
-        // 檢查 Email 是否已被使用（Email = Username）
-        const string checkSql = """
-            SELECT COUNT(*) FROM dbo.MT_Users WHERE LOWER(Username) = LOWER(@Email);
+        // 1. 查 Email 是否已存在於 MT_Users（同時比對 Username 與 Email，因兩者皆有 UNIQUE 過濾索引）
+        const string lookupSql = """
+            SELECT TOP 1 Id, Username, DisplayName
+            FROM dbo.MT_Users
+            WHERE LOWER(Username) = LOWER(@Email) OR LOWER(Email) = LOWER(@Email);
             """;
-        var exists = await conn.ExecuteScalarAsync<int>(checkSql, new { req.Email });
-        if (exists > 0) throw new InvalidOperationException($"信箱「{req.Email}」已被使用。");
+        var existing = await conn.QueryFirstOrDefaultAsync<(int Id, string Username, string DisplayName)?>(
+            lookupSql, new { req.Email });
+
+        // 2. 沿用模式：檢查既有使用者是否已在教師人才庫中
+        if (existing.HasValue)
+        {
+            var alreadyTeacher = await conn.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM dbo.MT_Teachers WHERE UserId = @UserId;",
+                new { UserId = existing.Value.Id });
+            if (alreadyTeacher > 0)
+                throw new InvalidOperationException("此信箱對應的使用者已存在於教師人才庫，請改用編輯。");
+        }
 
         using var trans = await conn.BeginTransactionAsync();
         try
         {
-            // 取得「新創教師」角色（所有新建教師在未分配梯次前統一使用此身份）
-            var defaultRoleId = await conn.QuerySingleOrDefaultAsync<int?>(
-                "SELECT TOP 1 Id FROM dbo.MT_Roles WHERE Name = N'新創教師';",
-                transaction: trans);
-            if (!defaultRoleId.HasValue)
-                throw new InvalidOperationException("系統尚未建立「新創教師」角色，請先至角色管理建立。");
+            int userId;
+            bool reused;
 
-            // 建立 MT_Users
-            var passwordHash = AuthService.ComputePasswordHash(DefaultTeacherPassword);
-            const string insertUserSql = """
-                INSERT INTO dbo.MT_Users
-                    (Username, DisplayName, Email, PasswordHash, RoleId, Status, IsFirstLogin)
-                OUTPUT INSERTED.Id
-                VALUES (@Username, @DisplayName, @Email, @PasswordHash, @RoleId, @Status, 1);
-                """;
-            var userId = await conn.ExecuteScalarAsync<int>(insertUserSql, new
+            if (existing.HasValue)
             {
-                Username = req.Email,
-                req.DisplayName,
-                req.Email,
-                PasswordHash = passwordHash,
-                RoleId = defaultRoleId.Value,
-                Status = req.Status == 0 ? 0 : 1,
-            }, transaction: trans);
+                // 沿用既有帳號，不動 MT_Users
+                userId = existing.Value.Id;
+                reused = true;
+            }
+            else
+            {
+                // 取得「新創教師」角色（所有新建教師在未分配梯次前統一使用此身份）
+                var defaultRoleId = await conn.QuerySingleOrDefaultAsync<int?>(
+                    "SELECT TOP 1 Id FROM dbo.MT_Roles WHERE Name = N'新創教師';",
+                    transaction: trans);
+                if (!defaultRoleId.HasValue)
+                    throw new InvalidOperationException("系統尚未建立「新創教師」角色，請先至角色管理建立。");
+
+                // 建立 MT_Users
+                var passwordHash = AuthService.ComputePasswordHash(DefaultTeacherPassword);
+                const string insertUserSql = """
+                    INSERT INTO dbo.MT_Users
+                        (Username, DisplayName, Email, PasswordHash, RoleId, Status, IsFirstLogin)
+                    OUTPUT INSERTED.Id
+                    VALUES (@Username, @DisplayName, @Email, @PasswordHash, @RoleId, @Status, 1);
+                    """;
+                try
+                {
+                    userId = await conn.ExecuteScalarAsync<int>(insertUserSql, new
+                    {
+                        Username = req.Email,
+                        req.DisplayName,
+                        req.Email,
+                        PasswordHash = passwordHash,
+                        RoleId = defaultRoleId.Value,
+                        Status = req.Status == 0 ? 0 : 1,
+                    }, transaction: trans);
+                }
+                catch (SqlException ex) when (ex.Number is 2601 or 2627)
+                {
+                    // 理論上前面 lookup 已避開，這是極端併發保險
+                    throw new InvalidOperationException("Email 信箱已存在");
+                }
+                reused = false;
+            }
 
             // 生成 TeacherCode：T + 民國年 + 3碼流水號（如 T115001）
             var rocYear = DateTime.Now.Year - 1911;
@@ -621,7 +659,7 @@ public class TeacherService : ITeacherService
                 new { Prefix = prefix, ExpectedLen = prefix.Length + 3 }, transaction: trans);
             var teacherCode = $"{prefix}{(maxSeq + 1):D3}";
 
-            // 建立 MT_Teachers
+            // 建立 MT_Teachers（不論是否沿用，都會新增一筆教師資料）
             const string insertTeacherSql = """
                 INSERT INTO dbo.MT_Teachers
                     (UserId, TeacherCode, Gender, Phone, IdNumber, School, Department, Title, Expertise, TeachingYears, Education, Note)
@@ -645,11 +683,18 @@ public class TeacherService : ITeacherService
             }, transaction: trans);
 
             await WriteAuditAsync(conn, operatorId, AuditAction.Create, AuditTargetType.Teachers, teacherId,
-                JsonSerializer.Serialize(new { req.DisplayName, req.Email, TeacherCode = teacherCode }),
+                JsonSerializer.Serialize(new { req.DisplayName, req.Email, TeacherCode = teacherCode, ReusedExistingUser = reused }),
                 transaction: trans);
 
             await trans.CommitAsync();
-            return teacherId;
+
+            return new CreateTeacherResult
+            {
+                TeacherId = teacherId,
+                ReusedExistingUser = reused,
+                ExistingDisplayName = reused ? existing!.Value.DisplayName : null,
+                ExistingUsername = reused ? existing!.Value.Username : null,
+            };
         }
         catch
         {

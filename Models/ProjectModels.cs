@@ -95,8 +95,9 @@ public class ProjectSwitcherItem
     public string Name { get; set; } = string.Empty;
     public int Year { get; set; }
     public DateTime StartDate { get; set; }
+    public DateTime EndDate { get; set; }
     public DateTime? ClosedAt { get; set; }
-    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, ClosedAt);
+    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, EndDate, ClosedAt);
     public bool IsClosed => EffectiveStatus == ProjectLifecycleStatus.Closed;
     public string DisplayName => $"{Year}年度 {Name}";
 }
@@ -114,7 +115,7 @@ public class ProjectListItem
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
     public DateTime? ClosedAt { get; set; }
-    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, ClosedAt);
+    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, EndDate, ClosedAt);
     public bool IsClosed => EffectiveStatus == ProjectLifecycleStatus.Closed;
     public string CreatorName { get; set; } = string.Empty;
     public int MemberCount { get; set; }
@@ -133,7 +134,7 @@ public class ProjectDetailDto
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
     public DateTime? ClosedAt { get; set; }
-    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, ClosedAt);
+    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, EndDate, ClosedAt);
     public bool IsClosed => EffectiveStatus == ProjectLifecycleStatus.Closed;
     public string CreatorName { get; set; } = string.Empty;
     public List<PhaseDetailDto> Phases { get; set; } = new();
@@ -174,8 +175,18 @@ public enum ProjectLifecycleStatus : byte
 public static class ProjectStatusHelper
 {
     public static ProjectLifecycleStatus Resolve(DateTime startDate, DateTime? closedAt)
+        => Resolve(startDate, null, closedAt);
+
+    public static ProjectLifecycleStatus Resolve(DateTime startDate, DateTime? endDate, DateTime? closedAt)
     {
+        // 已手動結案 → Closed
         if (closedAt.HasValue)
+        {
+            return ProjectLifecycleStatus.Closed;
+        }
+
+        // 結束日已過 → 視為自動結案
+        if (endDate.HasValue && endDate.Value.Date < DateTime.Today)
         {
             return ProjectLifecycleStatus.Closed;
         }

@@ -2,6 +2,7 @@ using System.Data;
 using System.Text.Json;
 using Dapper;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Data.SqlClient;
 using MT.Hubs;
 using MT.Models;
 
@@ -184,17 +185,27 @@ public class RoleService : IRoleService
                 (@Username, @DisplayName, @Email, @PasswordHash, @RoleId, @Status, @CompanyTitle, @Note, 1);
             """;
 
-        var newId = await conn.ExecuteScalarAsync<int>(insertSql, new
+        int newId;
+        try
         {
-            req.Username,
-            req.DisplayName,
-            req.Email,
-            PasswordHash = passwordHash,
-            req.RoleId,
-            Status = NormalizeStatus(req.Status),
-            req.CompanyTitle,
-            req.Note,
-        });
+            newId = await conn.ExecuteScalarAsync<int>(insertSql, new
+            {
+                req.Username,
+                req.DisplayName,
+                req.Email,
+                PasswordHash = passwordHash,
+                req.RoleId,
+                Status = NormalizeStatus(req.Status),
+                req.CompanyTitle,
+                req.Note,
+            });
+        }
+        catch (SqlException ex) when (ex.Number is 2601 or 2627)
+        {
+            throw new InvalidOperationException(ex.Message.Contains("Email", StringComparison.OrdinalIgnoreCase)
+                ? "Email 信箱已存在"
+                : "帳號已存在");
+        }
 
         await WriteAuditAsync(conn, operatorId, AuditAction.Create, AuditTargetType.Users, newId,
             newValue: JsonSerializer.Serialize(new { req.Username, req.DisplayName, req.RoleId }));
@@ -230,16 +241,24 @@ public class RoleService : IRoleService
             WHERE Id = @Id;
             """;
 
-        var rows = await conn.ExecuteAsync(sql, new
+        int rows;
+        try
         {
-            req.Id,
-            req.DisplayName,
-            req.Email,
-            req.RoleId,
-            Status = NormalizeStatus(req.Status),
-            req.CompanyTitle,
-            req.Note,
-        });
+            rows = await conn.ExecuteAsync(sql, new
+            {
+                req.Id,
+                req.DisplayName,
+                req.Email,
+                req.RoleId,
+                Status = NormalizeStatus(req.Status),
+                req.CompanyTitle,
+                req.Note,
+            });
+        }
+        catch (SqlException ex) when (ex.Number is 2601 or 2627)
+        {
+            throw new InvalidOperationException("Email 信箱已存在");
+        }
 
         if (rows == 0) throw new InvalidOperationException("找不到要更新的人員資料。");
 

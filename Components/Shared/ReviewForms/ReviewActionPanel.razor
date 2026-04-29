@@ -1,0 +1,104 @@
+@* ====================================================================== *@
+@*  ReviewActionPanel — 審題 Modal 右 30% 操作區                             *@
+@*  Phase 3.3：意見編輯（Quill InlineQuillEditor）+ 8 罐頭訊息快速插入       *@
+@*  Phase 3.4 將補：歷程軌跡摺疊區、相似題比對區（佔位於下半部）              *@
+@*  已決策狀態：Quill 自動進入唯讀、罐頭訊息列灰化禁用                         *@
+@* ====================================================================== *@
+
+<div class="flex flex-col h-full overflow-y-auto custom-scroll">
+
+    @* ===== 區塊 1：意見編輯框 + 罐頭訊息 ===== *@
+    <div class="p-5 border-b border-gray-100 bg-gradient-to-b from-white to-gray-50/50 flex-shrink-0">
+        <h3 class="text-sm font-bold text-slate-main mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-comment-dots text-morandi"></i>
+            我的審題意見
+            @if (IsReadOnly)
+            {
+                <span class="ml-auto text-xs px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full font-bold border border-gray-200">
+                    <i class="fa-solid fa-lock mr-1"></i> 已決策
+                </span>
+            }
+        </h3>
+
+        @* 罐頭訊息快速插入列 *@
+        <div class="mb-3">
+            <p class="text-xs text-gray-500 mb-2 font-medium">
+                <i class="fa-solid fa-bolt-lightning text-morandi mr-1"></i>
+                點擊插入常用評語：
+            </p>
+            <div class="flex flex-wrap gap-1.5">
+                @foreach (var msg in CannedMessages)
+                {
+                    <button type="button"
+                            disabled="@IsReadOnly"
+                            @onclick="() => InsertCannedAsync(msg.Text)"
+                            class="text-xs px-2.5 py-1 border rounded-md font-bold transition cursor-pointer focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed @msg.ColorCss">
+                        @msg.Label
+                    </button>
+                }
+            </div>
+        </div>
+
+        @* Quill 編輯器（複用 InlineQuillEditor） *@
+        <InlineQuillEditor @ref="quillEditor"
+                           Value="@Comment"
+                           ValueChanged="OnCommentChanged"
+                           IsReadOnly="@IsReadOnly"
+                           EditorClass="min-h-[180px] max-h-[320px]"
+                           ShowWordCount="true" />
+    </div>
+
+    @* ===== 區塊 2：歷程軌跡（預設摺疊） ===== *@
+    <ReviewHistoryTimeline Entries="@History" />
+
+    @* ===== 區塊 3：相似題比對（無相似題時自動不渲染） ===== *@
+    <ReviewSimilarityBanner @ref="similaritySection"
+                            Entries="@SimilarQuestions"
+                            Mode="ReviewSimilarityBanner.BannerMode.Section" />
+
+    <div class="flex-grow"></div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Comment { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> CommentChanged { get; set; }
+    [Parameter] public bool IsReadOnly { get; set; }
+    [Parameter] public List<ReviewHistoryEntry> History { get; set; } = new();
+    [Parameter] public List<ReviewSimilarityEntry> SimilarQuestions { get; set; } = new();
+
+    private InlineQuillEditor? quillEditor;
+    private ReviewSimilarityBanner? similaritySection;
+
+    /// <summary>讓父層（ReviewModal 頂部橫幅按鈕）能呼叫展開相似題列表</summary>
+    public Task ExpandSimilarityAsync() => similaritySection?.ExpandAsync() ?? Task.CompletedTask;
+
+    private async Task OnCommentChanged(string newHtml)
+    {
+        Comment = newHtml;
+        await CommentChanged.InvokeAsync(newHtml);
+    }
+
+    private async Task InsertCannedAsync(string text)
+    {
+        if (IsReadOnly || quillEditor is null) return;
+        await quillEditor.InsertTextAsync(text);
+    }
+
+    /// <summary>
+    /// 8 個罐頭訊息（依 Plan_003 Q1 確認的內容；Label 與插入文字分離以便管理）。
+    /// 顏色語意：sage=正向 / terracotta=警示 / morandi=中性建議。
+    /// </summary>
+    private static readonly CannedMessage[] CannedMessages =
+    [
+        new("✓ 題意清晰",      "題意清晰，選項設計合理。",                "bg-sage/10 text-sage border-sage/20 hover:bg-sage/20"),
+        new("⚠ 答案有爭議",    "此題答案似有爭議，建議再確認。",          "bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
+        new("📐 選項長度差異",  "選項長度差異過大，建議調整為相近字數。",  "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
+        new("📖 用詞不當",      "部分用詞不夠精確，建議修飾。",            "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
+        new("🔢 計算錯誤",      "計算過程或答案數字有誤。",                "bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
+        new("🎯 鑑別度偏低",    "鑑別度偏低，可能無法有效區分學生程度。",  "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
+        new("✂ 文意冗長",      "題幹文意稍嫌冗長，建議精簡。",            "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
+        new("🖼 圖片不清",      "附圖品質不佳或無法清楚辨識。",            "bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
+    ];
+
+    private record CannedMessage(string Label, string Text, string ColorCss);
+}

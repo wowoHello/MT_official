@@ -6,6 +6,8 @@
 @page "/dashboard"
 @inject IDashboardService DashboardService
 @inject ILogger<Dashboard> Logger
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <div class="flex-grow w-full mx-auto flex flex-col">
     <!-- Breadcrumb & Header -->
@@ -236,25 +238,43 @@
 
         <!-- Charts Row -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-            <!-- Chart 1 -->
+            <!-- Chart 1：題型缺口達成率（Horizontal Bar + Goals） -->
             <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-1 flex flex-col h-[350px] overflow-hidden">
                 <h3 class="text-lg font-bold text-slate-main mb-1">題型缺口達成率</h3>
                 <p class="text-xs text-gray-500 mb-2">展示目前各題型「已產出」與「目標」比例。</p>
                 <div class="flex-grow min-h-0">
-                    <EmptyState IconClass="fa-chart-pie" Message="尚無數據" SubMessage="目前梯次無資料可供分析" Compact="true" />
+                    @if (isLoading)
+                    {
+                        <EmptyState IconClass="fa-spinner" Message="載入中…" Compact="true" CssClass="h-full" />
+                    }
+                    else if (!kpi.AchievementByType.Any(x => x.Target > 0 || x.Produced > 0))
+                    {
+                        <EmptyState IconClass="fa-chart-pie" Message="尚無數據" SubMessage="請先設定各題型目標數量" Compact="true" CssClass="h-full" />
+                    }
+                    else
+                    {
+                        <div id="chart-achievement" class="h-full"></div>
+                    }
                 </div>
             </div>
 
-            <!-- Chart 2 -->
+            <!-- Chart 2：依題型狀態分佈（Vertical Stacked Bar） -->
             <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-2 flex flex-col h-[350px] overflow-hidden">
-                <div class="flex justify-between items-start mb-2">
-                    <div>
-                        <h3 class="text-lg font-bold text-slate-main mb-1">依題型狀態分佈表</h3>
-                        <p class="text-xs text-gray-500">展示草稿、送審、審修、退回等不同狀態在各題型的分佈數量。</p>
-                    </div>
-                </div>
+                <h3 class="text-lg font-bold text-slate-main mb-1">依題型狀態分佈表</h3>
+                <p class="text-xs text-gray-500 mb-2">展示草稿、審修、退回、採用等不同狀態在各題型的分佈數量。</p>
                 <div class="flex-grow min-h-0">
-                    <EmptyState IconClass="fa-chart-column" Message="尚無數據" SubMessage="新增題目後將自動產生統計" Compact="true" />
+                    @if (isLoading)
+                    {
+                        <EmptyState IconClass="fa-spinner" Message="載入中…" Compact="true" CssClass="h-full" />
+                    }
+                    else if (!kpi.StatusByType.Any(x => x.Drafting > 0 || x.InReview > 0 || x.Returned > 0 || x.Adopted > 0 || x.Rejected > 0))
+                    {
+                        <EmptyState IconClass="fa-chart-column" Message="尚無數據" SubMessage="新增題目後將自動產生統計" Compact="true" CssClass="h-full" />
+                    }
+                    else
+                    {
+                        <div id="chart-status" class="h-full"></div>
+                    }
                 </div>
             </div>
         </div>
@@ -262,15 +282,69 @@
         <!-- Bottom Row: Alerts & Audits -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12">
             <!-- Urgent Tasks -->
-            <div class="bg-white rounded-xl shadow-sm border border-red-100 flex flex-col h-[300px] overflow-hidden">
+            <div class="bg-white rounded-xl shadow-sm border border-red-100 flex flex-col overflow-hidden">
                 <div class="bg-red-50 px-5 py-3 border-b border-red-100 flex justify-between items-center shrink-0">
                     <h3 class="font-bold text-terracotta text-sm flex items-center gap-2">
-                        <i class="fa-regular fa-clock"></i> 逾期與緊急待辦 (Top 5)
+                        <i class="fa-solid fa-triangle-exclamation"></i> 逾期與緊急待辦 (Top 5)
                     </h3>
                 </div>
-                <div class="flex-grow min-h-0 p-4">
-                    <EmptyState CssClass="h-full" IconClass="fa-face-smile-wink" Message="目前無急件" SubMessage="太棒了！所有任務皆在進度內完成。" Compact="true" />
-                </div>
+                @if (isLoading)
+                {
+                    <div class="p-4">
+                        <EmptyState CssClass="py-8" IconClass="fa-spinner" Message="載入中…" Compact="true" />
+                    </div>
+                }
+                else if (kpi.UrgentItems.Count == 0)
+                {
+                    <div class="p-4">
+                        <EmptyState CssClass="py-8" IconClass="fa-circle-check" Message="目前沒有緊急待辦"
+                                    SubMessage="所有階段時程與題型進度皆在正常範圍" Compact="true" />
+                    </div>
+                }
+                else
+                {
+                    <ul class="divide-y divide-stone-100">
+                        @foreach (var item in kpi.UrgentItems)
+                        {
+                            <li>
+                                @if (item.Source == UrgentSourceType.PhaseDeadline)
+                                {
+                                    @* 階段倒數：依階段碼跳轉對應頁 *@
+                                    <button @onclick="() => NavigateToUrgent(item)"
+                                            class="w-full px-5 py-3 flex items-center gap-3 text-left
+                                                   cursor-pointer transition-colors duration-200
+                                                   @SeverityBgClass(item.Severity)
+                                                   @SeverityHoverClass(item.Severity)">
+                                        <span class="w-2.5 h-2.5 rounded-full @SeverityDotClass(item.Severity) shrink-0"></span>
+                                        <i class="fa-solid @IconFor(item) text-base text-slate-500 shrink-0"></i>
+                                        <div class="flex-1 min-w-0">
+                                            <div class="text-sm font-medium text-slate-main truncate">@item.Title</div>
+                                            <div class="text-xs text-slate-500 mt-0.5">@item.Subtitle</div>
+                                        </div>
+                                        <i class="fa-solid fa-chevron-right text-xs text-slate-400 shrink-0 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-slate-700"></i>
+                                    </button>
+                                }
+                                else
+                                {
+                                    @* 教師落後：點擊開啟 Modal 顯示詳情 *@
+                                    <button @onclick="() => OpenDetail(item)"
+                                            class="w-full px-5 py-3 flex items-center gap-3 text-left
+                                                   cursor-pointer transition-colors duration-200
+                                                   @SeverityBgClass(item.Severity)
+                                                   @SeverityHoverClass(item.Severity)">
+                                        <span class="w-2.5 h-2.5 rounded-full @SeverityDotClass(item.Severity) shrink-0"></span>
+                                        <i class="fa-solid @IconFor(item) text-base text-slate-500 shrink-0"></i>
+                                        <div class="flex-1 min-w-0">
+                                            <div class="text-sm font-medium text-slate-main truncate">@item.Title</div>
+                                            <div class="text-xs text-slate-500 mt-0.5">@item.Subtitle</div>
+                                        </div>
+                                        <i class="fa-solid fa-chevron-right text-xs text-slate-400 shrink-0 transition-all duration-200"></i>
+                                    </button>
+                                }
+                            </li>
+                        }
+                    </ul>
+                }
             </div>
 
             <!-- Audit Logs -->
@@ -280,13 +354,153 @@
                         <i class="fa-solid fa-list-ul text-gray-400"></i> 最新稽核歷程 (LOG)
                     </h3>
                 </div>
-                <div class="flex-grow min-h-0 p-4">
-                    <EmptyState CssClass="h-full" IconClass="fa-clipboard-user" Message="暫無活動紀錄" SubMessage="當有操作發生時會顯示於此處。" Compact="true" />
-                </div>
+                @if (isLoading)
+                {
+                    <div class="flex-grow flex items-center justify-center">
+                        <EmptyState CssClass="py-8" IconClass="fa-spinner" Message="載入中…" Compact="true" />
+                    </div>
+                }
+                else if (kpi.RecentLogs.Count == 0)
+                {
+                    <div class="flex-grow flex items-center justify-center">
+                        <EmptyState CssClass="py-8" IconClass="fa-clipboard-user"
+                                    Message="目前沒有近期紀錄"
+                                    SubMessage="梯次中的增刪改動作將顯示於此" Compact="true" />
+                    </div>
+                }
+                else
+                {
+                    <ul class="flex-grow overflow-y-auto divide-y divide-stone-100">
+                        @foreach (var log in kpi.RecentLogs)
+                        {
+                            <li class="px-4 py-2.5 flex items-center gap-3 hover:bg-stone-50 cursor-pointer transition-colors duration-150">
+                                @* 動作圖示 *@
+                                <span class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-xs @LogIconBgClass(log.Action)">
+                                    <i class="fa-solid @LogIconClass(log.Action)"></i>
+                                </span>
+                                @* 主要描述文字 *@
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-sm text-[var(--color-slate-main)] truncate"
+                                         title="@log.UserName @ActionVerb(log.Action)了 @TargetTypeLabel(log.TargetType)「@log.TargetName」">
+                                        <span class="font-semibold">@log.UserName</span>
+                                        <span class="text-gray-500"> @ActionVerb(log.Action)了 @TargetTypeLabel(log.TargetType)</span>
+                                        <span class="font-medium">「@log.TargetName」</span>
+                                    </div>
+                                </div>
+                                @* 時間標記 *@
+                                <time class="text-xs text-gray-400 shrink-0 tabular-nums"
+                                      title="@log.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")">
+                                    @FormatRelativeTime(log.CreatedAt)
+                                </time>
+                            </li>
+                        }
+                    </ul>
+                }
             </div>
         </div>
     </div>
 </div>
+
+@* ── 教師詳情 Modal（TeacherShortage 列點擊觸發） ── *@
+@if (selectedDetailItem is not null)
+{
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4"
+         @onclick="CloseDetail">
+        @* Backdrop *@
+        <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm
+                    animate-[fadeIn_200ms_ease-out]"></div>
+
+        @* Modal Content *@
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg
+                    max-h-[85vh] overflow-hidden flex flex-col
+                    animate-[scaleIn_200ms_ease-out]"
+             @onclick:stopPropagation="true">
+
+            @* Header *@
+            <header class="px-6 py-4 border-b border-stone-200 flex items-start gap-3">
+                <div class="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center flex-shrink-0">
+                    <i class="fa-solid fa-user-clock text-[var(--color-terracotta)] text-lg"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <h2 class="text-xl font-semibold text-[var(--color-slate-main)] truncate">
+                        @ExtractTeacherName(selectedDetailItem.Title)
+                    </h2>
+                    <p class="text-sm text-slate-500 mt-0.5">@selectedDetailItem.Subtitle</p>
+                </div>
+                <button @onclick="CloseDetail"
+                        class="w-8 h-8 rounded-lg cursor-pointer hover:bg-stone-100 flex items-center justify-center transition-colors flex-shrink-0">
+                    <i class="fa-solid fa-xmark text-slate-500"></i>
+                </button>
+            </header>
+
+            @* Body（可捲動） *@
+            <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+                @{
+                    var details = selectedDetailItem.TeacherDetails ?? new();
+                    var totalAssigned = details.Sum(d => d.Assigned);
+                    var totalProduced = details.Sum(d => d.Produced);
+                    var totalAch = totalAssigned > 0 ? (decimal)totalProduced / totalAssigned : 0m;
+                }
+
+                @* 總配額進度卡 *@
+                <div class="bg-stone-50 rounded-xl p-4 border border-stone-100">
+                    <div class="flex items-baseline justify-between mb-2">
+                        <span class="text-sm text-slate-500">總配額達成</span>
+                        <span class="text-base font-semibold tabular-nums @AchClass(totalAch)">
+                            @totalProduced / @totalAssigned 題（@($"{totalAch:P0}")）
+                        </span>
+                    </div>
+                    <div class="h-2 bg-stone-200 rounded-full overflow-hidden">
+                        <div class="h-full rounded-full transition-all duration-500 @AchBarClass(totalAch)"
+                             style="width:@($"{Math.Min(totalAch, 1m) * 100:F0}%")"></div>
+                    </div>
+                </div>
+
+                @* 各題型進度明細 *@
+                <div>
+                    <h3 class="text-xs font-bold text-[var(--color-morandi)] uppercase tracking-wider mb-3">各題型進度</h3>
+                    <div class="space-y-3">
+                        @foreach (var d in details)
+                        {
+                            <div>
+                                <div class="flex items-baseline justify-between mb-1.5">
+                                    <span class="text-sm font-medium text-[var(--color-slate-main)]">@d.TypeName</span>
+                                    <span class="text-xs tabular-nums @AchClass(d.Achievement)">
+                                        @d.Produced / @d.Assigned（@($"{d.Achievement:P0}")）
+                                    </span>
+                                </div>
+                                <div class="h-2 bg-stone-100 rounded-full overflow-hidden">
+                                    <div class="h-full rounded-full @AchBarClass(d.Achievement)"
+                                         style="width:@($"{Math.Min(d.Achievement, 1m) * 100:F0}%")"></div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            @* Footer *@
+            <footer class="px-6 py-3 border-t border-stone-200 bg-stone-50 flex items-center justify-between gap-3">
+                <button @onclick="CloseDetail"
+                        class="px-4 py-2 text-sm font-medium text-slate-600
+                               bg-white border border-stone-300 rounded-lg cursor-pointer
+                               hover:bg-stone-100 hover:border-stone-400 hover:text-slate-main
+                               active:scale-[0.97] transition-all duration-200">
+                    關閉
+                </button>
+                <a href="@selectedDetailItem.TargetUrl"
+                   class="px-4 py-2 text-sm font-medium text-white
+                          bg-[var(--color-morandi)] rounded-lg cursor-pointer
+                          hover:bg-[var(--color-slate-main)] hover:shadow-md
+                          active:scale-[0.97] transition-all duration-200
+                          flex items-center gap-2">
+                    前往命題總覽
+                    <i class="fa-solid fa-arrow-right text-xs transition-transform duration-200 group-hover:translate-x-0.5"></i>
+                </a>
+            </footer>
+        </div>
+    </div>
+}
 
 @code {
     [CascadingParameter(Name = "CurrentProject")] private ProjectSwitcherItem? CurrentProject { get; set; }
@@ -294,6 +508,12 @@
     private DashboardKpiDto kpi = new();
     private bool isLoading;
     private int? previousProjectId;
+
+    // 旗標：資料載入完成後觸發圖表渲染（在 OnAfterRenderAsync 中偵測）
+    private bool chartsNeedRender;
+
+    // 逾期待辦 Modal：儲存目前開啟的教師詳情項目（null = 關閉）
+    private DashboardUrgentItem? selectedDetailItem;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -306,29 +526,288 @@
         }
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // 每次 StateHasChanged 後若旗標為 true，就執行圖表渲染
+        if (!chartsNeedRender) return;
+        chartsNeedRender = false;
+        await RenderChartsAsync();
+    }
+
     private async Task LoadKpiAsync()
     {
         if (CurrentProject is null)
         {
             kpi = new DashboardKpiDto();
+            chartsNeedRender = false;
+            selectedDetailItem = null;
             return;
         }
 
         isLoading = true;
+        selectedDetailItem = null;
         StateHasChanged();
 
         try
         {
             kpi = await DashboardService.GetKpiAsync(CurrentProject.Id);
+            chartsNeedRender = true;
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "載入 Dashboard KPI 失敗，ProjectId={ProjectId}", CurrentProject.Id);
             kpi = new DashboardKpiDto();
+            chartsNeedRender = false;
         }
         finally
         {
             isLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// 依 kpi 資料組裝 ApexCharts options 並透過 JS Interop 渲染兩張圖表。
+    /// 無資料時 DOM 元素不存在，JS 端會安全跳過。
+    /// </summary>
+    private async Task RenderChartsAsync()
+    {
+        // ── 圖表 1：題型缺口達成率（100% 堆疊水平條） ──
+        // formatter 函式無法 JSON 化，改由 JS 端的 renderAchievement 方法處理
+        if (kpi.AchievementByType.Any(x => x.Target > 0 || x.Produced > 0))
+        {
+            var achievementItems = kpi.AchievementByType.Select(item => new
+            {
+                typeName  = item.TypeName,
+                produced  = item.Produced,
+                target    = item.Target,
+                fillColor = ResolveBarColor(item.Produced, item.Target)
+            }).ToArray();
+
+            await JS.InvokeVoidAsync("apexInterop.renderAchievement", "chart-achievement", achievementItems);
+        }
+
+        // ── 圖表 2：依題型狀態分佈（Vertical Stacked Bar） ──
+        if (kpi.StatusByType.Any(x => x.Drafting > 0 || x.InReview > 0 || x.Returned > 0 || x.Adopted > 0 || x.Rejected > 0))
+        {
+            var categories = kpi.StatusByType.Select(x => x.TypeName).ToArray();
+
+            var chart2Options = new
+            {
+                chart = new
+                {
+                    type = "bar",
+                    height = "100%",
+                    stacked = true,
+                    toolbar = new { show = false },
+                    fontFamily = "Noto Sans TC, sans-serif"
+                },
+                plotOptions = new
+                {
+                    bar = new
+                    {
+                        horizontal = false,
+                        columnWidth = "55%",
+                        borderRadius = 4,
+                        borderRadiusApplication = "end"
+                    }
+                },
+                series = new object[]
+                {
+                    new { name = "命題中",  data = kpi.StatusByType.Select(x => x.Drafting).ToArray() },
+                    new { name = "審修中",  data = kpi.StatusByType.Select(x => x.InReview).ToArray() },
+                    new { name = "退回修題", data = kpi.StatusByType.Select(x => x.Returned).ToArray() },
+                    new { name = "已採用",  data = kpi.StatusByType.Select(x => x.Adopted).ToArray() },
+                    new { name = "不採用",  data = kpi.StatusByType.Select(x => x.Rejected).ToArray() }
+                },
+                colors = new[] { "#9CA3AF", "#6B8EAD", "#D98A6C", "#8EAB94", "#991B1B" },
+                xaxis = new
+                {
+                    categories,
+                    labels = new { style = new { colors = "#374151", fontSize = "12px" } }
+                },
+                yaxis = new
+                {
+                    title = new { text = "題目數量", style = new { fontSize = "12px", color = "#6B7280" } },
+                    labels = new { style = new { colors = "#374151", fontSize = "12px" } }
+                },
+                legend = new
+                {
+                    position = "bottom",
+                    horizontalAlign = "center",
+                    fontSize = "12px",
+                    labels = new { colors = "#374151" }
+                },
+                grid = new { borderColor = "#F3F4F6" },
+                dataLabels = new { enabled = false },
+                tooltip = new { shared = true, intersect = false }
+            };
+
+            await JS.InvokeVoidAsync("apexInterop.render", "chart-status", chart2Options);
+        }
+    }
+
+    /// <summary>
+    /// 依達成率決定堆疊條的顏色：
+    ///   未設定目標 → 灰；0-29% → 赤陶警示；30-69% → amber；70-99% → sage；100%+ → 深綠達標
+    /// </summary>
+    private static string ResolveBarColor(int produced, int target)
+    {
+        if (target <= 0 || produced == 0) return "#E5E7EB";
+        var ratio = (double)produced / target;
+        return ratio >= 1.0 ? "#5C8A6A"
+             : ratio >= 0.7 ? "#8EAB94"
+             : ratio >= 0.3 ? "#F59E0B"
+             :                "#D98A6C";
+    }
+
+    // ─── 逾期待辦輔助方法 ───────────────────────────────────────────
+
+    /// <summary>開啟教師詳情 Modal（僅 TeacherShortage 且有明細資料時）。</summary>
+    private void OpenDetail(DashboardUrgentItem item)
+    {
+        if (item.Source == UrgentSourceType.TeacherShortage && item.TeacherDetails is { Count: > 0 })
+            selectedDetailItem = item;
+    }
+
+    /// <summary>關閉教師詳情 Modal。</summary>
+    private void CloseDetail() => selectedDetailItem = null;
+
+    /// <summary>從「{教師名} 命題進度落後」格式的 Title 中萃取教師名稱。</summary>
+    private static string ExtractTeacherName(string title)
+    {
+        var idx = title.LastIndexOf(' ');
+        return idx > 0 ? title[..idx] : title;
+    }
+
+    /// <summary>依進度達成率回傳進度條背景色 class。</summary>
+    private static string AchBarClass(decimal achievement)
+    {
+        if (achievement >= 1.0m) return "bg-[var(--color-sage)]";
+        if (achievement >= 0.7m) return "bg-[var(--color-morandi)]";
+        if (achievement >= 0.3m) return "bg-amber-500";
+        return "bg-[var(--color-terracotta)]";
+    }
+
+    /// <summary>依 item.TargetUrl 跳轉對應頁面（PhaseDeadline 列點擊用）。</summary>
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+    private void NavigateToUrgent(DashboardUrgentItem item)
+    {
+        if (!string.IsNullOrWhiteSpace(item.TargetUrl))
+            Nav.NavigateTo(item.TargetUrl);
+    }
+
+    /// <summary>依嚴重度回傳背景底色 Tailwind class。</summary>
+    private static string SeverityBgClass(UrgentSeverity s) => s switch
+    {
+        UrgentSeverity.Critical => "bg-rose-50",
+        UrgentSeverity.Warning  => "bg-amber-50",
+        _                       => "bg-stone-50"
+    };
+
+    /// <summary>依嚴重度回傳 hover 背景色 Tailwind class。</summary>
+    private static string SeverityHoverClass(UrgentSeverity s) => s switch
+    {
+        UrgentSeverity.Critical => "hover:bg-rose-100",
+        UrgentSeverity.Warning  => "hover:bg-amber-100",
+        _                       => "hover:bg-stone-100"
+    };
+
+    /// <summary>依嚴重度回傳圓點顏色 Tailwind class。</summary>
+    private static string SeverityDotClass(UrgentSeverity s) => s switch
+    {
+        UrgentSeverity.Critical => "bg-terracotta",
+        UrgentSeverity.Warning  => "bg-amber-500",
+        _                       => "bg-morandi"
+    };
+
+    /// <summary>依 source 與嚴重度回傳 Font Awesome icon class（不含 fa-solid 前綴）。</summary>
+    private static string IconFor(DashboardUrgentItem item)
+    {
+        if (item.Source == UrgentSourceType.TeacherShortage)
+            return item.Severity == UrgentSeverity.Critical ? "fa-user-xmark" : "fa-user-clock";
+        return item.Severity switch
+        {
+            UrgentSeverity.Critical => "fa-circle-exclamation",
+            UrgentSeverity.Warning  => "fa-hourglass-half",
+            _                       => "fa-clock"
+        };
+    }
+
+    /// <summary>依教師達成率回傳文字顏色 class。</summary>
+    private static string AchClass(decimal ach) =>
+          ach >= 1.0m ? "text-sage"
+        : ach >= 0.7m ? "text-slate-500"
+        : ach >= 0.3m ? "text-amber-700"
+        :               "text-terracotta";
+
+    // ─── 稽核歷程 Helper 方法 ────────────────────────────────────────
+
+    /// <summary>依 Action 碼回傳中文動詞（建立/修改/刪除）。</summary>
+    private static string ActionVerb(byte action) => action switch
+    {
+        0 => "建立",
+        1 => "修改",
+        2 => "刪除",
+        _ => "操作"
+    };
+
+    /// <summary>依 TargetType 碼回傳目標類型標籤。</summary>
+    private static string TargetTypeLabel(byte type) => type switch
+    {
+        0 => "使用者",
+        1 => "角色",
+        2 => "梯次",
+        3 => "試題",
+        4 => "公告",
+        5 => "教師",
+        6 => "審題",
+        _ => "資料"
+    };
+
+    /// <summary>依 Action 碼回傳圖示背景 + 文字顏色 class。</summary>
+    private static string LogIconBgClass(byte action) => action switch
+    {
+        0 => "bg-emerald-50 text-[var(--color-sage)]",
+        1 => "bg-blue-50 text-[var(--color-morandi)]",
+        2 => "bg-rose-50 text-[var(--color-terracotta)]",
+        _ => "bg-stone-100 text-slate-500"
+    };
+
+    /// <summary>依 Action 碼回傳 Font Awesome icon class（含前綴）。</summary>
+    private static string LogIconClass(byte action) => action switch
+    {
+        0 => "fa-plus",
+        1 => "fa-pen",
+        2 => "fa-trash",
+        _ => "fa-circle-info"
+    };
+
+    /// <summary>
+    /// 回傳相對時間字串（剛剛 / N 分鐘前 / N 小時前 / N 天前 / MM/dd HH:mm）。
+    /// </summary>
+    private static string FormatRelativeTime(DateTime time)
+    {
+        var diff = DateTime.Now - time;
+        if (diff.TotalSeconds < 60) return "剛剛";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes} 分鐘前";
+        if (diff.TotalHours   < 24) return $"{(int)diff.TotalHours} 小時前";
+        if (diff.TotalDays    <  7) return $"{(int)diff.TotalDays} 天前";
+        return time.ToString("MM/dd HH:mm");
+    }
+
+    /// <summary>
+    /// 頁面卸載時銷毀所有圖表實例，釋放 JS 端記憶體。
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("apexInterop.destroy", "chart-achievement");
+            await JS.InvokeVoidAsync("apexInterop.destroy", "chart-status");
+        }
+        catch
+        {
+            // 頁面已卸載時 JS Runtime 可能不可用，安全忽略
         }
     }
 }

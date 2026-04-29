@@ -13,4 +13,8 @@
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Components\Shared\ReviewForms\" />
+  </ItemGroup>
+
 </Project>

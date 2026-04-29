@@ -187,6 +187,7 @@ public class ProjectService : IProjectService
                 p.Name,
                 p.Year,
                 p.StartDate,
+                p.EndDate,
                 p.ClosedAt
             FROM dbo.MT_Projects p
             INNER JOIN (

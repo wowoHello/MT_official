@@ -75,6 +75,9 @@ builder.Services.AddScoped<ITeacherService, TeacherService>();
 // 命題任務 CRUD、配額進度、當前階段偵測（CwtList.razor）
 builder.Services.AddScoped<IQuestionService, QuestionService>();
 
+// 審題任務列表、Modal 資料、意見儲存、決策提交（Reviews.razor）
+builder.Services.AddScoped<IReviewService, ReviewService>();
+
 // 命題總覽列表彙整與詳情（Overview.razor，內部依賴 IQuestionService）
 builder.Services.AddScoped<IOverviewService, OverviewService>();
 

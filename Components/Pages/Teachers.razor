@@ -918,6 +918,7 @@
             var authState = await AuthState;
             var operatorId = int.Parse(authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
 
+            CreateTeacherResult? createResult = null;
             if (isEditMode && editingTeacherId.HasValue)
             {
                 await TeacherService.UpdateTeacherAsync(new UpdateTeacherRequest
@@ -939,7 +940,7 @@
             }
             else
             {
-                var newId = await TeacherService.CreateTeacherAsync(new CreateTeacherRequest
+                createResult = await TeacherService.CreateTeacherAsync(new CreateTeacherRequest
                 {
                     DisplayName = formModel.DisplayName,
                     Email = formModel.Email,
@@ -955,12 +956,27 @@
                     Status = formModel.Status,
                     Note = formModel.Note,
                 }, operatorId);
-                editingTeacherId = newId;
+                editingTeacherId = createResult.TeacherId;
             }
 
             // 立即關閉視窗並以非同步方式播放 SweetAlert，不阻塞後續資料刷新
             showTeacherModal = false;
-            _ = JS.InvokeVoidAsync("Swal.fire", new { icon = "success", title = "儲存成功", toast = true, position = "top-end", showConfirmButton = false, timer = 1500 });
+
+            if (createResult is { ReusedExistingUser: true })
+            {
+                // 沿用既有帳號 — 用 info 提示說明，避免使用者誤以為新建了帳號
+                _ = JS.InvokeVoidAsync("Swal.fire", new
+                {
+                    icon = "info",
+                    title = "已沿用既有帳號",
+                    html = $"此信箱已是系統使用者 <b>{createResult.ExistingDisplayName}</b>（帳號：{createResult.ExistingUsername}），<br/>已將其加入教師人才庫，登入帳號與密碼維持原狀。",
+                    confirmButtonColor = "#6B8EAD"
+                });
+            }
+            else
+            {
+                _ = JS.InvokeVoidAsync("Swal.fire", new { icon = "success", title = "儲存成功", toast = true, position = "top-end", showConfirmButton = false, timer = 1500 });
+            }
             StateHasChanged();
 
             await LoadListAsync();
