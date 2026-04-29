@@ -51,6 +51,18 @@ public class HomeService : IHomeService
         {
             using var conn = _db.CreateConnection();
 
+            // 已結案的梯次（手動結案 ClosedAt 有值，或 EndDate 已過）不再產生急件警示
+            const string closedCheckSql = """
+                SELECT 1
+                FROM dbo.MT_Projects
+                WHERE Id = @ProjectId
+                  AND IsDeleted = 0
+                  AND (ClosedAt IS NOT NULL OR EndDate < CAST(GETDATE() AS DATE));
+                """;
+            var isClosed = await conn.ExecuteScalarAsync<int?>(
+                closedCheckSql, new { ProjectId = projectId.Value });
+            if (isClosed == 1) return [];
+
             // 一次取回 8 個結果集：倒數階段 / 梯次角色 / 個人配額 / 修題中 / 待審 / 系統角色 / 配額缺口 / 逾期階段
             const string sql = """
                 -- 1) 倒數階段

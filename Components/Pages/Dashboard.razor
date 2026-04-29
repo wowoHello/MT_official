@@ -348,7 +348,7 @@
             </div>
 
             <!-- Audit Logs -->
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-[300px] overflow-hidden">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
                 <div class="bg-gray-50 px-5 py-3 border-b border-gray-200 flex justify-between items-center shrink-0">
                     <h3 class="font-bold text-gray-700 text-sm flex items-center gap-2">
                         <i class="fa-solid fa-list-ul text-gray-400"></i> 最新稽核歷程 (LOG)
@@ -370,7 +370,8 @@
                 }
                 else
                 {
-                    <ul class="flex-grow overflow-y-auto divide-y divide-stone-100">
+                    @* 列表最大高度 = 5 筆（單筆 ~56px：icon 36px + py-2.5 20px），超過則啟用捲動 *@
+                    <ul class="max-h-[290px] overflow-y-auto divide-y divide-stone-100">
                         @foreach (var log in kpi.RecentLogs)
                         {
                             <li class="px-4 py-2.5 flex items-center gap-3 hover:bg-stone-50 cursor-pointer transition-colors duration-150">

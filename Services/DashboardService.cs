@@ -473,7 +473,8 @@ public class DashboardService : IDashboardService
                 al.CreatedAt
             FROM   dbo.MT_AuditLogs al
             LEFT   JOIN dbo.MT_Users u ON u.Id = al.UserId
-            WHERE  al.ProjectId = @pid OR al.ProjectId IS NULL
+            WHERE  (al.ProjectId = @pid OR al.ProjectId IS NULL)
+              AND  al.Action IN (0, 1, 2)   -- 僅顯示「建立/修改/刪除」三種有語意的動作
             ORDER  BY al.CreatedAt DESC
             """;
 

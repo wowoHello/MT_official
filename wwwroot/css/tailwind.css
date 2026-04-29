@@ -776,6 +776,9 @@
   .h-\[350px\] {
     height: 350px;
   }
+  .h-\[400px\] {
+    height: 400px;
+  }
   .h-\[calc\(100vh-4rem\)\] {
     height: calc(100vh - 4rem);
   }
@@ -799,6 +802,9 @@
   }
   .max-h-\[200px\] {
     max-height: 200px;
+  }
+  .max-h-\[290px\] {
+    max-height: 290px;
   }
   .max-h-\[320px\] {
     max-height: 320px;

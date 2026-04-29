@@ -1,313 +1,188 @@
-# CWT 命題工作平臺 — Blazor .NET 10 搬家總體規劃
+# CLAUDE.md
 
-> **文件版本**：v1.0  
-> **日期**：2026-03-20  
-> **目標**：將 `MT_prototype` 中的 HTML/JS 前端原型，遷移至 Blazor Server (.NET 10) 架構
-> **注意事項**：此為正式環境，必須保持 Clear Code 編碼方式，能夠組件複用就要組件化，且目前已經有資料庫了，不需要再模擬延遲
-> **注意事項**：h1標籤的 CSS 都要加上 focus:outline-none，避免預設選取
-> **注意事項**：compact要重新查看 D:\MTrefer\Reference_doc 資料夾內的每頁任務檔案，不要漏掉
-> **注意事項**：D:\MTrefer\Reference_doc 資料夾內的檔案是參考，不一定要一模一樣，要符合 Blazor 的設計準則
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
----
+# CWT 命題工作平臺 — Blazor Server (.NET 10)
 
-## 核心開發原則
-
-1. **零依賴優先 (Vanilla First)** - 除非我明確要求使用特定套件，否則一律優先使用 C# 相依性注入 (Dependency Injection)，若 C# 無法實現再使用原生 JavaScript (ES6+)。
-   - 禁止隨意引入第三方 npm 套件（如 jQuery、Lodash 等）。
-2. **極致效能 (Performance Driven)**
-   - 程式碼必須以效能最佳化為前提。
-   - 不建立不需要的檔案文件或引用
-   - 減少不必要的 DOM 操作，避免記憶體洩漏 (Memory Leaks)，並採用高效的演算法與資料結構。
-   - 遵守 Clear Code 編碼方式，保持程式碼整潔好維護
-3. **樣式規範 (Tailwind CSS Only)**
-   - 所有 UI 樣式一律使用 Tailwind CSS 實作。
-   - 除非 Tailwind 無法達成需求，否則禁止撰寫自訂 CSS 類別或 Inline Styles。
-   - 需考量到使用者大多是年長者，字體大小最小就是 text-xs，不要使用text-[10px]等過小字體
-4. **符合規則**
-   - 須符合 Blazor 設計準則（例如：常常引用的位址寫在\_Imports.razor內、檔案該放該放的地方如Services、Componets/Models等...）
-   - 所有的 form 都要改為使用 Blazor 專屬的 **EditForm**
-   - 所有的 form 欄位要去參照 **db.md** 資料庫資料表的設計欄位
-   - 資料庫效能最優化，能存數字的方式就不要存文字，例如：不需要自定義的**等級：**0 = 初級、1 = 中級、2 = 中高級、3 = 高級、4 = 優級
-   - 相同頁面資料統一管理，乾淨好維護，一個頁面搭配一個cs搭配一個model※例如：Roles.razor、Services\RoleService.cs、Models\RoleModels.cs
-5. **誠實與精確 (No Hallucination)**
-   - 如果查不到相關資料、缺乏上下文，或沒有權限存取特定資訊，請直接回答「我不知道」或「我無法取得該資訊」。
-   - 絕對禁止猜測、捏造 API 參數或給出模糊不清的答案。
-6. **不要隨意新增功能**
-   - 程式碼優化時盡量往簡易化方向進行，不要優化反而越寫越複雜越龐大
-   - 除非我明確要求，否則不要新增功能
-7. **每一個改動都要撰寫計畫書**
-   - 必須先寫計畫書，等我同意後才能開始實作
-   - 計畫書要包含：計畫日期、改動內容、預期效果、可能影響、替代方案等
-   - 計畫書要放在 D:\MTrefer\Task\(對應頁面名稱) 資料夾內
-   - 計畫書要用繁體中文撰寫
-   - 計畫書要用 Markdown 格式撰寫
+> **文件版本**：v2.0
+> **最後更新**：2026-04-30
+> **專案性質**：正式環境（已連接資料庫，非 Demo）
+> **參考資源根目錄**：`D:\MTrefer\`（原型 `MT_prototype\`、規格書 `Reference_doc\`、資料庫 `db.md`、計畫書 `Task\`）
 
 ---
 
-## 現況盤點
+## 核心開發原則（必讀，所有改動都受這些原則約束）
 
-### 新對話起始動作
-
-- 瀏覽所有的程式碼
-- 參考文件位置：D:\MTrefer
-- 資料庫規劃：D:\MTrefer\db.md
-- 參考Prototype：D:\MTrefer\MT_prototype
-- 規格書位置：D:\MTrefer\Reference_doc
-
-> D:\MTrefer 內容為原型檔、參考之文件位置，去重時與優化時不要刪掉
-
-### 原型頁面清單 (12 頁)
-
-| #   | 原型檔案                                                                     | 對應 JS                                                                       | 功能說明                          | 遷移優先  |
-| --- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------- | --------- |
-| 1   | [index.html](file:///d:/MTrefer/MT_prototype/index.html)                     | [login.js](file:///d:/IISWebSize/MT/MT_prototype/js/login.js)                 | 登入 / 忘記密碼                   | 🔴 P0     |
-| 2   | [firstpage.html](file:///d:/MTrefer/MT_prototype/firstpage.html)             | [firstpage.js](file:///d:/IISWebSize/MT/MT_prototype/js/firstpage.js)         | 登入後首頁 (功能捷徑)             | 🔴 P0     |
-| 3   | [dashboard.html](file:///d:/MTrefer/MT_prototype/dashboard.html)             | [dashboard.js](file:///d:/IISWebSize/MT/MT_prototype/js/dashboard.js)         | 儀表板 (統計圖表)                 | 🟡 P1     |
-| 4   | [projects.html](file:///d:/MTrefer/MT_prototype/projects.html)               | [projects.js](file:///d:/IISWebSize/MT/MT_prototype/js/projects.js)           | 專案梯次管理                      | 🟡 P1     |
-| 5   | [overview.html](file:///d:/MTrefer/MT_prototype/overview.html)               | [overview.js](file:///d:/IISWebSize/MT/MT_prototype/js/overview.js)           | 專案總覽 (進度+題目分佈)          | 🟡 P1     |
-| 6   | [cwt-list.html](file:///d:/MTrefer/MT_prototype/cwt-list.html)               | [cwt-list.js](file:///d:/IISWebSize/MT/MT_prototype/js/cwt-list.js)           | 題目列表 (CRUD + 篩選)            | 🟠 P2     |
-| 7   | [reviews.html](file:///d:/MTrefer/MT_prototype/reviews.html)                 | [cwt-review.js](file:///d:/IISWebSize/MT/MT_prototype/js/cwt-review.js)       | 審題作業                          | 🟠 P2     |
-| 8   | [announcements.html](file:///d:/MTrefer/MT_prototype/announcements.html)     | [announcements.js](file:///d:/IISWebSize/MT/MT_prototype/js/announcements.js) | 公告管理                          | 🟢 P3     |
-| 9   | [teachers.html](file:///d:/MTrefer/MT_prototype/teachers.html)               | [teachers.js](file:///d:/IISWebSize/MT/MT_prototype/js/teachers.js)           | 教師人才庫管理                    | 🟢 P3     |
-| 10  | [roles.html](file:///d:/MTrefer/MT_prototype/roles.html)                     | [roles.js](file:///d:/IISWebSize/MT/MT_prototype/js/roles.js)                 | 角色/權限管理                     | 🟢 P3     |
-| 11  | [role-login-test.html](file:///d:/MTrefer/MT_prototype/role-login-test.html) | —                                                                             | 角色登入測試頁 (DEV)              | ⚪ 不遷移 |
-| —   | —                                                                            | [shared.js](file:///d:/IISWebSize/MT/MT_prototype/js/shared.js)               | 共用邏輯 (Navbar, Auth, FontCtrl) | 🔴 P0     |
-
-### 原型技術棧
-
-| 技術                        | 用途            | Blazor 替代方案                |
-| --------------------------- | --------------- | ------------------------------ |
-| Tailwind CSS v4 (離線檔案)  | UI 樣式         | **Tailwind CSS v4** (維持原樣) |
-| Font Awesome 6 (離線檔案)   | 圖示            | Font Awesome 6 (保留)          |
-| SweetAlert2 (離線檔案)      | 彈窗通知        | SweetAlert2 via JS Interop     |
-| Quill Editor (離線檔案)     | 富文本編輯      | Quill via JS Interop           |
-| Google Fonts (Noto Sans TC) | 字體            | 保留                           |
-| localStorage                | 狀態管理 (DEMO) | **EF Core + 真實 DB**          |
+1. **零依賴優先 (Vanilla First)** — 一律優先使用 C# DI；C# 無法做到時才用原生 ES6+ JS。禁止隨意引入 jQuery、Lodash 等第三方 npm 套件。
+2. **極致效能 (Performance Driven)** — 不建立不需要的檔案、不寫無謂的 DOM 操作、避免 memory leak。資料庫已存在，不要再模擬延遲。
+3. **Tailwind CSS Only** — 全站樣式一律 Tailwind v4 utility class；除非 Tailwind 無法達成，禁止自訂 CSS class 或 Inline style。**字體最小 `text-xs`**，不可使用 `text-[10px]` 等過小字體（使用者多為年長者）。
+4. **三檔案規則（最重要）** — 每個頁面必須拆成三個檔案：
+   - `Components/Pages/{Name}.razor`（UI）
+   - `Services/{Name}Service.cs`（商業邏輯與 DB 存取）
+   - `Models/{Name}Models.cs`（DTO / Enum）
+   範例：`Roles.razor` ↔ `RoleService.cs` ↔ `RoleModels.cs`
+5. **EditForm 與資料庫對齊** — 所有表單一律用 Blazor `EditForm`；欄位必須對齊 `D:\MTrefer\db.md` 的資料表設計。能存數字（enum/tinyint）絕對不存文字（例：等級 0=初級、1=中級…）。
+6. **誠實 (No Hallucination)** — 查不到、缺上下文、沒權限就直說「我不知道」。禁止猜 API 參數或捏造模糊答案。
+7. **不要隨意新增功能** — 優化要往簡化方向走，不要越優化越龐大。除非明確要求，否則不要新增功能。
+8. **每一個改動都要先寫計畫書** — 計畫書放 `D:\MTrefer\Task\{對應頁面}\`，繁體中文 Markdown，包含：計畫日期、改動內容、預期效果、可能影響、替代方案。**等使用者同意才能動工。**
+9. **Blazor 設計準則** — 常用 using 寫在 `Components/_Imports.razor`，元件能組件化就拆到 `Components/Shared/`，不要全部塞進單一 razor。
+10. **`<h1>` 必須加 `focus:outline-none`**（避免 `FocusOnNavigate` 預設藍框）。
 
 ---
 
-## User Review Required
-
-> [!IMPORTANT]
-> **CSS 框架轉換**：原型使用 **Tailwind CSS v4**，依據您的規則設定。所有 UI 將以 Tailwind CSS 實作，視覺風格保持一致（Morandi 色系、glassmorphism 效果等）。
-
-> [!IMPORTANT]
-> **認證機制**：原型使用 localStorage 模擬登入。Blazor 版本建議使用 **ASP.NET Core Identity** 或 **Cookie-based Authentication**（搭配資料庫 Users 表），請確認偏好的認證方案。
-
-> [!WARNING]
-> **遷移範圍**：此規劃為**完整遷移路線圖**，實際執行時建議**一次處理一個頁面**，每完成一個頁面即做驗證後再進入下一頁。請問是否同意此漸進式遷移策略？
-
-## 是！使用漸進式遷移，避免混亂或幻覺產生。
-
-## 擬定架構
-
-### 專案結構 (Blazor Server) -基礎結構
-
-> 若元件能組件化管理，務必使用組件化方式，不要全部寫在一個頁面
-> 組件化工具建立在 Components/Shared 內
-
-```
-MT/
-├── Components/
-│   ├── App.razor                    # 根元件
-│   ├── Routes.razor                 # 路由設定
-│   ├── _Imports.razor               # 全域 using
-│   ├── Layout/
-│   │   ├── MainLayout.razor         # 主版面 (含 Navbar)
-│   │   ├── LoginLayout.razor        # 登入專用版面 (無 Navbar)
-│   │   └── ...
-│   ├── Pages/
-│   │   ├── Login.razor              # 登入頁
-│   │   ├── FirstPage.razor          # 首頁
-│   │   ├── Dashboard.razor          # 儀表板
-│   │   ├── Projects.razor           # 專案管理
-│   │   ├── Overview.razor           # 總覽
-│   │   ├── CwtList.razor            # 題目列表
-│   │   ├── Reviews.razor            # 審題
-│   │   ├── Announcements.razor      # 公告管理
-│   │   ├── Teachers.razor           # 教師管理
-│   │   ├── Roles.razor              # 角色管理
-│   │   └── NotFound.razor           # 404
-│   └── Shared/                       # 共用小元件
-│       ├── ProjectSwitcher.razor    # 專案切換器
-│       ├── FontController.razor     # 字體縮放
-│       ├── ConfirmDialog.razor      # 確認對話框 (取代 SweetAlert 部分)
-│       └── QuillEditor.razor        # Quill 編輯器包裝
-├── Data/
-│   ├── AppDbContext.cs              # EF Core DbContext
-│   └── Entities/                    # 25 個 Entity Model (依 db.md)
-│       ├── Role.cs
-│       ├── User.cs
-│       ├── Teacher.cs
-│       ├── Project.cs
-│       ├── ...
-│       └── AuditLog.cs
-├── Services/                         # 商業邏輯服務層
-│   ├── AuthService.cs               # 認證服務
-│   ├── ProjectService.cs            # 專案服務
-│   ├── QuestionService.cs           # 題目服務
-│   └── ...
-├── wwwroot/
-│   ├── css/
-│   │   └── all.min.css                  # FontAwesome 6
-│   │   └── tailwind.css        # tailwind CSS
-│   │   └── quill.snow.css        # quill編輯器 CSS
-│   ├── js/
-│   │   ├── sweetalert2@11.js    # SweetAlert2
-│   │   └── quill.js         # Quill JS
-│   │   └── login-interop.js         # 登入頁面 JS
-│   ├── lib/
-│   │   └── bootstrap/               # Bootstrap 5 (存在但不使用)
-│   ├── webfonts                     # FontAwesome 6 靜態檔案
-│   └── images/                       # 靜態圖片
-├── Program.cs                        # 應用程式進入點
-├── appsettings.json                  # 設定檔
-└── MT.csproj                         # 專案檔
-```
-
----
-
-## Proposed Changes
-
-### Phase 1：基礎建設
-
-#### [MODIFY] [MT.csproj](file:///d:/IISWebSize/MT/MT.csproj)
-
-- 新增 NuGet 套件：
-  - `Microsoft.EntityFrameworkCore.SqlServer`
-  - `Microsoft.EntityFrameworkCore.Tools`
-  - `Microsoft.AspNetCore.Authentication.Cookies` (或 Identity)
-
-#### [MODIFY] [appsettings.json](file:///d:/IISWebSize/MT/appsettings.json)
-
-- 新增 SQL Server 連線字串 `ConnectionStrings:DefaultConnection`
-
-#### [MODIFY] [Program.cs](file:///d:/IISWebSize/MT/Program.cs)
-
-- 註冊 `DbContext`、`Authentication`、`Services`
-
-#### [MODIFY] [App.razor](file:///d:/IISWebSize/MT/Components/App.razor)
-
-- 引入 Font Awesome 6 離線檔案
-- 引入 Google Fonts (Noto Sans TC)
-- 引入 SweetAlert2 離線檔案
-- 引入 Quill 離線檔案
-- 引入 Tailwind CSS 離線檔案
-
-#### [MODIFY] [app.css](file:///d:/IISWebSize/MT/wwwroot/app.css)
-
-- 共用樣式
-
----
-
-### Phase 2：資料層 (Data Layer)
-
-#### Data/Entities/\*.cs
-
-- 依據 [db.md](file:///d:/MTrefer/db.md) 的 25 張 `MT_` 前綴資料表定義建立 C# Entity 類別
-- 使用 Data Annotations 或 Fluent API 設定關聯、索引、約束
-
-#### [AppDbContext.cs](file:///d:/IISWebSize/MT/Data/AppDbContext.cs)
-
-- 定義所有 `DbSet<T>`
-- `OnModelCreating` 中設定 Fluent API 配置
-- Seed Data 初始化 (Roles, Modules, QuestionTypes)
-
----
-
-### Phase 3：共用元件
-
-#### [MODIFY] [MainLayout.razor](file:///d:/IISWebSize/MT/Components/Layout/MainLayout.razor)
-
-- 使用 Tailwind CSS + 固定頂部 Navbar
-- 整合 ProjectSwitcher、使用者資訊、登出功能
-- 保留 Morandi 配色與視覺風格
-
-#### [LoginLayout.razor](file:///d:/IISWebSize/MT/Components/Layout/LoginLayout.razor)
-
-- 登入頁專用 Layout（無 Navbar、無 Sidebar）
-
-#### [ProjectSwitcher.razor](file:///d:/IISWebSize/MT/Components/Shared/ProjectSwitcher.razor)
-
-- 從 [shared.js](file:///d:/MTrefer/MT_prototype/js/shared.js) 的 [initProjectSwitcher()](file:///d:/MTrefer/MT_prototype/js/shared.js#129-226) 遷移為 Blazor 元件
-- 下拉選單 + 搜尋 + 群組顯示
-
-#### [FontController.razor](file:///d:/IISWebSize/MT/Components/Shared/FontController.razor)
-
-- 從 [shared.js](file:///d:/MTrefer/MT_prototype/js/shared.js) 的 [injectGlobalFontController()](file:///d:/MTrefer/MT_prototype/js/shared.js#271-350) 遷移
-- Speed Dial 浮動按鈕 + 拖拽功能 (需 JS Interop)
-
----
-
-### Phase 4：頁面遷移 (逐頁進行)
-
-> 每個頁面遷移包含：HTML → Razor、JS → C# + JS Interop、Tailwind
-
-#### P0 - 登入頁
-
-- Pages/Login.razor — 登入表單、驗證碼、忘記密碼 Modal
-- Services/AuthService.cs — 認證邏輯
-
-#### P0 - 首頁
-
-- Pages/FirstPage.razor — 功能捷徑卡片
-
-#### P1 - 儀表板、專案管理、總覽
-
-- Pages/Dashboard.razor, Projects.razor, Overview.razor
-- Services/ProjectService.cs
-
-#### P2 - 題目列表、審題
-
-- Pages/CwtList.razor, Reviews.razor
-- Services/QuestionService.cs, ReviewService.cs
-
-#### P3 - 公告、教師、角色
-
-- Pages/Announcements.razor, Teachers.razor, Roles.razor
-- Services/AnnouncementService.cs, TeacherService.cs, RoleService.cs
-
----
-
-## Verification Plan
-
-### 建置驗證
+## 常用開發指令
 
 ```powershell
-# 每次修改後確認專案可正常建置
-cd d:\IISWebSize\MT
-dotnet build
+# .NET
+dotnet restore                  # 還原 NuGet
+dotnet build                    # 提交前必跑
+dotnet run                      # 本機啟動（從 Properties/launchSettings.json 取設定）
+
+# Tailwind v4 CLI（使用 @tailwindcss/cli，編譯 input.css → tailwind.css）
+npm install                     # 第一次或更新 deps
+npm run build:css               # 一次性 minify 編譯
+npm run watch:css               # 開發時持續監看
 ```
 
-### 瀏覽器測試 (每個頁面遷移後)
-
-- 使用 browser_subagent 工具開啟頁面
-- 驗證 UI 渲染正確 (Tailwind 排版、Morandi 色系)
-- 驗證互動功能 (表單提交、Modal 彈窗、元件互動)
-- 驗證響應式佈局 (不同視窗尺寸)
-
-### 手動驗證 (請使用者協助)
-
-- 確認各頁面視覺風格是否符合預期
-- 確認使用者流程 (登入→首頁→各功能頁) 是否順暢
-- 確認頁面切換效能是否可接受
+> **注意**：`wwwroot/css/tailwind.css` 是編譯產物，不要手改；改 `wwwroot/css/input.css`。
 
 ---
 
-## 遷移策略說明
+## 技術棧（與舊版規劃不同，請以此為準）
 
-### 漸進式遷移 (推薦)
+| 類別 | 實際採用 |
+| --- | --- |
+| Runtime | **.NET 10**（`global.json` 鎖 `10.0.203`） |
+| UI | **Blazor Server**（`AddInteractiveServerComponents`，`InteractiveServer` rendermode） |
+| 資料存取 | **Dapper 2.1.72 + Microsoft.Data.SqlClient**（**不是 EF Core**） |
+| 即時同步 | **SignalR**（`/hubs/projects` ProjectsHub） |
+| 認證 | **Cookie Authentication**（非 Identity）+ `IHttpContextAccessor` |
+| 樣式 | **Tailwind CSS v4.2** + 莫蘭迪色系（晨光書房） |
+| 富文本 | **Quill** via JS Interop（`QuillEditor.razor` / `QuillEditorHost.razor` / `QuillField.razor` / `InlineQuillEditor.razor`） |
+| 對話框 | **SweetAlert2** via `js/swal-interop.js` |
+| 圖表 | **ApexCharts** via `js/apex-interop.js` |
+| 字體 | Google Fonts Noto Sans TC + Font Awesome 6（離線） |
 
-1. **每次只遷移一個頁面**
-2. 完成後立即進行建置 + 瀏覽器驗證
-3. 通過驗證後再進入下一頁面
-4. 如發現共用問題，優先修復後再繼續
+JS interop 檔位於 `wwwroot/js/`：`login-interop.js`、`quill-interop.js`、`font-controller.js`、`swal-interop.js`、`apex-interop.js`。
 
-### JS → Blazor 遷移原則
+---
 
-- **DOM 操作** → Razor 雙向綁定 (`@bind`, `@onclick`)
-- **localStorage** → C# Service + 資料庫
-- **fetch / API** → 直接呼叫 C# Service (Server-Side)
-- **SweetAlert2** → JS Interop 呼叫
-- **Quill** → JS Interop 包裝元件
-- **事件監聽** → Blazor 事件 (`@onclick`, `@onchange`, `EventCallback`)
+## 高層架構（big picture）
+
+### 啟動流程（`Program.cs`）
+1. 註冊 `RazorComponents` + `SignalR` + `Cookie Auth`（2 小時滑動，「記住登入」於 `AuthService.CompleteSignInAsync` 改 90 天絕對期限）。
+2. **註冊 13 個 Scoped Service**（每行已用註解標明所屬頁面，Service 與頁面是一對一對應）：`ICaptchaService`、`IDatabaseService`、`IAuthService`、`IEmailService`、`IPasswordResetService`、`IProjectService`、`IRoleService`、`IAnnouncementService`、`ITeacherService`、`IQuestionService`、`IReviewService`、`IOverviewService`、`IHomeService`、`IDashboardService`。
+3. Pipeline：`UsePathBase`（讀 `Configuration["PathBase"]`，IIS 子應用程式用 `/MT`，本機留空）→ `UseStatusCodePagesWithReExecute("/not-found")` → Auth/Authorization/Antiforgery → `MapStaticAssets` → `MapRazorComponents<App>` → `MapHub<ProjectsHub>("/hubs/projects")`。
+4. 兩個 Auth 端點（一定要走 HTTP request 才能寫 Cookie）：
+   - `GET /auth/login?key=...` → `CompleteSignInAsync`，首次登入導 `/first-login-password`，否則導 `/`。
+   - `GET /auth/logout` → 寫 `Logout` AuditLog（失敗不阻擋登出）→ `SignOutAsync` → 回 `/login`。
+5. `POST /api/upload`：Quill 圖片上傳，限 5MB、PNG/JPEG/GIF/WebP，寫到 `wwwroot/uploads/`，回 `{pathBase}/uploads/{guid}.{ext}`。`.RequireAuthorization()` + `.DisableAntiforgery()`。
+
+### 頁面 ↔ Service ↔ Model 對應表（11 頁）
+
+| 頁面 | Service | Model | 路由 / 用途 |
+| --- | --- | --- | --- |
+| `Login.razor` | `AuthService` + `CaptchaService` + `PasswordResetService` + `EmailService` | — | `/login`、忘記密碼、寄送 token 信 |
+| `FirstLoginPassword.razor` / `ResetPassword.razor` | `PasswordResetService` | — | 首次登入強制改密碼 / Token 重設 |
+| `Home.razor` | `HomeService` | `HomeModel` | `/` 首頁（功能捷徑、今日提醒、公告） |
+| `Dashboard.razor` | `DashboardService` | `DashboardModels` | 命題儀表板（KPI 統計） |
+| `Projects.razor` | `ProjectService` | `ProjectModels` | 命題專案梯次 CRUD（與 SignalR 同步） |
+| `Overview.razor` | `OverviewService`（內依賴 `IQuestionService`） | `OverviewModels` | 命題總覽（七階段燈號、跨梯次彙整） |
+| `CwtList.razor` | `QuestionService` | `QuestionModels` | 命題任務（7 種題型 CRUD、配額進度、3 個 Tab） |
+| `Reviews.razor` | `ReviewService` | `ReviewModels` | 審題任務（互審/專審/總審 + 結果歷史） |
+| `Announcements.razor` | `AnnouncementService` | `AnnouncementModels` | 系統公告 CRUD + 自動下架 |
+| `Teachers.razor` | `TeacherService` | `TeacherModels` | 教師人才庫 + 跨梯次歷程 |
+| `Roles.razor` | `RoleService` | `RoleModels` + `ModulePermission` + `RoleTag` | 帳號管理 + 角色權限矩陣 |
+
+### 共用元件（`Components/Shared/`）
+- 通用：`CustomModal`、`DebouncedSearchInput`、`EmptyState`、`StatusBadge`、`PhaseProgressStepper`、`FontController`、`RedirectToLogin`。
+- Quill 體系：`QuillEditor`（底部滑入面板 + 中文標點快插）、`QuillEditorHost`、`QuillField`、`InlineQuillEditor`、`SharedQuillEditorContext.cs`。
+- 命題表單：`Shared/QuestionForms/` 下 7 種題型表單元件 + `QuestionAttributesSidebar` + `OptionGroup`。
+- 命題預覽：`Shared/QuestionPreviews/` 下 7 種題型考卷預覽 + `QuestionPreviewModal`。
+- 審題：`Shared/ReviewForms/` 下 `ReviewModal`、`ReviewActionPanel`、`ReviewDecisionBar`、`ReviewQuestionDisplay`、`ReviewHistoryTimeline`、`ReviewSimilarityBanner`。
+
+### 資料庫連線解析（`Services/DatabaseService.cs`）
+連線字串解析順序：
+1. **環境變數 / IIS 設定**：`MT_SQL_Server`、`MT_SQL_Database`、`MT_SQL_UserId`、`MT_SQL_UserPassword`（四個都有值才會用，自動加 `TrustServerCertificate=true`）。
+2. **fallback**：`appsettings*.json` 的 `ConnectionStrings:DefaultConnection`。
+
+> **IIS 發佈陷阱**：`dotnet publish` 會覆蓋 `web.config`，發佈完務必重新加回 `MT_SQL_*` 四個 `<environmentVariable>`，否則站台連不上 DB。
+
+### 認證流程細節
+- Razor 元件不能直接寫 Cookie（沒有 `HttpResponse`），所以：
+  1. `Login.razor` 呼叫 `AuthService.PrepareSignIn` 把 ClaimsPrincipal 暫存。
+  2. 用 `NavigationManager.NavigateTo("/auth/login?key=...", forceLoad: true)` 觸發真正的 HTTP request。
+  3. `Program.cs` 的 `/auth/login` endpoint 才呼叫 `CompleteSignInAsync` 寫 Cookie。
+- 「記住登入」勾選後 `IsPersistent=true` 且絕對期限 90 天；未勾為 sliding 2 小時。
+- 登入/登出都要寫 `MT_AuditLogs`（`AuditAction.Logout` 等）。
+
+### 路由與授權（`Components/Routes.razor`）
+- 預設全站 `[Authorize]`（在 `_Imports.razor` 設定）；登入/重設密碼頁要 `[AllowAnonymous]` + `@layout LoginLayout`。
+- 未授權會渲染「自動引導回登入頁」畫面 + `RedirectToLogin` 元件。
+- 找不到頁面導向 `/not-found`（`NotFound.razor`）。
+
+---
+
+## 角色與權限（影響 UI 顯示）
+
+8 個功能模組的權限由 `RoleService` 管理。**外部教師（命題教師、審題委員）不能進入公告/專案/教師/角色管理頁**——任何首頁卡片、麵包屑、引導動作都不能連到這些禁止頁，否則會踩到既有規範。
+
+預設角色（不可改權限）：命題教師、審題委員、總召。
+自訂角色範例：系統管理員、計畫主持人、教務管理者。
+詳見 `.claude/rules/cwt-roles-rules.md` 的權限矩陣。
+
+---
+
+## 重要業務規則（高頻被忽略的點）
+
+### 命題流程（七階段）
+產學起迄 → **命題階段** → 交互審題 → **互審修題** → 專家審題 → **專審修題** → 總召審題 → **總召修題**。
+**粗體階段倒數 5 天會在首頁今日提醒紅字示警**。
+
+### 三審制度與迴避規則
+- **互審**：命題教師互審，**只能給意見**，沒有採用/退回按鈕；自己命的題目絕不分配給自己。
+- **專審**：專家學者，可「採用」「改後再審」，**沒有不採用**。
+- **總審**：可「採用」「改後再審」「不採用」；**最多退回 2 次**，第 3 次由總審親自修並下最終裁決。
+- 多名總召時，若某總召在專審階段審過某題，該題進入總審必分給其他總召。
+- 結案：僅「採用」入庫，其餘一律不採用。
+
+### 命題任務頁三 Tab
+- **命題作業區**：草稿 / 完成 / 已送審
+- **審修作業區**：鎖定審查中 / 修題中
+- **審核結果與歷史**：採用 / 不採用（唯讀）
+
+詳細規則見 `.claude/rules/cwt-prop-rules.md`、`cwt-ex-rules.md`。
+
+---
+
+## `.claude/rules/` 內的規格書（每次改頁面前先讀對應檔）
+
+| 檔案 | 對應頁面 |
+| --- | --- |
+| `prd-cwt-proposition-platform.md` | 全平臺 PRD（v1.3） |
+| `code-style.md` | 程式碼風格 + UI/UX 規範 + 莫蘭迪配色 |
+| `cwt-prop-rules.md` | 命題任務（CwtList） |
+| `cwt-ex-rules.md` | 審題任務（Reviews） |
+| `cwt-ac-rules.md` | 公告（Announcements） |
+| `cwt-teacher-rules.md` | 教師管理（Teachers） |
+| `cwt-roles-rules.md` | 角色與權限（Roles） |
+| `warning_MODIFY.md` | 首頁急件提醒連結與字體控制器歷史紀錄 |
+
+> **/compact 後**：必須重讀 `D:\MTrefer\Reference_doc\` 內的每頁任務檔案，不要遺漏。
+
+---
+
+## 驗證方式
+
+- **建置**：每次修改後 `dotnet build`，編譯通過才提案完成。
+- **瀏覽器**：UI 改動需用 dev-browser 工具開頁面實測，驗證 Tailwind 排版、Modal、表單流程、響應式佈局。
+- **資料庫**：本機需有 SQL Server 並設定 `MT_SQL_*` 環境變數或 `appsettings.Development.json` 的 `ConnectionStrings:DefaultConnection`。
+- 沒有獨立測試專案；以建置 + 手動驗證為最低門檻。
+
+---
+
+## 提交慣例
+
+- 訊息用繁體中文、單一主題（例：`補上記住登入與忘記密碼功能`）。
+- 不要把 CSS、資料庫、頁面重構混成一包。
+- PR 需寫變更目的、影響範圍、手動驗證步驟；UI 改動附截圖；動到設定/連線/權限請明寫風險。
