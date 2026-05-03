@@ -113,6 +113,7 @@ public class ProjectService : IProjectService
                 p.StartDate,
                 p.EndDate,
                 p.ClosedAt,
+                (SELECT TOP 1 ph.StartDate FROM dbo.MT_ProjectPhases ph WHERE ph.ProjectId = p.Id AND ph.PhaseCode = 2) AS CompositionStartDate,
                 ISNULL(u.DisplayName, N'系統') AS CreatorName,
                 (SELECT COUNT(*) FROM dbo.MT_ProjectMembers pm WHERE pm.ProjectId = p.Id) AS MemberCount
             FROM dbo.MT_Projects p
@@ -188,7 +189,8 @@ public class ProjectService : IProjectService
                 p.Year,
                 p.StartDate,
                 p.EndDate,
-                p.ClosedAt
+                p.ClosedAt,
+                (SELECT TOP 1 ph.StartDate FROM dbo.MT_ProjectPhases ph WHERE ph.ProjectId = p.Id AND ph.PhaseCode = 2) AS CompositionStartDate
             FROM dbo.MT_Projects p
             INNER JOIN (
                 SELECT DISTINCT ProjectId
@@ -218,6 +220,7 @@ public class ProjectService : IProjectService
             SELECT
                 p.Id, p.ProjectCode, p.Name, p.Year, p.School,
                 p.StartDate, p.EndDate, p.ClosedAt,
+                (SELECT TOP 1 ph.StartDate FROM dbo.MT_ProjectPhases ph WHERE ph.ProjectId = p.Id AND ph.PhaseCode = 2) AS CompositionStartDate,
                 ISNULL(u.DisplayName, N'系統') AS CreatorName
             FROM dbo.MT_Projects p
             LEFT JOIN dbo.MT_Users u ON u.Id = p.CreatedBy
@@ -891,15 +894,17 @@ public class ProjectService : IProjectService
     {
         const string sql = """
             SELECT
-                PhaseCode,
-                PhaseName,
-                StartDate,
-                EndDate,
-                DATEDIFF(DAY, CAST(GETDATE() AS DATE), EndDate) AS DaysLeft
-            FROM dbo.MT_ProjectPhases
-            WHERE ProjectId = @ProjectId
-              AND PhaseCode > 1
-            ORDER BY SortOrder;
+                ph.PhaseCode,
+                ph.PhaseName,
+                ph.StartDate,
+                ph.EndDate,
+                DATEDIFF(DAY, CAST(GETDATE() AS DATE), ph.EndDate) AS DaysLeft,
+                p.ClosedAt
+            FROM dbo.MT_ProjectPhases ph
+            INNER JOIN dbo.MT_Projects p ON p.Id = ph.ProjectId
+            WHERE ph.ProjectId = @ProjectId
+              AND ph.PhaseCode > 1
+            ORDER BY ph.SortOrder;
             """;
 
         using var conn = _db.CreateConnection();
@@ -908,22 +913,31 @@ public class ProjectService : IProjectService
     }
 
     /// <summary>
-    /// 取得指定專案目前進行中的階段；排除「產學計畫區間」框架。若今日未落在任何階段區間，回傳 null。
+    /// 取得指定專案「目前所在階段」：
+    /// - 未結案：今日落入的階段（若不在任何階段區間，回傳 null）
+    /// - 已結案：ClosedAt 落入的階段（讓審題頁仍能呈現結案位置）
     /// </summary>
     public async Task<ProjectPhaseInfo?> GetCurrentPhaseAsync(int projectId)
     {
         const string sql = """
             SELECT TOP 1
-                PhaseCode,
-                PhaseName,
-                StartDate,
-                EndDate,
-                DATEDIFF(DAY, CAST(GETDATE() AS DATE), EndDate) AS DaysLeft
-            FROM dbo.MT_ProjectPhases
-            WHERE ProjectId = @ProjectId
-              AND PhaseCode > 1
-              AND CAST(GETDATE() AS DATE) BETWEEN StartDate AND EndDate
-            ORDER BY SortOrder;
+                ph.PhaseCode,
+                ph.PhaseName,
+                ph.StartDate,
+                ph.EndDate,
+                DATEDIFF(DAY, CAST(GETDATE() AS DATE), ph.EndDate) AS DaysLeft,
+                p.ClosedAt
+            FROM dbo.MT_ProjectPhases ph
+            INNER JOIN dbo.MT_Projects p ON p.Id = ph.ProjectId
+            WHERE ph.ProjectId = @ProjectId
+              AND ph.PhaseCode > 1
+              AND (
+                    -- 未結案：以今日為基準
+                    (p.ClosedAt IS NULL AND CAST(GETDATE() AS DATE) BETWEEN ph.StartDate AND ph.EndDate)
+                    -- 已結案：以 ClosedAt 為基準
+                 OR (p.ClosedAt IS NOT NULL AND CAST(p.ClosedAt AS DATE) BETWEEN ph.StartDate AND ph.EndDate)
+              )
+            ORDER BY ph.SortOrder;
             """;
 
         using var conn = _db.CreateConnection();

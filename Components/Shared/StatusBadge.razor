@@ -64,6 +64,8 @@
         {
             ("success", true) => "bg-emerald-100 text-emerald-700",
             ("success", false) => "bg-emerald-50 text-emerald-700 border-emerald-200",
+            ("preparing", true) => "bg-sage/15 text-sage",
+            ("preparing", false) => "bg-sage/10 text-sage border-sage/30",
             ("warning", true) => "bg-amber-100 text-amber-700",
             ("warning", false) => "bg-amber-50 text-amber-700 border-amber-200",
             ("danger", true) => "bg-terracotta/10 text-terracotta",
@@ -86,6 +88,8 @@
         var text = StatusText.Trim();
         if (text.Contains("完成") || text.Contains("採用") || text.Contains("啟用") || text.Contains("已發佈"))
             return "success";
+        if (text.Contains("準備中"))
+            return "preparing";
         if (text.Contains("進行中") || text.Contains("送審") || text.Contains("鎖定") || text.Contains("審查中") || text.Contains("未發佈"))
             return "info";
         if (text.Contains("退回") || text.Contains("修題") || text.Contains("待審"))
@@ -94,7 +98,7 @@
             return "danger";
         if (text.Contains("結案"))
             return "closed";
-        if (text.Contains("草稿") || text.Contains("準備中") || text.Contains("關閉"))
+        if (text.Contains("草稿") || text.Contains("關閉"))
             return "draft";
 
         return "default";
@@ -112,13 +116,14 @@
         var type = BadgeType != "default" ? BadgeType : InferTypeFromStatus();
         return type switch
         {
-            "success" => "fa-circle-check",
-            "warning" => "fa-triangle-exclamation",
-            "danger" => "fa-circle-xmark",
-            "info" => "fa-circle-info",
-            "closed" => "fa-box-archive",
-            "draft" => "fa-pen-ruler",
-            _ => "fa-circle-dot"
+            "success"   => "fa-circle-check",
+            "preparing" => "fa-hourglass-start",
+            "warning"   => "fa-triangle-exclamation",
+            "danger"    => "fa-circle-xmark",
+            "info"      => "fa-circle-info",
+            "closed"    => "fa-box-archive",
+            "draft"     => "fa-pen-ruler",
+            _           => "fa-circle-dot"
         };
     }
 }

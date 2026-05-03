@@ -103,6 +103,12 @@
     color: #9ca3af;
 }
 
+.stage-dot.closed {
+    background: var(--color-terracotta, #d98a6c);
+    color: white;
+    box-shadow: 0 2px 6px rgba(217, 138, 108, 0.35);
+}
+
 .stage-label {
     margin-top: 6px;
     font-size: 0.7rem;
@@ -114,6 +120,7 @@
 
 .stage-label.done { color: var(--color-sage, #8eab94); }
 .stage-label.active { color: var(--color-morandi, #6b8ead); font-weight: 700; }
+.stage-label.closed { color: var(--color-terracotta, #d98a6c); font-weight: 700; }
 
 .stage-line {
     position: absolute;
@@ -121,6 +128,9 @@
     height: 3px;
     border-radius: 2px;
     z-index: 0;
+    /* 連接前一節點中心 +14px（避開 dot 半徑）到當前節點中心 -14px */
+    left: calc(-50% + 14px);
+    right: calc(50% + 14px);
 }
 
 .stage-line.done { background: var(--color-sage, #8eab94); }

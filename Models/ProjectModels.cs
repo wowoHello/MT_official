@@ -97,7 +97,8 @@ public class ProjectSwitcherItem
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
     public DateTime? ClosedAt { get; set; }
-    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, EndDate, ClosedAt);
+    public DateTime? CompositionStartDate { get; set; }
+    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, EndDate, ClosedAt, CompositionStartDate);
     public bool IsClosed => EffectiveStatus == ProjectLifecycleStatus.Closed;
     public string DisplayName => $"{Year}年度 {Name}";
 }
@@ -115,7 +116,8 @@ public class ProjectListItem
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
     public DateTime? ClosedAt { get; set; }
-    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, EndDate, ClosedAt);
+    public DateTime? CompositionStartDate { get; set; }
+    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, EndDate, ClosedAt, CompositionStartDate);
     public bool IsClosed => EffectiveStatus == ProjectLifecycleStatus.Closed;
     public string CreatorName { get; set; } = string.Empty;
     public int MemberCount { get; set; }
@@ -134,7 +136,8 @@ public class ProjectDetailDto
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
     public DateTime? ClosedAt { get; set; }
-    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, EndDate, ClosedAt);
+    public DateTime? CompositionStartDate { get; set; }
+    public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, EndDate, ClosedAt, CompositionStartDate);
     public bool IsClosed => EffectiveStatus == ProjectLifecycleStatus.Closed;
     public string CreatorName { get; set; } = string.Empty;
     public List<PhaseDetailDto> Phases { get; set; } = new();
@@ -175,23 +178,33 @@ public enum ProjectLifecycleStatus : byte
 public static class ProjectStatusHelper
 {
     public static ProjectLifecycleStatus Resolve(DateTime startDate, DateTime? closedAt)
-        => Resolve(startDate, null, closedAt);
+        => Resolve(startDate, null, closedAt, null);
 
     public static ProjectLifecycleStatus Resolve(DateTime startDate, DateTime? endDate, DateTime? closedAt)
+        => Resolve(startDate, endDate, closedAt, null);
+
+    /// <summary>
+    /// 完整版：以「命題階段 StartDate」作為 Preparing/Active 切換點。
+    /// - 結案優先（手動或結束日已過）
+    /// - 命題階段尚未開始 → Preparing（即使產學區間已起跑）
+    /// - 命題階段已開始 → Active
+    /// 若未提供 compositionStartDate，回退為以 startDate（產學區間）判斷。
+    /// </summary>
+    public static ProjectLifecycleStatus Resolve(DateTime startDate, DateTime? endDate, DateTime? closedAt, DateTime? compositionStartDate)
     {
-        // 已手動結案 → Closed
         if (closedAt.HasValue)
         {
             return ProjectLifecycleStatus.Closed;
         }
 
-        // 結束日已過 → 視為自動結案
         if (endDate.HasValue && endDate.Value.Date < DateTime.Today)
         {
             return ProjectLifecycleStatus.Closed;
         }
 
-        return startDate.Date <= DateTime.Today
+        // 優先以命題階段 StartDate 判斷；無資料才退回產學區間
+        var threshold = compositionStartDate?.Date ?? startDate.Date;
+        return threshold <= DateTime.Today
             ? ProjectLifecycleStatus.Active
             : ProjectLifecycleStatus.Preparing;
     }

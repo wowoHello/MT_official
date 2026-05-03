@@ -19,19 +19,44 @@ public class ProjectPhaseInfo
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
     public int DaysLeft { get; set; }
-    public bool IsUrgent => DaysLeft >= 0 && DaysLeft <= 5;
 
-    public PhaseDisplayState DisplayState =>
-        DateTime.Today > EndDate ? PhaseDisplayState.Done :
-        DateTime.Today >= StartDate ? PhaseDisplayState.Active :
-        PhaseDisplayState.Upcoming;
+    /// <summary>專案結案時間（NULL = 進行中）。由 SQL JOIN MT_Projects 帶入。</summary>
+    public DateTime? ClosedAt { get; set; }
+
+    public bool IsClosed => ClosedAt.HasValue;
+
+    /// <summary>結案後沒有「即將截止」概念，IsUrgent 強制為 false。</summary>
+    public bool IsUrgent => !IsClosed && DaysLeft >= 0 && DaysLeft <= 5;
+
+    /// <summary>
+    /// 視覺狀態：
+    /// - 未結案：依今日落點 Done / Active / Upcoming（與 Projects 頁的時程列一致）
+    /// - 已結案：ClosedAt 落入哪個階段就標 Closed（橘），早於 ClosedAt 的階段為 Done（綠），晚於的為 Upcoming（灰）
+    /// </summary>
+    public PhaseDisplayState DisplayState
+    {
+        get
+        {
+            if (ClosedAt is DateTime closed)
+            {
+                var closedDate = closed.Date;
+                if (EndDate < closedDate) return PhaseDisplayState.Done;
+                if (StartDate <= closedDate) return PhaseDisplayState.Closed;
+                return PhaseDisplayState.Upcoming;
+            }
+            return DateTime.Today > EndDate ? PhaseDisplayState.Done :
+                   DateTime.Today >= StartDate ? PhaseDisplayState.Active :
+                   PhaseDisplayState.Upcoming;
+        }
+    }
 }
 
 public enum PhaseDisplayState : byte
 {
-    Done = 0,
-    Active = 1,
-    Upcoming = 2
+    Done     = 0,
+    Active   = 1,
+    Upcoming = 2,
+    Closed   = 3   // 結案落入的階段（terracotta 橘）
 }
 
 // ======================================================================

@@ -38,16 +38,28 @@
                     @* 當前階段指示燈：與 CwtList 一致 — 進行中 sage（綠）；急迫倒數 ≤5 天才轉 terracotta 警示 *@
                     @if (currentPhase is not null)
                     {
-                        var urgentCss = currentPhase.IsUrgent
+                        @* 三段式視覺：已結案=橘、即將截止=橘呼吸、進行中=綠呼吸 *@
+                        var pillCss = currentPhase.IsClosed
                             ? "bg-terracotta/15 text-terracotta border-terracotta/30"
-                            : "bg-sage/15 text-sage border-sage/30";
-                        var dotCss = currentPhase.IsUrgent ? "bg-terracotta" : "bg-sage";
-                        <span class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full border @urgentCss">
-                            <span class="w-2 h-2 rounded-full @dotCss animate-pulse"></span>
-                            @currentPhase.PhaseName 進行中
-                            @if (currentPhase.IsUrgent)
+                            : currentPhase.IsUrgent
+                                ? "bg-terracotta/15 text-terracotta border-terracotta/30"
+                                : "bg-sage/15 text-sage border-sage/30";
+                        var dotCss = currentPhase.IsClosed || currentPhase.IsUrgent ? "bg-terracotta" : "bg-sage";
+                        var pulseCss = currentPhase.IsClosed ? "" : "animate-pulse";
+                        <span class="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1 rounded-full border @pillCss">
+                            <span class="w-2 h-2 rounded-full @dotCss @pulseCss"></span>
+                            @currentPhase.PhaseName
+                            @if (currentPhase.IsClosed)
                             {
-                                <span>（剩 @currentPhase.DaysLeft 天）</span>
+                                <span>已結案</span>
+                            }
+                            else
+                            {
+                                <span>進行中</span>
+                                @if (currentPhase.IsUrgent)
+                                {
+                                    <span>（剩 @currentPhase.DaysLeft 天）</span>
+                                }
                             }
                         </span>
                     }
@@ -72,15 +84,15 @@
 
                 <!-- Tab Bar -->
                 <div class="flex border-b border-gray-200 bg-white sticky top-0 z-20 overflow-x-auto">
-                    <button @onclick='() => currentTab = "review"'
+                    <button @onclick='() => SwitchTab("review")'
                         class="@(currentTab == "review" ? "text-terracotta border-b-terracotta font-bold" : "text-gray-500 border-transparent") px-5 py-3 text-sm border-b-2 transition-colors hover:text-terracotta cursor-pointer focus:outline-none whitespace-nowrap">
                         <i class="fa-solid fa-clipboard-check mr-1.5 text-terracotta"></i>審題作業區
-                        <span class="ml-2 text-xs bg-terracotta/15 text-terracotta px-2 py-0.5 rounded-full font-bold">0</span>
+                        <span class="ml-2 text-xs bg-terracotta/15 text-terracotta px-2 py-0.5 rounded-full font-bold">@assignments.Count</span>
                     </button>
-                    <button @onclick='() => currentTab = "history"'
+                    <button @onclick='() => SwitchTab("history")'
                         class="@(currentTab == "history" ? "text-morandi border-b-morandi font-bold" : "text-gray-500 border-transparent") px-5 py-3 text-sm border-b-2 transition-colors hover:text-morandi cursor-pointer focus:outline-none whitespace-nowrap">
                         <i class="fa-solid fa-box-archive mr-1.5 text-morandi"></i>審核結果與歷史
-                        <span class="ml-2 text-xs bg-morandi/15 text-morandi px-2 py-0.5 rounded-full font-bold">0</span>
+                        <span class="ml-2 text-xs bg-morandi/15 text-morandi px-2 py-0.5 rounded-full font-bold">@historyItems.Count</span>
                     </button>
                 </div>
 
@@ -96,20 +108,26 @@
                                     var phase = phases[i];
                                     var stateCss = phase.DisplayState switch
                                     {
-                                        PhaseDisplayState.Done    => "done",
-                                        PhaseDisplayState.Active  => "active",
-                                        _                         => "upcoming"
+                                        PhaseDisplayState.Done     => "done",
+                                        PhaseDisplayState.Active   => "active",
+                                        PhaseDisplayState.Closed   => "closed",
+                                        _                          => "upcoming"
                                     };
-                                    var icon = phase.DisplayState == PhaseDisplayState.Done   ? "fa-solid fa-check"
-                                             : phase.DisplayState == PhaseDisplayState.Active ? "fa-solid fa-location-dot"
-                                             : "fa-solid fa-ellipsis";
+                                    var icon = phase.DisplayState switch
+                                    {
+                                        PhaseDisplayState.Done     => "fa-solid fa-check",
+                                        PhaseDisplayState.Active   => "fa-solid fa-location-dot",
+                                        PhaseDisplayState.Closed   => "fa-solid fa-flag-checkered",
+                                        _                          => "fa-solid fa-ellipsis"
+                                    };
 
                                     <div class="stage-node">
                                         @if (i > 0)
                                         {
+                                            @* 連線著色：前段 Done 才接綠線，其餘皆灰 *@
                                             var prev = phases[i - 1].DisplayState;
-                                            var lineCss = (prev == PhaseDisplayState.Done && phase.DisplayState != PhaseDisplayState.Upcoming) ? "done" : "upcoming";
-                                            <div class="stage-line @lineCss" style="left: calc(-50% + 14px); right: calc(50% + 14px);"></div>
+                                            var lineCss = prev == PhaseDisplayState.Done ? "done" : "upcoming";
+                                            <div class="stage-line @lineCss"></div>
                                         }
                                         <div class="stage-dot @stateCss" title="@phase.PhaseName：@phase.StartDate.ToString("yyyy/MM/dd") ~ @phase.EndDate.ToString("yyyy/MM/dd")">
                                             <i class="@icon text-xs"></i>
@@ -121,10 +139,21 @@
                             <div class="text-center text-xs text-gray-500 mt-3 font-medium">
                                 @if (currentPhase is not null)
                                 {
-                                    var daysCss = currentPhase.IsUrgent ? "text-terracotta" : "text-morandi";
-                                    <span>
-                                        <i class="fa-solid fa-location-dot mr-1 @daysCss"></i> 目前階段：<strong>@currentPhase.PhaseName</strong>（剩餘 <strong class="@daysCss">@currentPhase.DaysLeft</strong> 天）
-                                    </span>
+                                    if (currentPhase.IsClosed)
+                                    {
+                                        <span>
+                                            <i class="fa-solid fa-flag-checkered mr-1 text-terracotta"></i>
+                                            專案已於 <strong class="text-terracotta">@currentPhase.ClosedAt!.Value.ToString("yyyy/MM/dd")</strong>
+                                            於「<strong class="text-terracotta">@currentPhase.PhaseName</strong>」階段結案
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        var daysCss = currentPhase.IsUrgent ? "text-terracotta" : "text-morandi";
+                                        <span>
+                                            <i class="fa-solid fa-location-dot mr-1 @daysCss"></i> 目前階段：<strong>@currentPhase.PhaseName</strong>（剩餘 <strong class="@daysCss">@currentPhase.DaysLeft</strong> 天）
+                                        </span>
+                                    }
                                 }
                                 else if (phases.Any() && phases.All(p => p.DisplayState == PhaseDisplayState.Done))
                                 {
@@ -141,19 +170,19 @@
                                 <div class="flex items-center gap-1.5 text-gray-700">
                                     <i class="fa-solid fa-list-check text-morandi"></i>
                                     本區題目
-                                    <span class="text-lg font-bold text-slate-main ml-0.5">0</span>
+                                    <span class="text-lg font-bold text-slate-main ml-0.5">@assignments.Count</span>
                                 </div>
                                 <span class="text-gray-300">|</span>
                                 <div class="flex items-center gap-1.5 text-gray-700">
                                     <i class="fa-solid fa-hourglass-half text-terracotta"></i>
                                     待處理
-                                    <span class="text-lg font-bold text-terracotta ml-0.5">0</span>
+                                    <span class="text-lg font-bold text-terracotta ml-0.5">@assignments.Count(a => !a.IsDecided)</span>
                                 </div>
                                 <span class="text-gray-300">|</span>
                                 <div class="flex items-center gap-1.5 text-gray-700">
                                     <i class="fa-solid fa-circle-check text-sage"></i>
                                     已決策
-                                    <span class="text-lg font-bold text-sage ml-0.5">0</span>
+                                    <span class="text-lg font-bold text-sage ml-0.5">@assignments.Count(a => a.IsDecided)</span>
                                 </div>
                             </div>
                         }
@@ -162,9 +191,9 @@
                     {
                         <!-- 歷史 Tab 統計卡片 -->
                         <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                            @HistoryStatCard("全部題目", "0", "fa-layer-group", "text-morandi", "text-slate-main")
-                            @HistoryStatCard("已採用", "0", "fa-circle-check", "text-sage", "text-sage")
-                            @HistoryStatCard("不採用", "0", "fa-circle-xmark", "text-gray-400", "text-gray-400")
+                            @HistoryStatCard("全部題目", historyItems.Count.ToString(), "fa-layer-group", "text-morandi", "text-slate-main")
+                            @HistoryStatCard("已採用", historyItems.Count(h => h.FinalStatus == QuestionStatus.Adopted).ToString(), "fa-circle-check", "text-sage", "text-sage")
+                            @HistoryStatCard("不採用", historyItems.Count(h => h.FinalStatus is QuestionStatus.Rejected or QuestionStatus.ClosedNotAdopted).ToString(), "fa-circle-xmark", "text-gray-400", "text-gray-400")
                         </div>
                     }
                 </div>
@@ -175,43 +204,54 @@
                     <!-- 篩選列 -->
                     <div class="p-4 border-b border-gray-100 bg-white flex flex-col xl:flex-row gap-3 items-start xl:items-center justify-between flex-shrink-0">
                         <div class="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-                            <div class="relative w-full md:w-56">
-                                <i class="fa-solid fa-magnifying-glass left-3 top-2.5 absolute text-gray-400"></i>
-                                <input type="text" class="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi" placeholder="搜尋題號或關鍵字...">
+                            <div class="w-full md:w-56">
+                                <DebouncedSearchInput Value="@(queryKeyword ?? "")" ValueChanged="OnKeywordChanged"
+                                    Placeholder="搜尋題號或關鍵字..." />
                             </div>
-                            <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                            <select value="@queryType" @onchange="OnTypeFilterChanged"
+                                class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                                 <option value="all">所有題型</option>
-                                <option value="single">一般單選題</option>
-                                <option value="select">精選單選題</option>
-                                <option value="readGroup">閱讀題組</option>
-                                <option value="longText">長文題目</option>
-                                <option value="shortGroup">短文題組</option>
-                                <option value="listen">聽力測驗</option>
-                                <option value="listenGroup">聽力題組</option>
+                                @foreach (var kv in QuestionConstants.TypeLabels)
+                                {
+                                    <option value="@kv.Key">@kv.Value</option>
+                                }
                             </select>
-                            <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                            <select value="@queryLevel" @onchange="OnLevelFilterChanged"
+                                class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                                 <option value="all">所有等級</option>
-                                <option value="初級">初級</option>
-                                <option value="中級">中級</option>
-                                <option value="中高級">中高級</option>
-                                <option value="高級">高級</option>
-                                <option value="優級">優級</option>
+                                @foreach (var kv in QuestionConstants.GeneralLevelLabels)
+                                {
+                                    <option value="@kv.Key">@kv.Value</option>
+                                }
                             </select>
-                            <select class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                                <option value="all">所有狀態</option>
+                            <select value="@queryStatus" @onchange="OnStatusFilterChanged"
+                                class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                                @if (currentTab == "review")
+                                {
+                                    <option value="all">所有狀態</option>
+                                    <option value="pending">待審</option>
+                                    <option value="decided">已決策</option>
+                                }
+                                else
+                                {
+                                    <option value="all">所有狀態</option>
+                                    <option value="adopted">已採用</option>
+                                    <option value="rejected">不採用</option>
+                                }
                             </select>
                         </div>
                         <div class="flex flex-wrap items-center justify-between gap-3 w-full xl:w-auto xl:justify-end">
                             <label class="flex items-center gap-2 text-sm text-gray-500 font-medium whitespace-nowrap">
                                 每頁顯示
-                                <select class="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                                <select value="@pageSize" @onchange="OnPageSizeChanged"
+                                    class="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                                     <option value="12">12 題</option>
                                     <option value="24">24 題</option>
                                     <option value="48">48 題</option>
                                 </select>
                             </label>
                             <div class="text-sm text-gray-500 font-medium flex-shrink-0">
-                                共 <span class="text-morandi font-bold">0</span> 題
+                                共 <span class="text-morandi font-bold">@FilteredCount</span> 題
                             </div>
                         </div>
                     </div>
@@ -264,12 +304,12 @@
                             <i class="fa-solid fa-spinner fa-spin mr-2"></i>載入中…
                         </div>
                     }
-                    else if (assignments.Count == 0)
+                    else if (FilteredAssignments.Count == 0)
                     {
                         <div class="p-8">
                             <EmptyState IconClass="fa-clipboard-check"
-                                Message="目前無待審試題"
-                                SubMessage="當有試題分配給您審查時將顯示於此。" />
+                                Message="@(assignments.Count == 0 ? "目前無待審試題" : "查無符合條件的試題")"
+                                SubMessage="@(assignments.Count == 0 ? "當有試題分配給您審查時將顯示於此。" : "請調整搜尋或篩選條件。")" />
                         </div>
                     }
                     else
@@ -288,7 +328,7 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    @foreach (var item in assignments)
+                                    @foreach (var item in Page(FilteredAssignments))
                                     {
                                         <tr @onclick="() => OpenReviewModal(item.QuestionId)"
                                             class="border-b border-gray-100 relative hover:z-10 hover:bg-blue-50/40 hover:shadow-[inset_4px_0_0_var(--color-morandi),0_6px_16px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer group">
@@ -344,14 +384,114 @@
                                 </tbody>
                             </table>
                         </div>
+
+                        @* 分頁器 *@
+                        @if (TotalPages > 1)
+                        {
+                            <div class="flex items-center justify-center gap-2 py-4 border-t border-gray-100">
+                                <button @onclick="() => GoToPage(currentPage - 1)" disabled="@(currentPage <= 1)"
+                                    class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                                    <i class="fa-solid fa-chevron-left"></i>
+                                </button>
+                                <span class="text-sm text-gray-600 font-medium">第 @currentPage / @TotalPages 頁</span>
+                                <button @onclick="() => GoToPage(currentPage + 1)" disabled="@(currentPage >= TotalPages)"
+                                    class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                                    <i class="fa-solid fa-chevron-right"></i>
+                                </button>
+                            </div>
+                        }
                     }
                 }
                 else
                 {
-                    @* 審核結果與歷史 Tab — Phase 3.2 先放空狀態，後續實作 *@
-                    <div class="p-8">
-                        <EmptyState IconClass="fa-box-archive" Message="尚無審核結果" SubMessage="總審判決後的題目將顯示於此。" />
-                    </div>
+                    @* 審核結果與歷史 Tab — 已採用 / 不採用題目，唯讀檢視 *@
+                    @if (isLoadingHistory)
+                    {
+                        <div class="p-8 text-center text-gray-400 text-sm">
+                            <i class="fa-solid fa-spinner fa-spin mr-2"></i>載入中…
+                        </div>
+                    }
+                    else if (FilteredHistory.Count == 0)
+                    {
+                        <div class="p-8">
+                            <EmptyState IconClass="fa-box-archive"
+                                Message="@(historyItems.Count == 0 ? "尚無審核結果" : "查無符合條件的試題")"
+                                SubMessage="@(historyItems.Count == 0 ? "總審判決後的題目將顯示於此。" : "請調整搜尋或篩選條件。")" />
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead class="text-xs text-gray-500 uppercase font-bold bg-gray-50 border-b border-gray-200">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap">題號</th>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap">題型</th>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap">等級</th>
+                                        <th class="px-4 py-2 text-left">題目摘要</th>
+                                        <th class="px-4 py-2 text-center whitespace-nowrap">最終狀態</th>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap">決策時間</th>
+                                        <th class="px-4 py-2 text-center whitespace-nowrap">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in Page(FilteredHistory))
+                                    {
+                                        <tr @onclick="() => OpenReviewModal(item.QuestionId)"
+                                            class="border-b border-gray-100 relative hover:z-10 hover:bg-blue-50/40 hover:shadow-[inset_4px_0_0_var(--color-morandi),0_6px_16px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer group">
+                                            <td class="px-4 py-3 font-bold text-slate-main group-hover:text-morandi whitespace-nowrap transition-colors">@item.QuestionCode</td>
+                                            <td class="px-4 py-3 whitespace-nowrap">
+                                                <span class="inline-block px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-bold border border-gray-200">
+                                                    @QuestionConstants.TypeLabels.GetValueOrDefault(item.TypeKey, "未知")
+                                                </span>
+                                            </td>
+                                            <td class="px-4 py-3 whitespace-nowrap">
+                                                @if (item.Level is byte lv)
+                                                {
+                                                    <span class="text-xs text-morandi font-bold">@(item.TypeKey == QuestionTypeCodes.Listen ? QuestionConstants.ListenLevelLabels.GetValueOrDefault(lv, "") : QuestionConstants.GeneralLevelLabels.GetValueOrDefault(lv, ""))</span>
+                                                }
+                                                @if (item.Difficulty is byte d)
+                                                {
+                                                    <span class="text-xs text-terracotta font-bold ml-2">@QuestionConstants.DifficultyLabels.GetValueOrDefault(d, "")</span>
+                                                }
+                                            </td>
+                                            <td class="px-4 py-3 max-w-md">
+                                                <div class="text-gray-700 truncate" title="@item.SummaryText">
+                                                    @(string.IsNullOrEmpty(item.SummaryText) ? "（尚未填寫題幹）" : item.SummaryText)
+                                                </div>
+                                            </td>
+                                            <td class="px-4 py-3 text-center whitespace-nowrap">
+                                                <StatusBadge StatusText="@QuestionStatus.Labels.GetValueOrDefault(item.FinalStatus, "未知")" Compact="true" />
+                                            </td>
+                                            <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">@item.FinalDecidedAt.ToString("yyyy/MM/dd HH:mm")</td>
+                                            <td class="px-4 py-3 text-center whitespace-nowrap" @onclick:stopPropagation="true">
+                                                <button @onclick="() => OpenReviewModal(item.QuestionId)"
+                                                        class="text-morandi hover:underline text-xs font-bold cursor-pointer focus:outline-none">
+                                                    <i class="fa-solid fa-eye mr-0.5"></i> 檢視
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        @* 分頁器 *@
+                        @if (TotalPages > 1)
+                        {
+                            <div class="flex items-center justify-center gap-2 py-4 border-t border-gray-100">
+                                <button @onclick="() => GoToPage(currentPage - 1)" disabled="@(currentPage <= 1)"
+                                    class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                                    <i class="fa-solid fa-chevron-left"></i>
+                                </button>
+                                <span class="text-sm text-gray-600 font-medium">第 @currentPage / @TotalPages 頁</span>
+                                <button @onclick="() => GoToPage(currentPage + 1)" disabled="@(currentPage >= TotalPages)"
+                                    class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                                    <i class="fa-solid fa-chevron-right"></i>
+                                </button>
+                            </div>
+                        }
+                    }
                 }
             </div>
         </div>
@@ -389,6 +529,18 @@
     private List<ReviewListItem> assignments = new();
     private bool isLoadingList;
     private int? currentUserId;
+
+    // 列表狀態（審核結果與歷史）
+    private List<ReviewHistoryItem> historyItems = new();
+    private bool isLoadingHistory;
+
+    // 篩選與分頁狀態（兩個 Tab 共用，切 Tab 不重置篩選但重置頁碼）
+    private string? queryKeyword;
+    private string queryType   = "all";  // 題型 key 或 "all"
+    private string queryLevel  = "all";  // byte 字串或 "all"
+    private string queryStatus = "all";  // 作業區: all/pending/decided；歷史: all/adopted/rejected
+    private int pageSize       = 12;
+    private int currentPage    = 1;
 
     // ReviewModal 開關
     private bool showReviewModal;
@@ -436,8 +588,8 @@
             if (int.TryParse(claim, out var uid)) currentUserId = uid;
         }
 
-        // 載入審題作業區列表（依當前階段對應的 ReviewStage）
-        await LoadAssignmentsAsync();
+        // 載入審題作業區列表（依當前階段對應的 ReviewStage）+ 審核結果與歷史
+        await Task.WhenAll(LoadAssignmentsAsync(), LoadHistoryAsync());
 
         // 權限檢查：每位使用者每次進頁面只跑一次
         if (permissionChecked) return;
@@ -468,6 +620,21 @@
         }
     }
 
+    private async Task LoadHistoryAsync()
+    {
+        if (CurrentProject is null) { historyItems = new(); return; }
+
+        isLoadingHistory = true;
+        try
+        {
+            historyItems = await ReviewService.GetHistoryAsync(CurrentProject.Id);
+        }
+        finally
+        {
+            isLoadingHistory = false;
+        }
+    }
+
     private void OpenReviewModal(int questionId)
     {
         selectedQuestionId = questionId;
@@ -476,9 +643,85 @@
 
     private async Task OnDecisionMadeAsync()
     {
-        // 決策完成後重新載入列表（Phase 3.5 才會真的觸發）
-        await LoadAssignmentsAsync();
+        // 決策完成後重新載入兩邊列表（作業區 + 歷史）
+        await Task.WhenAll(LoadAssignmentsAsync(), LoadHistoryAsync());
     }
+
+    // ============================================================
+    //  篩選與分頁
+    // ============================================================
+
+    /// <summary>切 Tab：保留篩選條件，僅重置頁碼到第 1 頁</summary>
+    private void SwitchTab(string tab)
+    {
+        currentTab  = tab;
+        currentPage = 1;
+    }
+
+    private void OnKeywordChanged(string? keyword) { queryKeyword = keyword; currentPage = 1; }
+
+    private void OnTypeFilterChanged(ChangeEventArgs e)   { queryType   = e.Value?.ToString() ?? "all"; currentPage = 1; }
+    private void OnLevelFilterChanged(ChangeEventArgs e)  { queryLevel  = e.Value?.ToString() ?? "all"; currentPage = 1; }
+    private void OnStatusFilterChanged(ChangeEventArgs e) { queryStatus = e.Value?.ToString() ?? "all"; currentPage = 1; }
+    private void OnPageSizeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var n) && n > 0) pageSize = n;
+        currentPage = 1;
+    }
+
+    private void GoToPage(int page)
+    {
+        var total = TotalPages;
+        if (page < 1 || page > total || page == currentPage) return;
+        currentPage = page;
+    }
+
+    // ----- 共用 Filter 述詞 -----
+    private bool MatchKeywordOn(string code, string summary) =>
+        string.IsNullOrWhiteSpace(queryKeyword) ||
+        (code?.Contains(queryKeyword, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        (summary?.Contains(queryKeyword, StringComparison.OrdinalIgnoreCase) ?? false);
+
+    private bool MatchType(string typeKey)
+        => queryType == "all" || string.Equals(queryType, typeKey, StringComparison.Ordinal);
+
+    private bool MatchLevel(byte? level)
+    {
+        if (queryLevel == "all") return true;
+        if (!byte.TryParse(queryLevel, out var lv)) return true;
+        return level == lv;
+    }
+
+    // ----- 計算屬性：套篩選後的結果 -----
+    private IReadOnlyList<ReviewListItem> FilteredAssignments => assignments
+        .Where(a => MatchKeywordOn(a.QuestionCode, a.SummaryText))
+        .Where(a => MatchType(a.TypeKey))
+        .Where(a => MatchLevel(a.Level))
+        .Where(a => queryStatus switch
+        {
+            "pending" => !a.IsDecided,
+            "decided" =>  a.IsDecided,
+            _         =>  true
+        })
+        .ToList();
+
+    private IReadOnlyList<ReviewHistoryItem> FilteredHistory => historyItems
+        .Where(h => MatchKeywordOn(h.QuestionCode, h.SummaryText))
+        .Where(h => MatchType(h.TypeKey))
+        .Where(h => MatchLevel(h.Level))
+        .Where(h => queryStatus switch
+        {
+            "adopted"  => h.FinalStatus == QuestionStatus.Adopted,
+            "rejected" => h.FinalStatus is QuestionStatus.Rejected or QuestionStatus.ClosedNotAdopted,
+            _          => true
+        })
+        .ToList();
+
+    private int FilteredCount => currentTab == "review" ? FilteredAssignments.Count : FilteredHistory.Count;
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(FilteredCount / (double)pageSize));
+
+    private IEnumerable<T> Page<T>(IReadOnlyList<T> src) =>
+        src.Skip((currentPage - 1) * pageSize).Take(pageSize);
 
     private async Task LoadPhasesAsync(int projectId)
     {

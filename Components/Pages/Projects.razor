@@ -174,7 +174,7 @@
                     </div>
 
                     <!-- 主要內容：時程 + 題型 + 成員 -->
-                    <div class="px-8 pb-8 grid grid-cols-1 xl:grid-cols-2 gap-6">
+                    <div class="px-8 pb-8 grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
                         <!-- 時程規劃設定 -->
                         <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
                             <h3 class="text-base font-black text-slate-main mb-1 flex items-center gap-2">
@@ -456,7 +456,7 @@
                 </h3>
 
                 <!-- 專案需求題數 / 組數 -->
-                <div class="@(IsCompositionPhaseEnded ? "bg-gray-100 p-3 rounded border border-gray-300 cursor-not-allowed" : "bg-gray-50 p-3 rounded border border-gray-200")"
+                <div class="@(IsCompositionPhaseEnded ? "bg-gray-100 p-3 rounded border border-gray-300 cursor-not-allowed" : "bg-white p-3 rounded border border-morandi/30")"
                      title="@(IsCompositionPhaseEnded ? "命題階段已結束，題數需求不可再修改" : null)">
                     <label class="block text-sm font-bold text-gray-700 mb-2">專案需求題數 / 組數</label>
                     <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-sm">
@@ -467,7 +467,7 @@
                                 <div class="relative">
                                     <input type="number" min="0" @bind="qt.Count" placeholder="0"
                                         disabled="@IsCompositionPhaseEnded"
-                                        class="w-full pl-1 pr-7 py-1 border border-gray-300 rounded focus:outline-none text-sm text-center disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
+                                        class="w-full pl-1 pr-7 py-1 bg-white border border-gray-300 rounded text-sm text-center focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
                                     <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">@qt.Unit</span>
                                 </div>
                             </div>
@@ -857,7 +857,12 @@
                 schoolDisplay(p.School).Contains(kw, StringComparison.OrdinalIgnoreCase));
         }
 
-        return result.ToList();
+        // 排序：準備中 (0) → 進行中 (1) → 已結案 (2)；同狀態內依年度新→舊、Id 新→舊
+        return result
+            .OrderBy(p => (int)p.EffectiveStatus)
+            .ThenByDescending(p => p.Year)
+            .ThenByDescending(p => p.Id)
+            .ToList();
     }
 
     /// <summary>選取左側列表的專案，並載入詳情</summary>

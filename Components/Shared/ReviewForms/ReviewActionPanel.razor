@@ -5,9 +5,9 @@
 @*  已決策狀態：Quill 自動進入唯讀、罐頭訊息列灰化禁用                         *@
 @* ====================================================================== *@
 
-<div class="flex flex-col h-full overflow-y-auto custom-scroll">
+<div class="flex flex-col h-full overflow-hidden">
 
-    @* ===== 區塊 1：意見編輯框 + 罐頭訊息 ===== *@
+    @* ===== 區塊 1：意見編輯框 + 罐頭訊息（固定，不隨歷程捲動） ===== *@
     <div class="p-5 border-b border-gray-100 bg-gradient-to-b from-white to-gray-50/50 flex-shrink-0">
         <h3 class="text-sm font-bold text-slate-main mb-3 flex items-center gap-2">
             <i class="fa-solid fa-comment-dots text-morandi"></i>
@@ -33,7 +33,7 @@
                             disabled="@IsReadOnly"
                             @onclick="() => InsertCannedAsync(msg.Text)"
                             class="text-xs px-2.5 py-1 border rounded-md font-bold transition cursor-pointer focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed @msg.ColorCss">
-                        @msg.Label
+                        <i class="@msg.IconClass mr-1"></i>@msg.Label
                     </button>
                 }
             </div>
@@ -48,15 +48,14 @@
                            ShowWordCount="true" />
     </div>
 
-    @* ===== 區塊 2：歷程軌跡（預設摺疊） ===== *@
-    <ReviewHistoryTimeline Entries="@History" />
+    @* ===== 下半部：歷程軌跡 + 相似題比對（共用同一個內捲容器） ===== *@
+    <div class="flex-1 min-h-0 overflow-y-auto custom-scroll">
+        <ReviewHistoryTimeline Entries="@History" />
 
-    @* ===== 區塊 3：相似題比對（無相似題時自動不渲染） ===== *@
-    <ReviewSimilarityBanner @ref="similaritySection"
-                            Entries="@SimilarQuestions"
-                            Mode="ReviewSimilarityBanner.BannerMode.Section" />
-
-    <div class="flex-grow"></div>
+        <ReviewSimilarityBanner @ref="similaritySection"
+                                Entries="@SimilarQuestions"
+                                Mode="ReviewSimilarityBanner.BannerMode.Section" />
+    </div>
 </div>
 
 @code {
@@ -87,18 +86,19 @@
     /// <summary>
     /// 8 個罐頭訊息（依 Plan_003 Q1 確認的內容；Label 與插入文字分離以便管理）。
     /// 顏色語意：sage=正向 / terracotta=警示 / morandi=中性建議。
+    /// 圖示採 Font Awesome 6（離線載入），不使用 emoji。
     /// </summary>
     private static readonly CannedMessage[] CannedMessages =
     [
-        new("✓ 題意清晰",      "題意清晰，選項設計合理。",                "bg-sage/10 text-sage border-sage/20 hover:bg-sage/20"),
-        new("⚠ 答案有爭議",    "此題答案似有爭議，建議再確認。",          "bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
-        new("📐 選項長度差異",  "選項長度差異過大，建議調整為相近字數。",  "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
-        new("📖 用詞不當",      "部分用詞不夠精確，建議修飾。",            "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
-        new("🔢 計算錯誤",      "計算過程或答案數字有誤。",                "bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
-        new("🎯 鑑別度偏低",    "鑑別度偏低，可能無法有效區分學生程度。",  "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
-        new("✂ 文意冗長",      "題幹文意稍嫌冗長，建議精簡。",            "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
-        new("🖼 圖片不清",      "附圖品質不佳或無法清楚辨識。",            "bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
+        new("fa-solid fa-circle-check",        "題意清晰",     "題意清晰，選項設計合理。",                "bg-sage/10 text-sage border-sage/20 hover:bg-sage/20"),
+        new("fa-solid fa-triangle-exclamation","答案有爭議",   "此題答案似有爭議，建議再確認。",          "bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
+        new("fa-solid fa-ruler-combined",      "選項長度差異", "選項長度差異過大，建議調整為相近字數。",  "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
+        new("fa-solid fa-book",                "用詞不當",     "部分用詞不夠精確，建議修飾。",            "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
+        new("fa-solid fa-calculator",          "計算錯誤",     "計算過程或答案數字有誤。",                "bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
+        new("fa-solid fa-bullseye",            "鑑別度偏低",   "鑑別度偏低，可能無法有效區分學生程度。",  "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
+        new("fa-solid fa-scissors",            "文意冗長",     "題幹文意稍嫌冗長，建議精簡。",            "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
+        new("fa-solid fa-image",               "圖片不清",     "附圖品質不佳或無法清楚辨識。",            "bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
     ];
 
-    private record CannedMessage(string Label, string Text, string ColorCss);
+    private record CannedMessage(string IconClass, string Label, string Text, string ColorCss);
 }

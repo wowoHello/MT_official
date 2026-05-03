@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 > **參考資源根目錄**：`D:\MTrefer\`（原型 `MT_prototype\`、規格書 `Reference_doc\`、資料庫 `db.md`、計畫書 `Task\`）
 > **網站介紹**：此網站最重要的功能為命題任務與審題任務，旨在提供所有命題教師與審題專家方便的命審工具。所有資訊根據專案梯次進行分類，且提供管理員儀表板進行專案梯次資訊的監管
 > **網站設計考量**：使用者多為年長者、須注重功能與效能
+> **網頁配色**：莫蘭迪色系
 
 ---
 
