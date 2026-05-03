@@ -35,14 +35,22 @@
                         <span class="text-xs px-2 py-0.5 rounded font-bold @badgeCss">@entry.Label</span>
                         <span class="text-xs text-gray-400">@entry.At.ToString("yyyy/MM/dd HH:mm")</span>
                     </div>
-                    @if (!string.IsNullOrEmpty(entry.ActorName))
-                    {
-                        <p class="text-xs text-gray-600 mb-2">@(entry.Kind == ReviewHistoryKind.RevisionReply ? "命題教師" : "操作人")：@entry.ActorName</p>
+                    @* 匿名化：以角色稱謂取代真實姓名，避免影響審題公平性 *@
+                    @{
+                        var roleLabel = entry.Kind switch
+                        {
+                            ReviewHistoryKind.QuestionEvent => "命題老師",
+                            ReviewHistoryKind.RevisionReply => "命題老師",
+                            ReviewHistoryKind.ReviewComment => "審題老師",
+                            _                               => "操作人"
+                        };
                     }
+                    <p class="text-xs text-gray-600 mb-2">操作人：@roleLabel</p>
                     @if (!string.IsNullOrWhiteSpace(entry.ContentHtml))
                     {
-                        <div class="text-sm text-slate-main bg-white p-2.5 rounded-md border border-gray-100 italic leading-relaxed">
-                            @((MarkupString)entry.ContentHtml)
+                        @* 純文字渲染 — whitespace-pre-wrap 保留換行；不再用 MarkupString 避免 XSS 與富文本依賴 *@
+                        <div class="text-sm text-slate-main bg-white p-2.5 rounded-md border border-gray-100 leading-relaxed whitespace-pre-wrap">
+                            @entry.ContentHtml
                         </div>
                     }
                 </div>

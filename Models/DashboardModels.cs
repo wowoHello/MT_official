@@ -24,6 +24,25 @@ public enum PhaseStatusType
 }
 
 /// <summary>
+/// 卡片 3 右上角 Pill Badge 顯示用：當前審題階段標籤。
+/// 對應 MT_ProjectPhases.PhaseCode：3→Peer(互審)、5→Expert(專審)、7→Final(總召)；其餘 = None。
+/// 已結案專案優先顯示 Closed，覆蓋審題階段判定。
+/// </summary>
+public enum ReviewPhaseLabel
+{
+    /// <summary>非審題階段（命題、修題、未啟動）。</summary>
+    None,
+    /// <summary>互審階段（PhaseCode = 3，對應 ReviewStage = 1）。</summary>
+    Peer,
+    /// <summary>專審階段（PhaseCode = 5，對應 ReviewStage = 2）。</summary>
+    Expert,
+    /// <summary>總召審題（PhaseCode = 7，對應 ReviewStage = 3）。</summary>
+    Final,
+    /// <summary>已結案（含中途結案）— 凍結所有審題狀態。</summary>
+    Closed
+}
+
+/// <summary>
 /// 四張 KPI 卡片的彙整資料。
 /// </summary>
 public class DashboardKpiDto
@@ -44,7 +63,7 @@ public class DashboardKpiDto
         ? Math.Min(100, AdoptedCount * 100 / TotalTarget)
         : 0;
 
-    // ── 卡片 3：各階段審修中 ────────────────────────────────────
+    // ── 卡片 3：各階段審題 ──────────────────────────────────────
     /// <summary>STATUS IN (2,3,4,5,6,7,8) 且 IsDeleted = 0 的總數（送審至總審修題，尚未判決）。</summary>
     public int InReviewCount { get; set; }
 
@@ -59,6 +78,24 @@ public class DashboardKpiDto
     /// 負數代表已逾期，Footer 應以警示色顯示。
     /// </summary>
     public int? PhaseDaysRemaining { get; set; }
+
+    /// <summary>當前審題階段標籤（卡片 3 右上角 Pill Badge）。</summary>
+    public ReviewPhaseLabel CurrentReviewPhase { get; set; } = ReviewPhaseLabel.None;
+
+    /// <summary>
+    /// 當前審題階段「已完成審題」的數量（MT_ReviewAssignments 中 Comment 不為空）。
+    /// 非審題階段時為 0。
+    /// </summary>
+    public int ReviewedCount { get; set; }
+
+    /// <summary>
+    /// 當前審題階段「應審題目總數」（MT_ReviewAssignments 中對應 ReviewStage 的全部分配筆數）。
+    /// 非審題階段時為 0。
+    /// </summary>
+    public int ReviewTotalCount { get; set; }
+
+    /// <summary>梯次結案時間（MT_Projects.ClosedAt），用於卡片 3 已結案狀態顯示。null 代表尚未結案。</summary>
+    public DateTime? ClosedAt { get; set; }
 
     // ── 卡片 4：退回修題 ────────────────────────────────────────
     /// <summary>STATUS IN (4,6,8)（互審修題中、專審修題中、總審修題中）合計。</summary>
@@ -192,24 +229,28 @@ public class DashboardAchievementItem
 }
 
 /// <summary>
-/// 圖表 2：依題型狀態分佈（每題型 1 筆，5 個狀態桶）。
+/// 圖表 2：依題型狀態分佈（每題型 1 筆，5 個狀態桶，依當前階段動態分組）。
+/// 規則：階段為推進型，故只區分「草稿 / 進行中 / 完成 / 採用 / 不採用」。
 /// </summary>
 public class DashboardStatusByTypeItem
 {
     public string TypeName { get; set; } = string.Empty;
 
-    /// <summary>命題中（Status 0, 1）：草稿、命題完成。</summary>
-    public int Drafting { get; set; }
+    /// <summary>命題草稿（Status = 0）；進入審題後若仍為草稿視同捨去。</summary>
+    public int Drafts { get; set; }
 
-    /// <summary>審修中（Status 2, 3, 5, 7）：送審、互審、專審、總審。</summary>
-    public int InReview { get; set; }
+    /// <summary>
+    /// 階段進行中（Status = 對應當前 PhaseCode 的 in-progress 狀態）。
+    /// PhaseCode 2(命題)→Status 1；PhaseCode 3..8 → Status N。
+    /// </summary>
+    public int InProgress { get; set; }
 
-    /// <summary>退回修題（Status 4, 6, 8）：互審修題、專審修題、總審修題。</summary>
-    public int Returned { get; set; }
+    /// <summary>階段完成（Status 1~8 中除「進行中」之外的所有歷史狀態）。</summary>
+    public int DoneStage { get; set; }
 
-    /// <summary>已採用（Status 9）。</summary>
+    /// <summary>已採用（Status = 9）。</summary>
     public int Adopted { get; set; }
 
-    /// <summary>不採用（Status 10）；若 DB 無此值永遠為 0，不影響運作。</summary>
+    /// <summary>不採用（Status = 10）。</summary>
     public int Rejected { get; set; }
 }

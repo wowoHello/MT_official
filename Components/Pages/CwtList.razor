@@ -137,6 +137,19 @@
                     </button>
                 </div>
 
+                @* 審修作業區階段橫幅（Plan_009） *@
+                @if (currentTab == "revision")
+                {
+                    var banner = GetRevisionPhaseBanner();
+                    <div class="mx-4 mt-4 px-4 py-3 rounded-lg border flex items-start gap-3 @banner.Css">
+                        <i class="fa-solid @banner.Icon text-base mt-0.5"></i>
+                        <div class="flex-1 min-w-0">
+                            <div class="text-sm font-bold">@banner.Title</div>
+                            <div class="text-xs mt-0.5 opacity-80">@banner.Text</div>
+                        </div>
+                    </div>
+                }
+
                 <!-- Tab 統計卡片區 -->
                 <div class="p-4 border-b border-gray-100 bg-gray-50/50 flex-shrink-0">
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -212,7 +225,10 @@
                 else if (listResult.Items.Count == 0)
                 {
                     <div class="p-8">
-                        <EmptyState IconClass="fa-file-circle-plus" Message="目前此區沒有試題" SubMessage="點擊上方「新增試題」開始命題。" />
+                        @{
+                            var (emptyIcon, emptyMsg, emptySub) = GetEmptyStateContent();
+                        }
+                        <EmptyState IconClass="@emptyIcon" Message="@emptyMsg" SubMessage="@emptySub" />
                     </div>
                 }
                 else
@@ -676,8 +692,67 @@
         // Plan_008：命題階段結束後，草稿與命題完成皆視為唯讀
         if (IsCompositionPhaseClosed && status is QuestionStatus.Draft or QuestionStatus.Completed)
             return false;
-        return status is QuestionStatus.Draft or QuestionStatus.Completed
-                      or QuestionStatus.PeerEditing or QuestionStatus.ExpertEditing or QuestionStatus.FinalEditing;
+
+        // Plan_009：修題狀態必須與當前階段對齊才開放編輯
+        //   PeerEditing(4)→PhaseCode=4 / ExpertEditing(6)→PhaseCode=6 / FinalEditing(8)→PhaseCode=8
+        if (status == QuestionStatus.PeerEditing)
+            return currentPhase?.PhaseCode == 4;
+        if (status == QuestionStatus.ExpertEditing)
+            return currentPhase?.PhaseCode == 6;
+        if (status == QuestionStatus.FinalEditing)
+            return currentPhase?.PhaseCode == 8;
+
+        return status is QuestionStatus.Draft or QuestionStatus.Completed;
+    }
+
+    /// <summary>EmptyState 文案依當前 Tab 與階段提供更具脈絡的提示（Plan_009）。</summary>
+    private (string Icon, string Message, string SubMessage) GetEmptyStateContent()
+    {
+        if (currentTab == "compose")
+            return ("fa-file-circle-plus", "目前此區沒有試題", "點擊上方「新增試題」開始命題。");
+
+        if (currentTab == "history")
+            return ("fa-box-archive", "尚無已判決的試題", "等待總審判決後，已採用 / 不採用題目會出現於此。");
+
+        // revision tab：依階段提示
+        var code = currentPhase?.PhaseCode;
+        return code switch
+        {
+            3 or 5 or 7 => ("fa-lock", "目前沒有需要您處理的題目", "審題進行中，題目已鎖定。"),
+            4 or 6 or 8 => ("fa-circle-check", "目前沒有需要修題的題目", "若有審題意見退回的題目會出現於此。"),
+            _ when code is null or 1 or 2 && !IsCompositionPhaseClosed
+                        => ("fa-hourglass-start", "審題尚未開始", "待命題階段結束後將自動進入互審。"),
+            _           => ("fa-flag-checkered", "審修作業已結束", "目前無進行中的審題或修題階段。")
+        };
+    }
+
+    /// <summary>
+    /// 審修作業區階段橫幅（Plan_009）。回傳 (背景樣式, icon, 標題, 副標)。
+    /// 依當前 PhaseCode 顯示審題鎖定／修題開放／尚未開始／已結束四種狀態。
+    /// </summary>
+    private (string Css, string Icon, string Title, string Text) GetRevisionPhaseBanner()
+    {
+        var code = currentPhase?.PhaseCode;
+        return code switch
+        {
+            3 => ("bg-morandi/10 text-morandi border-morandi/30",   "fa-lock",
+                  "互審進行中", "題目已鎖定，互審老師審題期間無法修改。"),
+            4 => ("bg-terracotta/10 text-terracotta border-terracotta/30", "fa-pen",
+                  "互審修題進行中", "請依互審意見修改題目後再次送審。"),
+            5 => ("bg-morandi/10 text-morandi border-morandi/30",   "fa-lock",
+                  "專家審題進行中", "題目已鎖定，專家審題期間無法修改。"),
+            6 => ("bg-terracotta/10 text-terracotta border-terracotta/30", "fa-pen",
+                  "專審修題進行中", "請依專審意見修改題目後再次送審。"),
+            7 => ("bg-morandi/10 text-morandi border-morandi/30",   "fa-lock",
+                  "總召審題進行中", "題目已鎖定，總審期間無法修改。"),
+            8 => ("bg-terracotta/10 text-terracotta border-terracotta/30", "fa-pen",
+                  "總召修題進行中", "請依總審意見修改題目後再次送審。"),
+            _ when code is null or 1 or 2 && !IsCompositionPhaseClosed => (
+                  "bg-gray-100 text-gray-500 border-gray-200", "fa-hourglass-start",
+                  "審題尚未開始", "待命題階段結束後將自動進入互審，目前此區尚無題目。"),
+            _ => ("bg-gray-100 text-gray-500 border-gray-200", "fa-flag-checkered",
+                  "審修作業已結束", "目前無進行中的審題或修題階段。")
+        };
     }
 
     /// <summary>

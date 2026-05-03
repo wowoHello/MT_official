@@ -128,6 +128,23 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         return endDate.HasValue && endDate.Value.Date < DateTime.Today;
     }
 
+    /// <summary>
+    /// 在現有 Transaction 內取當前進行中階段的 PhaseCode（找不到則回 null）。
+    /// 用於 Plan_009：修題狀態與階段對齊防呆。
+    /// </summary>
+    private static async Task<byte?> GetCurrentPhaseCodeInTxAsync(
+        IDbConnection conn, IDbTransaction tx, int projectId)
+    {
+        return await conn.ExecuteScalarAsync<byte?>("""
+            SELECT TOP 1 PhaseCode
+            FROM dbo.MT_ProjectPhases
+            WHERE ProjectId = @ProjectId
+              AND PhaseCode > 1
+              AND CAST(GETDATE() AS DATE) BETWEEN StartDate AND EndDate
+            ORDER BY SortOrder;
+            """, new { ProjectId = projectId }, tx);
+    }
+
     // ====================================================================
     //  P3：CRUD
     // ====================================================================
@@ -226,6 +243,25 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 && await IsCompositionPhaseClosedInTxAsync(conn, tx, projectId))
             {
                 throw new InvalidOperationException("命題階段已結束，無法修改題目。");
+            }
+
+            // 1.6 修題狀態階段對齊防呆（Plan_009）
+            //     PeerEditing(4) 只能在 PhaseCode=4 互審修題、ExpertEditing(6) 只能在 PhaseCode=6 專審修題、
+            //     FinalEditing(8) 只能在 PhaseCode=8 總審修題。
+            if (oldStatus is QuestionStatus.PeerEditing or QuestionStatus.ExpertEditing or QuestionStatus.FinalEditing)
+            {
+                var currentPhaseCode = await GetCurrentPhaseCodeInTxAsync(conn, tx, projectId);
+                var requiredPhaseCode = oldStatus switch
+                {
+                    QuestionStatus.PeerEditing    => (byte)4,
+                    QuestionStatus.ExpertEditing  => (byte)6,
+                    QuestionStatus.FinalEditing   => (byte)8,
+                    _                             => (byte)0
+                };
+                if (currentPhaseCode != requiredPhaseCode)
+                {
+                    throw new InvalidOperationException("修題期間已結束，無法儲存變更。");
+                }
             }
 
             // 2. UPDATE 主題
@@ -453,16 +489,25 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         // 動態 IsDeleted 條件：CwtList 預設只看未刪；Overview 設 IncludeDeleted=true 拿全部
         var deletedClauseQ = filter.IncludeDeleted ? "" : "AND q.IsDeleted = 0";
 
+        // 關鍵字 SQL 片段：SearchCreatorName=true 時額外比對 u.DisplayName（僅 Overview 啟用）
+        var keywordClause = filter.SearchCreatorName
+            ? "AND (@Keyword IS NULL OR q.Stem LIKE '%' + @Keyword + '%' OR q.QuestionCode LIKE '%' + @Keyword + '%' OR u.DisplayName LIKE '%' + @Keyword + '%')"
+            : "AND (@Keyword IS NULL OR q.Stem LIKE '%' + @Keyword + '%' OR q.QuestionCode LIKE '%' + @Keyword + '%')";
+
+        // count 查詢需要 JOIN MT_Users 才能比對姓名；CwtList/Reviews 不需要 JOIN（效能最佳）
+        var countJoin = filter.SearchCreatorName ? "LEFT JOIN dbo.MT_Users u ON u.Id = q.CreatorId" : "";
+
         var countSql = $"""
             SELECT COUNT(*)
             FROM dbo.MT_Questions q
+            {countJoin}
             WHERE q.ProjectId = @ProjectId
               {deletedClauseQ}
               AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
               {(statuses.Length > 0 ? "AND q.Status IN @Statuses" : "")}
               AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
               AND (@Level IS NULL OR q.Level = @Level)
-              AND (@Keyword IS NULL OR q.Stem LIKE '%' + @Keyword + '%' OR q.QuestionCode LIKE '%' + @Keyword + '%');
+              {keywordClause};
             """;
 
         var listSql = $"""
@@ -484,7 +529,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
               {(statuses.Length > 0 ? "AND q.Status IN @Statuses" : "")}
               AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
               AND (@Level IS NULL OR q.Level = @Level)
-              AND (@Keyword IS NULL OR q.Stem LIKE '%' + @Keyword + '%' OR q.QuestionCode LIKE '%' + @Keyword + '%')
+              {keywordClause}
             ORDER BY
                 CASE WHEN q.Status = 0 THEN 0
                      WHEN q.Status = 1 THEN 1

@@ -24,6 +24,8 @@
     [Parameter] public bool ExcludePunctuation { get; set; } = false;
     /// <summary>是否唯讀（同步呼叫 Quill enable / 隱藏 toolbar）</summary>
     [Parameter] public bool IsReadOnly { get; set; } = false;
+    /// <summary>工具列模式："full"（預設，含字體/色彩/對齊/縮排/圖片）或 "simple"（僅粗體/底線/刪除線/列表/清除）</summary>
+    [Parameter] public string ToolbarMode { get; set; } = "full";
 
     private readonly string containerId = $"inline-quill-{Guid.NewGuid():N}";
     private DotNetObjectReference<InlineQuillEditor>? dotNetRef;
@@ -53,7 +55,7 @@
         lastSyncedValue = Value ?? "";
         lastReadOnly = IsReadOnly;
 
-        await JS.InvokeVoidAsync("QuillInterop.show", containerId, dotNetRef, lastSyncedValue, ExcludePunctuation);
+        await JS.InvokeVoidAsync("QuillInterop.show", containerId, dotNetRef, lastSyncedValue, ExcludePunctuation, ToolbarMode);
         if (IsReadOnly)
         {
             await JS.InvokeVoidAsync("QuillInterop.enable", containerId, false);

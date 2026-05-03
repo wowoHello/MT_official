@@ -17,11 +17,22 @@ const toolbarOptions = [
     ['image', 'clean']
 ];
 
+// 精簡工具列（審題意見等短評輸入；無字體/大小/色彩/對齊/縮排/圖片）
+const toolbarOptionsSimple = [
+    ['bold', 'underline', 'strike'],
+    [{ list: 'ordered' }, { list: 'bullet' }],
+    ['clean']
+];
+
+function pickToolbar(mode) {
+    return mode === 'simple' ? toolbarOptionsSimple : toolbarOptions;
+}
+
 window.QuillInterop = {
     instances: {},
 
     /** 內部：建立 Quill 實例（僅首次呼叫） */
-    _create(containerId, dotNetRef) {
+    _create(containerId, dotNetRef, toolbarMode) {
         // 註冊自訂字體（只執行一次）
         if (!fontRegistered) {
             const Font = Quill.import('formats/font');
@@ -30,14 +41,15 @@ window.QuillInterop = {
             fontRegistered = true;
         }
 
+        const isSimple = toolbarMode === 'simple';
         const quill = new Quill('#' + containerId, {
             theme: 'snow',
             placeholder: '在此輸入內容...',
-            modules: { toolbar: toolbarOptions }
+            modules: { toolbar: pickToolbar(toolbarMode) }
         });
 
-        // 圖片上傳 handler（上傳至伺服器，編輯器只存路徑）
-        quill.getModule('toolbar').addHandler('image', () => {
+        // 圖片上傳 handler 僅在完整工具列下註冊（simple 模式無圖片按鈕）
+        if (!isSimple) quill.getModule('toolbar').addHandler('image', () => {
             const input = document.createElement('input');
             input.type = 'file';
             input.accept = 'image/png, image/jpeg, image/gif, image/webp';
@@ -82,10 +94,10 @@ window.QuillInterop = {
     },
 
     /** 合併呼叫：初始化（若尚未）+ 填入內容 + 聚焦，單次 interop 完成 */
-    show(containerId, dotNetRef, html, excludePunct) {
+    show(containerId, dotNetRef, html, excludePunct, toolbarMode) {
         let inst = this.instances[containerId];
         if (!inst) {
-            this._create(containerId, dotNetRef);
+            this._create(containerId, dotNetRef, toolbarMode);
             inst = this.instances[containerId];
         } else {
             // 更新 dotNetRef（元件可能重新建立過）

@@ -131,24 +131,76 @@
                 </div>
             </div>
 
-            @* ── 卡片 3：各階段審修中（amber-600）── *@
-            @* Footer 依 PhaseStatusType 切換，修正舊版在「梯次已選但未進入階段」時錯誤顯示「請選擇梯次」的問題 *@
+            @* ── 卡片 3：各階段審題（amber-600）── *@
+            @* 依當前 PhaseCode 對應 ReviewStage，顯示審題完成度（已完成/總數） *@
+            @* 非審題階段顯示「未啟動」替代區塊；Footer 顯示真正當前階段名稱 *@
             <div class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all border-l-[3px] border-l-amber-500 p-5 flex flex-col min-h-[200px]">
-                <!-- Header -->
+                <!-- Header：圖示 + 標題 + 右上角階段 Pill Badge -->
                 <div class="flex items-center gap-2.5 mb-2">
                     <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
-                        <i class="fa-solid @(isLoading ? "fa-spinner fa-spin-pulse" : "fa-hourglass-half") text-sm"></i>
+                        <i class="fa-solid @(isLoading ? "fa-spinner fa-spin-pulse" : "fa-clipboard-check") text-sm"></i>
                     </div>
-                    <p class="text-sm font-semibold text-gray-600">各階段審修中</p>
+                    <p class="text-sm font-semibold text-gray-600">各階段審題</p>
+                    @if (!isLoading)
+                    {
+                        <span class="ml-auto px-2.5 py-0.5 text-xs font-medium rounded-full border tabular-nums @ReviewPhasePillClass(kpi.CurrentReviewPhase)">
+                            @ReviewPhaseLabel(kpi.CurrentReviewPhase)
+                        </span>
+                    }
                 </div>
-                <!-- Main -->
-                <div class="flex items-baseline gap-1.5 mb-3">
-                    <h3 class="text-4xl font-black text-amber-600 tabular-nums leading-none">
-                        @(isLoading ? "…" : kpi.InReviewCount.ToString())
-                    </h3>
-                    <span class="text-sm text-gray-400">題</span>
+                <!-- Main：審題階段顯示 XX/OO 題；非審題階段顯示「未啟動」替代區 -->
+                <div class="mb-3 min-h-[44px]">
+                    @if (isLoading)
+                    {
+                        <div class="flex items-baseline gap-1.5">
+                            <h3 class="text-4xl font-black text-amber-600 tabular-nums leading-none">…</h3>
+                        </div>
+                    }
+                    else if (kpi.CurrentReviewPhase == MT.Models.ReviewPhaseLabel.Closed)
+                    {
+                        @* 已結案：用印章感的封存卡（實線邊框 + 完成圖示，與「未啟動」虛線狀態做出區隔） *@
+                        <div class="flex items-center gap-2.5 px-3 py-2 bg-stone-100 rounded-lg border border-stone-300">
+                            <div class="w-9 h-9 rounded-md bg-white border border-stone-300 flex items-center justify-center shrink-0">
+                                <i class="fa-solid fa-circle-check text-stone-500 text-base"></i>
+                            </div>
+                            <div class="min-w-0">
+                                <p class="text-sm font-semibold text-stone-700 truncate">本梯次已結案</p>
+                                <p class="text-xs text-stone-500 mt-0.5 truncate tabular-nums">
+                                    @if (kpi.ClosedAt.HasValue)
+                                    {
+                                        <span>結案於 @kpi.ClosedAt.Value.ToString("yyyy-MM-dd")</span>
+                                    }
+                                    else
+                                    {
+                                        <span>所有審題進度已凍結</span>
+                                    }
+                                </p>
+                            </div>
+                        </div>
+                    }
+                    else if (kpi.CurrentReviewPhase == MT.Models.ReviewPhaseLabel.None)
+                    {
+                        @* 非審題階段：虛線卡 + 月亮圖示 *@
+                        <div class="flex items-center gap-2.5 px-3 py-2 bg-stone-50 rounded-lg border border-dashed border-stone-200">
+                            <i class="fa-solid fa-moon text-stone-400 text-base shrink-0"></i>
+                            <div class="min-w-0">
+                                <p class="text-sm font-medium text-stone-600 truncate">本階段審題未啟動</p>
+                                <p class="text-xs text-stone-400 mt-0.5 truncate">目前處於 @kpi.PhaseStatusText</p>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        @* 審題階段：XX/OO 題 *@
+                        <h3 class="flex items-baseline gap-1 leading-none">
+                            <span class="text-4xl font-black text-amber-600 tabular-nums">@kpi.ReviewedCount</span>
+                            <span class="text-2xl text-gray-300 mx-0.5">/</span>
+                            <span class="text-2xl font-bold text-gray-400 tabular-nums">@kpi.ReviewTotalCount</span>
+                            <span class="text-sm text-gray-400 ml-1">題</span>
+                        </h3>
+                    }
                 </div>
-                <!-- Footer：依 PhaseStatusType 顯示不同樣式，永遠有內容 -->
+                <!-- Footer：依 PhaseStatusType 顯示真正當前階段 -->
                 <div class="mt-auto pt-3 border-t border-gray-100">
                     @if (isLoading)
                     {
@@ -261,13 +313,13 @@
             <!-- Chart 2：依題型狀態分佈（Vertical Stacked Bar） -->
             <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-2 flex flex-col h-[350px] overflow-hidden">
                 <h3 class="text-lg font-bold text-slate-main mb-1">依題型狀態分佈表</h3>
-                <p class="text-xs text-gray-500 mb-2">展示草稿、審修、退回、採用等不同狀態在各題型的分佈數量。</p>
+                <p class="text-xs text-gray-500 mb-2">依當前階段動態呈現：草稿、階段進行中、階段完成、採用、不採用。</p>
                 <div class="flex-grow min-h-0">
                     @if (isLoading)
                     {
                         <EmptyState IconClass="fa-spinner" Message="載入中…" Compact="true" CssClass="h-full" />
                     }
-                    else if (!kpi.StatusByType.Any(x => x.Drafting > 0 || x.InReview > 0 || x.Returned > 0 || x.Adopted > 0 || x.Rejected > 0))
+                    else if (!kpi.StatusByType.Any(x => x.Drafts > 0 || x.InProgress > 0 || x.DoneStage > 0 || x.Adopted > 0 || x.Rejected > 0))
                     {
                         <EmptyState IconClass="fa-chart-column" Message="尚無數據" SubMessage="新增題目後將自動產生統計" Compact="true" CssClass="h-full" />
                     }
@@ -282,11 +334,31 @@
         <!-- Bottom Row: Alerts & Audits -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12">
             <!-- Urgent Tasks -->
+            @{
+                // 拆分階段倒數（Header 右側顯示，純資訊）與教師待辦（清單，可點開 Modal）
+                var phaseAlert    = kpi.UrgentItems.FirstOrDefault(x => x.Source == UrgentSourceType.PhaseDeadline);
+                var teacherItems  = kpi.UrgentItems.Where(x => x.Source == UrgentSourceType.TeacherShortage).ToList();
+            }
             <div class="bg-white rounded-xl shadow-sm border border-red-100 flex flex-col overflow-hidden">
-                <div class="bg-red-50 px-5 py-3 border-b border-red-100 flex justify-between items-center shrink-0">
-                    <h3 class="font-bold text-terracotta text-sm flex items-center gap-2">
-                        <i class="fa-solid fa-triangle-exclamation"></i> 逾期與緊急待辦 (Top 5)
+                <div class="bg-red-50 px-5 py-3 border-b border-red-100 flex justify-between items-center gap-3 shrink-0">
+                    <h3 class="font-bold text-terracotta text-sm flex items-center gap-2 shrink-0">
+                        <i class="fa-solid fa-triangle-exclamation"></i> 逾期與緊急待辦
+                        @if (!isLoading && teacherItems.Count > 0)
+                        {
+                            <span class="ml-1 px-2 py-0.5 rounded-full bg-white/80 text-xs font-semibold text-terracotta tabular-nums border border-red-200">
+                                @teacherItems.Count
+                            </span>
+                        }
                     </h3>
+                    @* 階段倒數提醒：純資訊單行顯示在 header 右側（一階段一次，不可點） *@
+                    @if (!isLoading && phaseAlert is not null)
+                    {
+                        <span class="text-xs font-semibold tabular-nums truncate flex items-center gap-1.5 @PhaseAlertTextClass(phaseAlert.Severity)"
+                              title="@phaseAlert.Title @phaseAlert.Subtitle">
+                            <i class="fa-solid @IconFor(phaseAlert) text-xs"></i>
+                            <span class="truncate">@phaseAlert.Title</span>
+                        </span>
+                    }
                 </div>
                 @if (isLoading)
                 {
@@ -294,53 +366,34 @@
                         <EmptyState CssClass="py-8" IconClass="fa-spinner" Message="載入中…" Compact="true" />
                     </div>
                 }
-                else if (kpi.UrgentItems.Count == 0)
+                else if (teacherItems.Count == 0)
                 {
                     <div class="p-4">
-                        <EmptyState CssClass="py-8" IconClass="fa-circle-check" Message="目前沒有緊急待辦"
-                                    SubMessage="所有階段時程與題型進度皆在正常範圍" Compact="true" />
+                        <EmptyState CssClass="py-8" IconClass="fa-circle-check" Message="目前沒有教師進度落後"
+                                    SubMessage="所有教師命題進度皆在正常範圍" Compact="true" />
                     </div>
                 }
                 else
                 {
-                    <ul class="divide-y divide-stone-100">
-                        @foreach (var item in kpi.UrgentItems)
+                    @* 警示清單最大高度 = 5 筆（單筆 ~58px），超過則啟用捲動，與 LOG 卡片對齊 *@
+                    <ul class="max-h-[290px] overflow-y-auto divide-y divide-stone-100">
+                        @foreach (var item in teacherItems)
                         {
                             <li>
-                                @if (item.Source == UrgentSourceType.PhaseDeadline)
-                                {
-                                    @* 階段倒數：依階段碼跳轉對應頁 *@
-                                    <button @onclick="() => NavigateToUrgent(item)"
-                                            class="w-full px-5 py-3 flex items-center gap-3 text-left
-                                                   cursor-pointer transition-colors duration-200
-                                                   @SeverityBgClass(item.Severity)
-                                                   @SeverityHoverClass(item.Severity)">
-                                        <span class="w-2.5 h-2.5 rounded-full @SeverityDotClass(item.Severity) shrink-0"></span>
-                                        <i class="fa-solid @IconFor(item) text-base text-slate-500 shrink-0"></i>
-                                        <div class="flex-1 min-w-0">
-                                            <div class="text-sm font-medium text-slate-main truncate">@item.Title</div>
-                                            <div class="text-xs text-slate-500 mt-0.5">@item.Subtitle</div>
-                                        </div>
-                                        <i class="fa-solid fa-chevron-right text-xs text-slate-400 shrink-0 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-slate-700"></i>
-                                    </button>
-                                }
-                                else
-                                {
-                                    @* 教師落後：點擊開啟 Modal 顯示詳情 *@
-                                    <button @onclick="() => OpenDetail(item)"
-                                            class="w-full px-5 py-3 flex items-center gap-3 text-left
-                                                   cursor-pointer transition-colors duration-200
-                                                   @SeverityBgClass(item.Severity)
-                                                   @SeverityHoverClass(item.Severity)">
-                                        <span class="w-2.5 h-2.5 rounded-full @SeverityDotClass(item.Severity) shrink-0"></span>
-                                        <i class="fa-solid @IconFor(item) text-base text-slate-500 shrink-0"></i>
-                                        <div class="flex-1 min-w-0">
-                                            <div class="text-sm font-medium text-slate-main truncate">@item.Title</div>
-                                            <div class="text-xs text-slate-500 mt-0.5">@item.Subtitle</div>
-                                        </div>
-                                        <i class="fa-solid fa-chevron-right text-xs text-slate-400 shrink-0 transition-all duration-200"></i>
-                                    </button>
-                                }
+                                @* 教師落後：點擊開啟 Modal 顯示詳情 *@
+                                <button @onclick="() => OpenDetail(item)"
+                                        class="w-full px-5 py-3 flex items-center gap-3 text-left
+                                               cursor-pointer transition-colors duration-200
+                                               @SeverityBgClass(item.Severity)
+                                               @SeverityHoverClass(item.Severity)">
+                                    <span class="w-2.5 h-2.5 rounded-full @SeverityDotClass(item.Severity) shrink-0"></span>
+                                    <i class="fa-solid @IconFor(item) text-base text-slate-500 shrink-0"></i>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="text-sm font-medium text-slate-main truncate">@item.Title</div>
+                                        <div class="text-xs text-slate-500 mt-0.5">@item.Subtitle</div>
+                                    </div>
+                                    <i class="fa-solid fa-chevron-right text-xs text-slate-400 shrink-0 transition-all duration-200"></i>
+                                </button>
                             </li>
                         }
                     </ul>
@@ -588,7 +641,7 @@
         }
 
         // ── 圖表 2：依題型狀態分佈（Vertical Stacked Bar） ──
-        if (kpi.StatusByType.Any(x => x.Drafting > 0 || x.InReview > 0 || x.Returned > 0 || x.Adopted > 0 || x.Rejected > 0))
+        if (kpi.StatusByType.Any(x => x.Drafts > 0 || x.InProgress > 0 || x.DoneStage > 0 || x.Adopted > 0 || x.Rejected > 0))
         {
             var categories = kpi.StatusByType.Select(x => x.TypeName).ToArray();
 
@@ -614,13 +667,14 @@
                 },
                 series = new object[]
                 {
-                    new { name = "命題中",  data = kpi.StatusByType.Select(x => x.Drafting).ToArray() },
-                    new { name = "審修中",  data = kpi.StatusByType.Select(x => x.InReview).ToArray() },
-                    new { name = "退回修題", data = kpi.StatusByType.Select(x => x.Returned).ToArray() },
-                    new { name = "已採用",  data = kpi.StatusByType.Select(x => x.Adopted).ToArray() },
-                    new { name = "不採用",  data = kpi.StatusByType.Select(x => x.Rejected).ToArray() }
+                    new { name = "命題草稿",   data = kpi.StatusByType.Select(x => x.Drafts).ToArray() },
+                    new { name = "階段進行中", data = kpi.StatusByType.Select(x => x.InProgress).ToArray() },
+                    new { name = "階段完成",   data = kpi.StatusByType.Select(x => x.DoneStage).ToArray() },
+                    new { name = "已採用",     data = kpi.StatusByType.Select(x => x.Adopted).ToArray() },
+                    new { name = "不採用",     data = kpi.StatusByType.Select(x => x.Rejected).ToArray() }
                 },
-                colors = new[] { "#9CA3AF", "#6B8EAD", "#D98A6C", "#8EAB94", "#991B1B" },
+                // 色彩語意：草稿=中性灰、進行中=暖色琥珀（注意力）、完成=莫蘭迪藍、採用=鼠尾草綠、不採用=深紅
+                colors = new[] { "#9CA3AF", "#F59E0B", "#6B8EAD", "#8EAB94", "#991B1B" },
                 xaxis = new
                 {
                     categories,
@@ -721,6 +775,14 @@
         _                       => "bg-morandi"
     };
 
+    /// <summary>Header 右側階段倒數文字顏色 class（依嚴重度，與莫蘭迪色系對齊）。</summary>
+    private static string PhaseAlertTextClass(UrgentSeverity s) => s switch
+    {
+        UrgentSeverity.Critical => "text-terracotta",
+        UrgentSeverity.Warning  => "text-amber-700",
+        _                       => "text-slate-500"
+    };
+
     /// <summary>依 source 與嚴重度回傳 Font Awesome icon class（不含 fa-solid 前綴）。</summary>
     private static string IconFor(DashboardUrgentItem item)
     {
@@ -795,6 +857,31 @@
         if (diff.TotalDays    <  7) return $"{(int)diff.TotalDays} 天前";
         return time.ToString("MM/dd HH:mm");
     }
+
+    // ─── 卡片 3 Pill Badge Helper ────────────────────────────────────
+
+    /// <summary>依當前審題階段回傳 Pill Badge 文字。</summary>
+    private static string ReviewPhaseLabel(MT.Models.ReviewPhaseLabel phase) => phase switch
+    {
+        MT.Models.ReviewPhaseLabel.Peer   => "互審階段",
+        MT.Models.ReviewPhaseLabel.Expert => "專審階段",
+        MT.Models.ReviewPhaseLabel.Final  => "總召審題",
+        MT.Models.ReviewPhaseLabel.Closed => "已結案",
+        _                                  => "非審題階段"
+    };
+
+    /// <summary>
+    /// 依當前審題階段回傳 Pill Badge 顏色 class（border + bg + text）。
+    /// 配色貼近莫蘭迪色系，避免高飽和度刺激年長使用者視覺。
+    /// </summary>
+    private static string ReviewPhasePillClass(MT.Models.ReviewPhaseLabel phase) => phase switch
+    {
+        MT.Models.ReviewPhaseLabel.Peer   => "bg-blue-50 text-[var(--color-morandi)] border-blue-200",
+        MT.Models.ReviewPhaseLabel.Expert => "bg-violet-50 text-violet-700 border-violet-200",
+        MT.Models.ReviewPhaseLabel.Final  => "bg-amber-50 text-amber-700 border-amber-200",
+        MT.Models.ReviewPhaseLabel.Closed => "bg-stone-200 text-stone-700 border-stone-300",
+        _                                  => "bg-stone-100 text-stone-500 border-stone-200"
+    };
 
     /// <summary>
     /// 頁面卸載時銷毀所有圖表實例，釋放 JS 端記憶體。

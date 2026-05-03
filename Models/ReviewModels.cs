@@ -146,7 +146,8 @@ public class ReviewListItem
     public ReviewStage Stage { get; set; }
     public ReviewDecision? Decision { get; set; }
     public ReviewTaskStatus Status { get; set; }
-    public DateTime AssignedAt { get; set; }
+    /// <summary>最後編輯時間（已完成顯示 DecidedAt；尚未編輯顯示分配當下 CreatedAt）</summary>
+    public DateTime LastEditedAt { get; set; }
 
     /// <summary>
     /// 是否已完成（任務完成 = 互審意見已存或專/總審決策已下）。

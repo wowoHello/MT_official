@@ -66,7 +66,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 ra.ReviewStage     AS Stage,
                 ra.Decision,
                 ra.ReviewStatus    AS Status,
-                ra.CreatedAt       AS AssignedAt
+                ISNULL(ra.DecidedAt, ra.CreatedAt) AS LastEditedAt
             FROM dbo.MT_ReviewAssignments ra
             INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
             WHERE ra.ProjectId   = @ProjectId
@@ -98,7 +98,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             Stage        = (ReviewStage)r.Stage,
             Decision     = r.Decision is null ? null : (ReviewDecision)r.Decision.Value,
             Status       = (ReviewTaskStatus)r.Status,
-            AssignedAt   = r.AssignedAt
+            LastEditedAt = r.LastEditedAt
         }).ToList();
     }
 
@@ -504,7 +504,8 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 At          = row.At,
                 ActorName   = row.ActorName,
                 Label       = StageToLabel((ReviewStage)row.Stage, row.Decision),
-                ContentHtml = row.Comment
+                // 審題意見已改純 textarea 儲存；舊資料若含 HTML 在此一次性清洗，前端純文字渲染
+                ContentHtml = StripHtmlFull(row.Comment)
             });
         }
 
@@ -649,6 +650,14 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         return text.Length > 100 ? text[..100] + "…" : text;
     }
 
+    /// <summary>StripHtml 但不截斷字數（歷程意見/修題說明全文用，避免被裁掉）。</summary>
+    private static string StripHtmlFull(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return "";
+        var text = System.Text.RegularExpressions.Regex.Replace(html, "<.*?>", " ");
+        return System.Net.WebUtility.HtmlDecode(text).Trim();
+    }
+
     // ====================================================================
     //  私有 DTO（僅 Service 內部用）
     // ====================================================================
@@ -665,7 +674,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         public byte Stage { get; set; }
         public byte? Decision { get; set; }
         public byte Status { get; set; }
-        public DateTime AssignedAt { get; set; }
+        public DateTime LastEditedAt { get; set; }
     }
 
     private sealed class HistoryListRow

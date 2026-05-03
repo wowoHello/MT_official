@@ -12,19 +12,20 @@ public class OverviewFilter
     public int? CreatorId { get; set; }       // 命題教師篩選（null = 全部）
     public string? Keyword { get; set; }
     public int Page { get; set; } = 1;
-    public int PageSize { get; set; } = 20;
+    public int PageSize { get; set; } = 10;   // Hope 規格：每頁最多 10 筆
 
     /// <summary>轉成共用的 QuestionListFilter（CreatorId 採用 Overview 端設定，Tab="all" 不限狀態範圍）。</summary>
     public QuestionListFilter ToListFilter(int projectId) => new()
     {
-        ProjectId      = projectId,
-        CreatorId      = CreatorId,
-        Tab            = "all",
-        StatusFilter   = StatusFilter,
-        QuestionTypeId = QuestionTypeId,
-        Keyword        = string.IsNullOrWhiteSpace(Keyword) ? null : Keyword.Trim(),
-        Page           = Page,
-        PageSize       = PageSize
+        ProjectId         = projectId,
+        CreatorId         = CreatorId,
+        Tab               = "all",
+        StatusFilter      = StatusFilter,
+        QuestionTypeId    = QuestionTypeId,
+        Keyword           = string.IsNullOrWhiteSpace(Keyword) ? null : Keyword.Trim(),
+        SearchCreatorName = true,             // 命題總覽：跨教師搜尋（CwtList/Reviews 不啟用）
+        Page              = Page,
+        PageSize          = PageSize
     };
 }
 

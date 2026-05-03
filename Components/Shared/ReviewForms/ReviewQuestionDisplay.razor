@@ -10,13 +10,10 @@
     <div class="max-w-3xl mx-auto px-6 sm:px-8 py-8 sm:py-10">
         <div class="bg-white rounded-2xl shadow-md border border-gray-200 px-6 sm:px-10 py-8 sm:py-10">
 
-            @* 試卷標頭：題號 + 命題者元資訊 *@
-            <div class="flex flex-wrap items-center justify-between gap-2 mb-6 pb-4 border-b-2 border-dashed border-gray-200">
+            @* 試卷標頭：僅顯示題號（命題者姓名匿名以維持審題公平性） *@
+            <div class="flex items-center mb-6 pb-4 border-b-2 border-dashed border-gray-200">
                 <div class="text-xs text-gray-400 font-medium tracking-widest">
                     題目 ID：<span class="text-slate-main font-bold">@Question.QuestionCode</span>
-                </div>
-                <div class="text-xs text-gray-400 font-medium flex items-center gap-3 flex-wrap">
-                    <span><i class="fa-solid fa-user-pen mr-1"></i> 命題：@(string.IsNullOrEmpty(CreatorName) ? "—" : CreatorName)</span>
                 </div>
             </div>
 

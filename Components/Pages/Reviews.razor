@@ -323,7 +323,7 @@
                                         <th class="px-4 py-2 text-left">題目摘要</th>
                                         <th class="px-4 py-2 text-center whitespace-nowrap">階段</th>
                                         <th class="px-4 py-2 text-center whitespace-nowrap">狀態</th>
-                                        <th class="px-4 py-2 text-left whitespace-nowrap">分配時間</th>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap">編輯時間</th>
                                         <th class="px-4 py-2 text-center whitespace-nowrap">操作</th>
                                     </tr>
                                 </thead>
@@ -372,7 +372,7 @@
                                                     <span class="inline-block px-2 py-0.5 rounded text-xs font-bold bg-terracotta/15 text-terracotta border border-terracotta/30">待審</span>
                                                 }
                                             </td>
-                                            <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">@item.AssignedAt.ToString("yyyy/MM/dd HH:mm")</td>
+                                            <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">@item.LastEditedAt.ToString("yyyy/MM/dd HH:mm")</td>
                                             <td class="px-4 py-3 text-center whitespace-nowrap" @onclick:stopPropagation="true">
                                                 <button @onclick="() => OpenReviewModal(item.QuestionId)"
                                                         class="text-morandi hover:underline text-xs font-bold cursor-pointer focus:outline-none">

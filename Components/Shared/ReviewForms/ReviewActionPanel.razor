@@ -1,9 +1,9 @@
 @* ====================================================================== *@
 @*  ReviewActionPanel — 審題 Modal 右 30% 操作區                             *@
-@*  Phase 3.3：意見編輯（Quill InlineQuillEditor）+ 8 罐頭訊息快速插入       *@
-@*  Phase 3.4 將補：歷程軌跡摺疊區、相似題比對區（佔位於下半部）              *@
-@*  已決策狀態：Quill 自動進入唯讀、罐頭訊息列灰化禁用                         *@
+@*  審題意見：純 textarea + 8 罐頭訊息快速插入（不需富文本，不需字數統計）    *@
+@*  歷程軌跡 + 相似題比對於下半部，獨立內捲                                   *@
 @* ====================================================================== *@
+@inject IJSRuntime JS
 
 <div class="flex flex-col h-full overflow-hidden">
 
@@ -39,13 +39,13 @@
             </div>
         </div>
 
-        @* Quill 編輯器（複用 InlineQuillEditor） *@
-        <InlineQuillEditor @ref="quillEditor"
-                           Value="@Comment"
-                           ValueChanged="OnCommentChanged"
-                           IsReadOnly="@IsReadOnly"
-                           EditorClass="h-[200px]"
-                           ShowWordCount="true" />
+        @* 純 textarea — 不需富文本格式，年長者更直覺 *@
+        <textarea id="@textareaId"
+                  value="@Comment"
+                  @oninput="OnInputAsync"
+                  readonly="@IsReadOnly"
+                  placeholder="請輸入審題意見…"
+                  class="w-full h-[200px] px-3 py-2 text-sm leading-relaxed border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-morandi focus:border-morandi resize-none read-only:bg-gray-50 read-only:cursor-not-allowed"></textarea>
     </div>
 
     @* ===== 下半部：歷程軌跡 + 相似題比對（共用同一個內捲容器） ===== *@
@@ -65,22 +65,24 @@
     [Parameter] public List<ReviewHistoryEntry> History { get; set; } = new();
     [Parameter] public List<ReviewSimilarityEntry> SimilarQuestions { get; set; } = new();
 
-    private InlineQuillEditor? quillEditor;
+    private readonly string textareaId = $"review-comment-{Guid.NewGuid():N}";
     private ReviewSimilarityBanner? similaritySection;
 
     /// <summary>讓父層（ReviewModal 頂部橫幅按鈕）能呼叫展開相似題列表</summary>
     public Task ExpandSimilarityAsync() => similaritySection?.ExpandAsync() ?? Task.CompletedTask;
 
-    private async Task OnCommentChanged(string newHtml)
+    private async Task OnInputAsync(ChangeEventArgs e)
     {
-        Comment = newHtml;
-        await CommentChanged.InvokeAsync(newHtml);
+        var newValue = e.Value?.ToString() ?? string.Empty;
+        Comment = newValue;
+        await CommentChanged.InvokeAsync(newValue);
     }
 
     private async Task InsertCannedAsync(string text)
     {
-        if (IsReadOnly || quillEditor is null) return;
-        await quillEditor.InsertTextAsync(text);
+        if (IsReadOnly) return;
+        // JS helper 會直接修改 textarea 並觸發 input 事件 → Blazor @oninput 同步 Comment
+        await JS.InvokeVoidAsync("TextareaHelper.insertAtCursor", textareaId, text);
     }
 
     /// <summary>

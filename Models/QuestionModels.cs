@@ -413,6 +413,9 @@ public class QuestionListFilter
 
     /// <summary>是否包含已軟刪除題目（Overview=true、CwtList 預設 false）。</summary>
     public bool IncludeDeleted { get; set; } = false;
+
+    /// <summary>關鍵字是否額外比對命題教師姓名（MT_Users.DisplayName）。僅 Overview 用，CwtList/Reviews 預設 false。</summary>
+    public bool SearchCreatorName { get; set; } = false;
 }
 
 public class QuestionListResult
