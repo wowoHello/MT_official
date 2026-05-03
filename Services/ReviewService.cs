@@ -65,6 +65,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 q.Stem             AS SummaryHtml,
                 ra.ReviewStage     AS Stage,
                 ra.Decision,
+                ra.ReviewStatus    AS Status,
                 ra.CreatedAt       AS AssignedAt
             FROM dbo.MT_ReviewAssignments ra
             INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
@@ -73,7 +74,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
               AND ra.ReviewStage = @Stage
               AND q.IsDeleted    = 0
             ORDER BY
-                CASE WHEN ra.Decision IS NULL THEN 0 ELSE 1 END,  -- 未決策優先
+                CASE WHEN ra.ReviewStatus = 2 THEN 1 ELSE 0 END,  -- 已完成沉到下方
                 ra.CreatedAt DESC;
             """;
 
@@ -96,6 +97,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             SummaryText  = StripHtml(r.SummaryHtml),
             Stage        = (ReviewStage)r.Stage,
             Decision     = r.Decision is null ? null : (ReviewDecision)r.Decision.Value,
+            Status       = (ReviewTaskStatus)r.Status,
             AssignedAt   = r.AssignedAt
         }).ToList();
     }
@@ -224,21 +226,51 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
 
     public async Task<bool> SaveCommentDraftAsync(SaveReviewCommentRequest req, int operatorUserId)
     {
-        // 鎖死：只能更新自己 (ReviewerId = operatorUserId) 且尚未決策 (Decision IS NULL) 的紀錄
-        const string sql = """
-            UPDATE dbo.MT_ReviewAssignments
-            SET Comment = @Comment
+        using var conn = _db.CreateConnection();
+
+        // 取出 Stage 以判斷互審 vs 專/總審；同時驗證 reviewer 與未決策（Decision IS NULL）
+        const string fetchSql = """
+            SELECT ReviewStage AS Stage
+            FROM dbo.MT_ReviewAssignments
             WHERE Id = @AssignmentId
               AND ReviewerId = @ReviewerId
               AND Decision IS NULL;
             """;
+        var stage = await conn.QueryFirstOrDefaultAsync<byte?>(fetchSql, new
+        {
+            req.AssignmentId,
+            ReviewerId = operatorUserId
+        });
+        if (stage is null) return false;   // 不是分配給此使用者，或已決策
 
-        using var conn = _db.CreateConnection();
+        // 互審階段：意見儲存 = 完成審題（無採用/退回決策按鈕，儲存即完成）
+        // 專/總審階段：純草稿，ReviewStatus 不變、不寫 DecidedAt
+        var isMutual = stage.Value == (byte)ReviewStage.Mutual;
+
+        var sql = isMutual
+            ? """
+                UPDATE dbo.MT_ReviewAssignments
+                SET Comment      = @Comment,
+                    ReviewStatus = @Status,
+                    DecidedAt    = SYSDATETIME()
+                WHERE Id = @AssignmentId
+                  AND ReviewerId = @ReviewerId
+                  AND Decision IS NULL;
+                """
+            : """
+                UPDATE dbo.MT_ReviewAssignments
+                SET Comment = @Comment
+                WHERE Id = @AssignmentId
+                  AND ReviewerId = @ReviewerId
+                  AND Decision IS NULL;
+                """;
+
         var affected = await conn.ExecuteAsync(sql, new
         {
             req.AssignmentId,
             ReviewerId = operatorUserId,
-            Comment    = string.IsNullOrWhiteSpace(req.Comment) ? null : req.Comment
+            Comment    = string.IsNullOrWhiteSpace(req.Comment) ? null : req.Comment,
+            Status     = (byte)ReviewTaskStatus.Completed
         });
 
         return affected > 0;
@@ -451,6 +483,9 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
 
         foreach (var row in auditRows)
         {
+            // 過濾系統自動事件（如命題階段結束自動分配審題者）— 不屬於使用者歷程語意
+            if (IsSystemAutoAuditEvent(row.NewValue)) continue;
+
             entries.Add(new ReviewHistoryEntry
             {
                 Kind        = ReviewHistoryKind.QuestionEvent,
@@ -485,8 +520,54 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             });
         }
 
-        return entries.OrderBy(e => e.At).ToList();
+        // 對總審「改後再審」加退回次數標示（總審第一次退回／總審第二次退回...）
+        ApplyFinalReturnSequence(entries);
+
+        return entries.OrderByDescending(e => e.At).ToList();
     }
+
+    /// <summary>判斷某筆 Audit 是否為系統自動事件（如命題階段結束的自動分配），這類事件不顯示於使用者歷程。</summary>
+    private static bool IsSystemAutoAuditEvent(string? newValueJson)
+    {
+        if (string.IsNullOrEmpty(newValueJson)) return false;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(newValueJson);
+            if (doc.RootElement.TryGetProperty("Reason", out var reasonProp))
+            {
+                var reason = reasonProp.GetString();
+                // 系統行為清單：未來新增系統 Reason 在此補
+                return reason is "CompositionPhaseEnded";
+            }
+        }
+        catch
+        {
+            // JSON 解析失敗視為非系統事件，保留顯示
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// 對「總審意見（改後再審）」依時間排序加退回次數，產出「總審第一次退回 / 總審第二次退回...」。
+    /// 互審/專審無「退回」業務概念，不處理。
+    /// </summary>
+    private static void ApplyFinalReturnSequence(List<ReviewHistoryEntry> entries)
+    {
+        var finalReviseLabel = StageToLabel(ReviewStage.Final, (byte)ReviewDecision.Revise);
+        int idx = 0;
+        foreach (var e in entries
+            .Where(x => x.Kind == ReviewHistoryKind.ReviewComment && x.Label == finalReviseLabel)
+            .OrderBy(x => x.At))
+        {
+            idx++;
+            e.Label = $"總審第{ToChineseOrdinal(idx)}次退回";
+        }
+    }
+
+    private static string ToChineseOrdinal(int n) => n switch
+    {
+        1 => "一", 2 => "二", 3 => "三", 4 => "四", 5 => "五", _ => n.ToString()
+    };
 
     private static string LabelFromAuditAction(byte action, string? newValueJson) => action switch
     {
@@ -583,6 +664,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         public string? SummaryHtml { get; set; }
         public byte Stage { get; set; }
         public byte? Decision { get; set; }
+        public byte Status { get; set; }
         public DateTime AssignedAt { get; set; }
     }
 

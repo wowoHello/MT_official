@@ -68,9 +68,9 @@
                         };
                         var stageName = stage switch
                         {
-                            ReviewStage.Mutual => "互審 第 1 階段",
-                            ReviewStage.Expert => "專審 第 2 階段",
-                            ReviewStage.Final  => "總審 第 3 階段",
+                            ReviewStage.Mutual => "交互審題",
+                            ReviewStage.Expert => "專家審題",
+                            ReviewStage.Final  => "總召審題",
                             _                  => ""
                         };
                         <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ml-2 shrink-0 @stageCss">
@@ -215,8 +215,25 @@
                 Comment      = commentDraft
             }, CurrentUserId);
 
-            await ShowToastAsync(ok ? "success" : "error",
-                                  ok ? "意見草稿已儲存" : "儲存失敗（題目可能已決策或不再分配給您）");
+            if (!ok)
+            {
+                await ShowToastAsync("error", "儲存失敗（題目可能已決策或不再分配給您）");
+                return;
+            }
+
+            // 互審階段：儲存即完成 → 通知父層 reload 列表 + 關閉 Modal + toast
+            // 專/總審階段：純草稿 → 留在 Modal + toast
+            var isMutual = data.MyAssignment.Stage == ReviewStage.Mutual;
+            if (isMutual)
+            {
+                await OnDecisionMade.InvokeAsync();   // 父層列表 reload（待處理 -1、列表狀態轉「已完成」）
+                await CloseAsync();                    // 先關 Modal
+                await ShowToastAsync("success", "審題意見已儲存");   // 再 toast
+            }
+            else
+            {
+                await ShowToastAsync("success", "審題意見已儲存");
+            }
         }
         catch (Exception ex)
         {

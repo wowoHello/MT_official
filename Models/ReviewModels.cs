@@ -96,6 +96,9 @@ public class ReviewAssignmentInfo
 
     /// <summary>是否已決策（Decision != null）—— UI 用來決定顯示按鈕或唯讀提示</summary>
     public bool IsDecided => Decision.HasValue;
+
+    /// <summary>是否已完成（包含互審只儲存意見即視為完成）</summary>
+    public bool IsCompleted => Status == ReviewTaskStatus.Completed;
 }
 
 /// <summary>歷程軌跡單筆（時間軸顯示用）</summary>
@@ -142,8 +145,14 @@ public class ReviewListItem
     public string SummaryText { get; set; } = string.Empty;
     public ReviewStage Stage { get; set; }
     public ReviewDecision? Decision { get; set; }
+    public ReviewTaskStatus Status { get; set; }
     public DateTime AssignedAt { get; set; }
-    public bool IsDecided => Decision.HasValue;
+
+    /// <summary>
+    /// 是否已完成（任務完成 = 互審意見已存或專/總審決策已下）。
+    /// 用 ReviewStatus 而非 Decision，因互審無決策但 Comment 儲存後即視為完成。
+    /// </summary>
+    public bool IsCompleted => Status == ReviewTaskStatus.Completed;
 }
 
 /// <summary>審核結果與歷史 Tab 的單列（採用 / 不採用）</summary>

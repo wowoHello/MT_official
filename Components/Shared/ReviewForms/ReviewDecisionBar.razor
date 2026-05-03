@@ -97,6 +97,10 @@
 
     private RenderFragment RenderMutualButtons => __builder =>
     {
+        @* 已完成可再編輯（直到互審階段截止才鎖定）：按鈕字面切換為「修改意見」 *@
+        var isResubmit = Assignment?.IsCompleted ?? false;
+        var label      = isResubmit ? "修改意見" : "儲存意見";
+        var icon       = isResubmit ? "fa-pen-to-square" : "fa-floppy-disk";
         <p class="text-xs text-gray-500 italic flex items-center gap-1.5">
             <i class="fa-solid fa-circle-info text-morandi"></i>
             互審階段僅提供意見回饋，老師將依您的建議修題
@@ -112,8 +116,8 @@
             }
             else
             {
-                <i class="fa-solid fa-floppy-disk mr-1.5"></i>
-                <span>儲存意見</span>
+                <i class="fa-solid @icon mr-1.5"></i>
+                <span>@label</span>
             }
         </button>
     };
