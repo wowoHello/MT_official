@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Dapper;
 using MT.Models;
 
@@ -9,9 +10,15 @@ namespace MT.Services;
 public interface IDashboardService
 {
     /// <summary>
-    /// 依梯次取得四張 KPI 卡片資料，一次查詢完成，避免 N+1。
+    /// 依梯次取得 KPI 卡片資料、圖表資料、緊急待辦，一次查詢完成。
+    /// LOG 已抽離到 <see cref="GetAuditLogsAsync"/>，因為支援 toggle/chip/分頁。
     /// </summary>
     Task<DashboardKpiDto> GetKpiAsync(int projectId);
+
+    /// <summary>
+    /// 依條件取得稽核歷程分頁資料（支援 toggle 含全站事件、類別 chip 過濾、Skip/Take 分頁）。
+    /// </summary>
+    Task<AuditLogPage> GetAuditLogsAsync(AuditLogQuery query);
 }
 
 /// <summary>
@@ -288,12 +295,7 @@ public class DashboardService : IDashboardService
         var urgentItems = await BuildUrgentItemsAsync(conn, projectId, achievementRows);
 
         // ──────────────────────────────────────────────────────────────
-        // 7. 最新稽核歷程 Top 10
-        // ──────────────────────────────────────────────────────────────
-        var recentLogs = await GetRecentAuditLogsAsync(conn, projectId);
-
-        // ──────────────────────────────────────────────────────────────
-        // 組裝 DTO
+        // 組裝 DTO（LOG 已獨立至 GetAuditLogsAsync，此處不再帶入）
         // ──────────────────────────────────────────────────────────────
         return new DashboardKpiDto
         {
@@ -314,8 +316,7 @@ public class DashboardService : IDashboardService
             ClosedAt            = closedAt,
             AchievementByType   = achievementRows,
             StatusByType        = statusByTypeRows,
-            UrgentItems         = urgentItems,
-            RecentLogs          = recentLogs
+            UrgentItems         = urgentItems
         };
     }
 
@@ -629,40 +630,101 @@ public class DashboardService : IDashboardService
         return top5;
     }
 
-    /// <summary>
-    /// 取得最新稽核歷程（依 CreatedAt DESC，預設 Top 10）。
-    /// Step 1：主查詢撈 LOG + 操作者名稱。
-    /// Step 2：依 TargetType 分組批次 JOIN 目標名稱，避免 N+1。
-    /// </summary>
-    private static async Task<List<RecentAuditLog>> GetRecentAuditLogsAsync(
-        System.Data.IDbConnection conn, int projectId, int top = 10)
+    /// <inheritdoc />
+    public async Task<AuditLogPage> GetAuditLogsAsync(AuditLogQuery query)
     {
-        // ── Step 1：主查詢 ──────────────────────────────────────────────
+        using var conn = _db.CreateConnection();
+
+        // 過濾條件（C# 端解析，避免 SQL 動態字串拼接）：
+        //   typeCode  → 對應 MT_AuditLogs.TargetType（null = 不過濾）
+        //   loginOnly → 1 表示僅顯示 Action 3/4（登入/登出）
+        int? typeCode = query.TypeFilter switch
+        {
+            LogTypeFilter.Question     => 3,
+            LogTypeFilter.Announcement => 4,
+            LogTypeFilter.Role         => 1,
+            LogTypeFilter.Teacher      => 5,
+            LogTypeFilter.Review       => 6,
+            _                          => null
+        };
+        int loginOnly  = query.TypeFilter == LogTypeFilter.Login ? 1 : 0;
+        int includeGlb = query.IncludeGlobal ? 1 : 0;
+
+        var sqlParams = new
+        {
+            pid           = query.ProjectId,
+            includeGlobal = includeGlb,
+            typeCode,
+            loginOnly,
+            skip          = query.Skip,
+            take          = query.Take
+        };
+
+        // ── Step 1：主查詢（OFFSET FETCH 分頁）──────────────────────────
+        // OldValue/NewValue 也帶出，以便目標資料已刪除時從 JSON 解析名稱
         const string sqlMain = """
-            SELECT TOP (@top)
+            SELECT
                 al.Id,
                 al.UserId,
                 ISNULL(u.DisplayName, N'系統') AS UserName,
                 al.Action,
                 al.TargetType,
                 al.TargetId,
-                al.CreatedAt
+                al.CreatedAt,
+                al.OldValue,
+                al.NewValue
             FROM   dbo.MT_AuditLogs al
             LEFT   JOIN dbo.MT_Users u ON u.Id = al.UserId
-            WHERE  (al.ProjectId = @pid OR al.ProjectId IS NULL)
-              AND  al.Action IN (0, 1, 2)   -- 僅顯示「建立/修改/刪除」三種有語意的動作
+            WHERE  ( al.ProjectId = @pid
+                     OR (@includeGlobal = 1 AND al.ProjectId IS NULL) )
+              AND  al.Action IN (0, 1, 2, 3, 4)
+              AND  ( @typeCode IS NULL OR al.TargetType = @typeCode )
+              AND  ( @loginOnly = 0     OR al.Action IN (3, 4) )
             ORDER  BY al.CreatedAt DESC
+            OFFSET @skip ROWS FETCH NEXT @take ROWS ONLY;
             """;
 
-        var logs = (await conn.QueryAsync<RecentAuditLog>(
-            sqlMain, new { pid = projectId, top })).ToList();
+        const string sqlCount = """
+            SELECT COUNT(*)
+            FROM   dbo.MT_AuditLogs al
+            WHERE  ( al.ProjectId = @pid
+                     OR (@includeGlobal = 1 AND al.ProjectId IS NULL) )
+              AND  al.Action IN (0, 1, 2, 3, 4)
+              AND  ( @typeCode IS NULL OR al.TargetType = @typeCode )
+              AND  ( @loginOnly = 0     OR al.Action IN (3, 4) );
+            """;
 
-        if (logs.Count == 0) return logs;
+        var logs = (await conn.QueryAsync<RecentAuditLog>(sqlMain, sqlParams)).ToList();
+        var total = await conn.ExecuteScalarAsync<int>(sqlCount, sqlParams);
+
+        // 沒結果直接回傳（仍帶總數，讓 UI 顯示空狀態）
+        if (logs.Count == 0)
+        {
+            return new AuditLogPage { Logs = logs, TotalCount = total, HasMore = false };
+        }
+
+        await ResolveLogTargetNamesAsync(conn, logs);
+
+        return new AuditLogPage
+        {
+            Logs       = logs,
+            TotalCount = total,
+            HasMore    = query.Skip + logs.Count < total
+        };
+    }
+
+    /// <summary>批次解析 LOG 的 TargetName（避免 N+1）。</summary>
+    private static async Task ResolveLogTargetNamesAsync(
+        System.Data.IDbConnection conn, List<RecentAuditLog> logs)
+    {
+        if (logs.Count == 0) return;
 
         // ── Step 2：依 TargetType 分組批次解析 TargetName ──────────────
         // 聚合各 TargetType → TargetId 清單
+        // - Login/Logout（Action 3,4）：UserName 已在 Step 1 取得，無需再查目標名稱
+        // - TargetType=6(Reviews) JOIN MT_Questions 顯示對應題目的 QuestionCode
         var grouped = logs
-            .Where(l => l.TargetType != 6)                        // TargetType=6(Reviews) 直接用 #{Id}
+            .Where(l => l.Action != 3 && l.Action != 4)
             .GroupBy(l => l.TargetType)
             .ToDictionary(g => g.Key, g => g.Select(x => x.TargetId).Distinct().ToList());
 
@@ -685,6 +747,12 @@ public class DashboardService : IDashboardService
                      JOIN   dbo.MT_Users u ON u.Id = t.UserId
                      WHERE  t.Id IN @ids
                      """,
+                6 => """
+                     SELECT ra.Id AS TargetId, q.QuestionCode AS TargetName
+                     FROM   dbo.MT_ReviewAssignments ra
+                     JOIN   dbo.MT_Questions q ON q.Id = ra.QuestionId
+                     WHERE  ra.Id IN @ids
+                     """,
                 _ => null
             };
 
@@ -698,10 +766,10 @@ public class DashboardService : IDashboardService
         // ── 填入 TargetName ─────────────────────────────────────────────
         foreach (var log in logs)
         {
-            if (log.TargetType == 6)
+            if (log.Action == 3 || log.Action == 4)
             {
-                // Reviews 不查名稱，直接用流水號
-                log.TargetName = $"#{log.TargetId}";
+                // Login/Logout：目標就是使用者本人，UI 端顯示時不引用 TargetName
+                log.TargetName = string.Empty;
             }
             else if (nameMap.TryGetValue((log.TargetType, log.TargetId), out var found))
             {
@@ -709,11 +777,60 @@ public class DashboardService : IDashboardService
             }
             else
             {
-                log.TargetName = "已刪除";
+                // 目標資料表查無 → fallback：從 OldValue/NewValue JSON 解析原始名稱
+                // Delete 操作優先看 OldValue；Create/Update 優先看 NewValue
+                var json = log.Action == 2
+                    ? (log.OldValue ?? log.NewValue)
+                    : (log.NewValue ?? log.OldValue);
+                log.TargetName = ExtractNameFromJson(log.TargetType, json) ?? "已刪除";
             }
         }
+    }
 
-        return logs;
+    /// <summary>
+    /// 從 AuditLog 的 OldValue/NewValue JSON 中抽取對應 TargetType 的名稱欄位。
+    /// 解析失敗（JSON 損壞、無對應欄位）時回 null，由呼叫端 fallback 為「已刪除」。
+    /// </summary>
+    private static string? ExtractNameFromJson(byte targetType, string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+
+        // 各 TargetType 對應的 JSON 名稱欄位（同時嘗試 camelCase 與 PascalCase）
+        string fieldKey = targetType switch
+        {
+            0 or 5 => "displayName",   // Users / Teachers
+            1 or 2 => "name",          // Roles / Projects
+            3      => "questionCode",  // Questions
+            4      => "title",         // Announcements
+            _      => "name"
+        };
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+
+            // 同時嘗試小寫開頭與大寫開頭兩種 key（Json options 不確定）
+            string[] keys =
+            {
+                fieldKey,
+                char.ToUpperInvariant(fieldKey[0]) + fieldKey[1..]
+            };
+            foreach (var k in keys)
+            {
+                if (doc.RootElement.TryGetProperty(k, out var v)
+                    && v.ValueKind == JsonValueKind.String)
+                {
+                    var s = v.GetString();
+                    if (!string.IsNullOrWhiteSpace(s)) return s;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // JSON 格式錯誤 → 視為查無
+        }
+        return null;
     }
 
     /// <summary>

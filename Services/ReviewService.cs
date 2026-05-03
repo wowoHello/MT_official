@@ -228,52 +228,103 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     {
         using var conn = _db.CreateConnection();
 
-        // 取出 Stage 以判斷互審 vs 專/總審；同時驗證 reviewer 與未決策（Decision IS NULL）
+        // 取出 Stage / ProjectId / QuestionId / DecidedAt（區分首次完成 vs 修改既有意見）
         const string fetchSql = """
-            SELECT ReviewStage AS Stage
+            SELECT ReviewStage AS Stage, ProjectId, QuestionId, DecidedAt
             FROM dbo.MT_ReviewAssignments
             WHERE Id = @AssignmentId
               AND ReviewerId = @ReviewerId
               AND Decision IS NULL;
             """;
-        var stage = await conn.QueryFirstOrDefaultAsync<byte?>(fetchSql, new
+        var meta = await conn.QueryFirstOrDefaultAsync<AssignmentMetaForSave>(fetchSql, new
         {
             req.AssignmentId,
             ReviewerId = operatorUserId
         });
-        if (stage is null) return false;   // 不是分配給此使用者，或已決策
+        if (meta is null) return false;   // 不是分配給此使用者，或已決策
 
         // 互審階段：意見儲存 = 完成審題（無採用/退回決策按鈕，儲存即完成）
-        // 專/總審階段：純草稿，ReviewStatus 不變、不寫 DecidedAt
-        var isMutual = stage.Value == (byte)ReviewStage.Mutual;
+        // 專/總審階段：純草稿，ReviewStatus 不變、不寫 DecidedAt、不寫 audit
+        var isMutual    = meta.Stage == (byte)ReviewStage.Mutual;
+        var wasDecided  = meta.DecidedAt.HasValue;   // true = 修改既有意見，false = 首次完成
 
-        var sql = isMutual
-            ? """
-                UPDATE dbo.MT_ReviewAssignments
-                SET Comment      = @Comment,
-                    ReviewStatus = @Status,
-                    DecidedAt    = SYSDATETIME()
-                WHERE Id = @AssignmentId
-                  AND ReviewerId = @ReviewerId
-                  AND Decision IS NULL;
-                """
-            : """
-                UPDATE dbo.MT_ReviewAssignments
-                SET Comment = @Comment
-                WHERE Id = @AssignmentId
-                  AND ReviewerId = @ReviewerId
-                  AND Decision IS NULL;
-                """;
-
-        var affected = await conn.ExecuteAsync(sql, new
+        conn.Open();
+        using var tx = conn.BeginTransaction();
+        try
         {
-            req.AssignmentId,
-            ReviewerId = operatorUserId,
-            Comment    = string.IsNullOrWhiteSpace(req.Comment) ? null : req.Comment,
-            Status     = (byte)ReviewTaskStatus.Completed
-        });
+            var updateSql = isMutual
+                ? """
+                    UPDATE dbo.MT_ReviewAssignments
+                    SET Comment      = @Comment,
+                        ReviewStatus = @Status,
+                        DecidedAt    = SYSDATETIME()
+                    WHERE Id = @AssignmentId
+                      AND ReviewerId = @ReviewerId
+                      AND Decision IS NULL;
+                    """
+                : """
+                    UPDATE dbo.MT_ReviewAssignments
+                    SET Comment = @Comment
+                    WHERE Id = @AssignmentId
+                      AND ReviewerId = @ReviewerId
+                      AND Decision IS NULL;
+                    """;
 
-        return affected > 0;
+            var affected = await conn.ExecuteAsync(updateSql, new
+            {
+                req.AssignmentId,
+                ReviewerId = operatorUserId,
+                Comment    = string.IsNullOrWhiteSpace(req.Comment) ? null : req.Comment,
+                Status     = (byte)ReviewTaskStatus.Completed
+            }, tx);
+
+            if (affected == 0)
+            {
+                tx.Rollback();
+                return false;
+            }
+
+            // 互審完成寫稽核：首次=Create、修改既有=Modify；TargetType=Reviews(6)，TargetId=AssignmentId
+            if (isMutual)
+            {
+                const string auditSql = """
+                    INSERT INTO dbo.MT_AuditLogs
+                        (UserId, ProjectId, Action, TargetType, TargetId, NewValue, CreatedAt)
+                    VALUES
+                        (@UserId, @ProjectId, @Action, @TargetType, @TargetId, @NewValue, SYSDATETIME());
+                    """;
+                await conn.ExecuteAsync(auditSql, new
+                {
+                    UserId     = operatorUserId,
+                    ProjectId  = meta.ProjectId,
+                    Action     = wasDecided ? AuditLogAction.Modify : AuditLogAction.Create,
+                    TargetType = AuditLogTargetType.Reviews,
+                    TargetId   = req.AssignmentId,
+                    NewValue   = System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        Stage      = meta.Stage,
+                        QuestionId = meta.QuestionId,
+                        ReviewStatus = (byte)ReviewTaskStatus.Completed
+                    })
+                }, tx);
+            }
+
+            tx.Commit();
+            return true;
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    private sealed class AssignmentMetaForSave
+    {
+        public byte Stage { get; set; }
+        public int ProjectId { get; set; }
+        public int QuestionId { get; set; }
+        public DateTime? DecidedAt { get; set; }
     }
 
     public async Task<bool> SubmitDecisionAsync(SubmitReviewDecisionRequest req, int operatorUserId)

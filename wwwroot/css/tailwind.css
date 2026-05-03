@@ -995,6 +995,10 @@
     --tw-translate-x: calc(var(--spacing) * 0);
     translate: var(--tw-translate-x) var(--tw-translate-y);
   }
+  .translate-x-4 {
+    --tw-translate-x: calc(var(--spacing) * 4);
+    translate: var(--tw-translate-x) var(--tw-translate-y);
+  }
   .translate-x-5 {
     --tw-translate-x: calc(var(--spacing) * 5);
     translate: var(--tw-translate-x) var(--tw-translate-y);
@@ -1403,6 +1407,9 @@
   .border-\[var\(--color-sage\)\] {
     border-color: var(--color-sage);
   }
+  .border-\[var\(--color-slate-main\)\] {
+    border-color: var(--color-slate-main);
+  }
   .border-amber-200 {
     border-color: var(--color-amber-200);
   }
@@ -1612,6 +1619,9 @@
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--color-sage) 5%, transparent);
     }
+  }
+  .bg-\[var\(--color-slate-main\)\] {
+    background-color: var(--color-slate-main);
   }
   .bg-\[var\(--color-terracotta\)\] {
     background-color: var(--color-terracotta);
@@ -1825,6 +1835,9 @@
   }
   .bg-stone-200 {
     background-color: var(--color-stone-200);
+  }
+  .bg-stone-300 {
+    background-color: var(--color-stone-300);
   }
   .bg-terracotta {
     background-color: var(--color-terracotta);
@@ -2927,6 +2940,13 @@
       }
     }
   }
+  .hover\:border-gray-300 {
+    &:hover {
+      @media (hover: hover) {
+        border-color: var(--color-gray-300);
+      }
+    }
+  }
   .hover\:border-morandi {
     &:hover {
       @media (hover: hover) {
@@ -3196,6 +3216,13 @@
     &:hover {
       @media (hover: hover) {
         color: var(--color-morandi);
+      }
+    }
+  }
+  .hover\:text-\[var\(--color-slate-main\)\] {
+    &:hover {
+      @media (hover: hover) {
+        color: var(--color-slate-main);
       }
     }
   }

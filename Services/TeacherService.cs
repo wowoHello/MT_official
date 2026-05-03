@@ -614,10 +614,10 @@ public class TeacherService : ITeacherService
             {
                 // 取得「新創教師」角色（所有新建教師在未分配梯次前統一使用此身份）
                 var defaultRoleId = await conn.QuerySingleOrDefaultAsync<int?>(
-                    "SELECT TOP 1 Id FROM dbo.MT_Roles WHERE Name = N'新創教師';",
+                    "SELECT TOP 1 Id FROM dbo.MT_Roles WHERE Name = N'預設教師';",
                     transaction: trans);
                 if (!defaultRoleId.HasValue)
-                    throw new InvalidOperationException("系統尚未建立「新創教師」角色，請先至角色管理建立。");
+                    throw new InvalidOperationException("系統尚未建立「預設教師」角色，請先至角色管理建立。");
 
                 // 建立 MT_Users
                 var passwordHash = AuthService.ComputePasswordHash(DefaultTeacherPassword);

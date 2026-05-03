@@ -1,1 +1,1 @@
-- [Announcements 頁面未完成缺口](project_status_gaps.md) — 2026-04-27 評估：5 項缺口，P0 為 AnnouncementPerm 未實作
+- [Announcements 頁面未完成缺口](project_status_gaps.md) — 2026-05-04 Re-review：5 項缺口均未解決，P0 為 AnnouncementPerm 未實作

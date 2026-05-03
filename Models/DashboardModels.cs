@@ -120,13 +120,50 @@ public class DashboardKpiDto
     /// <summary>逾期與緊急待辦 Top 5（階段倒數 ≤ 5 天 + 題型進度嚴重落後 < 30%）。</summary>
     public List<DashboardUrgentItem> UrgentItems { get; set; } = [];
 
-    /// <summary>最新稽核歷程 Top 10（依 CreatedAt DESC 排序）。</summary>
-    public List<RecentAuditLog> RecentLogs { get; set; } = [];
+    // 注意：RecentLogs 已移到獨立查詢 GetAuditLogsAsync(AuditLogQuery)，KPI 載入不再帶 LOG。
 }
 
 // ======================================================================
 //  稽核歷程 DTO
 // ======================================================================
+
+/// <summary>LOG Filter Chip 對應類別（單選）。</summary>
+public enum LogTypeFilter : byte
+{
+    /// <summary>全部（不過濾）。</summary>
+    All = 0,
+    /// <summary>試題（TargetType=3）。</summary>
+    Question = 1,
+    /// <summary>公告（TargetType=4）。</summary>
+    Announcement = 2,
+    /// <summary>角色（TargetType=1）。</summary>
+    Role = 3,
+    /// <summary>教師（TargetType=5）。</summary>
+    Teacher = 4,
+    /// <summary>審題（TargetType=6）。</summary>
+    Review = 5,
+    /// <summary>登入（特例：以 Action 過濾，含 Login=3 / Logout=4）。</summary>
+    Login = 6
+}
+
+/// <summary>LOG 查詢條件（單一 DTO 同時支援切換梯次/Toggle/Chip/分頁）。</summary>
+public class AuditLogQuery
+{
+    public int  ProjectId     { get; set; }
+    /// <summary>含全站事件（ProjectId IS NULL）。</summary>
+    public bool IncludeGlobal { get; set; }
+    public LogTypeFilter TypeFilter { get; set; } = LogTypeFilter.All;
+    public int  Skip           { get; set; }
+    public int  Take           { get; set; } = 50;
+}
+
+/// <summary>分頁回傳：本次資料 + 總筆數 + 是否還有更多。</summary>
+public class AuditLogPage
+{
+    public List<RecentAuditLog> Logs       { get; set; } = [];
+    public int                  TotalCount { get; set; }
+    public bool                 HasMore    { get; set; }
+}
 
 /// <summary>
 /// 最新稽核歷程單筆資料（儀表板右下 LOG 區塊用）。
@@ -141,9 +178,15 @@ public class RecentAuditLog
     public byte     Action     { get; set; }
     public byte     TargetType { get; set; }
     public int      TargetId   { get; set; }
-    /// <summary>目標資料名稱（批次 JOIN 解析），查無資料時為「已刪除」。</summary>
+    /// <summary>目標資料名稱（批次 JOIN 解析），目標資料表查無時改用 OldValue/NewValue JSON 解析。</summary>
     public string   TargetName { get; set; } = "";
     public DateTime CreatedAt  { get; set; }
+
+    /// <summary>原始資料 JSON（Update/Delete 才有）— 目標已刪除時用於 Fallback 解析名稱。</summary>
+    public string?  OldValue   { get; set; }
+
+    /// <summary>新資料 JSON（Create/Update 才有）— 目標已刪除時用於 Fallback 解析名稱。</summary>
+    public string?  NewValue   { get; set; }
 }
 
 // ======================================================================

@@ -1,5 +1,4 @@
 using System.Data;
-using System.Text.Json;
 using Dapper;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.SqlClient;
@@ -207,8 +206,25 @@ public class RoleService : IRoleService
                 : "帳號已存在");
         }
 
+        // 取角色名稱以利稽核可讀性
+        var roleName = await conn.ExecuteScalarAsync<string?>(
+            "SELECT Name FROM dbo.MT_Roles WHERE Id = @Id;", new { Id = req.RoleId });
+        var statusValue = NormalizeStatus(req.Status);
+
         await WriteAuditAsync(conn, operatorId, AuditAction.Create, AuditTargetType.Users, newId,
-            newValue: JsonSerializer.Serialize(new { req.Username, req.DisplayName, req.RoleId }));
+            newValue: AuditLogJsonHelper.Serialize(new
+            {
+                username = req.Username,
+                displayName = req.DisplayName,
+                email = req.Email,
+                roleId = req.RoleId,
+                roleName,
+                status = statusValue,
+                statusText = StatusText(statusValue),
+                companyTitle = req.CompanyTitle,
+                note = req.Note,
+                targetDisplayName = req.DisplayName,
+            }));
 
         return newId;
     }
@@ -226,8 +242,13 @@ public class RoleService : IRoleService
 
         await EnsureRoleIsInternalAsync(conn, req.RoleId);
 
-        if (req.Id == operatorId && NormalizeStatus(req.Status) == 0)
+        var statusValue = NormalizeStatus(req.Status);
+        if (req.Id == operatorId && statusValue == 0)
             throw new InvalidOperationException("不可停用自己的帳號。");
+
+        // 先讀舊資料供 OldValue 對照
+        var before = await ReadAccountSnapshotAsync(conn, req.Id);
+        if (before is null) throw new InvalidOperationException("找不到要更新的人員資料。");
 
         const string sql = """
             UPDATE dbo.MT_Users
@@ -250,7 +271,7 @@ public class RoleService : IRoleService
                 req.DisplayName,
                 req.Email,
                 req.RoleId,
-                Status = NormalizeStatus(req.Status),
+                Status = statusValue,
                 req.CompanyTitle,
                 req.Note,
             });
@@ -262,8 +283,36 @@ public class RoleService : IRoleService
 
         if (rows == 0) throw new InvalidOperationException("找不到要更新的人員資料。");
 
+        // 取新角色名稱（若有變更）
+        var newRoleName = before.RoleId == req.RoleId
+            ? before.RoleName
+            : await conn.ExecuteScalarAsync<string?>(
+                "SELECT Name FROM dbo.MT_Roles WHERE Id = @Id;", new { Id = req.RoleId }) ?? "";
+
         await WriteAuditAsync(conn, operatorId, AuditAction.Update, AuditTargetType.Users, req.Id,
-            newValue: JsonSerializer.Serialize(new { req.DisplayName, req.RoleId, req.Status }));
+            oldValue: AuditLogJsonHelper.Serialize(new
+            {
+                displayName = before.DisplayName,
+                email = before.Email,
+                roleId = before.RoleId,
+                roleName = before.RoleName,
+                status = before.Status,
+                statusText = StatusText(before.Status),
+                companyTitle = before.CompanyTitle,
+                note = before.Note,
+            }),
+            newValue: AuditLogJsonHelper.Serialize(new
+            {
+                displayName = req.DisplayName,
+                email = req.Email,
+                roleId = req.RoleId,
+                roleName = newRoleName,
+                status = statusValue,
+                statusText = StatusText(statusValue),
+                companyTitle = req.CompanyTitle,
+                note = req.Note,
+                targetDisplayName = req.DisplayName,
+            }));
 
         await BroadcastRoleChangedAsync();
     }
@@ -278,11 +327,10 @@ public class RoleService : IRoleService
         using var conn = (System.Data.Common.DbConnection)_db.CreateConnection();
         await conn.OpenAsync();
 
-        const string readSql = "SELECT Status FROM dbo.MT_Users WHERE Id = @Id;";
-        var current = await conn.QuerySingleOrDefaultAsync<int?>(readSql, new { Id = userId });
-        if (current is null) throw new InvalidOperationException("找不到使用者。");
+        var before = await ReadAccountSnapshotAsync(conn, userId);
+        if (before is null) throw new InvalidOperationException("找不到使用者。");
 
-        var next = current.Value == 1 ? 0 : 1;
+        var next = before.Status == 1 ? 0 : 1;
 
         const string updateSql = """
             UPDATE dbo.MT_Users
@@ -294,7 +342,13 @@ public class RoleService : IRoleService
         await conn.ExecuteAsync(updateSql, new { Id = userId, Status = next });
 
         await WriteAuditAsync(conn, operatorId, AuditAction.Update, AuditTargetType.Users, userId,
-            newValue: JsonSerializer.Serialize(new { StatusChangedTo = next }));
+            oldValue: AuditLogJsonHelper.Serialize(new { status = before.Status, statusText = StatusText(before.Status) }),
+            newValue: AuditLogJsonHelper.Serialize(new
+            {
+                status = next,
+                statusText = StatusText(next),
+                targetDisplayName = before.DisplayName,
+            }));
 
         await BroadcastRoleChangedAsync();
     }
@@ -318,11 +372,19 @@ public class RoleService : IRoleService
             WHERE Id = @Id;
             """;
 
+        // 順手取 DisplayName 給稽核可讀性
+        var before = await ReadAccountSnapshotAsync(conn, userId);
+        if (before is null) throw new InvalidOperationException("找不到要重設密碼的人員。");
+
         var rows = await conn.ExecuteAsync(sql, new { Id = userId, PasswordHash = passwordHash });
         if (rows == 0) throw new InvalidOperationException("找不到要重設密碼的人員。");
 
         await WriteAuditAsync(conn, operatorId, AuditAction.Update, AuditTargetType.Users, userId,
-            newValue: "{\"PasswordReset\":true}");
+            newValue: AuditLogJsonHelper.Serialize(new
+            {
+                passwordReset = true,
+                targetDisplayName = before.DisplayName,
+            }));
     }
 
     // ==================================================================
@@ -480,8 +542,17 @@ public class RoleService : IRoleService
 
             await MergeRolePermissionsAsync(conn, trans, roleId, req.Permissions);
 
+            var newPermissionSnapshot = await BuildPermissionSnapshotAsync(conn, req.Permissions, trans);
             await WriteAuditAsync(conn, operatorId, AuditAction.Create, AuditTargetType.Roles, roleId,
-                newValue: JsonSerializer.Serialize(new { req.Name, req.Category }),
+                newValue: AuditLogJsonHelper.Serialize(new
+                {
+                    name = req.Name,
+                    category = req.Category,
+                    categoryText = CategoryText(req.Category),
+                    description = req.Description,
+                    permissions = newPermissionSnapshot,
+                    targetDisplayName = req.Name,
+                }),
                 transaction: trans);
 
             await trans.CommitAsync();
@@ -510,6 +581,10 @@ public class RoleService : IRoleService
         await EnsureRoleEditableAsync(conn, req.Id);
         await EnsureRoleNameUniqueAsync(conn, req.Name, excludeRoleId: req.Id);
 
+        // 在交易外先讀舊資料（含舊權限矩陣）
+        var before = await ReadRoleSnapshotAsync(conn, req.Id);
+        if (before is null) throw new InvalidOperationException("找不到要修改的角色。");
+
         using var trans = await conn.BeginTransactionAsync();
         try
         {
@@ -534,8 +609,32 @@ public class RoleService : IRoleService
 
             await MergeRolePermissionsAsync(conn, trans, req.Id, req.Permissions);
 
+            // 組裝權限矩陣 diff
+            var newPermissionSnapshot = await BuildPermissionSnapshotAsync(conn, req.Permissions, trans);
+            var oldKeys = before.Permissions.Select(p => p.ModuleKey).ToHashSet();
+            var newKeys = newPermissionSnapshot.Select(p => p.ModuleKey).ToHashSet();
+            var added = newKeys.Except(oldKeys).OrderBy(k => k).ToList();
+            var removed = oldKeys.Except(newKeys).OrderBy(k => k).ToList();
+
             await WriteAuditAsync(conn, operatorId, AuditAction.Update, AuditTargetType.Roles, req.Id,
-                newValue: JsonSerializer.Serialize(new { req.Name, req.Category }),
+                oldValue: AuditLogJsonHelper.Serialize(new
+                {
+                    name = before.Name,
+                    category = before.Category,
+                    categoryText = CategoryText(before.Category),
+                    description = before.Description,
+                    permissions = before.Permissions,
+                }),
+                newValue: AuditLogJsonHelper.Serialize(new
+                {
+                    name = req.Name,
+                    category = req.Category,
+                    categoryText = CategoryText(req.Category),
+                    description = req.Description,
+                    permissions = newPermissionSnapshot,
+                    permissionDiff = new { added, removed },
+                    targetDisplayName = req.Name,
+                }),
                 transaction: trans);
 
             await trans.CommitAsync();
@@ -568,6 +667,10 @@ public class RoleService : IRoleService
         var userCount = await conn.ExecuteScalarAsync<int>(userCountSql, new { RoleId = roleId });
         if (userCount > 0) throw new InvalidOperationException($"此角色尚有 {userCount} 筆指派紀錄，請先將人員改派後再刪除。");
 
+        // 在交易外先讀完整角色資料當墓誌銘
+        var before = await ReadRoleSnapshotAsync(conn, roleId);
+        if (before is null) throw new InvalidOperationException("找不到可刪除的角色。");
+
         using var trans = await conn.BeginTransactionAsync();
         try
         {
@@ -582,7 +685,17 @@ public class RoleService : IRoleService
             if (affected == 0) throw new InvalidOperationException("找不到可刪除的角色，或為系統預設角色。");
 
             await WriteAuditAsync(conn, operatorId, AuditAction.Delete, AuditTargetType.Roles, roleId,
-                newValue: null, transaction: trans);
+                oldValue: AuditLogJsonHelper.Serialize(new
+                {
+                    name = before.Name,
+                    category = before.Category,
+                    categoryText = CategoryText(before.Category),
+                    description = before.Description,
+                    permissions = before.Permissions,
+                    targetDisplayName = before.Name,
+                }),
+                newValue: null,
+                transaction: trans);
 
             await trans.CommitAsync();
         }
@@ -734,6 +847,21 @@ public class RoleService : IRoleService
 
     private static int NormalizeStatus(int status) => status is 0 or 1 or 2 ? status : 1;
 
+    private static string StatusText(int status) => status switch
+    {
+        0 => "停用",
+        1 => "啟用",
+        2 => "鎖定",
+        _ => "未知",
+    };
+
+    private static string CategoryText(int category) => category switch
+    {
+        0 => "內部",
+        1 => "外部",
+        _ => "未知",
+    };
+
     private static async Task EnsureUsernameUniqueAsync(IDbConnection conn, string username, int? excludeUserId)
     {
         const string sql = """
@@ -774,6 +902,61 @@ public class RoleService : IRoleService
         if (isDefault.Value) throw new InvalidOperationException("系統預設角色不可修改或刪除。");
     }
 
+    /// <summary>讀取目標帳號目前的快照，供 Update / Toggle 操作組裝 OldValue。</summary>
+    private static async Task<AccountAuditSnapshot?> ReadAccountSnapshotAsync(
+        IDbConnection conn, int userId, IDbTransaction? trans = null)
+    {
+        const string sql = """
+            SELECT u.Id, u.Username, u.DisplayName, u.Email, u.RoleId, r.Name AS RoleName,
+                   u.Status, u.CompanyTitle, u.Note
+            FROM dbo.MT_Users u
+            INNER JOIN dbo.MT_Roles r ON r.Id = u.RoleId
+            WHERE u.Id = @Id;
+            """;
+        return await conn.QuerySingleOrDefaultAsync<AccountAuditSnapshot>(sql, new { Id = userId }, transaction: trans);
+    }
+
+    /// <summary>讀取目標角色基本資料 + 已啟用模組清單，供 Update / Delete 操作組裝 OldValue。</summary>
+    private static async Task<RoleAuditSnapshot?> ReadRoleSnapshotAsync(
+        IDbConnection conn, int roleId, IDbTransaction? trans = null)
+    {
+        const string roleSql = """
+            SELECT Id, Name, Category, Description
+            FROM dbo.MT_Roles
+            WHERE Id = @Id;
+            """;
+        var role = await conn.QuerySingleOrDefaultAsync<RoleAuditSnapshot>(roleSql, new { Id = roleId }, transaction: trans);
+        if (role is null) return null;
+
+        const string permSql = """
+            SELECT m.Id AS ModuleId, m.ModuleKey, m.Name AS ModuleName, rp.IsEnabled
+            FROM dbo.MT_RolePermissions rp
+            INNER JOIN dbo.MT_Modules m ON m.Id = rp.ModuleId
+            WHERE rp.RoleId = @RoleId AND rp.IsEnabled = 1
+            ORDER BY m.SortOrder;
+            """;
+        var perms = await conn.QueryAsync<PermissionAuditEntry>(permSql, new { RoleId = roleId }, transaction: trans);
+        role.Permissions = perms.ToList();
+        return role;
+    }
+
+    /// <summary>把 List&lt;RolePermissionInput&gt; + 模組對照轉成 audit 用權限快照。</summary>
+    private static async Task<List<PermissionAuditEntry>> BuildPermissionSnapshotAsync(
+        IDbConnection conn, IEnumerable<RolePermissionInput> permissions, IDbTransaction? trans = null)
+    {
+        var enabled = permissions.Where(p => p.IsEnabled).Select(p => p.ModuleId).ToList();
+        if (enabled.Count == 0) return [];
+
+        const string sql = """
+            SELECT Id AS ModuleId, ModuleKey, Name AS ModuleName, CAST(1 AS BIT) AS IsEnabled
+            FROM dbo.MT_Modules
+            WHERE Id IN @Ids
+            ORDER BY SortOrder;
+            """;
+        var rows = await conn.QueryAsync<PermissionAuditEntry>(sql, new { Ids = enabled }, transaction: trans);
+        return rows.ToList();
+    }
+
     /// <summary>
     /// 以「先清後寫」方式同步角色對每個模組的權限。呼叫端必須提供 Transaction 以維持原子性。
     /// </summary>
@@ -807,7 +990,8 @@ public class RoleService : IRoleService
     }
 
     /// <summary>
-    /// 統一寫入 MT_AuditLogs 的輔助方法。ProjectId 固定為 NULL（帳號/角色不綁定梯次）。
+    /// 統一寫入 MT_AuditLogs 的輔助方法。
+    /// 帳號 / 角色變更不綁定梯次，故 projectId 預設為 NULL；其他 Service 可依情境帶值。
     /// </summary>
     private static async Task WriteAuditAsync(
         IDbConnection conn,
@@ -816,19 +1000,23 @@ public class RoleService : IRoleService
         AuditTargetType targetType,
         int targetId,
         string? newValue,
+        string? oldValue = null,
+        int? projectId = null,
         IDbTransaction? transaction = null)
     {
         const string sql = """
-            INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue)
-            VALUES (@UserId, @Action, @TargetType, @TargetId, @NewValue);
+            INSERT INTO dbo.MT_AuditLogs (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue)
+            VALUES (@UserId, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue);
             """;
 
         await conn.ExecuteAsync(sql, new
         {
             UserId = operatorId,
+            ProjectId = projectId,
             Action = (byte)action,
             TargetType = (byte)targetType,
             TargetId = targetId,
+            OldValue = oldValue,
             NewValue = newValue,
         }, transaction: transaction);
     }
@@ -922,8 +1110,44 @@ public class RoleService : IRoleService
             """;
         await conn.ExecuteAsync(updateSql, new { Id = userId, PasswordHash = newHash });
 
-        // 寫入稽核
+        // 寫入稽核：個人主動變更密碼
+        var displayName = await conn.ExecuteScalarAsync<string?>(
+            "SELECT DisplayName FROM dbo.MT_Users WHERE Id = @Id;", new { Id = userId });
         await WriteAuditAsync(conn, userId, AuditAction.Update, AuditTargetType.Users, userId,
-            newValue: "{\"PasswordChanged\":true}");
+            newValue: AuditLogJsonHelper.Serialize(new { passwordChanged = true, targetDisplayName = displayName }));
+    }
+
+    // ==================================================================
+    // Audit 用內部資料模型（不對外曝露）
+    // ==================================================================
+
+    private sealed class AccountAuditSnapshot
+    {
+        public int Id { get; set; }
+        public string Username { get; set; } = "";
+        public string DisplayName { get; set; } = "";
+        public string? Email { get; set; }
+        public int RoleId { get; set; }
+        public string RoleName { get; set; } = "";
+        public int Status { get; set; }
+        public string? CompanyTitle { get; set; }
+        public string? Note { get; set; }
+    }
+
+    private sealed class RoleAuditSnapshot
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
+        public int Category { get; set; }
+        public string? Description { get; set; }
+        public List<PermissionAuditEntry> Permissions { get; set; } = [];
+    }
+
+    private sealed class PermissionAuditEntry
+    {
+        public int ModuleId { get; set; }
+        public string ModuleKey { get; set; } = "";
+        public string ModuleName { get; set; } = "";
+        public bool IsEnabled { get; set; }
     }
 }
