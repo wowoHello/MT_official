@@ -5,40 +5,27 @@
 @* ====================================================================== *@
 @using MT.Components.Shared
 
-<div class="p-6 lg:p-8 pb-16 max-w-4xl mx-auto space-y-6 min-h-full">
+<div class="p-5 lg:p-6 pb-16 max-w-4xl mx-auto space-y-4 min-h-full">
 
-    <!-- 題目 -->
-    <div>
-        <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-            <i class="fa-solid fa-pen text-morandi"></i> 題目
-        </label>
+    <FormSectionCard Title="題目" Icon="fa-pen">
         <QuillField Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="題目" Placeholder="點擊此處開始編輯題目..." />
-    </div>
+    </FormSectionCard>
 
-    <!-- 文章內容 -->
-    <div>
-        <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-            <i class="fa-solid fa-book-open text-morandi"></i> 文章內容 <span class="text-red-400">*</span>
-        </label>
+    <FormSectionCard Title="文章內容" Icon="fa-book-open" Required="true">
         <!-- 附圖提醒 -->
-        <div class="mb-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
-            <p class="font-bold text-terracotta mb-1 flex items-center gap-1.5">
-                <i class="fa-solid fa-image"></i> 文章內容可附圖
-            </p>
-            <p class="text-amber-700 text-xs leading-relaxed">
-                點擊文章內容後，可用底部編輯器工具列插入圖片，適合放題幹情境圖或資料圖表。
-            </p>
+        <div class="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md text-sm flex items-start gap-2">
+            <i class="fa-solid fa-image text-amber-500 mt-0.5 flex-shrink-0"></i>
+            <div class="text-xs leading-relaxed text-amber-700">
+                <span class="font-bold text-terracotta">文章內容可附圖</span>
+                — 點擊輸入框後可用底部編輯器工具列插入圖片，適合放題幹情境圖或資料圖表。
+            </div>
         </div>
         <QuillField Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }" FieldLabel="文章內容" Placeholder="點擊此處開始輸入文章內容..." />
-    </div>
+    </FormSectionCard>
 
-    <!-- 批閱說明 -->
-    <div>
-        <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-            <i class="fa-solid fa-lightbulb text-amber-500"></i> 批閱說明
-        </label>
+    <FormSectionCard Title="批閱說明" Icon="fa-lightbulb" IconColor="text-amber-500">
         <QuillField Value="@GradingNote" ValueChanged="v => { GradingNote = v; GradingNoteChanged.InvokeAsync(v); }" FieldLabel="批閱說明" Placeholder="請簡要說明長文題目的批閱說明..." />
-    </div>
+    </FormSectionCard>
 </div>
 
 @code {
@@ -51,4 +38,3 @@
     [Parameter] public string GradingNote { get; set; } = "";
     [Parameter] public EventCallback<string> GradingNoteChanged { get; set; }
 }
-

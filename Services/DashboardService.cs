@@ -193,7 +193,46 @@ public class DashboardService : IDashboardService
         var currentPhaseForChart = await GetCurrentPhaseCodeAsync(conn, projectId);
 
         List<DashboardStatusByTypeItem> statusByTypeRows;
-        if (currentPhaseForChart is 3 or 5 or 7)
+
+        if (currentPhaseForChart is 4 or 6 or 8)
+        {
+            // 修題階段：依 MT_RevisionReplies.Content 區分（與卡片 4 同口徑）
+            //   Stage 欄位為 PhaseCode（4/6/8）
+            byte revisionStage = (byte)currentPhaseForChart.Value;
+
+            const string sqlRevisionBased = """
+                WITH QuestionRevisionStatus AS (
+                    SELECT DISTINCT rr.QuestionId
+                    FROM   dbo.MT_RevisionReplies rr
+                    WHERE  rr.Stage = @revisionStage
+                      AND  rr.Content IS NOT NULL
+                      AND  LEN(LTRIM(RTRIM(rr.Content))) > 0
+                )
+                SELECT
+                    qt.Name AS TypeName,
+                    ISNULL(SUM(CASE WHEN q.Status = 0 THEN 1 ELSE 0 END), 0) AS Drafts,
+                    ISNULL(SUM(CASE
+                        WHEN q.Status BETWEEN 1 AND 8
+                         AND qrs.QuestionId IS NULL
+                        THEN 1 ELSE 0 END), 0) AS InProgress,
+                    ISNULL(SUM(CASE
+                        WHEN q.Status BETWEEN 1 AND 8
+                         AND qrs.QuestionId IS NOT NULL
+                        THEN 1 ELSE 0 END), 0) AS DoneStage,
+                    ISNULL(SUM(CASE WHEN q.Status = 9  THEN 1 ELSE 0 END), 0) AS Adopted,
+                    ISNULL(SUM(CASE WHEN q.Status = 10 THEN 1 ELSE 0 END), 0) AS Rejected
+                FROM      dbo.MT_QuestionTypes qt
+                LEFT JOIN dbo.MT_Questions q
+                       ON q.QuestionTypeId = qt.Id AND q.ProjectId = @pid AND q.IsDeleted = 0
+                LEFT JOIN QuestionRevisionStatus qrs ON qrs.QuestionId = q.Id
+                GROUP BY qt.Id, qt.Name
+                ORDER BY qt.Id
+                """;
+
+            statusByTypeRows = (await conn.QueryAsync<DashboardStatusByTypeItem>(
+                sqlRevisionBased, new { pid = projectId, revisionStage })).ToList();
+        }
+        else if (currentPhaseForChart is 3 or 5 or 7)
         {
             // 審題階段：依 ReviewAssignments.Comment 區分（與卡片 3 同口徑）
             //   PhaseCode 3 → ReviewStage 1、5 → 2、7 → 3
@@ -379,12 +418,15 @@ public class DashboardService : IDashboardService
     private static async Task<(RevisionPhaseLabel label, int revised, int total)> GetRevisionProgressAsync(
         System.Data.IDbConnection conn, int projectId, int? currentPhaseCode)
     {
-        var (label, stage) = currentPhaseCode switch
+        // 注意：兩個 Stage 欄位數值定義不同！
+        //   MT_ReviewAssignments.ReviewStage  = 1 / 2 / 3（互審 / 專審 / 總召）
+        //   MT_RevisionReplies.Stage          = PhaseCode 4 / 6 / 8（QuestionService.SaveRevisionAsync 實作）
+        var (label, reviewStage, revisionStage) = currentPhaseCode switch
         {
-            4 => (RevisionPhaseLabel.Peer,   (byte)1),
-            6 => (RevisionPhaseLabel.Expert, (byte)2),
-            8 => (RevisionPhaseLabel.Final,  (byte)3),
-            _ => (RevisionPhaseLabel.None,   (byte)0)
+            4 => (RevisionPhaseLabel.Peer,   (byte)1, (byte)4),
+            6 => (RevisionPhaseLabel.Expert, (byte)2, (byte)6),
+            8 => (RevisionPhaseLabel.Final,  (byte)3, (byte)8),
+            _ => (RevisionPhaseLabel.None,   (byte)0, (byte)0)
         };
 
         if (label == RevisionPhaseLabel.None) return (label, 0, 0);
@@ -395,7 +437,7 @@ public class DashboardService : IDashboardService
                 FROM   dbo.MT_ReviewAssignments ra
                 JOIN   dbo.MT_Questions q ON q.Id = ra.QuestionId
                 WHERE  ra.ProjectId   = @pid
-                  AND  ra.ReviewStage = @stage
+                  AND  ra.ReviewStage = @reviewStage
                   AND  ra.Comment IS NOT NULL
                   AND  LEN(LTRIM(RTRIM(ra.Comment))) > 0
                   AND  q.IsDeleted = 0
@@ -406,7 +448,7 @@ public class DashboardService : IDashboardService
                  WHERE EXISTS (
                      SELECT 1 FROM dbo.MT_RevisionReplies rr
                      WHERE rr.QuestionId = a.QuestionId
-                       AND rr.Stage      = @stage
+                       AND rr.Stage      = @revisionStage
                        AND rr.Content IS NOT NULL
                        AND LEN(LTRIM(RTRIM(rr.Content))) > 0
                  )
@@ -414,7 +456,7 @@ public class DashboardService : IDashboardService
             """;
 
         var row = await conn.QuerySingleOrDefaultAsync<RevisionProgressRow>(
-            sql, new { pid = projectId, stage });
+            sql, new { pid = projectId, reviewStage, revisionStage });
 
         return (label, row?.Revised ?? 0, row?.TotalCount ?? 0);
     }

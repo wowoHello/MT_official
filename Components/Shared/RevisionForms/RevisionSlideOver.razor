@@ -1,0 +1,515 @@
+@* ====================================================================== *@
+@*  RevisionSlideOver — 審修作業區「修題」FullScreen 主容器                   *@
+@*                                                                          *@
+@*  與 CwtList 的命題 Modal 完全分離；專為「修題」情境設計：                   *@
+@*    - 滿版 FullScreen（最大化資訊呈現）                                     *@
+@*    - 內部三欄：左屬性側欄 + 中題目編輯區 + 右修題參考粘性側欄              *@
+@*    - 跨階段審題意見、自己歷次修題說明、本次修題說明（必填）一目了然        *@
+@*                                                                          *@
+@*  Plan_010-B：骨架（Header / Banner / 三欄 / Footer）— 右側面板用 *@
+@*               Placeholder 暫代，Plan_010-C 會補上完整內容                  *@
+@* ====================================================================== *@
+@using MT.Components.Shared.QuestionForms
+@inject IQuestionService QuestionService
+@inject IJSRuntime JS
+
+@if (IsVisible)
+{
+    @* FullScreen 容器（無 backdrop，完全覆蓋畫面以最大化資訊呈現） *@
+    <div class="fixed inset-0 z-50 bg-gray-50 flex flex-col"
+         style="animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+        <div class="w-full h-full bg-gray-50 flex flex-col">
+
+            @* ============== Header (h-14, sticky) ============== *@
+            <div class="h-14 flex-shrink-0 px-5 flex items-center justify-between border-b border-gray-200 bg-white shadow-sm gap-3">
+                <div class="flex items-center gap-3 flex-wrap min-w-0">
+                    <button type="button" @onclick="TryCloseAsync"
+                            class="text-sm text-gray-500 hover:text-morandi font-bold flex items-center gap-1.5 transition shrink-0 cursor-pointer focus:outline-none">
+                        <i class="fa-solid fa-arrow-left"></i> 返回列表
+                    </button>
+                    <div class="h-6 w-px bg-gray-300 shrink-0"></div>
+
+                    @if (isLoading)
+                    {
+                        <span class="text-sm text-gray-400">
+                            <i class="fa-solid fa-spinner fa-spin mr-1"></i> 載入中…
+                        </span>
+                    }
+                    else if (data is not null)
+                    {
+                        <span class="font-black text-slate-main text-base shrink-0">@data.Question.QuestionCode</span>
+                        <span class="px-2.5 py-0.5 bg-gray-100 text-gray-700 rounded-md text-xs font-bold border border-gray-200 shrink-0">
+                            @QuestionConstants.TypeLabels.GetValueOrDefault(data.Question.QuestionType, "未知題型")
+                        </span>
+                        @if (!string.IsNullOrEmpty(LevelLabel))
+                        {
+                            <span class="px-2.5 py-0.5 bg-morandi/10 text-morandi rounded-md text-xs font-bold border border-morandi/20 shrink-0">@LevelLabel</span>
+                        }
+                        @if (!string.IsNullOrEmpty(DifficultyLabel))
+                        {
+                            <span class="px-2.5 py-0.5 bg-terracotta/10 text-terracotta rounded-md text-xs font-bold border border-terracotta/20 shrink-0">難度：@DifficultyLabel</span>
+                        }
+
+                        @* 階段標籤 *@
+                        var stageBadge = GetPhaseBadge(data.CurrentPhaseCode);
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ml-1 shrink-0 @stageBadge.Css">
+                            <i class="fa-solid @stageBadge.Icon mr-1"></i> @stageBadge.Name
+                        </span>
+
+                        @* 總審退回計數警示 *@
+                        @if (data.CurrentPhaseCode == 8 && data.FinalReturnCount >= 2)
+                        {
+                            <span class="ml-1 inline-flex items-center px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold border border-red-200 shrink-0">
+                                <i class="fa-solid fa-triangle-exclamation mr-1"></i> 已退回 2 次
+                            </span>
+                        }
+                    }
+                </div>
+
+                <button type="button" @onclick="TryCloseAsync"
+                        title="關閉"
+                        class="text-gray-400 hover:text-terracotta hover:bg-gray-100 text-xl w-9 h-9 flex items-center justify-center rounded-lg transition cursor-pointer focus:outline-none shrink-0">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            @* ============== Phase Banner（倒數提醒，僅 ≤5 天時 terracotta） ============== *@
+            @if (data is not null && data.IsEditable && DaysLeft is int days)
+            {
+                var bannerCss = days <= 5
+                    ? "bg-terracotta/10 text-terracotta border-terracotta/30"
+                    : "bg-morandi/10 text-morandi border-morandi/30";
+                var bannerIcon = days <= 5 ? "fa-fire" : "fa-circle-info";
+                <div class="px-5 py-2.5 border-b @bannerCss flex items-center gap-2 text-sm font-bold flex-shrink-0">
+                    <i class="fa-solid @bannerIcon"></i>
+                    @GetPhaseName(data.CurrentPhaseCode)期限：@data.PhaseEndDate!.Value.ToString("yyyy/MM/dd")
+                    <span class="opacity-80">（剩 @days 天）</span>
+                    <span class="ml-auto text-xs opacity-70">請於期限內完成修題並寫下修題說明</span>
+                </div>
+            }
+
+            @* ============== Body：左屬性 + 中編輯 + 右修題參考 ============== *@
+            <div class="flex-grow flex overflow-hidden min-h-0">
+
+                @if (isLoading)
+                {
+                    <div class="flex-grow flex items-center justify-center text-gray-400">
+                        <i class="fa-solid fa-spinner fa-spin text-2xl mr-3"></i> 載入修題資料中…
+                    </div>
+                }
+                else if (loadError is not null)
+                {
+                    <div class="flex-grow flex items-center justify-center">
+                        <div class="text-center text-terracotta">
+                            <i class="fa-solid fa-circle-exclamation text-3xl mb-2"></i>
+                            <p class="text-sm">@loadError</p>
+                        </div>
+                    </div>
+                }
+                else if (data is not null)
+                {
+                    <QuillEditorHost>
+                        @{ var isFormReadOnly = !data.IsEditable; }
+                        <CascadingValue Name="IsFormReadOnly" Value="@isFormReadOnly" IsFixed="false">
+
+                            @* 屬性收合按鈕（外置於 fieldset 之上，避免唯讀模式被一併禁用） *@
+                            <div class="flex-grow flex overflow-hidden relative min-h-0 h-full">
+                                <button type="button" @onclick="() => sidebarCollapsed = !sidebarCollapsed"
+                                        class="absolute top-1/2 -translate-y-1/2 z-20 bg-white border border-gray-200 border-l-0 rounded-r-lg shadow-sm px-1.5 py-3 flex flex-col items-center gap-1 text-gray-400 hover:text-morandi hover:bg-gray-50 transition-all duration-300 cursor-pointer focus:outline-none @(sidebarCollapsed ? "left-0" : "left-56 lg:left-64")"
+                                        title="@(sidebarCollapsed ? "展開屬性欄" : "收合屬性欄")">
+                                    <i class="fa-solid @(sidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-xs"></i>
+                                    <span class="text-xs font-bold writing-vertical">屬性</span>
+                                    <i class="fa-solid @(sidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-xs"></i>
+                                </button>
+
+                                <fieldset disabled="@isFormReadOnly"
+                                          class="flex-grow flex overflow-hidden min-h-0 h-full m-0 p-0 border-0 disabled:opacity-95">
+
+                                    @* ----- 左：屬性側欄（240/256px，可收合） ----- *@
+                                    <div class="@(sidebarCollapsed ? "w-0" : "w-56 lg:w-64") flex-shrink-0 bg-white border-r border-gray-200 overflow-hidden flex flex-col transition-all duration-300 ease-in-out">
+                                        <QuestionAttributesSidebar IsCollapsed="sidebarCollapsed"
+                                            QuestionType="@data.Question.QuestionType" QuestionTypeChanged="OnQuestionTypeChanged"
+                                            @bind-Level="data.Question.Level" @bind-Difficulty="data.Question.Difficulty"
+                                            @bind-Topic="data.Question.Topic" @bind-Subtopic="data.Question.Subtopic"
+                                            @bind-WritingMode="data.Question.WritingMode" @bind-Genre="data.Question.Genre"
+                                            @bind-AudioType="data.Question.AudioType" @bind-Material="data.Question.Material"
+                                            @bind-CoreAbility="data.Question.CoreAbility" @bind-DetailIndicator="data.Question.DetailIndicator" />
+                                    </div>
+
+                                    @* ----- 中：題目編輯主區 ----- *@
+                                    <div class="flex-grow overflow-y-auto custom-scroll bg-oatmeal min-h-0">
+                                        @switch (data.Question.QuestionType)
+                                        {
+                                            case QuestionTypeCodes.Single:
+                                            case QuestionTypeCodes.Select:
+                                                <QuestionFormSingle @bind-Stem="data.Question.Stem" @bind-Options="data.Question.Options"
+                                                                    @bind-Answer="data.Question.Answer" @bind-Analysis="data.Question.Analysis" />
+                                                break;
+                                            case QuestionTypeCodes.LongText:
+                                                <QuestionFormLongText @bind-Stem="data.Question.Stem" @bind-Passage="data.Question.ArticleContent"
+                                                                      @bind-GradingNote="data.Question.GradingNote" />
+                                                break;
+                                            case QuestionTypeCodes.ReadGroup:
+                                                <QuestionFormReadGroup Status="@data.QStatus" @bind-Stem="data.Question.Stem"
+                                                                       @bind-Passage="data.Question.ArticleContent"
+                                                                       @bind-SubQuestions="data.Question.ReadSubQuestions" />
+                                                break;
+                                            case QuestionTypeCodes.ShortGroup:
+                                                <QuestionFormShortGroup Status="@data.QStatus" @bind-Stem="data.Question.Stem"
+                                                                        @bind-Passage="data.Question.ArticleContent"
+                                                                        @bind-SubQuestions="data.Question.ShortSubQuestions" />
+                                                break;
+                                            case QuestionTypeCodes.Listen:
+                                                <QuestionFormListen @bind-AudioFileName="data.Question.AudioUrl" @bind-Stem="data.Question.Stem"
+                                                                    @bind-Options="data.Question.Options" @bind-Answer="data.Question.Answer"
+                                                                    @bind-Analysis="data.Question.Analysis" />
+                                                break;
+                                            case QuestionTypeCodes.ListenGroup:
+                                                <QuestionFormListenGroup @bind-AudioFileName="data.Question.AudioUrl"
+                                                                         @bind-Passage="data.Question.ArticleContent"
+                                                                         @bind-SubQuestions="data.Question.ListenGroupSubQuestions" />
+                                                break;
+                                        }
+                                    </div>
+                                </fieldset>
+
+                                @* ----- 右：修題參考側欄（與 Reviews.razor 右側一致 w-[30%]） ----- *@
+                                <aside class="w-[30%] flex-shrink-0 bg-white border-l border-gray-200 flex flex-col">
+                                    <RevisionReferencePanel Comments="@data.Comments"
+                                                             MyReplies="@data.MyReplies"
+                                                             RevisionNote="@revisionNote"
+                                                             RevisionNoteChanged="OnRevisionNoteChanged"
+                                                             IsReadOnly="@(!data.IsEditable)" />
+                                </aside>
+                            </div>
+                        </CascadingValue>
+                    </QuillEditorHost>
+                }
+            </div>
+
+            @* ============== Footer (h-16, sticky) ============== *@
+            <div class="h-16 flex-shrink-0 border-t-2 border-gray-200 bg-white px-5 flex items-center justify-between gap-3 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                @if (data is null)
+                {
+                    <span class="text-sm text-gray-400"></span>
+                    <button type="button" @onclick="CloseAsync"
+                            class="px-5 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition cursor-pointer">
+                        關閉
+                    </button>
+                }
+                else
+                {
+                    @* 左側：提示文字 *@
+                    <div class="text-xs text-gray-500 flex items-center gap-2 min-w-0 truncate">
+                        @if (!data.IsEditable)
+                        {
+                            <span class="inline-flex items-center gap-1 text-gray-400">
+                                <i class="fa-solid fa-lock"></i> 目前非修題期間，僅供檢視
+                            </span>
+                        }
+                        else if (string.IsNullOrWhiteSpace(revisionNote))
+                        {
+                            <span class="inline-flex items-center gap-1 text-terracotta font-bold">
+                                <i class="fa-solid fa-circle-exclamation"></i> 修題說明為必填，請於右側欄位填寫
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="inline-flex items-center gap-1 text-sage">
+                                <i class="fa-solid fa-circle-check"></i> 已填寫修題說明（@revisionNote.Length 字）
+                            </span>
+                        }
+                    </div>
+
+                    @* 右側：按鈕群 *@
+                    <div class="flex items-center gap-2 shrink-0">
+                        <button type="button" @onclick="TryCloseAsync" disabled="@isSaving"
+                                class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                            取消
+                        </button>
+
+                        @if (data.IsEditable)
+                        {
+                            <button type="button" @onclick="() => SaveAsync(finalize: false)"
+                                    disabled="@(isSaving || string.IsNullOrWhiteSpace(revisionNote))"
+                                    class="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                                @if (isSaving && pendingAction == "draft")
+                                {
+                                    <span><i class="fa-solid fa-spinner fa-spin mr-1"></i> 儲存中…</span>
+                                }
+                                else
+                                {
+                                    <span>儲存草稿</span>
+                                }
+                            </button>
+
+                            <button type="button" @onclick="() => SaveAsync(finalize: true)"
+                                    disabled="@(isSaving || string.IsNullOrWhiteSpace(revisionNote))"
+                                    title="@(string.IsNullOrWhiteSpace(revisionNote) ? "請先填寫修題說明" : null)"
+                                    class="px-5 py-2 text-sm bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
+                                @if (isSaving && pendingAction == "complete")
+                                {
+                                    <span><i class="fa-solid fa-spinner fa-spin"></i> 完成中…</span>
+                                }
+                                else
+                                {
+                                    <i class="fa-solid fa-check"></i> <span>完成修題</span>
+                                }
+                            </button>
+
+                            @* [送出再審] 僅總審修題（PhaseCode=8）擁有 *@
+                            @if (data.CurrentPhaseCode == 8)
+                            {
+                                <button type="button" @onclick="OnResubmitAsync"
+                                        disabled="@(isSaving || !data.HasReplied)"
+                                        title="@(data.HasReplied ? "送回給總召再次審題" : "請先完成修題後才能送出再審")"
+                                        class="px-5 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
+                                    @if (isSaving && pendingAction == "resubmit")
+                                    {
+                                        <span><i class="fa-solid fa-spinner fa-spin"></i> 送出中…</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="fa-solid fa-paper-plane"></i> <span>送出再審</span>
+                                    }
+                                </button>
+                            }
+                        }
+                    </div>
+                }
+            </div>
+
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
+
+    /// <summary>要開啟的題目 Id（NULL → 不載入；切換為非 null 才觸發 Load）</summary>
+    [Parameter] public int? QuestionId { get; set; }
+
+    /// <summary>當前登入者 Id</summary>
+    [Parameter, EditorRequired] public int CurrentUserId { get; set; }
+
+    /// <summary>儲存成功後通知父層 reload 列表</summary>
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    private RevisionSlideOverData? data;
+    private bool isLoading;
+    private string? loadError;
+    private int? loadedQuestionId;
+
+    private bool sidebarCollapsed;
+    private bool isSaving;
+    private string? pendingAction;     // "draft" / "complete" / "resubmit"
+
+    /// <summary>本次修題說明（雙向綁到右側 Reference Panel；Plan_010-C 會接到 RevisionReplyEditor）</summary>
+    private string revisionNote = "";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!IsVisible || QuestionId is null) return;
+        if (loadedQuestionId == QuestionId) return;
+
+        loadedQuestionId = QuestionId;
+        await LoadAsync(QuestionId.Value);
+    }
+
+    private async Task LoadAsync(int questionId)
+    {
+        isLoading = true;
+        loadError = null;
+        data = null;
+        revisionNote = "";
+        try
+        {
+            data = await QuestionService.GetRevisionDataAsync(questionId, CurrentUserId);
+            if (data is null)
+            {
+                loadError = "找不到此題目，可能已被刪除。";
+            }
+            else
+            {
+                revisionNote = data.CurrentDraftContent ?? "";
+            }
+        }
+        catch (Exception ex)
+        {
+            loadError = $"載入失敗：{ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    /// <summary>儲存修題（Plan_010-A 後端）。finalize 為視覺差異旗標，後端目前邏輯一致。</summary>
+    private async Task SaveAsync(bool finalize)
+    {
+        if (data is null || !data.IsEditable || isSaving) return;
+        if (string.IsNullOrWhiteSpace(revisionNote))
+        {
+            await ShowToastAsync("warning", "請先填寫修題說明");
+            return;
+        }
+
+        isSaving = true;
+        pendingAction = finalize ? "complete" : "draft";
+        try
+        {
+            var ok = await QuestionService.SaveRevisionAsync(new SaveRevisionRequest
+            {
+                QuestionId   = data.Question.Id,
+                FormData     = data.Question,
+                RevisionNote = revisionNote
+            }, CurrentUserId);
+
+            if (!ok)
+            {
+                await ShowToastAsync("error", "儲存失敗，題目狀態可能已變動");
+                return;
+            }
+
+            await ShowToastAsync("success", finalize ? "修題完成已儲存" : "修題草稿已儲存");
+            await OnSaved.InvokeAsync();
+
+            if (finalize)
+            {
+                await CloseAsync();
+            }
+            else
+            {
+                // 重新載入以更新 HasReplied / MyReplies 列表
+                await LoadAsync(data.Question.Id);
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            await ShowToastAsync("warning", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync("error", $"儲存失敗：{ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+            pendingAction = null;
+        }
+    }
+
+    /// <summary>送出再審（總審修題獨有）— 完整流程留待 Plan_011 與審題系統整合，目前先 toast 提示。</summary>
+    private async Task OnResubmitAsync()
+    {
+        await ShowToastAsync("info", "「送出再審」流程將於 Plan_011 與審題系統整合時開放");
+    }
+
+    private async Task OnQuestionTypeChanged(string newType)
+    {
+        // 修題模式下：題型在送審後通常已固定；此 callback 預留供未來總召修題時使用
+        if (data is null) return;
+        data.Question.QuestionType = newType;
+        await Task.CompletedTask;
+    }
+
+    /// <summary>右側 RevisionReferencePanel 的修題說明變動 callback。</summary>
+    private void OnRevisionNoteChanged(string newValue)
+    {
+        revisionNote = newValue;
+    }
+
+    /// <summary>
+    /// 嘗試關閉（取消 / X 按鈕用）：若有未儲存修題說明會跳 SweetAlert 確認，避免誤觸丟失。
+    /// 注意：SaveAsync 成功後會直接呼叫 CloseAsync，跳過這層確認。
+    /// </summary>
+    private async Task TryCloseAsync()
+    {
+        var hasUnsaved = !string.IsNullOrWhiteSpace(revisionNote)
+                         && revisionNote != (data?.CurrentDraftContent ?? "");
+
+        if (!hasUnsaved)
+        {
+            await CloseAsync();
+            return;
+        }
+
+        var confirm = await JS.InvokeAsync<SwalResult>("Swal.fire", new
+        {
+            icon = "warning",
+            title = "確定離開修題畫面？",
+            text  = "尚有未儲存的修題說明，離開將會遺失。",
+            showCancelButton  = true,
+            confirmButtonText = "確定離開",
+            cancelButtonText  = "繼續修題",
+            confirmButtonColor = "#D98A6C",
+            cancelButtonColor  = "#6B8EAD"
+        });
+
+        if (confirm.IsConfirmed) await CloseAsync();
+    }
+
+    private async Task CloseAsync()
+    {
+        IsVisible = false;
+        loadedQuestionId = null;
+        data = null;
+        revisionNote = "";
+        await IsVisibleChanged.InvokeAsync(false);
+    }
+
+    private record SwalResult(bool IsConfirmed, bool IsDenied, bool IsDismissed);
+
+    private ValueTask ShowToastAsync(string icon, string title) =>
+        JS.InvokeVoidAsync("Swal.fire", new
+        {
+            icon,
+            title,
+            toast = true,
+            position = "top-end",
+            showConfirmButton = false,
+            timer = 2200
+        });
+
+    // ============= UI Helpers =============
+    private string LevelLabel
+    {
+        get
+        {
+            if (data?.Question.Level is null) return "";
+            return data.Question.QuestionType is QuestionTypeCodes.Listen or QuestionTypeCodes.ListenGroup
+                ? QuestionConstants.ListenLevelLabels.GetValueOrDefault(data.Question.Level.Value, "")
+                : QuestionConstants.GeneralLevelLabels.GetValueOrDefault(data.Question.Level.Value, "");
+        }
+    }
+
+    private string DifficultyLabel => data?.Question.Difficulty is null
+        ? ""
+        : QuestionConstants.DifficultyLabels.GetValueOrDefault(data.Question.Difficulty.Value, "");
+
+    private int? DaysLeft
+    {
+        get
+        {
+            if (data?.PhaseEndDate is null) return null;
+            return (int)(data.PhaseEndDate.Value.Date - DateTime.Today).TotalDays;
+        }
+    }
+
+    private static (string Css, string Icon, string Name) GetPhaseBadge(byte phaseCode) => phaseCode switch
+    {
+        4 => ("bg-terracotta/15 text-terracotta border-terracotta/30", "fa-pen",          "互審修題"),
+        6 => ("bg-terracotta/15 text-terracotta border-terracotta/30", "fa-pen",          "專審修題"),
+        8 => ("bg-red-50 text-red-700 border-red-200",                  "fa-crown",        "總審修題"),
+        _ => ("bg-gray-100 text-gray-500 border-gray-300",              "fa-circle",       "非修題期")
+    };
+
+    private static string GetPhaseName(byte phaseCode) => phaseCode switch
+    {
+        4 => "互審修題",
+        6 => "專審修題",
+        8 => "總審修題",
+        _ => "修題"
+    };
+}

@@ -1,0 +1,89 @@
+@*
+    AppLoadingSplash — 全屏載入遮罩
+    用於 F5 重整時遮蔽 SignalR 連線、ProtectedLocalStorage 還原期間的內容閃爍。
+
+    使用方式：
+        <AppLoadingSplash IsHidden="@isAppReady" />
+    當 IsHidden 變為 true 時，先做 300ms 淡出，再從 DOM 移除。
+*@
+
+@implements IDisposable
+
+@if (renderEnabled)
+{
+    <div class="@OverlayClass"
+         role="status"
+         aria-live="polite"
+         aria-label="載入中">
+        <div class="flex flex-col items-center gap-5">
+
+            <div class="flex h-20 w-20 items-center justify-center rounded-2xl bg-morandi shadow-lg">
+                <img src="img/pencil.png"
+                     alt="CWT 命題工作平臺"
+                     class="h-12 w-12 object-contain drop-shadow-sm" />
+            </div>
+
+            <h2 class="text-xl font-bold text-morandi">CWT 命題工作平臺</h2>
+
+            <div class="flex items-center gap-3 text-base text-slate-main">
+                <span class="inline-block h-5 w-5 rounded-full border-4 border-sage border-t-transparent motion-safe:animate-spin"
+                      aria-hidden="true"></span>
+                <span>載入中，請稍候…</span>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public bool IsHidden { get; set; }
+
+    private const int FadeOutDurationMs = 300;
+
+    private bool renderEnabled = true;
+    private CancellationTokenSource? cts;
+
+    private string OverlayClass => IsHidden
+        ? "fixed inset-0 z-50 flex items-center justify-center bg-oatmeal opacity-0 pointer-events-none transition-opacity duration-300 ease-out motion-reduce:transition-none"
+        : "fixed inset-0 z-50 flex items-center justify-center bg-oatmeal opacity-100 transition-opacity duration-300 ease-out motion-reduce:transition-none";
+
+    protected override void OnParametersSet()
+    {
+        if (IsHidden)
+        {
+            ScheduleUnmount();
+        }
+        else
+        {
+            cts?.Cancel();
+            renderEnabled = true;
+        }
+    }
+
+    // 淡出完成後從 DOM 移除，避免覆蓋層攔截滑鼠事件並節省記憶體
+    private void ScheduleUnmount()
+    {
+        cts?.Cancel();
+        cts = new CancellationTokenSource();
+        var token = cts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(FadeOutDurationMs, token);
+                if (token.IsCancellationRequested) return;
+
+                renderEnabled = false;
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (TaskCanceledException) { }
+        });
+    }
+
+    public void Dispose()
+    {
+        cts?.Cancel();
+        cts?.Dispose();
+    }
+}

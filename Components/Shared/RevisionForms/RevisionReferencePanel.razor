@@ -1,0 +1,139 @@
+@* ====================================================================== *@
+@*  RevisionReferencePanel — 修題參考粘性側欄（右欄）                        *@
+@*                                                                          *@
+@*  三大區塊由上至下：                                                      *@
+@*    1. 審題意見（跨階段累積、匿名化「審題老師 A/B/C」、預設展開）           *@
+@*    2. 我的修題歷程（自己過往修題說明、預設摺疊）                          *@
+@*    3. 本次修題說明（必填）                                               *@
+@*                                                                          *@
+@*  字體最小 text-xs，配色：互審 morandi 藍 / 專審 terracotta / 總審 紅      *@
+@* ====================================================================== *@
+
+<div class="flex flex-col h-full overflow-hidden">
+
+    @* Header（sticky 標題） *@
+    <div class="px-4 py-3 border-b border-gray-100 bg-gray-50 flex-shrink-0 z-10">
+        <h3 class="text-sm font-bold text-slate-main flex items-center gap-2">
+            <i class="fa-solid fa-book-bookmark text-morandi"></i> 修題參考
+        </h3>
+        <p class="text-xs text-gray-500 mt-1">參考歷次審題意見與您的修題紀錄</p>
+    </div>
+
+    @* 可捲動的內容區 *@
+    <div class="flex-grow overflow-y-auto custom-scroll">
+
+        @* ========== 區塊 1：審題意見（預設展開） ========== *@
+        <details open class="border-b border-gray-100">
+            <summary class="px-4 py-3 cursor-pointer font-bold text-sm text-slate-main flex items-center gap-2 hover:bg-gray-50 transition list-none">
+                <i class="fa-solid fa-comments text-morandi"></i>
+                審題意見
+                <span class="text-xs bg-morandi/10 text-morandi px-2 py-0.5 rounded-full font-bold ml-1">@Comments.Count 筆</span>
+                <i class="fa-solid fa-chevron-down ml-auto text-xs text-gray-400 transition-transform"></i>
+            </summary>
+
+            <div class="px-4 pb-3 space-y-2">
+                @if (Comments.Count == 0)
+                {
+                    <p class="text-xs text-gray-400 italic text-center py-3">尚無審題意見</p>
+                }
+                else
+                {
+                    @foreach (var c in Comments)
+                    {
+                        var stageInfo = GetStageBadge(c.Stage);
+                        <div class="rounded-lg border @stageInfo.BorderCss bg-white p-3 shadow-sm">
+                            <div class="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold @stageInfo.BadgeCss">
+                                    <i class="fa-solid @stageInfo.Icon mr-1"></i> @stageInfo.Name
+                                </span>
+                                <span class="text-xs text-gray-400">@c.DecidedAt.ToString("MM/dd HH:mm")</span>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-1.5">
+                                <i class="fa-regular fa-user mr-0.5"></i> @c.AnonName
+                            </p>
+                            <div class="text-sm text-slate-main leading-relaxed whitespace-pre-wrap break-words">@c.Comment</div>
+                        </div>
+                    }
+                }
+            </div>
+        </details>
+
+        @* ========== 區塊 2：我的修題歷程（預設摺疊） ========== *@
+        <details class="border-b border-gray-100">
+            <summary class="px-4 py-3 cursor-pointer font-bold text-sm text-slate-main flex items-center gap-2 hover:bg-gray-50 transition list-none">
+                <i class="fa-solid fa-clock-rotate-left text-sage"></i>
+                我的修題歷程
+                <span class="text-xs bg-sage/10 text-sage px-2 py-0.5 rounded-full font-bold ml-1">@MyReplies.Count 筆</span>
+                <i class="fa-solid fa-chevron-down ml-auto text-xs text-gray-400 transition-transform"></i>
+            </summary>
+
+            <div class="px-4 pb-3 space-y-2">
+                @if (MyReplies.Count == 0)
+                {
+                    <p class="text-xs text-gray-400 italic text-center py-3">尚無修題紀錄</p>
+                }
+                else
+                {
+                    @foreach (var r in MyReplies)
+                    {
+                        var stageName = GetEditingStageName(r.Stage);
+                        <div class="rounded-lg border border-sage/30 bg-sage/5 p-3">
+                            <div class="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-sage text-white">
+                                    <i class="fa-solid fa-pen mr-1"></i> @stageName
+                                </span>
+                                <span class="text-xs text-gray-400">@r.CreatedAt.ToString("MM/dd HH:mm")</span>
+                            </div>
+                            <div class="text-sm text-slate-main leading-relaxed whitespace-pre-wrap break-words">@StripHtml(r.Content)</div>
+                        </div>
+                    }
+                }
+            </div>
+        </details>
+
+        @* ========== 區塊 3：本次修題說明（必填） ========== *@
+        <div class="px-4 py-4 bg-oatmeal/40">
+            <RevisionReplyEditor Value="@RevisionNote"
+                                 ValueChanged="OnRevisionNoteChanged"
+                                 IsReadOnly="@IsReadOnly" />
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public List<ReviewCommentEntry> Comments { get; set; } = new();
+    [Parameter, EditorRequired] public List<RevisionReplyEntry> MyReplies { get; set; } = new();
+    [Parameter] public string RevisionNote { get; set; } = "";
+    [Parameter] public EventCallback<string> RevisionNoteChanged { get; set; }
+    [Parameter] public bool IsReadOnly { get; set; }
+
+    private async Task OnRevisionNoteChanged(string newValue)
+    {
+        RevisionNote = newValue;
+        await RevisionNoteChanged.InvokeAsync(newValue);
+    }
+
+    private static (string BorderCss, string BadgeCss, string Icon, string Name) GetStageBadge(byte stage) => stage switch
+    {
+        1 => ("border-morandi/30",    "bg-morandi text-white",     "fa-clipboard-check", "互審"),
+        2 => ("border-terracotta/30", "bg-terracotta text-white",  "fa-user-graduate",   "專審"),
+        3 => ("border-red-200",       "bg-red-600 text-white",     "fa-crown",           "總審"),
+        _ => ("border-gray-300",      "bg-gray-300 text-white",    "fa-circle",          "審題")
+    };
+
+    private static string GetEditingStageName(byte stage) => stage switch
+    {
+        4 => "互審修題",
+        6 => "專審修題",
+        8 => "總審修題",
+        _ => "修題"
+    };
+
+    /// <summary>給歷程展示用的純文字摘要（去 HTML）。</summary>
+    private static string StripHtml(string html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return "";
+        var text = System.Text.RegularExpressions.Regex.Replace(html, "<.*?>", " ");
+        return System.Net.WebUtility.HtmlDecode(text).Trim();
+    }
+}

@@ -11,6 +11,8 @@
 
 <PageTitle>CWT 命題工作平臺</PageTitle>
 
+<AppLoadingSplash IsHidden="@isAppReady" />
+
 <nav class="fixed top-0 z-40 h-16 w-full bg-morandi shadow-md transition-all">
     <div class="mx-auto h-full px-4 sm:px-6 lg:px-8">
         <div class="flex h-full items-center justify-between gap-4">
@@ -354,6 +356,10 @@
     /// <summary>已嘗試從 ProtectedLocalStorage 還原梯次的旗標，避免 OnAfterRenderAsync 重複觸發。</summary>
     private bool hasRestoredProjectFromStorage;
 
+    /// <summary>App 準備完成旗標：SignalR 連上 + Storage 還原完畢後設為 true，
+    /// 觸發 AppLoadingSplash 淡出。預設 false 確保 prerender 階段就遮住閃爍。</summary>
+    private bool isAppReady;
+
     /// <summary>儲存 key 加上 userId 前綴，避免共用瀏覽器時不同帳號互相覆蓋。</summary>
     private string ProjectStorageKey => $"mt:lastProjectId:{currentUserId}";
 
@@ -406,36 +412,56 @@
 
     /// <summary>首次渲染後嘗試從 ProtectedLocalStorage 還原上次選的梯次。
     /// 為何放在 OnAfterRenderAsync：ProtectedBrowserStorage 依賴 JS Interop，
-    /// 在 OnInitializedAsync 的 prerender 階段呼叫會拋 InvalidOperationException。</summary>
+    /// 在 OnInitializedAsync 的 prerender 階段呼叫會拋 InvalidOperationException。
+    /// 還原完成（成功、失敗、無紀錄皆算）後將 isAppReady 設為 true 觸發 splash 淡出。</summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || hasRestoredProjectFromStorage || currentUserId is null) return;
+        if (!firstRender || hasRestoredProjectFromStorage) return;
         hasRestoredProjectFromStorage = true;
 
         try
         {
+            if (currentUserId is null)
+            {
+                Logger.LogInformation("還原梯次跳過：尚無 currentUserId");
+                return;
+            }
+
             var stored = await ProtectedLocalStorage.GetAsync<int>(ProjectStorageKey);
+            Logger.LogInformation("讀取 storage Key={Key} Success={Success} Value={Value}",
+                ProjectStorageKey, stored.Success, stored.Success ? stored.Value : -1);
+
             if (!stored.Success) return;
 
             var match = availableProjects.FirstOrDefault(p => p.Id == stored.Value);
             // 上次選的梯次已被刪除/結案/無權限 → 維持 fallback 結果，並清掉過期紀錄
             if (match is null)
             {
+                Logger.LogInformation("storage 紀錄的梯次 Id={Id} 已不在可見清單，清除紀錄", stored.Value);
                 await ProtectedLocalStorage.DeleteAsync(ProjectStorageKey);
                 return;
             }
 
             // 與 fallback 結果相同就不必重載權限，避免閃爍
-            if (currentProject?.Id == match.Id) return;
+            if (currentProject?.Id == match.Id)
+            {
+                Logger.LogInformation("storage 還原結果與 fallback 相同 Id={Id}，跳過重載", match.Id);
+                return;
+            }
 
+            Logger.LogInformation("還原梯次成功 從={Old} 還原為={New}", currentProject?.Id, match.Id);
             currentProject = match;
             await ReloadModuleCardsAsync();
             EnforceModuleAccess(Navigation.Uri);
-            StateHasChanged();
         }
         catch (Exception ex)
         {
             Logger.LogWarning(ex, "還原上次選擇的梯次失敗 (UserId={UserId})", currentUserId);
+        }
+        finally
+        {
+            isAppReady = true;
+            StateHasChanged();
         }
     }
 
@@ -551,14 +577,15 @@
         currentProject = project;
         showProjectDropdown = false;
 
+        // 優先持久化梯次，避免後續任何一步拋例外導致 storage 沒寫入
+        await PersistSelectedProjectAsync(project.Id);
+
         // 切換梯次後重新載入模組權限，並檢查當前頁面是否仍有存取權
         await ReloadModuleCardsAsync();
         EnforceModuleAccess(Navigation.Uri);
 
-        // 持久化選中的梯次，F5 後可還原
-        await PersistSelectedProjectAsync(project.Id);
-
-        await JS.InvokeVoidAsync("swalInterop.fireToast", "info", "已切換命題梯次", $"目前梯次：{project.DisplayName}", 2000);
+        // Toast 為純通知效果，不需等待 JS 回應；fire-and-forget 避免 1 秒逾時拋 TaskCanceledException
+        _ = JS.InvokeVoidAsync("swalInterop.fireToast", "info", "已切換命題梯次", $"目前梯次：{project.DisplayName}", 2000);
     }
 
     /// <summary>將當前梯次寫入 ProtectedLocalStorage（瀏覽器禁用 storage 時靜默忽略）。</summary>
@@ -569,6 +596,7 @@
         try
         {
             await ProtectedLocalStorage.SetAsync(ProjectStorageKey, projectId);
+            Logger.LogInformation("梯次寫入 storage 成功 Key={Key} ProjectId={ProjectId}", ProjectStorageKey, projectId);
         }
         catch (Exception ex)
         {

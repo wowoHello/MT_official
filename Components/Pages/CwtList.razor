@@ -158,7 +158,7 @@
                             @StatCard("命題總計", SumCounts(QuestionStatus.ComposeTabStatuses), "fa-layer-group", "text-morandi", "text-slate-main", "all", "顯示全部題目")
                             @StatCard("命題草稿", CountOf(QuestionStatus.Draft), "fa-file-pen", "text-gray-400", "text-slate-main", "draft", "點一下套用篩選")
                             @StatCard("命題完成", CountOf(QuestionStatus.Completed), "fa-circle-check", "text-sage", "text-sage", "done", "點一下套用篩選")
-                            @StatCard("已送審", CountOf(QuestionStatus.Submitted), "fa-paper-plane", "text-morandi", "text-morandi", "submitted", "點一下套用篩選")
+                            @StatCard("已送審", SumCounts(QuestionStatus.SubmittedSnapshotStatuses), "fa-paper-plane", "text-morandi", "text-morandi", "submitted", "點一下套用篩選")
                         }
                         else if (currentTab == "revision")
                         {
@@ -249,7 +249,7 @@
                             <tbody>
                                 @foreach (var item in listResult.Items)
                                 {
-                                    <tr @onclick="() => OpenEditAsync(item.Id)"
+                                    <tr @onclick="() => OpenRowAsync(item.Id, item.Status)"
                                         class="border-b border-gray-100 relative hover:z-10 hover:bg-blue-50/40 hover:shadow-[inset_4px_0_0_var(--color-morandi),0_6px_16px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer group">
                                         <td class="px-4 py-3 font-bold text-slate-main group-hover:text-morandi whitespace-nowrap transition-colors">@item.QuestionCode</td>
                                         <td class="px-4 py-3 whitespace-nowrap">
@@ -276,14 +276,14 @@
                                             </div>
                                         </td>
                                         <td class="px-4 py-3 text-center whitespace-nowrap">
-                                            <StatusBadge StatusText="@RowStatusLabel(item.Status)" Compact="true" />
+                                            <StatusBadge StatusText="@RowStatusLabel(item)" Compact="true" />
                                         </td>
                                         <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">@item.UpdatedAt.ToString("yyyy/MM/dd HH:mm")</td>
                                         <td class="px-4 py-3 text-center whitespace-nowrap" @onclick:stopPropagation="true">
                                             <div class="inline-flex items-center gap-3">
-                                                <button @onclick="() => OpenEditAsync(item.Id)"
+                                                <button @onclick="() => OpenRowAsync(item.Id, item.Status)"
                                                     class="text-morandi hover:underline text-xs font-bold cursor-pointer focus:outline-none">
-                                                    <i class="fa-solid fa-pen-to-square mr-0.5"></i> @(IsEditableStatus(item.Status) ? "編輯" : "檢視")
+                                                    <i class="fa-solid @RowActionIcon(item) mr-0.5"></i> @RowActionLabel(item)
                                                 </button>
                                                 @if (item.Status == QuestionStatus.Draft && !IsCompositionPhaseClosed)
                                                 {
@@ -425,6 +425,12 @@
     </ChildContent>
 </CustomModal>
 
+<!-- Plan_010：審修作業區「修題」Slide-Over -->
+<RevisionSlideOver @bind-IsVisible="showRevisionSlideOver"
+                   QuestionId="@revisionQuestionId"
+                   CurrentUserId="@(currentUserId ?? 0)"
+                   OnSaved="OnRevisionSavedAsync" />
+
 <!-- 考卷預覽 Modal -->
 <QuestionPreviewModal Visible="showPreviewModal" OnClose="() => showPreviewModal = false">
     @switch (formData.QuestionType)
@@ -482,6 +488,10 @@
     private bool showComposeModal = false;
     private bool sidebarCollapsed = false;
     private string composeModalTitle = "新增試題";
+
+    // Plan_010：審修作業區的修題 Slide-Over
+    private bool showRevisionSlideOver = false;
+    private int? revisionQuestionId;
 
     // 預覽 Modal
     private bool showPreviewModal = false;
@@ -547,6 +557,16 @@
             await ShowToastAsync("warning", ex.Message);
         }
 
+        // Plan_010 補丁：互審修題（PhaseCode=4）進入時，批次升級 Status 2/3 → 4
+        try
+        {
+            await QuestionService.EnsurePhaseTransitionAsync(CurrentProject.Id);
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync("warning", $"階段轉換失敗：{ex.Message}");
+        }
+
         await LoadPageDataAsync();
     }
 
@@ -603,15 +623,16 @@
         {
             var filter = new QuestionListFilter
             {
-                ProjectId      = CurrentProject.Id,
-                CreatorId      = currentUserId.Value,
-                Tab            = currentTab,
-                StatusFilter   = ResolveStatusFilter(),
-                QuestionTypeId = int.TryParse(queryTypeId, out var t) ? t : null,
-                Level          = byte.TryParse(queryLevel, out var l) ? l : null,
-                Keyword        = string.IsNullOrWhiteSpace(queryKeyword) ? null : queryKeyword.Trim(),
-                Page           = currentPage,
-                PageSize       = pageSize
+                ProjectId        = CurrentProject.Id,
+                CreatorId        = currentUserId.Value,
+                Tab              = currentTab,
+                StatusFilter     = ResolveStatusFilter(),
+                StatusesOverride = ResolveStatusesOverride(),
+                QuestionTypeId   = int.TryParse(queryTypeId, out var t) ? t : null,
+                Level            = byte.TryParse(queryLevel, out var l) ? l : null,
+                Keyword          = string.IsNullOrWhiteSpace(queryKeyword) ? null : queryKeyword.Trim(),
+                Page             = currentPage,
+                PageSize         = pageSize
             };
             listResult = await QuestionService.ListAsync(filter);
         }
@@ -627,11 +648,18 @@
     {
         ("compose",  "draft")     => QuestionStatus.Draft,
         ("compose",  "done")      => QuestionStatus.Completed,
-        ("compose",  "submitted") => QuestionStatus.Submitted,
+        // compose 的「已送審」涵蓋 Status 2-8（送審後尚未結案的快照），由 StatusesOverride 處理
         ("history",  "adopted")   => QuestionStatus.Adopted,
         ("history",  "rejected")  => QuestionStatus.Rejected,
         // revision 子分類（locked/editing）涉及多 status，由 ListAsync 用 Tab 範圍處理；此處不單一過濾
         _                         => null
+    };
+
+    /// <summary>多狀態 filter override（如「已送審」card 涵蓋 Status 2-8）。</summary>
+    private byte[]? ResolveStatusesOverride() => (currentTab, activeFilter) switch
+    {
+        ("compose", "submitted") => QuestionStatus.SubmittedSnapshotStatuses,
+        _                        => null
     };
 
     private async Task SwitchTab(string tab)
@@ -689,6 +717,11 @@
 
     private bool IsEditableStatus(byte status)
     {
+        // 命題作業區（compose）：Status >= 2 都是「已送審」唯讀快照，不開放從此 tab 編輯
+        // 修題請至審修作業區操作（不同的 Slide-Over）
+        if (currentTab == "compose" && status >= QuestionStatus.Submitted)
+            return false;
+
         // Plan_008：命題階段結束後，草稿與命題完成皆視為唯讀
         if (IsCompositionPhaseClosed && status is QuestionStatus.Draft or QuestionStatus.Completed)
             return false;
@@ -757,14 +790,23 @@
 
     /// <summary>
     /// 列表狀態欄顯示文字。
-    /// 在「審修作業區」內，命題教師只需區分「審題鎖定 / 修題中」；
-    /// 互審/專審/總審的階段差異在後台處理，老師不需要在這顆 pill 上看到。
+    /// - 命題作業區：Status 0/1 顯示原文；Status 2-8 一律顯示「已送審」（命題端視角的唯讀快照）
+    /// - 審修作業區：審題鎖定 / 修題中 / 已修題（依 HasRepliedThisStage 切換）
     /// </summary>
-    private string RowStatusLabel(byte status)
+    private string RowStatusLabel(QuestionListItem item)
     {
+        if (currentTab == "compose")
+        {
+            return item.Status switch
+            {
+                QuestionStatus.Draft     => QuestionStatus.Labels[QuestionStatus.Draft],
+                QuestionStatus.Completed => QuestionStatus.Labels[QuestionStatus.Completed],
+                _                        => "已送審"   // 2-8 統一視為命題端的「已送審」快照
+            };
+        }
         if (currentTab == "revision")
         {
-            return status switch
+            return item.Status switch
             {
                 QuestionStatus.Submitted
                 or QuestionStatus.PeerReviewing
@@ -772,11 +814,11 @@
                 or QuestionStatus.FinalReviewing  => "審題鎖定",
                 QuestionStatus.PeerEditing
                 or QuestionStatus.ExpertEditing
-                or QuestionStatus.FinalEditing    => "修題中",
-                _                                 => QuestionStatus.Labels.GetValueOrDefault(status, "未知")
+                or QuestionStatus.FinalEditing    => item.HasRepliedThisStage ? "已修題" : "修題中",
+                _                                 => QuestionStatus.Labels.GetValueOrDefault(item.Status, "未知")
             };
         }
-        return QuestionStatus.Labels.GetValueOrDefault(status, "未知");
+        return QuestionStatus.Labels.GetValueOrDefault(item.Status, "未知");
     }
 
     private static string LevelLabel(string typeKey, byte? level)
@@ -810,6 +852,63 @@
         currentFormUpdatedAt = listItem?.UpdatedAt;
         composeModalTitle    = IsEditableStatus(currentFormStatus) ? "編輯試題" : "檢視試題";
         showComposeModal     = true;
+    }
+
+    /// <summary>
+    /// Plan_010：列點/按鈕分流。
+    /// - 審修作業區：開啟 RevisionSlideOver（修題專用）
+    /// - 命題作業區 / 審核結果與歷史：沿用 OpenEditAsync 命題 Modal（含唯讀模式）
+    /// </summary>
+    private async Task OpenRowAsync(int questionId, byte status)
+    {
+        if (currentTab == "revision"
+            && status is QuestionStatus.PeerEditing or QuestionStatus.ExpertEditing or QuestionStatus.FinalEditing)
+        {
+            // 修題狀態 → Slide-Over
+            revisionQuestionId   = questionId;
+            showRevisionSlideOver = true;
+            return;
+        }
+
+        // 其餘情境：FullScreen 命題 Modal（compose 唯讀快照 / revision 審題鎖定 / history 結果歷史）
+        await OpenEditAsync(questionId);
+    }
+
+    /// <summary>修題 Slide-Over 完成存檔後通知父層 reload 列表 + 配額卡片。</summary>
+    private async Task OnRevisionSavedAsync()
+    {
+        await LoadPageDataAsync();
+    }
+
+    /// <summary>列表「操作」欄按鈕文字（依 tab + status 動態決定）。</summary>
+    private string RowActionLabel(QuestionListItem item)
+    {
+        if (currentTab == "revision")
+        {
+            return item.Status switch
+            {
+                QuestionStatus.PeerEditing
+                or QuestionStatus.ExpertEditing
+                or QuestionStatus.FinalEditing => item.HasRepliedThisStage ? "編輯" : "修題",
+                _                              => "檢視"
+            };
+        }
+        return IsEditableStatus(item.Status) ? "編輯" : "檢視";
+    }
+
+    private string RowActionIcon(QuestionListItem item)
+    {
+        if (currentTab == "revision")
+        {
+            return item.Status switch
+            {
+                QuestionStatus.PeerEditing
+                or QuestionStatus.ExpertEditing
+                or QuestionStatus.FinalEditing => item.HasRepliedThisStage ? "fa-pen-to-square" : "fa-pen",
+                _                              => "fa-eye"
+            };
+        }
+        return IsEditableStatus(item.Status) ? "fa-pen-to-square" : "fa-eye";
     }
 
     /// <summary>軟刪除草稿題目（二次確認後呼叫 SoftDeleteAsync）。</summary>

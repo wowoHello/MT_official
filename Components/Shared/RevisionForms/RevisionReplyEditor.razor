@@ -1,0 +1,45 @@
+@* ====================================================================== *@
+@*  RevisionReplyEditor — 「本次修題說明」編輯器                             *@
+@*                                                                          *@
+@*  必填欄位；純 textarea（與審題意見體驗一致，對年長者最直覺）              *@
+@*  Plan_010-C：放在 RevisionReferencePanel 最下方                           *@
+@* ====================================================================== *@
+
+<div class="space-y-2">
+    <label class="text-xs font-bold text-slate-main flex items-center gap-1">
+        <i class="fa-solid fa-pen-to-square text-terracotta"></i> 本次修題說明
+        <span class="text-terracotta">*</span>
+    </label>
+
+    <textarea value="@Value"
+              @oninput="OnInputAsync"
+              readonly="@IsReadOnly"
+              placeholder="請敘述本次調整重點，例如：依互審意見將選項 C 改為更具區辨度的詞彙…"
+              class="w-full h-[160px] px-3 py-2 text-sm leading-relaxed border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-morandi focus:border-morandi resize-none read-only:bg-gray-50 read-only:cursor-not-allowed"></textarea>
+
+    @if (!IsReadOnly && string.IsNullOrWhiteSpace(Value))
+    {
+        <p class="text-xs text-terracotta font-bold flex items-center gap-1">
+            <i class="fa-solid fa-circle-exclamation"></i>
+            修題說明為必填，請敘述本次調整重點。
+        </p>
+    }
+    else if (IsReadOnly && string.IsNullOrWhiteSpace(Value))
+    {
+        <p class="text-xs text-gray-400 italic">（修題期間已結束，無修題說明）</p>
+    }
+</div>
+
+@code {
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    /// <summary>唯讀模式（修題期間已過）</summary>
+    [Parameter] public bool IsReadOnly { get; set; }
+
+    private async Task OnInputAsync(ChangeEventArgs e)
+    {
+        Value = e.Value?.ToString() ?? "";
+        await ValueChanged.InvokeAsync(Value);
+    }
+}

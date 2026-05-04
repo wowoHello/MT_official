@@ -86,7 +86,7 @@
         if (string.IsNullOrEmpty(StatusText)) return "default";
 
         var text = StatusText.Trim();
-        if (text.Contains("完成") || text.Contains("採用") || text.Contains("啟用") || text.Contains("已發佈"))
+        if (text.Contains("完成") || text.Contains("採用") || text.Contains("啟用") || text.Contains("已發佈") || text.Contains("已修題"))
             return "success";
         if (text.Contains("準備中"))
             return "preparing";

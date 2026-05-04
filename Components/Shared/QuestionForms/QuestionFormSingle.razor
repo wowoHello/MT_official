@@ -5,29 +5,21 @@
 @* ====================================================================== *@
 @using MT.Components.Shared
 
-<!-- 右側編輯區 -->
-<div class="p-6 lg:p-8 pb-16 max-w-4xl mx-auto space-y-6 min-h-full">
+<div class="p-5 lg:p-6 pb-16 max-w-4xl mx-auto space-y-4 min-h-full">
 
-    <!-- 題幹 -->
-    <div>
-        <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-            <i class="fa-solid fa-file-lines text-morandi"></i> 題幹 <span class="text-red-400">*</span>
-        </label>
+    <FormSectionCard Title="題幹" Icon="fa-file-lines" Required="true">
         <QuillField Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="題幹" Placeholder="請輸入題幹內容..." />
-    </div>
+    </FormSectionCard>
 
-    <!-- 選項與答案 -->
-    <OptionGroup Options="@Options" OptionsChanged="OptionsChanged"
-        Answer="@Answer" AnswerChanged="AnswerChanged"
-        RadioName="@($"answer-{Id}")" Layout="OptionGroup.OptionLayout.Vertical" />
+    <FormSectionCard Title="選項與答案" Icon="fa-list-ol" Required="true" HintText="請點選正確答案">
+        <OptionGroup Options="@Options" OptionsChanged="OptionsChanged"
+            Answer="@Answer" AnswerChanged="AnswerChanged"
+            RadioName="@($"answer-{Id}")" Layout="OptionGroup.OptionLayout.Vertical" />
+    </FormSectionCard>
 
-    <!-- 解析 -->
-    <div>
-        <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-            <i class="fa-solid fa-lightbulb text-amber-500"></i> 解析
-        </label>
+    <FormSectionCard Title="解析" Icon="fa-lightbulb" IconColor="text-amber-500">
         <QuillField Value="@Analysis" ValueChanged="v => { Analysis = v; AnalysisChanged.InvokeAsync(v); }" FieldLabel="解析" Placeholder="請輸入解析內容（選填）..." />
-    </div>
+    </FormSectionCard>
 </div>
 
 @code {
@@ -46,4 +38,3 @@
     [Parameter] public EventCallback<string> AnalysisChanged { get; set; }
 
 }
-

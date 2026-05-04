@@ -31,6 +31,17 @@ public interface IQuestionService
     Task<DateTime?> GetCompositionPhaseEndAsync(int projectId);
     Task<bool> IsCompositionPhaseClosedAsync(int projectId);
     Task<int> EnsureCompositionPhaseClosedAsync(int projectId);
+
+    // Plan_010：審修作業區「修題」Slide-Over 後端
+    Task<RevisionSlideOverData?> GetRevisionDataAsync(int questionId, int currentUserId);
+    Task<bool> SaveRevisionAsync(SaveRevisionRequest req, int operatorUserId);
+
+    /// <summary>
+    /// 依當前梯次階段，批次升級題目 Status（Idempotent，可重複呼叫）。
+    /// PhaseCode=4 互審修題：Status 2/3 → 4（PeerEditing）
+    /// 後續階段（5/6/7/8）將於 Plan_011 補上。
+    /// </summary>
+    Task<int> EnsurePhaseTransitionAsync(int projectId);
 }
 
 public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAccessor) : IQuestionService
@@ -459,15 +470,18 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
     public async Task<QuestionListResult> ListAsync(QuestionListFilter filter)
     {
         // 1. 決定要查的 status 範圍（空 = 不限）
-        byte[] statuses = filter.StatusFilter is not null
-            ? [filter.StatusFilter.Value]
-            : filter.Tab switch
-            {
-                "compose"  => QuestionStatus.ComposeTabStatuses,
-                "revision" => QuestionStatus.RevisionTabStatuses,
-                "history"  => QuestionStatus.HistoryTabStatuses,
-                _          => []
-            };
+        // 優先順序：StatusesOverride（多狀態）> StatusFilter（單狀態）> Tab 預設
+        byte[] statuses = filter.StatusesOverride is { Length: > 0 } ovr
+            ? ovr
+            : filter.StatusFilter is not null
+                ? [filter.StatusFilter.Value]
+                : filter.Tab switch
+                {
+                    "compose"  => QuestionStatus.ComposeTabStatuses,
+                    "revision" => QuestionStatus.RevisionTabStatuses,
+                    "history"  => QuestionStatus.HistoryTabStatuses,
+                    _          => []
+                };
 
         var page     = Math.Max(1, filter.Page);
         var pageSize = Math.Max(1, filter.PageSize);
@@ -510,6 +524,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
               {keywordClause};
             """;
 
+        // Plan_010：HasRepliedThisStage —— 同題 + 同 UserId（= q.CreatorId）+ Stage 對齊 q.Status
+        // 4=互修 / 6=專修 / 8=總修；其它狀態 q.Status≠4/6/8，子查詢自然 0 筆，HasReplied=0
         var listSql = $"""
             SELECT
                 q.Id, q.QuestionCode,
@@ -520,7 +536,14 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 q.IsDeleted,
                 (SELECT COUNT(*) FROM dbo.MT_SubQuestions sq
                  WHERE sq.ParentQuestionId = q.Id AND sq.IsDeleted = 0) AS SubQuestionCount,
-                ISNULL(u.DisplayName, '') AS CreatorName
+                ISNULL(u.DisplayName, '') AS CreatorName,
+                CAST(CASE WHEN EXISTS (
+                    SELECT 1 FROM dbo.MT_RevisionReplies rr
+                    WHERE rr.QuestionId = q.Id
+                      AND rr.UserId     = q.CreatorId
+                      AND rr.Stage      = q.Status
+                      AND q.Status IN (4, 6, 8)
+                ) THEN 1 ELSE 0 END AS BIT) AS HasRepliedThisStage
             FROM dbo.MT_Questions q
             LEFT JOIN dbo.MT_Users u ON u.Id = q.CreatorId
             WHERE q.ProjectId = @ProjectId
@@ -560,7 +583,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 UpdatedAt        = r.UpdatedAt,
                 IsDeleted        = r.IsDeleted,
                 SubQuestionCount = r.SubQuestionCount,
-                CreatorName      = r.CreatorName ?? ""
+                CreatorName      = r.CreatorName ?? "",
+                HasRepliedThisStage = r.HasRepliedThisStage
             }).ToList()
         };
     }
@@ -895,6 +919,335 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
             tx.Commit();
             return processed;
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    // ====================================================================
+    //  Plan_010 補丁：階段推進時的批次 Status 升級
+    //  PhaseCode=4 互審修題進入時：所有 Status IN (2 已送審 / 3 互審中) → 4 PeerEditing
+    //  PhaseCode 5/6/7/8 的轉換將於 Plan_011 補上（含 專審 / 總審 ReviewAssignment 建立）
+    // ====================================================================
+    public async Task<int> EnsurePhaseTransitionAsync(int projectId)
+    {
+        using var conn = _db.CreateConnection();
+        conn.Open();
+
+        // 1. 取當前進行中階段
+        var phaseCode = await conn.ExecuteScalarAsync<byte?>("""
+            SELECT TOP 1 PhaseCode
+            FROM dbo.MT_ProjectPhases
+            WHERE ProjectId = @ProjectId
+              AND PhaseCode > 1
+              AND CAST(GETDATE() AS DATE) BETWEEN StartDate AND EndDate
+            ORDER BY SortOrder;
+            """, new { ProjectId = projectId });
+
+        if (phaseCode is null) return 0;
+
+        // 2. 依階段決定要升級的舊狀態與目標狀態
+        var (fromStatuses, toStatus, reasonLabel) = phaseCode.Value switch
+        {
+            4 => (new byte[] { QuestionStatus.Submitted, QuestionStatus.PeerReviewing },
+                  QuestionStatus.PeerEditing,
+                  "PeerEditingPhaseStart"),
+            // 其他階段留待 Plan_011；目前僅處理 4
+            _ => (Array.Empty<byte>(), (byte)0, "")
+        };
+
+        if (fromStatuses.Length == 0) return 0;
+
+        using var tx = conn.BeginTransaction(IsolationLevel.Serializable);
+        try
+        {
+            // 3. 撈出待升級題目（給 AuditLog 用）
+            var candidates = (await conn.QueryAsync<(int Id, byte OldStatus)>(
+                """
+                SELECT Id, Status AS OldStatus
+                FROM dbo.MT_Questions
+                WHERE ProjectId = @ProjectId
+                  AND IsDeleted = 0
+                  AND Status IN @Froms;
+                """,
+                new { ProjectId = projectId, Froms = fromStatuses.Select(b => (int)b).ToList() }, tx)).AsList();
+
+            if (candidates.Count == 0)
+            {
+                tx.Commit();
+                return 0;
+            }
+
+            // 4. 批次 UPDATE
+            await conn.ExecuteAsync("""
+                UPDATE dbo.MT_Questions
+                SET Status = @ToStatus, UpdatedAt = SYSDATETIME()
+                WHERE ProjectId = @ProjectId
+                  AND IsDeleted = 0
+                  AND Status IN @Froms;
+                """,
+                new
+                {
+                    ProjectId = projectId,
+                    ToStatus  = toStatus,
+                    Froms     = fromStatuses.Select(b => (int)b).ToList()
+                }, tx);
+
+            // 5. 逐筆 AuditLog（UserId=NULL 表系統批次）
+            const string auditSql = """
+                INSERT INTO dbo.MT_AuditLogs
+                    (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
+                VALUES
+                    (NULL, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
+                """;
+
+            foreach (var (qid, oldStatus) in candidates)
+            {
+                await conn.ExecuteAsync(auditSql, new
+                {
+                    ProjectId  = projectId,
+                    Action     = AuditLogAction.Modify,
+                    TargetType = AuditLogTargetType.Questions,
+                    TargetId   = qid,
+                    OldValue   = JsonSerializer.Serialize(new { Status = oldStatus }),
+                    NewValue   = JsonSerializer.Serialize(new { Status = toStatus, Reason = reasonLabel })
+                }, tx);
+            }
+
+            tx.Commit();
+            return candidates.Count;
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    // ====================================================================
+    //  Plan_010：審修作業區「修題」Slide-Over
+    // ====================================================================
+
+    /// <summary>
+    /// 一次撈齊修題 Slide-Over 所需資料（題目、跨階段意見、自己歷次修題說明、當前階段、退回計數）。
+    /// 題目找不到或已軟刪 → 回 null。
+    /// </summary>
+    public async Task<RevisionSlideOverData?> GetRevisionDataAsync(int questionId, int currentUserId)
+    {
+        // 1. 題目本體（沿用 GetByIdAsync 邏輯但合併進來省一次連線）
+        var question = await GetByIdAsync(questionId);
+        if (question is null) return null;
+
+        using var conn = _db.CreateConnection();
+
+        // 2. 取題目當前 Status / ProjectId（IsDeleted 排除）
+        var meta = await conn.QueryFirstOrDefaultAsync<(byte Status, int ProjectId)>(
+            "SELECT Status, ProjectId FROM dbo.MT_Questions WHERE Id = @Id AND IsDeleted = 0",
+            new { Id = questionId });
+        if (meta.ProjectId == 0) return null;
+
+        // 3. 跨階段審題意見（匿名化：同階段內依 DecidedAt 排序給 A/B/C）
+        const string commentSql = """
+            SELECT Stage, Comment, DecidedAt, AnonIndex
+            FROM (
+                SELECT
+                    ra.ReviewStage AS Stage,
+                    ra.Comment,
+                    ra.DecidedAt,
+                    ROW_NUMBER() OVER (PARTITION BY ra.ReviewStage
+                                       ORDER BY ra.DecidedAt, ra.Id) AS AnonIndex
+                FROM dbo.MT_ReviewAssignments ra
+                WHERE ra.QuestionId = @Id
+                  AND ra.Comment IS NOT NULL
+                  AND LEN(ra.Comment) > 0
+            ) t
+            ORDER BY Stage, DecidedAt;
+            """;
+        var commentRows = (await conn.QueryAsync<(byte Stage, string Comment, DateTime DecidedAt, int AnonIndex)>(
+            commentSql, new { Id = questionId })).AsList();
+
+        var comments = commentRows.Select(r => new ReviewCommentEntry
+        {
+            Stage     = r.Stage,
+            AnonName  = $"審題老師 {(char)('A' + (r.AnonIndex - 1) % 26)}",
+            Comment   = r.Comment ?? "",
+            DecidedAt = r.DecidedAt
+        }).ToList();
+
+        // 4. 自己歷次修題說明
+        const string mySql = """
+            SELECT Stage, Content, CreatedAt
+            FROM dbo.MT_RevisionReplies
+            WHERE QuestionId = @Id AND UserId = @UserId
+            ORDER BY Stage, CreatedAt;
+            """;
+        var myReplies = (await conn.QueryAsync<RevisionReplyEntry>(
+            mySql, new { Id = questionId, UserId = currentUserId })).AsList();
+
+        // 5. 當前進行中階段（無 → null）
+        var phaseRow = await conn.QueryFirstOrDefaultAsync<(byte PhaseCode, DateTime EndDate)>(
+            """
+            SELECT TOP 1 PhaseCode, EndDate
+            FROM dbo.MT_ProjectPhases
+            WHERE ProjectId = @ProjectId
+              AND PhaseCode > 1
+              AND CAST(GETDATE() AS DATE) BETWEEN StartDate AND EndDate
+            ORDER BY SortOrder;
+            """, new { ProjectId = meta.ProjectId });
+
+        // 6. 總審退回次數（給總修階段的 [送出再審] 用）
+        var returnCount = await conn.ExecuteScalarAsync<int?>(
+            "SELECT TOP 1 ReturnCount FROM dbo.MT_ReviewReturnCounts WHERE QuestionId = @Id",
+            new { Id = questionId }) ?? 0;
+
+        // 7. 當前階段最新一筆 reply（若已修題，作為「本次修題說明」初值）
+        var draft = myReplies
+            .Where(r => r.Stage == phaseRow.PhaseCode)
+            .OrderByDescending(r => r.CreatedAt)
+            .FirstOrDefault()?.Content ?? "";
+
+        return new RevisionSlideOverData
+        {
+            Question            = question,
+            Comments            = comments,
+            MyReplies           = myReplies,
+            CurrentPhaseCode    = phaseRow.PhaseCode,
+            PhaseEndDate        = phaseRow.PhaseCode == 0 ? null : phaseRow.EndDate,
+            CurrentDraftContent = draft,
+            HasReplied          = myReplies.Any(r => r.Stage == phaseRow.PhaseCode),
+            FinalReturnCount    = returnCount,
+            QStatus             = meta.Status
+        };
+    }
+
+    /// <summary>
+    /// 儲存修題（題目本體 + 修題說明）。
+    /// 1. 階段對齊驗證（沿用 Plan_009 的 GetCurrentPhaseCodeInTxAsync）
+    /// 2. UPDATE MT_Questions（Status 不變，僅內容）
+    /// 3. UPSERT MT_SubQuestions
+    /// 4. UPSERT MT_RevisionReplies（同 QuestionId+UserId+Stage 已存在 → UPDATE Content；否則 INSERT）
+    /// 5. 寫 AuditLog（Action=Modify、Reason=Revision）
+    /// 不變更 Question.Status；總審「送出再審」由另一支 SubmitFinalRevisionAsync 處理（Plan_011）。
+    /// </summary>
+    public async Task<bool> SaveRevisionAsync(SaveRevisionRequest req, int operatorUserId)
+    {
+        if (string.IsNullOrWhiteSpace(req.RevisionNote))
+            throw new InvalidOperationException("修題說明為必填欄位。");
+
+        var typeId = QuestionConstants.TypeKeyToId[req.FormData.QuestionType];
+
+        using var conn = _db.CreateConnection();
+        conn.Open();
+        using var tx = conn.BeginTransaction(IsolationLevel.Serializable);
+        try
+        {
+            // 1. 取題目當前 Status / ProjectId
+            var meta = await conn.QueryFirstOrDefaultAsync<QuestionMetaDto>(
+                "SELECT Status, ProjectId FROM dbo.MT_Questions WHERE Id = @Id AND IsDeleted = 0",
+                new { Id = req.QuestionId }, tx);
+            if (meta is null) return false;
+
+            // 2. Status 必須在修題狀態（4/6/8）；階段必須對齊
+            if (meta.Status is not (QuestionStatus.PeerEditing or QuestionStatus.ExpertEditing or QuestionStatus.FinalEditing))
+                throw new InvalidOperationException("題目目前不在修題狀態，無法儲存修題。");
+
+            var phaseCode = await GetCurrentPhaseCodeInTxAsync(conn, tx, meta.ProjectId);
+            var requiredPhase = (byte)meta.Status;   // PeerEditing=4 / ExpertEditing=6 / FinalEditing=8
+            if (phaseCode != requiredPhase)
+                throw new InvalidOperationException("修題期間已結束，無法儲存變更。");
+
+            // 3. UPDATE 題目（沿用既有 update SQL，但 Status 維持原值）
+            const string updateSql = """
+                UPDATE dbo.MT_Questions SET
+                    QuestionTypeId  = @TypeId,
+                    Level           = @Level,
+                    Difficulty      = @Difficulty,
+                    Stem            = @Stem,
+                    Analysis        = @Analysis,
+                    CorrectAnswer   = @Answer,
+                    OptionA         = @OptA,
+                    OptionB         = @OptB,
+                    OptionC         = @OptC,
+                    OptionD         = @OptD,
+                    ArticleTitle    = @ArticleTitle,
+                    ArticleContent  = @ArticleContent,
+                    AudioUrl        = @AudioUrl,
+                    GradingNote     = @GradingNote,
+                    Topic           = @Topic,
+                    Subtopic        = @Subtopic,
+                    Genre           = @Genre,
+                    Material        = @Material,
+                    WritingMode     = @WritingMode,
+                    AudioType       = @AudioType,
+                    CoreAbility     = @CoreAbility,
+                    DetailIndicator = @DetailIndicator,
+                    UpdatedAt       = SYSDATETIME()
+                WHERE Id = @Id AND IsDeleted = 0;
+                """;
+
+            var f = req.FormData;
+            await conn.ExecuteAsync(updateSql, new
+            {
+                Id             = req.QuestionId,
+                TypeId         = typeId,
+                f.Level,
+                f.Difficulty,
+                Stem           = NullIfEmpty(f.Stem),
+                Analysis       = NullIfEmpty(f.Analysis),
+                Answer         = NullIfEmpty(f.Answer),
+                OptA           = SafeOption(f.Options, 0),
+                OptB           = SafeOption(f.Options, 1),
+                OptC           = SafeOption(f.Options, 2),
+                OptD           = SafeOption(f.Options, 3),
+                ArticleTitle   = NullIfEmpty(f.ArticleTitle),
+                ArticleContent = NullIfEmpty(f.ArticleContent),
+                AudioUrl       = NullIfEmpty(f.AudioUrl),
+                GradingNote    = NullIfEmpty(f.GradingNote),
+                f.Topic,
+                f.Subtopic,
+                f.Genre,
+                f.Material,
+                f.WritingMode,
+                f.AudioType,
+                f.CoreAbility,
+                f.DetailIndicator
+            }, tx);
+
+            // 4. UPSERT 子題
+            await UpsertSubQuestionsAsync(conn, tx, req.QuestionId, req.FormData, operatorUserId, meta.ProjectId);
+
+            // 5. UPSERT MT_RevisionReplies — 同 QuestionId+UserId+Stage 已存在 → UPDATE，否則 INSERT
+            const string upsertReplySql = """
+                MERGE dbo.MT_RevisionReplies WITH (HOLDLOCK) AS target
+                USING (VALUES (@Qid, @Uid, @Stage)) AS src(QuestionId, UserId, Stage)
+                ON  target.QuestionId = src.QuestionId
+                AND target.UserId     = src.UserId
+                AND target.Stage      = src.Stage
+                WHEN MATCHED THEN
+                    UPDATE SET Content = @Content
+                WHEN NOT MATCHED THEN
+                    INSERT (QuestionId, UserId, Stage, Content, CreatedAt)
+                    VALUES (@Qid, @Uid, @Stage, @Content, SYSDATETIME());
+                """;
+            await conn.ExecuteAsync(upsertReplySql, new
+            {
+                Qid     = req.QuestionId,
+                Uid     = operatorUserId,
+                Stage   = phaseCode,
+                Content = req.RevisionNote
+            }, tx);
+
+            // 6. AuditLog
+            await WriteAuditLogAsync(conn, tx, operatorUserId, meta.ProjectId,
+                AuditLogAction.Modify, req.QuestionId,
+                oldValue: new { Status = meta.Status },
+                newValue: new { Status = meta.Status, Reason = "Revision", Stage = phaseCode });
+
+            tx.Commit();
+            return true;
         }
         catch
         {
@@ -1289,5 +1642,6 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         public bool IsDeleted { get; set; }
         public int SubQuestionCount { get; set; }
         public string? CreatorName { get; set; }
+        public bool HasRepliedThisStage { get; set; }
     }
 }

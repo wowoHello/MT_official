@@ -368,11 +368,14 @@ public static class QuestionStatus
     };
 
     // 三 Tab 對應的 status 範圍
-    // ※ Status=2「已送審」同時出現在 compose 與 revision：命題端視為命題流程結束，
-    //    審題端視為「鎖定等待審題」，後續審後修題作業皆於審修作業區進行。
-    public static readonly byte[] ComposeTabStatuses  = [0, 1, 2];
+    // ※ Status 2-8 同時出現在 compose 與 revision：命題端視為「命題流程已結束（已送審）」唯讀快照；
+    //    審題端視為「審/修題進行中」工作區。結案 (9/10/12) 後才從 compose tab 消失。
+    public static readonly byte[] ComposeTabStatuses  = [0, 1, 2, 3, 4, 5, 6, 7, 8];
     public static readonly byte[] RevisionTabStatuses = [2, 3, 4, 5, 6, 7, 8];
     public static readonly byte[] HistoryTabStatuses  = [9, 10, 12];
+
+    /// <summary>命題作業區的「已送審」分類：所有命題流程結束後仍未結案的狀態（2-8）。</summary>
+    public static readonly byte[] SubmittedSnapshotStatuses = [2, 3, 4, 5, 6, 7, 8];
 }
 
 // ======================================================================
@@ -405,6 +408,7 @@ public class QuestionListFilter
     public int? CreatorId { get; set; }       // 命題教師：自己 UserId；管理員：null
     public string Tab { get; set; } = "compose";   // compose / revision / history
     public byte? StatusFilter { get; set; }   // 點擊統計卡片時的單一狀態篩選
+    public byte[]? StatusesOverride { get; set; }   // 點擊統計卡片需多狀態篩選時使用（如「已送審」涵蓋 2-8），優先於 StatusFilter 與 Tab
     public int? QuestionTypeId { get; set; }
     public byte? Level { get; set; }
     public string? Keyword { get; set; }
@@ -482,4 +486,62 @@ public class QuestionListItem
     public bool IsDeleted { get; set; }       // true = 已軟刪除（Overview 用紅色「命題刪除」標籤）
     public int SubQuestionCount { get; set; } // 題組型才 > 0；非題組恆為 0
     public string CreatorName { get; set; } = "";   // 命題教師顯示名稱（Overview 用，CwtList 自家題目不需要）
+
+    /// <summary>
+    /// Plan_010：當前修題階段（4/6/8）內，本人是否已寫過修題說明。
+    /// 只有 Status 對齊修題階段時才有意義；其他狀態恆為 false。
+    /// </summary>
+    public bool HasRepliedThisStage { get; set; }
+}
+
+// ======================================================================
+//  Plan_010：審修作業區「修題」Slide-Over 用 DTO
+// ======================================================================
+
+/// <summary>修題 Slide-Over 開啟時一次拉取的完整資料包。</summary>
+public class RevisionSlideOverData
+{
+    public QuestionFormData Question { get; set; } = new();
+    public List<ReviewCommentEntry> Comments { get; set; } = [];   // 跨階段審題意見（匿名化）
+    public List<RevisionReplyEntry> MyReplies { get; set; } = []; // 自己歷次修題說明
+    public byte CurrentPhaseCode { get; set; }                     // 4=互修 / 6=專修 / 8=總修；0=非修題期
+    public DateTime? PhaseEndDate { get; set; }
+    public string CurrentDraftContent { get; set; } = "";          // 當前階段最新一筆 reply（編輯時帶入）
+    public bool HasReplied { get; set; }                            // false=未修題、true=已修題
+    public int FinalReturnCount { get; set; }                       // 總審退回次數（給總修階段的 [送出再審] 用）
+    public byte QStatus { get; set; }                                // 題目當前 Status（4/6/8 才能修）
+
+    /// <summary>修題期間是否仍開放編輯（PhaseCode 對齊 + Status 對齊）。前端用以決定 fieldset disabled。</summary>
+    public bool IsEditable => CurrentPhaseCode switch
+    {
+        4 => QStatus == 4,
+        6 => QStatus == 6,
+        8 => QStatus == 8,
+        _ => false
+    };
+}
+
+/// <summary>單筆審題意見（匿名化「審題老師 A/B/C」）。</summary>
+public class ReviewCommentEntry
+{
+    public byte Stage { get; set; }      // 1=互審 / 2=專審 / 3=總審
+    public string AnonName { get; set; } = "";   // 同階段內 ROW_NUMBER → A/B/C/...
+    public string Comment { get; set; } = "";
+    public DateTime DecidedAt { get; set; }
+}
+
+/// <summary>單筆修題說明（自己過往）。</summary>
+public class RevisionReplyEntry
+{
+    public byte Stage { get; set; }      // 4=互修 / 6=專修 / 8=總修
+    public string Content { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
+}
+
+/// <summary>儲存修題（題目 + 修題說明）請求。</summary>
+public class SaveRevisionRequest
+{
+    public int QuestionId { get; set; }
+    public QuestionFormData FormData { get; set; } = new();
+    public string RevisionNote { get; set; } = "";
 }

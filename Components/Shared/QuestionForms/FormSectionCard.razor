@@ -1,0 +1,54 @@
+@* ====================================================================== *@
+@*  FormSectionCard — 命題/修題表單區塊的白色卡片包裝                        *@
+@*                                                                          *@
+@*  設計目標：                                                              *@
+@*    1. 在 oatmeal 米黃背景上提供乾淨白色內容區，降低視覺干擾                *@
+@*    2. 所有題型表單統一同一張卡片視覺，保持節奏與連續性                     *@
+@*    3. 標題列與內容區用淺色分隔線區隔，留白舒適                             *@
+@* ====================================================================== *@
+
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden @ContainerClass">
+    @if (!string.IsNullOrEmpty(Title) || HeaderRight != null)
+    {
+        <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+            <label class="text-sm font-bold text-slate-main flex items-center gap-2">
+                @if (!string.IsNullOrEmpty(Icon))
+                {
+                    <i class="fa-solid @Icon @IconColor"></i>
+                }
+                <span>@Title</span>
+                @if (Required)
+                {
+                    <span class="text-terracotta">*</span>
+                }
+                @if (!string.IsNullOrEmpty(HintText))
+                {
+                    <span class="text-xs text-gray-400 font-normal ml-1">@HintText</span>
+                }
+            </label>
+            @if (HeaderRight != null)
+            {
+                <div class="text-xs text-gray-400 flex items-center gap-2">@HeaderRight</div>
+            }
+        </div>
+    }
+    <div class="@(string.IsNullOrEmpty(BodyClass) ? "p-5" : BodyClass)">
+        @ChildContent
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public string? Icon { get; set; }
+    [Parameter] public string IconColor { get; set; } = "text-morandi";
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public string? HintText { get; set; }
+
+    /// <summary>外層額外 class（例如限制寬度、margin override）。</summary>
+    [Parameter] public string ContainerClass { get; set; } = "";
+    /// <summary>Body 區 class（預設 p-5；想要自訂 padding 或無 padding 時覆寫）。</summary>
+    [Parameter] public string BodyClass { get; set; } = "";
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? HeaderRight { get; set; }
+}

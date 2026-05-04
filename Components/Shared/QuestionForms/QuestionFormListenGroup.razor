@@ -9,13 +9,9 @@
 @using MT.Components.Shared
 @inject IJSRuntime JS
 
-<div class="p-6 lg:p-8 pb-16 max-w-4xl mx-auto space-y-6 min-h-full">
+<div class="p-5 lg:p-6 pb-16 max-w-4xl mx-auto space-y-4 min-h-full">
 
-    <!-- 聽力音檔上傳 -->
-    <div>
-        <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-            <i class="fa-solid fa-headphones text-morandi"></i> 聽力音檔 <span class="text-red-400">*</span>
-        </label>
+    <FormSectionCard Title="聽力音檔" Icon="fa-headphones" Required="true">
         <div class="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-morandi hover:bg-morandi/5 transition-all cursor-pointer group">
             @if (string.IsNullOrEmpty(AudioFileName))
             {
@@ -35,34 +31,20 @@
                 </div>
             }
         </div>
-    </div>
+    </FormSectionCard>
 
-    <!-- 語音內容 -->
-    <div>
-        <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-            <i class="fa-solid fa-microphone text-morandi"></i> 語音內容 <span class="text-red-400">*</span>
-        </label>
-        <!-- 聽力題組提醒 -->
-        <div class="mb-3 px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
-            <p class="font-bold text-terracotta mb-1 flex items-center gap-1.5">
-                <i class="fa-solid fa-circle-info"></i> 聽力題組母題提醒
-            </p>
-            <p class="text-amber-700 text-xs leading-relaxed">
-                母題不區分難度，僅需上傳音檔與語音內容。底下固定 2 個子題，各有獨立的難度、核心能力與細目指標。
-            </p>
+    <FormSectionCard Title="語音內容" Icon="fa-microphone" Required="true">
+        <div class="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md text-sm flex items-start gap-2">
+            <i class="fa-solid fa-circle-info text-amber-500 mt-0.5 flex-shrink-0"></i>
+            <div class="text-xs leading-relaxed text-amber-700">
+                <span class="font-bold text-terracotta">聽力題組母題提醒</span>
+                — 母題不區分難度，僅需上傳音檔與語音內容。底下固定 2 個子題，各有獨立的難度、核心能力與細目指標。
+            </div>
         </div>
         <QuillField Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }" FieldLabel="語音內容" Placeholder="點擊此處開始輸入語音內容（逐字稿）..." />
-    </div>
+    </FormSectionCard>
 
-    <!-- 子題區（固定 2 題） -->
-    <div>
-        <div class="flex items-center justify-between mb-3">
-            <label class="text-sm font-bold text-gray-700 flex items-center gap-2">
-                <i class="fa-solid fa-layer-group text-morandi"></i> 子題區
-                <span class="text-xs text-gray-400 font-normal">（固定 2 題）</span>
-            </label>
-        </div>
-
+    <FormSectionCard Title="子題區" Icon="fa-layer-group" HintText="固定 2 題">
         <div class="space-y-4">
             @for (int i = 0; i < SubQuestions.Count; i++)
             {
@@ -120,9 +102,14 @@
                         </div>
 
                         <!-- 選項與答案 -->
-                        <OptionGroup Options="@sq.Options" OptionsChanged="v => SubQuestionsChanged.InvokeAsync(SubQuestions)"
-                            Answer="@sq.Answer" AnswerChanged="v => { sq.Answer = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }"
-                            RadioName="@($"lg-answer-{idx}")" Layout="OptionGroup.OptionLayout.Grid" />
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-2">
+                                <i class="fa-solid fa-list-ol text-morandi"></i> 選項與答案 <span class="text-red-400">*</span>
+                            </label>
+                            <OptionGroup Options="@sq.Options" OptionsChanged="v => SubQuestionsChanged.InvokeAsync(SubQuestions)"
+                                Answer="@sq.Answer" AnswerChanged="v => { sq.Answer = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }"
+                                RadioName="@($"lg-answer-{idx}")" Layout="OptionGroup.OptionLayout.Grid" />
+                        </div>
 
                         <!-- 試題解析 -->
                         <div>
@@ -137,7 +124,7 @@
                 </div>
             }
         </div>
-    </div>
+    </FormSectionCard>
 </div>
 
 @code {
