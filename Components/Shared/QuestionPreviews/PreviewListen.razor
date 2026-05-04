@@ -3,25 +3,26 @@
 
 <PreviewHeader QuestionType="聽力測驗" Level="@Level" Difficulty="@Difficulty" Tags="@Tags" />
 
-<div class="max-w-2xl mx-auto font-serif">
-    <!-- 音檔播放器 -->
-    <PreviewAudioSection AudioFileName="@AudioFileName" />
+<!-- 音檔播放器（仿真實考卷上方音檔框） -->
+<PreviewAudioSection AudioFileName="@AudioFileName" />
 
-    <!-- 題幹 -->
-    <div class="mb-5 prose prose-sm max-w-none leading-relaxed text-gray-800">
+<!-- 題號 + 題幹 -->
+<div class="flex items-baseline gap-3 mb-3 mt-6 font-serif">
+    <span class="text-xl font-bold text-gray-900 leading-none">1.</span>
+    <div class="flex-1 prose prose-base max-w-none leading-relaxed text-gray-900">
         @if (HasContent(Stem))
         {
             @((MarkupString)Stem)
         }
         else
         {
-            <p class="text-gray-400 italic">題幹尚未填寫</p>
+            <p class="text-gray-400 italic text-sm font-sans">題幹尚未填寫</p>
         }
     </div>
-
-    <!-- ABCD 選項 -->
-    <PreviewChoiceOptions Options="@Options" Answer="@Answer" />
 </div>
+
+<!-- ABCD 選項 -->
+<PreviewChoiceOptions Options="@Options" Answer="@Answer" />
 
 @code {
     [Parameter] public string Level { get; set; } = "";

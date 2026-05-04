@@ -665,6 +665,80 @@ public class DashboardService : IDashboardService
             }
         }
 
+        // ── 4-b. 修題階段教師落後（PhaseCode 4/6/8 倒數 ≤ 5 天）─────────
+        // 待修題目 = 在當前 ReviewStage 有寫過 Comment 的所有題目
+        // 已修完  = 上述題目中老師已寫過 MT_RevisionReplies.Content（Stage=PhaseCode）
+        var revisionPhase = phaseRows.FirstOrDefault(p =>
+                p.PhaseCode is 4 or 6 or 8
+             && p.StartDate    <= today
+             && p.DaysRemaining >= 0
+             && p.DaysRemaining <= 5);
+
+        if (revisionPhase is not null)
+        {
+            byte revisionReviewStage = revisionPhase.PhaseCode switch
+            {
+                4 => 1, 6 => 2, 8 => 3, _ => 0
+            };
+            byte revisionStageCode = (byte)revisionPhase.PhaseCode;
+
+            const string sqlRevisionShortage = """
+                WITH RevisionScope AS (
+                    SELECT ra.QuestionId, q.CreatorId,
+                           CASE WHEN EXISTS (
+                               SELECT 1 FROM dbo.MT_RevisionReplies rr
+                               WHERE rr.QuestionId = ra.QuestionId
+                                 AND rr.Stage      = @revisionStage
+                                 AND rr.Content IS NOT NULL
+                                 AND LEN(LTRIM(RTRIM(rr.Content))) > 0
+                           ) THEN 1 ELSE 0 END AS IsRevised
+                    FROM   dbo.MT_ReviewAssignments ra
+                    JOIN   dbo.MT_Questions q ON q.Id = ra.QuestionId
+                    WHERE  ra.ProjectId   = @pid
+                      AND  ra.ReviewStage = @reviewStage
+                      AND  ra.Comment IS NOT NULL
+                      AND  LEN(LTRIM(RTRIM(ra.Comment))) > 0
+                      AND  q.IsDeleted = 0
+                    GROUP BY ra.QuestionId, q.CreatorId
+                )
+                SELECT  rs.CreatorId AS UserId,
+                        u.DisplayName AS TeacherName,
+                        COUNT(*)               AS TotalAssigned,
+                        SUM(rs.IsRevised)      AS TotalProduced
+                FROM    RevisionScope rs
+                JOIN    dbo.MT_Users u ON u.Id = rs.CreatorId
+                GROUP BY rs.CreatorId, u.DisplayName
+                HAVING  COUNT(*) > SUM(rs.IsRevised)
+                ORDER   BY (1.0 * SUM(rs.IsRevised) / NULLIF(COUNT(*), 0)) ASC
+                """;
+
+            var teacherRows = (await conn.QueryAsync<TeacherShortageRow>(
+                sqlRevisionShortage, new
+                {
+                    pid           = projectId,
+                    reviewStage   = revisionReviewStage,
+                    revisionStage = revisionStageCode
+                })).ToList();
+
+            foreach (var t in teacherRows)
+            {
+                var rate     = t.TotalAssigned > 0 ? (decimal)t.TotalProduced / t.TotalAssigned : 0m;
+                var severity = rate < 0.3m  ? UrgentSeverity.Critical
+                             : rate < 0.7m  ? UrgentSeverity.Warning
+                             :                UrgentSeverity.Notice;
+
+                items.Add(new DashboardUrgentItem
+                {
+                    Severity  = severity,
+                    Source    = UrgentSourceType.TeacherShortage,
+                    Title     = $"{t.TeacherName} 修題進度落後",
+                    Subtitle  = $"目前 {t.TotalProduced}/{t.TotalAssigned}（{rate:P0}）",
+                    UserId    = t.UserId,
+                    TargetUrl = $"/overview?creatorId={t.UserId}"
+                });
+            }
+        }
+
         // ── 5. 排序：Severity DESC → DaysRemaining ASC（不截斷）──────
         // 警示窗內所有未完成項目都得顯示，不應因清單上限漏掉任何提醒
         // 卡片以 max-height + scroll 控制視覺空間
@@ -682,30 +756,87 @@ public class DashboardService : IDashboardService
 
         if (userIds.Count > 0)
         {
-            const string sqlTypeDetails = """
-                SELECT  pm.UserId,
-                        mq.QuestionTypeId,
-                        qt.Name AS TypeName,
-                        mq.QuotaCount AS Assigned,
-                        ISNULL(prod.Produced, 0) AS Produced
-                FROM    dbo.MT_ProjectMembers pm
-                JOIN    dbo.MT_MemberQuotas   mq ON mq.ProjectMemberId = pm.Id
-                JOIN    dbo.MT_QuestionTypes  qt ON qt.Id = mq.QuestionTypeId
-                OUTER APPLY (
-                    SELECT COUNT(*) AS Produced
-                    FROM   dbo.MT_Questions
-                    WHERE  ProjectId      = pm.ProjectId
-                      AND  QuestionTypeId = mq.QuestionTypeId
-                      AND  CreatorId      = pm.UserId
-                      AND  IsDeleted      = 0
-                      AND  Status BETWEEN 2 AND 9
-                ) prod
-                WHERE   pm.ProjectId = @pid AND pm.UserId IN @userIds
-                ORDER   BY pm.UserId, prod.Produced * 1.0 / NULLIF(mq.QuotaCount, 0) ASC
-                """;
+            // 依當前進行中階段選用對應的 Modal 明細查詢
+            //   命題階段 (PC=2)：MT_ProjectMembers + MT_MemberQuotas（配額制）
+            //   修題階段 (PC=4/6/8)：MT_ReviewAssignments + MT_RevisionReplies（待修題目制）
+            string sqlTypeDetails;
+            object sqlParams;
+
+            if (revisionPhase is not null)
+            {
+                byte revisionReviewStage = revisionPhase.PhaseCode switch
+                {
+                    4 => 1, 6 => 2, 8 => 3, _ => 0
+                };
+                byte revisionStageCode = (byte)revisionPhase.PhaseCode;
+
+                sqlTypeDetails = """
+                    WITH RevisionScope AS (
+                        SELECT ra.QuestionId, q.CreatorId, q.QuestionTypeId,
+                               CASE WHEN EXISTS (
+                                   SELECT 1 FROM dbo.MT_RevisionReplies rr
+                                   WHERE rr.QuestionId = ra.QuestionId
+                                     AND rr.Stage      = @revisionStage
+                                     AND rr.Content IS NOT NULL
+                                     AND LEN(LTRIM(RTRIM(rr.Content))) > 0
+                               ) THEN 1 ELSE 0 END AS IsRevised
+                        FROM   dbo.MT_ReviewAssignments ra
+                        JOIN   dbo.MT_Questions q ON q.Id = ra.QuestionId
+                        WHERE  ra.ProjectId   = @pid
+                          AND  ra.ReviewStage = @reviewStage
+                          AND  ra.Comment IS NOT NULL
+                          AND  LEN(LTRIM(RTRIM(ra.Comment))) > 0
+                          AND  q.IsDeleted = 0
+                          AND  q.CreatorId IN @userIds
+                        GROUP BY ra.QuestionId, q.CreatorId, q.QuestionTypeId
+                    )
+                    SELECT  rs.CreatorId AS UserId,
+                            rs.QuestionTypeId,
+                            qt.Name      AS TypeName,
+                            COUNT(*)     AS Assigned,
+                            SUM(rs.IsRevised) AS Produced
+                    FROM    RevisionScope rs
+                    JOIN    dbo.MT_QuestionTypes qt ON qt.Id = rs.QuestionTypeId
+                    GROUP BY rs.CreatorId, rs.QuestionTypeId, qt.Name
+                    ORDER BY rs.CreatorId,
+                             (1.0 * SUM(rs.IsRevised) / NULLIF(COUNT(*), 0)) ASC
+                    """;
+                sqlParams = new
+                {
+                    pid           = projectId,
+                    userIds,
+                    reviewStage   = revisionReviewStage,
+                    revisionStage = revisionStageCode
+                };
+            }
+            else
+            {
+                sqlTypeDetails = """
+                    SELECT  pm.UserId,
+                            mq.QuestionTypeId,
+                            qt.Name AS TypeName,
+                            mq.QuotaCount AS Assigned,
+                            ISNULL(prod.Produced, 0) AS Produced
+                    FROM    dbo.MT_ProjectMembers pm
+                    JOIN    dbo.MT_MemberQuotas   mq ON mq.ProjectMemberId = pm.Id
+                    JOIN    dbo.MT_QuestionTypes  qt ON qt.Id = mq.QuestionTypeId
+                    OUTER APPLY (
+                        SELECT COUNT(*) AS Produced
+                        FROM   dbo.MT_Questions
+                        WHERE  ProjectId      = pm.ProjectId
+                          AND  QuestionTypeId = mq.QuestionTypeId
+                          AND  CreatorId      = pm.UserId
+                          AND  IsDeleted      = 0
+                          AND  Status BETWEEN 2 AND 9
+                    ) prod
+                    WHERE   pm.ProjectId = @pid AND pm.UserId IN @userIds
+                    ORDER   BY pm.UserId, prod.Produced * 1.0 / NULLIF(mq.QuotaCount, 0) ASC
+                    """;
+                sqlParams = new { pid = projectId, userIds };
+            }
 
             var detailRows = (await conn.QueryAsync<TeacherTypeDetailRow>(
-                sqlTypeDetails, new { pid = projectId, userIds })).ToList();
+                sqlTypeDetails, sqlParams)).ToList();
 
             // 依 UserId 分組，塞回對應的 UrgentItem
             var grouped = detailRows

@@ -1,27 +1,37 @@
-@* 預覽共用：試卷標題 + 題型 + 等級/難度 + metadata tags *@
+@* ====================================================================== *@
+@*  PreviewHeader — 試卷頂部標題（模擬考卷抬頭）                              *@
+@*                                                                          *@
+@*  設計：                                                                  *@
+@*    - 大字標題（serif）「全民中文檢定」+ 副標題型/等級/難度                  *@
+@*    - 底下細線分隔，與下方題目內容區隔開                                     *@
+@*    - Tags（命題端 metadata）刻意縮小、置於下方淡色 chip，避免干擾考生視覺    *@
+@* ====================================================================== *@
 
-<div class="text-center mb-8">
-    <h2 class="text-xl font-bold text-gray-800 mb-1 focus:outline-none">全民中文檢定 - 模擬試卷</h2>
-    <p class="text-sm text-gray-500 mb-3">
-        @QuestionType
+<div class="text-center mb-8 pb-5 border-b border-gray-300 font-serif">
+    <h2 class="text-2xl font-bold text-gray-900 tracking-wider mb-1.5 focus:outline-none">全民中文檢定</h2>
+    <p class="text-sm text-gray-500">
+        <span class="font-medium">@QuestionType</span>
         @if (!HideLevel)
         {
-            <span>&middot; @(string.IsNullOrEmpty(Level) ? "未設定" : Level) / 難度：@(string.IsNullOrEmpty(Difficulty) ? "未設定" : Difficulty)</span>
+            <span class="mx-2 text-gray-300">|</span>
+            <span>@(string.IsNullOrEmpty(Level) ? "未設定" : Level)</span>
+            <span class="mx-2 text-gray-300">|</span>
+            <span>難度 @(string.IsNullOrEmpty(Difficulty) ? "未設定" : Difficulty)</span>
         }
     </p>
-    <div class="flex flex-wrap justify-center gap-2">
-        @if (Tags != null)
-        {
+    @if (Tags is { Count: > 0 })
+    {
+        <div class="flex flex-wrap justify-center gap-1.5 mt-3">
             @foreach (var tag in Tags)
             {
                 var isUnset = tag.Value == "未設定";
-                <span class="px-3 py-1 text-xs font-medium rounded-full border
-                             @(isUnset ? "bg-gray-100 text-gray-400 border-gray-200" : "bg-[var(--color-morandi)]/10 text-[var(--color-morandi)] border-[var(--color-morandi)]/20")">
+                <span class="px-2 py-0.5 text-xs rounded-full border font-sans
+                             @(isUnset ? "bg-gray-50 text-gray-400 border-gray-200" : "bg-morandi/5 text-morandi/80 border-morandi/15")">
                     @tag.Key：@tag.Value
                 </span>
             }
-        }
-    </div>
+        </div>
+    }
 </div>
 
 @code {

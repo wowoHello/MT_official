@@ -1,21 +1,30 @@
-@* 預覽共用：文章/段落內容區塊（灰底） *@
+@* ====================================================================== *@
+@*  PreviewPassage — 文章內容區（考卷風格）                                  *@
+@*                                                                          *@
+@*  設計：                                                                  *@
+@*    - 仿真實考卷的文章引用排版：左側細邊條 + 微凹陷底色                       *@
+@*    - serif 字體 + leading-loose 行高，營造紙本閱讀感                        *@
+@*    - Label 縮小、位於左上以小字呈現（不搶內容焦點）                          *@
+@* ====================================================================== *@
 
-<div class="bg-gray-50 border border-gray-200 rounded-lg p-5 my-4">
+<div class="my-6 relative">
     @if (!string.IsNullOrEmpty(Label))
     {
-        <p class="font-bold text-gray-600 text-sm mb-3">
-            <i class="fa-solid fa-book-open mr-1"></i> @Label
+        <p class="text-xs font-bold text-gray-500 mb-2 tracking-wider font-sans">
+            <i class="fa-solid fa-book-open text-gray-400 mr-1"></i> @Label
         </p>
     }
-    <div class="prose prose-sm max-w-none leading-relaxed text-gray-800">
-        @if (HasContent(Content))
-        {
-            @((MarkupString)Content)
-        }
-        else
-        {
-            <p class="text-gray-400 italic">內容尚未填寫</p>
-        }
+    <div class="pl-5 border-l-2 border-stone-300/70 py-1">
+        <div class="prose prose-base max-w-none leading-loose text-gray-800 font-serif">
+            @if (HasContent(Content))
+            {
+                @((MarkupString)Content)
+            }
+            else
+            {
+                <p class="text-gray-400 italic text-sm font-sans">內容尚未填寫</p>
+            }
+        </div>
     </div>
 </div>
 

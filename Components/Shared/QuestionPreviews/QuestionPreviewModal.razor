@@ -1,18 +1,27 @@
-@* 考卷預覽 Modal 外殼 *@
+@* ====================================================================== *@
+@*  QuestionPreviewModal — 考卷預覽 Modal 外殼                                *@
+@*                                                                          *@
+@*  設計目標：模擬考生看見的試卷                                              *@
+@*    - 寬版（max-w-5xl）容納完整試題與題組                                   *@
+@*    - 米黃色（oatmeal）背景襯托純白色「紙張」，營造紙感                       *@
+@*    - 紙張有適度上下留白模擬試卷邊距                                         *@
+@* ====================================================================== *@
 
 @if (Visible)
 {
     <div class="fixed inset-0 z-[120] flex items-center justify-center">
         <!-- 背景遮罩 -->
-        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" @onclick="Close"></div>
+        <div class="absolute inset-0 bg-gray-900/50 backdrop-blur-sm" @onclick="Close"></div>
 
-        <!-- Modal 本體 -->
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 relative z-10 flex flex-col max-h-[90vh]">
-            <!-- Header -->
-            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center flex-shrink-0">
-                <h2 class="text-lg font-bold text-gray-800 flex items-center gap-2 focus:outline-none">
-                    <i class="fa-solid fa-file-lines text-[var(--color-morandi)]"></i>
+        <!-- Modal 本體（外層做書桌米黃色） -->
+        <div class="relative z-10 w-full max-w-5xl mx-4 flex flex-col max-h-[92vh] bg-oatmeal rounded-xl shadow-2xl overflow-hidden">
+
+            <!-- 緊湊 Header -->
+            <div class="px-5 py-3 border-b border-gray-200 bg-white flex justify-between items-center flex-shrink-0">
+                <h2 class="text-sm font-bold text-slate-main flex items-center gap-2 focus:outline-none">
+                    <i class="fa-solid fa-file-lines text-morandi"></i>
                     考卷預覽
+                    <span class="text-xs text-gray-400 font-normal ml-1">— 模擬考生實際看到的畫面</span>
                 </h2>
                 <button @onclick="Close"
                         class="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors cursor-pointer focus:outline-none">
@@ -20,9 +29,12 @@
                 </button>
             </div>
 
-            <!-- Content -->
-            <div class="p-8 overflow-y-auto custom-scroll">
-                @ChildContent
+            <!-- 米黃背景內捲區 -->
+            <div class="overflow-y-auto custom-scroll p-6 lg:p-10">
+                <!-- 紙張 Card：白底 + 紙感陰影 + 慷慨內距模擬實際試卷 -->
+                <div class="bg-white shadow-[0_2px_12px_rgba(0,0,0,0.08)] border border-gray-200/60 rounded-md mx-auto max-w-3xl px-10 py-12 lg:px-14 lg:py-14">
+                    @ChildContent
+                </div>
             </div>
         </div>
     </div>

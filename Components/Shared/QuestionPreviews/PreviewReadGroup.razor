@@ -3,48 +3,55 @@
 
 <PreviewHeader QuestionType="閱讀題組" Level="@Level" Difficulty="@Difficulty" Tags="@Tags" />
 
-<div class="max-w-2xl mx-auto font-serif">
-    <!-- 標題 + 文章內容 -->
-    <div class="border-l-4 border-gray-300 pl-5 py-3 rounded-r-lg bg-gray-50/50">
-        <div class="prose prose-sm max-w-none leading-relaxed text-gray-800 mb-3">
-            <strong>標題：</strong>@if (HasContent(Stem)) { @((MarkupString)Stem) } else { <span class="text-gray-400">未填寫標題</span> }
-        </div>
-        <div class="prose prose-sm max-w-none leading-relaxed text-gray-600">
-            @if (HasContent(Passage))
-            {
-                @((MarkupString)Passage)
-            }
-            else
-            {
-                <span class="text-gray-400">內容尚未填寫</span>
-            }
-        </div>
-    </div>
+<!-- 題組標題 -->
+@if (HasContent(Stem))
+{
+    <h3 class="text-lg font-bold text-gray-900 mb-3 font-serif border-b border-gray-200 pb-2">
+        @((MarkupString)Stem)
+    </h3>
+}
+else
+{
+    <p class="text-gray-400 italic text-sm font-sans mb-3">標題尚未填寫</p>
+}
 
-    <!-- 子題 -->
+<!-- 文章內容 -->
+<PreviewPassage Content="@Passage" Label="閱讀文章" />
+
+<!-- 作答提示 -->
+<p class="text-xs text-gray-500 italic mt-4 mb-2 font-sans">
+    <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>請依據上方文章作答下列題目：
+</p>
+
+<!-- 子題 -->
+<div class="space-y-6 mt-4">
     @for (int i = 0; i < SubQuestions.Count; i++)
     {
         var sq = SubQuestions[i];
         var num = i + 1;
-        <div class="@(i > 0 ? "border-t border-gray-200 pt-5 mt-5" : "mt-6")">
-            <p class="font-bold text-gray-700 mb-2">@num.</p>
-            <div class="prose prose-sm max-w-none leading-relaxed text-gray-800 mb-3">
-                @if (HasContent(sq.Stem))
-                {
-                    @((MarkupString)sq.Stem)
-                }
-                else
-                {
-                    <p class="text-gray-400 italic">子題題幹尚未填寫</p>
-                }
+        <div class="@(i > 0 ? "border-t border-gray-200 pt-5" : "")">
+            <!-- 題號 + 題幹 -->
+            <div class="flex items-baseline gap-3 mb-2 font-serif">
+                <span class="text-lg font-bold text-gray-900 leading-none">@num.</span>
+                <div class="flex-1 prose prose-base max-w-none leading-relaxed text-gray-900">
+                    @if (HasContent(sq.Stem))
+                    {
+                        @((MarkupString)sq.Stem)
+                    }
+                    else
+                    {
+                        <p class="text-gray-400 italic text-sm font-sans">子題題幹尚未填寫</p>
+                    }
+                </div>
             </div>
+
             <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer" />
         </div>
     }
 
     @if (SubQuestions.Count == 0)
     {
-        <p class="text-gray-400 italic mt-6 text-center">尚未新增子題</p>
+        <p class="text-gray-400 italic mt-6 text-center text-sm font-sans">尚未新增子題</p>
     }
 </div>
 

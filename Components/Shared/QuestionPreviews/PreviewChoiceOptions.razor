@@ -1,30 +1,50 @@
-@* 預覽共用：ABCD 選項 2×2 grid + 正確答案標示 *@
+@* ====================================================================== *@
+@*  PreviewChoiceOptions — ABCD 選項（模擬考卷實際樣式）                      *@
+@*                                                                          *@
+@*  設計：                                                                  *@
+@*    - 改用 (A)(B)(C)(D) 文字標籤，貼近真實考卷                              *@
+@*    - 預設縱向排版，每行一個選項，serif 字體閱讀感                           *@
+@*    - 正確答案以 sage 細左 border + 文字色變強調，不用厚重綠色卡片            *@
+@*    - 底部以虛線分隔附上「正解：A」小標，給命題者驗收用                       *@
+@* ====================================================================== *@
 
-<div class="grid grid-cols-1 md:grid-cols-2 gap-3 my-4">
+<div class="space-y-2 my-5 font-serif">
     @for (int i = 0; i < Labels.Length; i++)
     {
         var label = Labels[i];
         var content = i < Options.Length ? Options[i] : "";
         var isAnswer = Answer == label;
 
-        <div class="flex items-start gap-3 p-3 rounded-lg border @(isAnswer ? "border-[var(--color-sage)] bg-[var(--color-sage)]/5" : "border-gray-200 bg-white")">
-            <span class="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold
-                         @(isAnswer ? "bg-[var(--color-sage)] text-white" : "bg-gray-100 text-gray-500")">
-                @label
-            </span>
-            <div class="flex-1 prose prose-sm max-w-none leading-relaxed">
+        <div class="flex items-baseline gap-2 px-3 py-2 rounded
+                    border-l-2 @(isAnswer ? "border-sage bg-sage/5" : "border-transparent")">
+            <span class="font-bold text-gray-700 flex-shrink-0 select-none">(@label)</span>
+            <div class="flex-1 prose prose-sm max-w-none leading-relaxed @(isAnswer ? "text-sage font-medium" : "text-gray-800")">
                 @if (HasContent(content))
                 {
                     @((MarkupString)content)
                 }
                 else
                 {
-                    <p class="text-gray-400 italic">尚未輸入選項內容</p>
+                    <span class="text-gray-400 italic font-sans text-xs">尚未輸入選項內容</span>
                 }
             </div>
+            @if (isAnswer)
+            {
+                <i class="fa-solid fa-check text-sage text-xs flex-shrink-0 mt-1.5" title="正解"></i>
+            }
         </div>
     }
 </div>
+
+@if (!string.IsNullOrEmpty(Answer))
+{
+    <div class="mt-3 pt-2 border-t border-dashed border-gray-300 text-xs text-gray-400 flex items-center gap-1.5 font-sans">
+        <i class="fa-solid fa-key text-gray-400"></i>
+        <span>正解：</span>
+        <span class="font-bold text-sage">(@Answer)</span>
+        <span class="text-gray-300 ml-2">— 此區僅命題／審題者可見</span>
+    </div>
+}
 
 @code {
     [Parameter] public string[] Options { get; set; } = Array.Empty<string>();
