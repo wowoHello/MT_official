@@ -21,6 +21,9 @@ public interface IOverviewService
     /// <summary>復原已軟刪除題目（包裝 IQuestionService.RestoreAsync）。</summary>
     Task<bool> RestoreAsync(int questionId, int operatorUserId);
 
+    /// <summary>取此題的審題歷程（管理員監控用，不匿名）。委派 IReviewService。</summary>
+    Task<List<ReviewHistoryEntry>> GetReviewHistoryAsync(int questionId);
+
     /// <summary>依題型組成詳情面板用的標籤（主類/次類/文體/核心能力…）。</summary>
     Dictionary<string, string> BuildPreviewTags(QuestionFormData formData);
 
@@ -28,9 +31,10 @@ public interface IOverviewService
     string LevelLabel(string typeKey, byte? level);
 }
 
-public class OverviewService(IQuestionService questionService, IDatabaseService db) : IOverviewService
+public class OverviewService(IQuestionService questionService, IReviewService reviewService, IDatabaseService db) : IOverviewService
 {
     private readonly IQuestionService _questionService = questionService;
+    private readonly IReviewService   _reviewService   = reviewService;
     private readonly IDatabaseService _db = db;
 
     public async Task<OverviewListResult> LoadAsync(int projectId, OverviewFilter filter)
@@ -39,19 +43,57 @@ public class OverviewService(IQuestionService questionService, IDatabaseService 
         var listFilter = filter.ToListFilter(projectId);
         listFilter.IncludeDeleted = true;
 
-        var countsTask = _questionService.GetStatusCountsAsync(projectId, creatorId: null);
-        var listTask   = _questionService.ListAsync(listFilter);
-        await Task.WhenAll(countsTask, listTask);
+        // 確保階段轉換已執行（idempotent；保證 Overview 看到的 Status 與當前階段對齊）
+        // 命題階段結束 + 後續各階段（4/5/6/7/8）自動升級，避免使用者只進 Overview 不進 CwtList 卡狀態
+        try
+        {
+            await _questionService.EnsureCompositionPhaseClosedAsync(projectId);
+            await _questionService.EnsurePhaseTransitionAsync(projectId);
+        }
+        catch
+        {
+            // 階段轉換失敗不阻擋頁面載入；UI 端會顯示原狀態
+        }
+
+        var countsTask  = _questionService.GetStatusCountsAsync(projectId, creatorId: null);
+        var listTask    = _questionService.ListAsync(listFilter);
+        var pendingTask = GetPendingRevisionCountAsync(projectId);
+        await Task.WhenAll(countsTask, listTask, pendingTask);
 
         var list = listTask.Result;
         return new OverviewListResult
         {
-            Items        = list.Items,
-            StatusCounts = countsTask.Result,
-            TotalCount   = list.TotalCount,
-            Page         = list.Page,
-            PageSize     = list.PageSize
+            Items                = list.Items,
+            StatusCounts         = countsTask.Result,
+            TotalCount           = list.TotalCount,
+            Page                 = list.Page,
+            PageSize             = list.PageSize,
+            PendingRevisionCount = pendingTask.Result
         };
+    }
+
+    /// <summary>
+    /// 計算「待修編」實際數量：Status IN (4,6,8) 且命題者尚未於該階段於 MT_RevisionReplies 留下紀錄。
+    /// 與 QuestionService.GetListAsync 的 HasRepliedThisStage 子查詢同邏輯，差別在此為彙總計數。
+    /// </summary>
+    private async Task<int> GetPendingRevisionCountAsync(int projectId)
+    {
+        const string sql = """
+            SELECT COUNT(1)
+            FROM dbo.MT_Questions q
+            WHERE q.ProjectId = @ProjectId
+              AND q.IsDeleted = 0
+              AND q.Status IN (4, 6, 8)
+              AND NOT EXISTS (
+                    SELECT 1 FROM dbo.MT_RevisionReplies rr
+                    WHERE rr.QuestionId = q.Id
+                      AND rr.UserId     = q.CreatorId
+                      AND rr.Stage      = q.Status
+              );
+            """;
+
+        using var conn = _db.CreateConnection();
+        return await conn.ExecuteScalarAsync<int>(sql, new { ProjectId = projectId });
     }
 
     public async Task<List<OverviewCreatorOption>> GetCreatorOptionsAsync(int projectId)
@@ -79,6 +121,9 @@ public class OverviewService(IQuestionService questionService, IDatabaseService 
 
     public Task<bool> RestoreAsync(int questionId, int operatorUserId)
         => _questionService.RestoreAsync(questionId, operatorUserId);
+
+    public Task<List<ReviewHistoryEntry>> GetReviewHistoryAsync(int questionId)
+        => _reviewService.GetHistoryByQuestionIdAsync(questionId);
 
     public Dictionary<string, string> BuildPreviewTags(QuestionFormData f)
     {

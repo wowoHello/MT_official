@@ -456,20 +456,37 @@
     }
 
     // ─── 生命週期 ───
-    protected override async Task OnInitializedAsync()
+    // 權限判斷放 OnParametersSetAsync：CascadingParameter ModuleCards 由 MainLayout async 載入，
+    // OnInitializedAsync 階段往往還是 null，此時若直接踢人會誤殺有權限的管理員。
+    private bool hasInitialized;
+
+    protected override async Task OnParametersSetAsync()
     {
+        // ModuleCards 尚未載入 → 等待父層下一次 CascadingValue 推送，先不動作
+        if (ModuleCards is null) return;
+
+        // 已載入：明確判定無權限才踢回首頁
         if (!HasAnnouncementPermission())
         {
             Navigation.NavigateTo("/", forceLoad: false);
             return;
         }
 
-        await RunAnnouncementMaintenanceAsync();
-        await LoadDataAsync();
+        // 通過權限 + 尚未初始化過 → 載入資料（避免 OnParametersSetAsync 重覆觸發時重抓）
+        if (!hasInitialized)
+        {
+            hasInitialized = true;
+            await RunAnnouncementMaintenanceAsync();
+            await LoadDataAsync();
+        }
     }
 
+    // 使用 PageUrl 比對（與 MainLayout.EnforceModuleAccess 一致），
+    // 避免因 ModuleKey 大小寫或值不同而誤判無權限。
     private bool HasAnnouncementPermission()
-        => ModuleCards?.Any(m => m.ModuleKey == "announcements" && m.IsEnabled) == true;
+        => ModuleCards?.Any(m =>
+               string.Equals(m.PageUrl, "announcements", StringComparison.OrdinalIgnoreCase)
+               && m.IsEnabled) == true;
 
     private async Task RunAnnouncementMaintenanceAsync()
     {

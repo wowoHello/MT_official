@@ -1,12 +1,14 @@
 @* ====================================================================== *@
-@*  ReviewHistoryTimeline — 歷程軌跡摺疊區                                   *@
+@*  ReviewHistoryTimeline — 歷程軌跡時間軸                                   *@
 @*  資料源：union of MT_AuditLogs + MT_ReviewAssignments + MT_RevisionReplies *@
-@*  視覺：左 4px 彩色 border 區分三種 Kind                                    *@
-@*    QuestionEvent (sage 綠)、ReviewComment (morandi 藍)、RevisionReply (terracotta 橘) *@
-@*  預設摺疊（progressive-disclosure）                                       *@
+@*  視覺：                                                                   *@
+@*    - 連續垂直軸線 + 圓點圖示（為長串歷程提供節奏感）                       *@
+@*    - 三色 Kind：QuestionEvent (sage)、ReviewComment (morandi)、RevisionReply (terracotta) *@
+@*  匿名行為：ShowActorName=false（預設，Reviews 用，公平性匿名）             *@
+@*           ShowActorName=true（Overview 管理員視角，顯示真名）             *@
 @* ====================================================================== *@
 
-<details class="border-b border-gray-100">
+<details class="border-b border-gray-100" open>
     <summary class="px-5 py-4 cursor-pointer font-bold text-slate-main text-sm flex items-center gap-2 hover:bg-gray-50 transition list-none">
         <i class="fa-solid fa-clock-rotate-left text-morandi"></i>
         歷程軌跡
@@ -14,51 +16,79 @@
         <i class="fa-solid fa-chevron-down ml-auto text-xs text-gray-400 transition-transform"></i>
     </summary>
 
-    <div class="px-5 pb-5 space-y-4 bg-gray-50/30">
+    <div class="px-5 pb-5 bg-gray-50/30">
         @if (Entries.Count == 0)
         {
             <p class="text-xs text-gray-400 italic text-center py-3">尚無歷程紀錄</p>
         }
         else
         {
-            @foreach (var entry in Entries)
-            {
-                var (borderCss, badgeCss) = entry.Kind switch
+            @* 外層 relative 容器：擺放連續垂直軸線；內層每筆繪製圓點與卡片 *@
+            <ol class="relative pl-6 pt-2">
+                @* 連續垂直軸線：絕對定位 + 第一筆中央起、最後一筆中央止 *@
+                <span class="absolute left-2 top-3 bottom-3 w-px bg-gray-200" aria-hidden="true"></span>
+
+                @{ var idx = 0; }
+                @foreach (var entry in Entries)
                 {
-                    ReviewHistoryKind.QuestionEvent => ("border-sage",       "bg-sage text-white"),
-                    ReviewHistoryKind.ReviewComment => ("border-morandi",    "bg-morandi text-white"),
-                    ReviewHistoryKind.RevisionReply => ("border-terracotta", "bg-terracotta text-white"),
-                    _                               => ("border-gray-300",   "bg-gray-300 text-white")
-                };
-                <div class="border-l-4 @borderCss pl-4 py-1">
-                    <div class="flex items-center gap-2 mb-1 flex-wrap">
-                        <span class="text-xs px-2 py-0.5 rounded font-bold @badgeCss">@entry.Label</span>
-                        <span class="text-xs text-gray-400">@entry.At.ToString("yyyy/MM/dd HH:mm")</span>
-                    </div>
-                    @* 匿名化：以角色稱謂取代真實姓名，避免影響審題公平性 *@
-                    @{
-                        var roleLabel = entry.Kind switch
+                    idx++;
+                    var (dotCss, badgeCss, dotIcon) = entry.Kind switch
+                    {
+                        ReviewHistoryKind.QuestionEvent => ("bg-sage",       "bg-sage text-white",       "fa-pen-nib"),
+                        ReviewHistoryKind.ReviewComment => ("bg-morandi",    "bg-morandi text-white",    "fa-magnifying-glass"),
+                        ReviewHistoryKind.RevisionReply => ("bg-terracotta", "bg-terracotta text-white", "fa-pen-to-square"),
+                        _                               => ("bg-gray-300",   "bg-gray-300 text-white",   "fa-circle")
+                    };
+
+                    var displayName = ShowActorName && !string.IsNullOrWhiteSpace(entry.ActorName)
+                        ? entry.ActorName
+                        : entry.Kind switch
                         {
                             ReviewHistoryKind.QuestionEvent => "命題老師",
                             ReviewHistoryKind.RevisionReply => "命題老師",
                             ReviewHistoryKind.ReviewComment => "審題老師",
                             _                               => "操作人"
                         };
-                    }
-                    <p class="text-xs text-gray-600 mb-2">操作人：@roleLabel</p>
-                    @if (!string.IsNullOrWhiteSpace(entry.ContentHtml))
-                    {
-                        @* 純文字渲染 — whitespace-pre-wrap 保留換行；不再用 MarkupString 避免 XSS 與富文本依賴 *@
-                        <div class="text-sm text-slate-main bg-white p-2.5 rounded-md border border-gray-100 leading-relaxed whitespace-pre-wrap">
-                            @entry.ContentHtml
+
+                    <li class="relative pb-5 last:pb-0">
+                        @* 圓點：定位在垂直軸線上 *@
+                        <span class="absolute -left-[18px] top-1.5 w-4 h-4 rounded-full @dotCss flex items-center justify-center shadow-sm ring-2 ring-white" aria-hidden="true">
+                            <i class="fa-solid @dotIcon text-[8px] text-white"></i>
+                        </span>
+
+                        @* 卡片內容 *@
+                        <div class="ml-1">
+                            <div class="flex items-center gap-2 mb-1 flex-wrap">
+                                <span class="text-xs px-2 py-0.5 rounded font-bold @badgeCss">@entry.Label</span>
+                                <span class="text-xs text-gray-400">@entry.At.ToString("yyyy/MM/dd HH:mm")</span>
+                                <span class="text-xs text-gray-300 ml-auto">#@idx</span>
+                            </div>
+                            <p class="text-xs text-gray-600 mb-2 flex items-center gap-1">
+                                <i class="fa-regular fa-user text-gray-400"></i>
+                                <span>操作人：</span>
+                                <span class="font-bold text-slate-main">@displayName</span>
+                            </p>
+                            @if (!string.IsNullOrWhiteSpace(entry.ContentHtml))
+                            {
+                                @* 純文字渲染 — whitespace-pre-wrap 保留換行；不再用 MarkupString 避免 XSS *@
+                                <div class="text-sm text-slate-main bg-white p-2.5 rounded-md border border-gray-100 leading-relaxed whitespace-pre-wrap">
+                                    @entry.ContentHtml
+                                </div>
+                            }
                         </div>
-                    }
-                </div>
-            }
+                    </li>
+                }
+            </ol>
         }
     </div>
 </details>
 
 @code {
     [Parameter, EditorRequired] public List<ReviewHistoryEntry> Entries { get; set; } = new();
+
+    /// <summary>
+    /// true = 顯示真實姓名（管理員視角，如 Overview）；
+    /// false = 顯示角色稱謂（審題公平性，如 Reviews）。預設 false 維持原行為。
+    /// </summary>
+    [Parameter] public bool ShowActorName { get; set; } = false;
 }

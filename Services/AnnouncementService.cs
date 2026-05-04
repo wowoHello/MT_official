@@ -31,7 +31,8 @@ public class AnnouncementService : IAnnouncementService
     }
 
     // ─── 權限門鎖：寫入動作前必過 ───
-    // 任一系統角色或當前梯次角色於 MT_RolePermissions 對 ModuleKey='announcements' 啟用即放行
+    // 任一系統角色或當前梯次角色於 MT_RolePermissions 對 ModuleKey='Announcements' 啟用即放行
+    // 注意：DB 實際存的 ModuleKey 為「首字大寫」（如 Announcements），比對採大小寫不敏感避免拼錯
     private static async Task EnsureCanEditAsync(IDbConnection conn, int operatorId)
     {
         if (operatorId <= 0)
@@ -41,7 +42,7 @@ public class AnnouncementService : IAnnouncementService
             SELECT TOP 1 1
             FROM dbo.MT_RolePermissions rp
             INNER JOIN dbo.MT_Modules m ON m.Id = rp.ModuleId
-            WHERE m.ModuleKey = 'announcements'
+            WHERE LOWER(m.ModuleKey) = 'announcements'
               AND rp.IsEnabled = 1
               AND rp.RoleId IN (
                   SELECT u.RoleId FROM dbo.MT_Users u WHERE u.Id = @UserId

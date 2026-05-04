@@ -402,7 +402,24 @@ public class DashboardService : IDashboardService
         var row = await conn.QuerySingleOrDefaultAsync<ReviewProgressRow>(
             sql, new { pid = projectId, stage });
 
-        return (label, row?.Reviewed ?? 0, row?.TotalCount ?? 0);
+        var reviewed = row?.Reviewed ?? 0;
+        var total    = row?.TotalCount ?? 0;
+
+        // Fallback：專審/總審等階段 ReviewAssignments 尚未自動建立（Plan_011 待實作）
+        // → 改用 Question.Status 池作為「待審池」總數
+        if (total == 0)
+        {
+            const string fallbackSql = """
+                SELECT COUNT(*)
+                FROM   dbo.MT_Questions
+                WHERE  ProjectId = @pid AND IsDeleted = 0
+                  AND  Status BETWEEN 2 AND 8
+                """;
+            total = await conn.ExecuteScalarAsync<int>(fallbackSql, new { pid = projectId });
+            reviewed = 0;
+        }
+
+        return (label, reviewed, total);
     }
 
     /// <summary>
@@ -458,7 +475,35 @@ public class DashboardService : IDashboardService
         var row = await conn.QuerySingleOrDefaultAsync<RevisionProgressRow>(
             sql, new { pid = projectId, reviewStage, revisionStage });
 
-        return (label, row?.Revised ?? 0, row?.TotalCount ?? 0);
+        var revised = row?.Revised ?? 0;
+        var total   = row?.TotalCount ?? 0;
+
+        // Fallback：專修/總修等階段對應的審題 assignments 尚未建立（Plan_011 待實作）
+        // → 待修池改用 Question.Status 計算；已修數獨立查 MT_RevisionReplies
+        if (total == 0)
+        {
+            const string fallbackTotalSql = """
+                SELECT COUNT(*)
+                FROM   dbo.MT_Questions
+                WHERE  ProjectId = @pid AND IsDeleted = 0
+                  AND  Status BETWEEN 2 AND 8
+                """;
+            total = await conn.ExecuteScalarAsync<int>(fallbackTotalSql, new { pid = projectId });
+
+            const string fallbackRevisedSql = """
+                SELECT COUNT(DISTINCT rr.QuestionId)
+                FROM   dbo.MT_RevisionReplies rr
+                JOIN   dbo.MT_Questions q ON q.Id = rr.QuestionId
+                WHERE  q.ProjectId = @pid AND q.IsDeleted = 0
+                  AND  rr.Stage    = @revisionStage
+                  AND  rr.Content IS NOT NULL
+                  AND  LEN(LTRIM(RTRIM(rr.Content))) > 0
+                """;
+            revised = await conn.ExecuteScalarAsync<int>(
+                fallbackRevisedSql, new { pid = projectId, revisionStage });
+        }
+
+        return (label, revised, total);
     }
 
     /// <summary>

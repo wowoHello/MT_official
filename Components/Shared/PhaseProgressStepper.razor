@@ -20,7 +20,7 @@
             <div class="w-8 h-8 rounded-full border-2 flex items-center justify-center text-xs flex-shrink-0 @LampClass(lamp)">
                 @if (lamp == "gray")
                 {
-                    <span class="font-bold">@i</span>
+                    <span class="font-bold opacity-60">@i</span>
                 }
                 else
                 {
@@ -39,7 +39,15 @@
         @for (var i = 1; i <= 7; i++)
         {
             var lamp = lamps[i - 1];
-            <div class="w-8 text-center text-xs font-bold flex-shrink-0 @(lamp == "gray" ? "text-gray-400" : "text-gray-700")">
+            var labelCss = lamp switch
+            {
+                "gray"  => "text-gray-300",                       // 未完成：明顯較淡
+                "green" => "text-sage font-extrabold",            // 已完成：sage 強調
+                "blue"  => "text-morandi font-extrabold",         // 進行中：morandi 強調
+                "red"   => "text-terracotta font-extrabold",      // 修題中：terracotta 強調
+                _       => "text-gray-700"
+            };
+            <div class="w-8 text-center text-xs font-bold flex-shrink-0 @labelCss">
                 @StageNames[i - 1]
             </div>
             @if (i < 7)
@@ -88,10 +96,14 @@
 
     private static string LampClass(string tone) => tone switch
     {
-        "green" => "bg-sage border-sage text-white",
+        // 已完成：sage 實心 + 細陰影，視覺最重
+        "green" => "bg-sage border-sage text-white shadow-sm ring-2 ring-sage/20",
+        // 進行中：morandi 實心 + 呼吸動畫
         "blue"  => "bg-morandi border-morandi text-white animate-pulse shadow-sm",
+        // 修題中：terracotta 實心
         "red"   => "bg-terracotta border-terracotta text-white shadow-sm",
-        _       => "bg-gray-100 border-gray-300 text-gray-400"
+        // 未完成：白底虛線細邊框 + 淡灰字，明顯「尚未抵達」的 ghost 樣式
+        _       => "bg-white border-dashed border-gray-300 text-gray-300"
     };
 
     private static string LampIcon(string tone) => tone switch

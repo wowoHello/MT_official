@@ -49,4 +49,10 @@ public class OverviewListResult
     public int Page { get; set; }
     public int PageSize { get; set; }
     public int PageCount => PageSize > 0 ? (TotalCount + PageSize - 1) / PageSize : 0;
+
+    /// <summary>
+    /// 待修編真實數量（修題階段 4/6/8 且命題者尚未送出該階段修題說明）。
+    /// 用於「待修編」卡：StatusCounts 會包含全部修題狀態題目（含已送出者），此處扣除已送出。
+    /// </summary>
+    public int PendingRevisionCount { get; set; }
 }

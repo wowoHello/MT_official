@@ -950,12 +950,36 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         if (phaseCode is null) return 0;
 
         // 2. 依階段決定要升級的舊狀態與目標狀態
+        // 各階段也接收前序「被遺漏」的題目（避免某題卡在舊狀態）
         var (fromStatuses, toStatus, reasonLabel) = phaseCode.Value switch
         {
-            4 => (new byte[] { QuestionStatus.Submitted, QuestionStatus.PeerReviewing },
+            // 互審修題（4）：把已送審 / 互審中 → 互審修題中
+            4 => (new byte[] { QuestionStatus.Submitted,
+                               QuestionStatus.PeerReviewing },
                   QuestionStatus.PeerEditing,
                   "PeerEditingPhaseStart"),
-            // 其他階段留待 Plan_011；目前僅處理 4
+            // 專家審題（5）：互審修題中 / 互審中 / 已送審（stragglers） → 專審中
+            5 => (new byte[] { QuestionStatus.Submitted,
+                               QuestionStatus.PeerReviewing,
+                               QuestionStatus.PeerEditing },
+                  QuestionStatus.ExpertReviewing,
+                  "ExpertReviewingPhaseStart"),
+            // 專審修題（6）：專審中 → 專審修題中
+            6 => (new byte[] { QuestionStatus.ExpertReviewing },
+                  QuestionStatus.ExpertEditing,
+                  "ExpertEditingPhaseStart"),
+            // 總召審題（7）：專審修題中 / 專審中 + 前序殘留 → 總審中
+            7 => (new byte[] { QuestionStatus.Submitted,
+                               QuestionStatus.PeerReviewing,
+                               QuestionStatus.PeerEditing,
+                               QuestionStatus.ExpertReviewing,
+                               QuestionStatus.ExpertEditing },
+                  QuestionStatus.FinalReviewing,
+                  "FinalReviewingPhaseStart"),
+            // 總召修題（8）：總審中 → 總審修題中
+            8 => (new byte[] { QuestionStatus.FinalReviewing },
+                  QuestionStatus.FinalEditing,
+                  "FinalEditingPhaseStart"),
             _ => (Array.Empty<byte>(), (byte)0, "")
         };
 

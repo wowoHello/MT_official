@@ -23,7 +23,7 @@ public class HomeService : IHomeService
     // 預設角色名稱（IsDefault=1，前端鎖定改名，可信賴的「任務語意」標識）
     private const string RoleProposer = "命題教師";
     private const string RoleExpert = "審題委員";
-    private const string RoleConvener = "總召";
+    private const string RoleConvener = "總召集人";
 
     // MT_Roles.Category：0 = 內部人員（管理員視角）、1 = 外部人員
     private const byte CategoryInternal = 0;

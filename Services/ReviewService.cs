@@ -33,6 +33,12 @@ public interface IReviewService
     /// <summary>當前專案是否已進入互審以後階段（用 MT_ReviewAssignments 是否有紀錄判斷）</summary>
     Task<bool> HasAnyAssignmentAsync(int projectId);
 
+    /// <summary>
+    /// 取得指定題目的審題歷程（管理員監控用，不匿名）。
+    /// 內部複用 LoadHistoryAsync —— 避免在 OverviewService 重寫 union 三個來源的 SQL。
+    /// </summary>
+    Task<List<ReviewHistoryEntry>> GetHistoryByQuestionIdAsync(int questionId);
+
     // ====== Phase 3.5：寫入 ======
     /// <summary>儲存審題意見草稿（不做決策、不變更 Question 狀態）。回傳是否成功。</summary>
     Task<bool> SaveCommentDraftAsync(SaveReviewCommentRequest req, int operatorUserId);
@@ -152,6 +158,12 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         using var conn = _db.CreateConnection();
         var hit = await conn.ExecuteScalarAsync<int?>(sql, new { ProjectId = projectId });
         return hit.HasValue;
+    }
+
+    public async Task<List<ReviewHistoryEntry>> GetHistoryByQuestionIdAsync(int questionId)
+    {
+        using var conn = _db.CreateConnection();
+        return await LoadHistoryAsync(conn, questionId);
     }
 
     public async Task<ReviewModalData?> GetModalDataAsync(int questionId, int currentUserId)

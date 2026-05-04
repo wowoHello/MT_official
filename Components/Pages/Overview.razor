@@ -45,7 +45,7 @@
             @StatCard("總題數", TotalQuestions(), "fa-hashtag", "text-morandi", "text-slate-main")
             @StatCard("命題進行中", SumCounts([QuestionStatus.Draft, QuestionStatus.Completed]), "fa-pen", "text-sage", "text-slate-main")
             @StatCard("已採用", CountOf(QuestionStatus.Adopted), "fa-circle-check", "text-sage", "text-sage")
-            @StatCard("待修編", SumCounts([QuestionStatus.PeerEditing, QuestionStatus.ExpertEditing, QuestionStatus.FinalEditing]), "fa-rotate-left", "text-terracotta", "text-terracotta")
+            @StatCard("待修編", result.PendingRevisionCount, "fa-rotate-left", "text-terracotta", "text-terracotta")
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 col-span-2 md:col-span-4 lg:col-span-1 border-l-4 border-l-morandi">
                 <div class="text-gray-500 text-xs font-bold mb-1">各審查環節</div>
                 <div class="text-sm font-bold text-slate-main flex gap-2 w-full justify-between items-end mt-2">
@@ -117,8 +117,8 @@
                    header 用 sticky top-0 保持在頂部，narrow 時整體水平捲動，header 與 row 對齊 *@
                 <div class="flex-grow overflow-auto custom-scroll min-h-0">
                     <div class="min-w-[1080px]">
-                        <!-- Table Header -->
-                        <div class="sticky top-0 z-10 grid grid-cols-12 gap-4 px-6 py-3 border-b border-gray-200 bg-white text-xs font-bold text-gray-500 uppercase tracking-wider shadow-sm">
+                        <!-- Table Header（z-20 高於 row hover 的 z-10，避免捲動時 hover 行突破標題列） -->
+                        <div class="sticky top-0 z-20 grid grid-cols-12 gap-4 px-6 py-3 border-b border-gray-200 bg-white text-xs font-bold text-gray-500 uppercase tracking-wider shadow-sm">
                             <div class="col-span-2">題號</div>
                             <div class="col-span-1">命題教師</div>
                             <div class="col-span-1">題型</div>
@@ -181,7 +181,18 @@
                                 }
                                 else
                                 {
-                                    <StatusBadge StatusText="@QuestionStatus.Labels.GetValueOrDefault(item.Status, "未知")" Compact="true" />
+                                    @* 修題階段（4/6/8）依本題是否已送出修題說明，呈現不同細粒度狀態 *@
+                                    var inEditing = item.Status is QuestionStatus.PeerEditing
+                                                                 or QuestionStatus.ExpertEditing
+                                                                 or QuestionStatus.FinalEditing;
+                                    @if (inEditing && item.HasRepliedThisStage)
+                                    {
+                                        <StatusBadge StatusText="修題已送出" BadgeType="success" Compact="true" />
+                                    }
+                                    else
+                                    {
+                                        <StatusBadge StatusText="@QuestionStatus.Labels.GetValueOrDefault(item.Status, "未知")" Compact="true" />
+                                    }
                                 }
                             </div>
                         </div>
@@ -264,6 +275,16 @@
                     @RenderPreview()
                 </div>
             </div>
+
+            <!-- 下半：審題意見歷程（管理員視角，不匿名） -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class="px-5 py-3 border-b border-gray-100 bg-morandi/5 flex items-center gap-2">
+                    <i class="fa-solid fa-clipboard-list text-morandi"></i>
+                    <h3 class="text-sm font-bold text-slate-main">審題意見歷程</h3>
+                    <span class="text-xs text-gray-400 ml-auto">管理員視角・顯示真實姓名</span>
+                </div>
+                <ReviewHistoryTimeline Entries="detailHistory" ShowActorName="true" />
+            </div>
         }
     </ChildContent>
 </CustomModal>
@@ -296,6 +317,7 @@
     private string modalTitle = "試題詳情";
     private QuestionListItem? detailItem;
     private QuestionFormData? detailData;
+    private List<ReviewHistoryEntry> detailHistory = new();
 
     // 已載入的 ProjectId 守門 —— 避免父層重渲染時重跑 LoadAsync 導致列表骨架閃爍
     private int? loadedProjectId;
@@ -380,13 +402,19 @@
 
     private async Task OpenDetailAsync(int questionId)
     {
-        detailItem  = result.Items.FirstOrDefault(x => x.Id == questionId);
-        detailData  = null;
-        modalTitle  = $"試題詳情 — {detailItem?.QuestionCode ?? ""}";
+        detailItem    = result.Items.FirstOrDefault(x => x.Id == questionId);
+        detailData    = null;
+        detailHistory = new();
+        modalTitle    = $"試題詳情 — {detailItem?.QuestionCode ?? ""}";
         showDetailModal = true;
         StateHasChanged();
 
-        detailData = await OverviewService.GetDetailAsync(questionId);
+        // 並行載入題目詳情與審題歷程，避免序列等待
+        var dataTask    = OverviewService.GetDetailAsync(questionId);
+        var historyTask = OverviewService.GetReviewHistoryAsync(questionId);
+        await Task.WhenAll(dataTask, historyTask);
+        detailData    = dataTask.Result;
+        detailHistory = historyTask.Result;
         StateHasChanged();
     }
 
