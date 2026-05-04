@@ -5,6 +5,7 @@
 @inject IJSRuntime JS
 @inject IProjectService ProjectService
 @inject IRoleService RoleService
+@inject ProtectedLocalStorage ProtectedLocalStorage
 @inject ILogger<MainLayout> Logger
 @rendermode InteractiveServer
 
@@ -350,6 +351,12 @@
     /// null = 尚未載入；子頁面以此判斷是否顯示骨架/Spinner，避免閃爍空狀態。</summary>
     private List<UserModuleCard>? moduleCards;
 
+    /// <summary>已嘗試從 ProtectedLocalStorage 還原梯次的旗標，避免 OnAfterRenderAsync 重複觸發。</summary>
+    private bool hasRestoredProjectFromStorage;
+
+    /// <summary>儲存 key 加上 userId 前綴，避免共用瀏覽器時不同帳號互相覆蓋。</summary>
+    private string ProjectStorageKey => $"mt:lastProjectId:{currentUserId}";
+
     // ================================================================
     // 計算屬性
     // ================================================================
@@ -395,6 +402,41 @@
 
         // 訂閱導航事件，後續每次路由變更時檢查模組存取權限
         Navigation.LocationChanged += OnLocationChanged;
+    }
+
+    /// <summary>首次渲染後嘗試從 ProtectedLocalStorage 還原上次選的梯次。
+    /// 為何放在 OnAfterRenderAsync：ProtectedBrowserStorage 依賴 JS Interop，
+    /// 在 OnInitializedAsync 的 prerender 階段呼叫會拋 InvalidOperationException。</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || hasRestoredProjectFromStorage || currentUserId is null) return;
+        hasRestoredProjectFromStorage = true;
+
+        try
+        {
+            var stored = await ProtectedLocalStorage.GetAsync<int>(ProjectStorageKey);
+            if (!stored.Success) return;
+
+            var match = availableProjects.FirstOrDefault(p => p.Id == stored.Value);
+            // 上次選的梯次已被刪除/結案/無權限 → 維持 fallback 結果，並清掉過期紀錄
+            if (match is null)
+            {
+                await ProtectedLocalStorage.DeleteAsync(ProjectStorageKey);
+                return;
+            }
+
+            // 與 fallback 結果相同就不必重載權限，避免閃爍
+            if (currentProject?.Id == match.Id) return;
+
+            currentProject = match;
+            await ReloadModuleCardsAsync();
+            EnforceModuleAccess(Navigation.Uri);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "還原上次選擇的梯次失敗 (UserId={UserId})", currentUserId);
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -513,7 +555,25 @@
         await ReloadModuleCardsAsync();
         EnforceModuleAccess(Navigation.Uri);
 
+        // 持久化選中的梯次，F5 後可還原
+        await PersistSelectedProjectAsync(project.Id);
+
         await JS.InvokeVoidAsync("swalInterop.fireToast", "info", "已切換命題梯次", $"目前梯次：{project.DisplayName}", 2000);
+    }
+
+    /// <summary>將當前梯次寫入 ProtectedLocalStorage（瀏覽器禁用 storage 時靜默忽略）。</summary>
+    private async Task PersistSelectedProjectAsync(int projectId)
+    {
+        if (currentUserId is null) return;
+
+        try
+        {
+            await ProtectedLocalStorage.SetAsync(ProjectStorageKey, projectId);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "持久化梯次選擇失敗 (UserId={UserId}, ProjectId={ProjectId})", currentUserId, projectId);
+        }
     }
 
     // ================================================================
