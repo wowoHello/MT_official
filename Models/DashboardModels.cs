@@ -24,6 +24,25 @@ public enum PhaseStatusType
 }
 
 /// <summary>
+/// 卡片 4 右上角 Pill Badge 顯示用：當前修題階段標籤。
+/// 對應 MT_ProjectPhases.PhaseCode：4→Peer(互修)、6→Expert(專修)、8→Final(總修)；其餘 = None。
+/// 已結案專案優先顯示 Closed，覆蓋修題階段判定。
+/// </summary>
+public enum RevisionPhaseLabel
+{
+    /// <summary>非修題階段（命題、審題、未啟動）。</summary>
+    None,
+    /// <summary>互審修題（PhaseCode = 4，對應 RevisionStage = 1）。</summary>
+    Peer,
+    /// <summary>專審修題（PhaseCode = 6，對應 RevisionStage = 2）。</summary>
+    Expert,
+    /// <summary>總召修題（PhaseCode = 8，對應 RevisionStage = 3）。</summary>
+    Final,
+    /// <summary>已結案（含中途結案）— 凍結所有修題狀態。</summary>
+    Closed
+}
+
+/// <summary>
 /// 卡片 3 右上角 Pill Badge 顯示用：當前審題階段標籤。
 /// 對應 MT_ProjectPhases.PhaseCode：3→Peer(互審)、5→Expert(專審)、7→Final(總召)；其餘 = None。
 /// 已結案專案優先顯示 Closed，覆蓋審題階段判定。
@@ -96,6 +115,21 @@ public class DashboardKpiDto
 
     /// <summary>梯次結案時間（MT_Projects.ClosedAt），用於卡片 3 已結案狀態顯示。null 代表尚未結案。</summary>
     public DateTime? ClosedAt { get; set; }
+
+    /// <summary>當前修題階段標籤（卡片 4 右上角 Pill Badge）。</summary>
+    public RevisionPhaseLabel CurrentRevisionPhase { get; set; } = RevisionPhaseLabel.None;
+
+    /// <summary>
+    /// 當前修題階段「已修完」題目數（已寫過 MT_RevisionReplies.Content 的 distinct QuestionId）。
+    /// 非修題階段時為 0。
+    /// </summary>
+    public int RevisedCount { get; set; }
+
+    /// <summary>
+    /// 當前修題階段「待修總數」（對應 ReviewStage 有 Comment 的 distinct QuestionId）。
+    /// 非修題階段時為 0。
+    /// </summary>
+    public int RevisionTotalCount { get; set; }
 
     // ── 卡片 4：退回修題 ────────────────────────────────────────
     /// <summary>STATUS IN (4,6,8)（互審修題中、專審修題中、總審修題中）合計。</summary>

@@ -30,6 +30,34 @@ public class AnnouncementService : IAnnouncementService
         _logger = logger;
     }
 
+    // ─── 權限門鎖：寫入動作前必過 ───
+    // 任一系統角色或當前梯次角色於 MT_RolePermissions 對 ModuleKey='announcements' 啟用即放行
+    private static async Task EnsureCanEditAsync(IDbConnection conn, int operatorId)
+    {
+        if (operatorId <= 0)
+            throw new UnauthorizedAccessException("尚未登入或登入逾期，請重新登入。");
+
+        const string sql = """
+            SELECT TOP 1 1
+            FROM dbo.MT_RolePermissions rp
+            INNER JOIN dbo.MT_Modules m ON m.Id = rp.ModuleId
+            WHERE m.ModuleKey = 'announcements'
+              AND rp.IsEnabled = 1
+              AND rp.RoleId IN (
+                  SELECT u.RoleId FROM dbo.MT_Users u WHERE u.Id = @UserId
+                  UNION
+                  SELECT pmr.RoleId
+                  FROM dbo.MT_ProjectMembers pm
+                  INNER JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
+                  WHERE pm.UserId = @UserId
+              );
+            """;
+
+        var hasPermission = await conn.ExecuteScalarAsync<int?>(sql, new { UserId = operatorId });
+        if (hasPermission != 1)
+            throw new UnauthorizedAccessException("您沒有公告管理權限。");
+    }
+
     // ─── 列表查詢 ───
     public async Task<List<AnnouncementListItem>> GetAnnouncementListAsync()
     {
@@ -98,6 +126,9 @@ public class AnnouncementService : IAnnouncementService
 
         using var conn = _db.CreateConnection();
         conn.Open();
+
+        await EnsureCanEditAsync(conn, operatorId);
+
         using var tx = conn.BeginTransaction();
 
         try
@@ -153,6 +184,9 @@ public class AnnouncementService : IAnnouncementService
 
         using var conn = _db.CreateConnection();
         conn.Open();
+
+        await EnsureCanEditAsync(conn, operatorId);
+
         using var tx = conn.BeginTransaction();
 
         try
@@ -205,6 +239,9 @@ public class AnnouncementService : IAnnouncementService
 
         using var conn = _db.CreateConnection();
         conn.Open();
+
+        await EnsureCanEditAsync(conn, operatorId);
+
         using var tx = conn.BeginTransaction();
 
         try
@@ -258,6 +295,9 @@ public class AnnouncementService : IAnnouncementService
 
         using var conn = _db.CreateConnection();
         conn.Open();
+
+        await EnsureCanEditAsync(conn, operatorId);
+
         using var tx = conn.BeginTransaction();
 
         try
@@ -321,6 +361,9 @@ public class AnnouncementService : IAnnouncementService
 
         using var conn = _db.CreateConnection();
         conn.Open();
+
+        await EnsureCanEditAsync(conn, operatorId);
+
         using var tx = conn.BeginTransaction();
 
         try

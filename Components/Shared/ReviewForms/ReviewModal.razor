@@ -126,7 +126,8 @@
                 {
                     <ReviewActionPanel @ref="actionPanel"
                                        @bind-Comment="commentDraft"
-                                       IsReadOnly="@(data.MyAssignment?.IsDecided ?? true)"
+                                       IsReadOnly="@((data.MyAssignment?.IsDecided ?? true) || IsHistoricalAssignment)"
+                                       LockReason="@(IsHistoricalAssignment ? "階段已結束" : null)"
                                        History="@data.History"
                                        SimilarQuestions="@data.SimilarQuestions" />
                 }
@@ -144,6 +145,7 @@
         {
             <ReviewDecisionBar Assignment="@data.MyAssignment"
                                CanFinalReviewerEdit="@data.CanFinalReviewerEdit"
+                               IsHistorical="@IsHistoricalAssignment"
                                IsSubmitting="@isSubmitting"
                                PendingAction="@pendingAction"
                                OnSaveDraft="OnSaveDraftAsync"
@@ -173,8 +175,18 @@
     /// <summary>當前登入者 Id（用於撈自己的 Assignment / 決策權限判斷）</summary>
     [Parameter, EditorRequired] public int CurrentUserId { get; set; }
 
+    /// <summary>
+    /// 專案目前進行中的審題階段（命題/修題/結案時為 null）。
+    /// 若 MyAssignment.Stage != CurrentProjectStage → 該分配為歷史唯讀，僅供追蹤後續修題與評論。
+    /// </summary>
+    [Parameter] public ReviewStage? CurrentProjectStage { get; set; }
+
     /// <summary>關閉後若有發生決策變動，通知父層 reload 列表</summary>
     [Parameter] public EventCallback OnDecisionMade { get; set; }
+
+    /// <summary>歷史唯讀判斷：階段已結束或專案已不在審題期 → 不可編輯</summary>
+    private bool IsHistoricalAssignment => data?.MyAssignment is not null
+        && (CurrentProjectStage is null || data.MyAssignment.Stage != CurrentProjectStage);
 
     private ReviewModalData? data;
     private bool isLoading;

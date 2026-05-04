@@ -279,13 +279,18 @@ public class DashboardService : IDashboardService
         var currentPhaseCode = await GetCurrentPhaseCodeAsync(conn, projectId);
         var (reviewLabel, reviewedCount, reviewTotalCount) =
             await GetReviewProgressAsync(conn, projectId, currentPhaseCode);
+        var (revisionLabel, revisedCount, revisionTotalCount) =
+            await GetRevisionProgressAsync(conn, projectId, currentPhaseCode);
 
-        // 已結案專案：覆蓋審題階段判定為 Closed（即使中途結案也顯示為「已結案」）
+        // 已結案專案：覆蓋審/修題階段判定為 Closed（即使中途結案也顯示為「已結案」）
         if (projectStatus == 2)
         {
-            reviewLabel      = ReviewPhaseLabel.Closed;
-            reviewedCount    = 0;
-            reviewTotalCount = 0;
+            reviewLabel        = ReviewPhaseLabel.Closed;
+            reviewedCount      = 0;
+            reviewTotalCount   = 0;
+            revisionLabel      = RevisionPhaseLabel.Closed;
+            revisedCount       = 0;
+            revisionTotalCount = 0;
         }
 
         // ──────────────────────────────────────────────────────────────
@@ -310,10 +315,13 @@ public class DashboardService : IDashboardService
             PhaseStatusType     = phaseStatusType,
             PhaseStatusText     = phaseStatusText,
             PhaseDaysRemaining  = phaseDaysRemaining,
-            CurrentReviewPhase  = reviewLabel,
-            ReviewedCount       = reviewedCount,
-            ReviewTotalCount    = reviewTotalCount,
-            ClosedAt            = closedAt,
+            CurrentReviewPhase   = reviewLabel,
+            ReviewedCount        = reviewedCount,
+            ReviewTotalCount     = reviewTotalCount,
+            CurrentRevisionPhase = revisionLabel,
+            RevisedCount         = revisedCount,
+            RevisionTotalCount   = revisionTotalCount,
+            ClosedAt             = closedAt,
             AchievementByType   = achievementRows,
             StatusByType        = statusByTypeRows,
             UrgentItems         = urgentItems
@@ -356,6 +364,59 @@ public class DashboardService : IDashboardService
             sql, new { pid = projectId, stage });
 
         return (label, row?.Reviewed ?? 0, row?.TotalCount ?? 0);
+    }
+
+    /// <summary>
+    /// 依當前 PhaseCode 對應 RevisionStage，查 MT_ReviewAssignments + MT_RevisionReplies
+    /// 統計修題完成度（XX/OO 題：已修完 / 待修總數）。
+    /// 對應規則：PhaseCode 4→Stage 1（互修）/ 6→Stage 2（專修）/ 8→Stage 3（總修）。
+    ///
+    /// 待修總數 (OO) = 該階段對應 ReviewStage 中有寫過 Comment 的 distinct QuestionId
+    /// 已修完  (XX) = 上述題目中，老師已寫過 MT_RevisionReplies.Content（不為空）的數量
+    ///
+    /// 非修題階段（PhaseCode 不在 4/6/8）→ 直接回 (None, 0, 0)，不下 SQL。
+    /// </summary>
+    private static async Task<(RevisionPhaseLabel label, int revised, int total)> GetRevisionProgressAsync(
+        System.Data.IDbConnection conn, int projectId, int? currentPhaseCode)
+    {
+        var (label, stage) = currentPhaseCode switch
+        {
+            4 => (RevisionPhaseLabel.Peer,   (byte)1),
+            6 => (RevisionPhaseLabel.Expert, (byte)2),
+            8 => (RevisionPhaseLabel.Final,  (byte)3),
+            _ => (RevisionPhaseLabel.None,   (byte)0)
+        };
+
+        if (label == RevisionPhaseLabel.None) return (label, 0, 0);
+
+        const string sql = """
+            WITH AssignedQuestions AS (
+                SELECT DISTINCT ra.QuestionId
+                FROM   dbo.MT_ReviewAssignments ra
+                JOIN   dbo.MT_Questions q ON q.Id = ra.QuestionId
+                WHERE  ra.ProjectId   = @pid
+                  AND  ra.ReviewStage = @stage
+                  AND  ra.Comment IS NOT NULL
+                  AND  LEN(LTRIM(RTRIM(ra.Comment))) > 0
+                  AND  q.IsDeleted = 0
+            )
+            SELECT
+                (SELECT COUNT(*) FROM AssignedQuestions) AS TotalCount,
+                (SELECT COUNT(*) FROM AssignedQuestions a
+                 WHERE EXISTS (
+                     SELECT 1 FROM dbo.MT_RevisionReplies rr
+                     WHERE rr.QuestionId = a.QuestionId
+                       AND rr.Stage      = @stage
+                       AND rr.Content IS NOT NULL
+                       AND LEN(LTRIM(RTRIM(rr.Content))) > 0
+                 )
+                ) AS Revised
+            """;
+
+        var row = await conn.QuerySingleOrDefaultAsync<RevisionProgressRow>(
+            sql, new { pid = projectId, stage });
+
+        return (label, row?.Revised ?? 0, row?.TotalCount ?? 0);
     }
 
     /// <summary>
@@ -959,6 +1020,13 @@ public class DashboardService : IDashboardService
     private sealed class ReviewProgressRow
     {
         public int Reviewed   { get; init; }
+        public int TotalCount { get; init; }
+    }
+
+    /// <summary>卡片 4 修題進度查詢結果列。</summary>
+    private sealed class RevisionProgressRow
+    {
+        public int Revised    { get; init; }
         public int TotalCount { get; init; }
     }
 

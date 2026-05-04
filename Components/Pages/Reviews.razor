@@ -165,7 +165,10 @@
                         @* 命題階段（PhaseCode=2）= 題目尚未進入審題流程，顯示等待狀態取代統計列 *@
                         @if (!IsCompositionPhase)
                         {
-                            <!-- 統計摘要條 -->
+                            @* 統計摘要條 — 待處理/已完成只算目前階段；歷史紀錄獨立顯示供追蹤 *@
+                            var activePending   = assignments.Count(a => !IsHistorical(a) && !a.IsCompleted);
+                            var activeCompleted = assignments.Count(a => !IsHistorical(a) &&  a.IsCompleted);
+                            var historicalCount = assignments.Count(IsHistorical);
                             <div class="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 bg-white rounded-xl border border-gray-200 px-5 py-3 text-sm font-medium shadow-sm">
                                 <div class="flex items-center gap-1.5 text-gray-700">
                                     <i class="fa-solid fa-list-check text-morandi"></i>
@@ -176,14 +179,23 @@
                                 <div class="flex items-center gap-1.5 text-gray-700">
                                     <i class="fa-solid fa-hourglass-half text-terracotta"></i>
                                     待處理
-                                    <span class="text-lg font-bold text-terracotta ml-0.5">@assignments.Count(a => !a.IsCompleted)</span>
+                                    <span class="text-lg font-bold text-terracotta ml-0.5">@activePending</span>
                                 </div>
                                 <span class="text-gray-300">|</span>
                                 <div class="flex items-center gap-1.5 text-gray-700">
                                     <i class="fa-solid fa-circle-check text-sage"></i>
                                     已完成
-                                    <span class="text-lg font-bold text-sage ml-0.5">@assignments.Count(a => a.IsCompleted)</span>
+                                    <span class="text-lg font-bold text-sage ml-0.5">@activeCompleted</span>
                                 </div>
+                                @if (historicalCount > 0)
+                                {
+                                    <span class="text-gray-300">|</span>
+                                    <div class="flex items-center gap-1.5 text-gray-500" title="先前階段已完成的審題紀錄，保留供追蹤後續修題與評論">
+                                        <i class="fa-solid fa-clock-rotate-left text-gray-400"></i>
+                                        歷史紀錄
+                                        <span class="text-lg font-bold text-gray-500 ml-0.5">@historicalCount</span>
+                                    </div>
+                                }
                             </div>
                         }
                     }
@@ -231,6 +243,7 @@
                                     <option value="all">所有狀態</option>
                                     <option value="pending">待審</option>
                                     <option value="completed">已完成</option>
+                                    <option value="historical">歷史紀錄</option>
                                 }
                                 else
                                 {
@@ -363,7 +376,16 @@
                                                 <span class="inline-block px-2 py-0.5 rounded text-xs font-bold border @stageCss">@stageName</span>
                                             </td>
                                             <td class="px-4 py-3 text-center whitespace-nowrap">
-                                                @if (item.IsCompleted)
+                                                @{
+                                                    var historical = IsHistorical(item);
+                                                }
+                                                @if (historical)
+                                                {
+                                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-gray-100 text-gray-500 border border-gray-300" title="該階段已結束，僅可追蹤後續修題狀況">
+                                                        <i class="fa-solid fa-lock"></i> 歷史紀錄
+                                                    </span>
+                                                }
+                                                else if (item.IsCompleted)
                                                 {
                                                     <span class="inline-block px-2 py-0.5 rounded text-xs font-bold bg-sage/15 text-sage border border-sage/30">已完成</span>
                                                 }
@@ -374,9 +396,16 @@
                                             </td>
                                             <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">@item.LastEditedAt.ToString("yyyy/MM/dd HH:mm")</td>
                                             <td class="px-4 py-3 text-center whitespace-nowrap" @onclick:stopPropagation="true">
+                                                @{
+                                                    var (btnIcon, btnLabel) = historical
+                                                        ? ("fa-solid fa-eye",            "檢視")
+                                                        : item.IsCompleted
+                                                            ? ("fa-solid fa-pen-to-square", "編輯")
+                                                            : ("fa-solid fa-clipboard-check","審題");
+                                                }
                                                 <button @onclick="() => OpenReviewModal(item.QuestionId)"
                                                         class="text-morandi hover:underline text-xs font-bold cursor-pointer focus:outline-none">
-                                                    <i class="@(item.IsCompleted ? "fa-solid fa-pen-to-square" : "fa-solid fa-clipboard-check") mr-0.5"></i> @(item.IsCompleted ? "編輯" : "審題")
+                                                    <i class="@btnIcon mr-0.5"></i> @btnLabel
                                                 </button>
                                             </td>
                                         </tr>
@@ -502,6 +531,7 @@
 <ReviewModal @bind-IsVisible="showReviewModal"
              QuestionId="@selectedQuestionId"
              CurrentUserId="@(currentUserId ?? 0)"
+             CurrentProjectStage="@CurrentReviewStage"
              OnDecisionMade="OnDecisionMadeAsync" />
 
 @code {
@@ -602,7 +632,7 @@
 
     private async Task LoadAssignmentsAsync()
     {
-        if (CurrentProject is null || currentUserId is null || CurrentReviewStage is null)
+        if (CurrentProject is null || currentUserId is null)
         {
             assignments = new();
             return;
@@ -611,14 +641,19 @@
         isLoadingList = true;
         try
         {
+            // 一次撈出該使用者於本專案所有階段的分配；前端再依 CurrentReviewStage 判斷誰是歷史唯讀
             assignments = await ReviewService.GetMyAssignmentsAsync(
-                CurrentProject.Id, currentUserId.Value, CurrentReviewStage.Value);
+                CurrentProject.Id, currentUserId.Value);
         }
         finally
         {
             isLoadingList = false;
         }
     }
+
+    /// <summary>判斷是否為「歷史唯讀」紀錄：該分配的階段已不是當前進行中的審題階段</summary>
+    private bool IsHistorical(ReviewListItem item)
+        => CurrentReviewStage is null || item.Stage != CurrentReviewStage;
 
     private async Task LoadHistoryAsync()
     {
@@ -699,9 +734,10 @@
         .Where(a => MatchLevel(a.Level))
         .Where(a => queryStatus switch
         {
-            "pending"   => !a.IsCompleted,
-            "completed" =>  a.IsCompleted,
-            _           =>  true
+            "pending"    => !IsHistorical(a) && !a.IsCompleted,
+            "completed"  => !IsHistorical(a) &&  a.IsCompleted,
+            "historical" =>  IsHistorical(a),
+            _            =>  true
         })
         .ToList();
 

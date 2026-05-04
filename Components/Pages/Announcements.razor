@@ -5,6 +5,7 @@
 @* ====================================================================== *@
 @page "/announcements"
 @inject IAnnouncementService AnnouncementService
+@inject NavigationManager Navigation
 @inject ILogger<Announcements> Logger
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
@@ -377,6 +378,9 @@
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
 
+    [CascadingParameter(Name = "ModuleCards")]
+    private List<UserModuleCard>? ModuleCards { get; set; }
+
     // ─── 資料狀態 ───
     private List<AnnouncementListItem> announcements = new();
     private List<ProjectDropdownItem> projectDropdown = new();
@@ -454,9 +458,18 @@
     // ─── 生命週期 ───
     protected override async Task OnInitializedAsync()
     {
+        if (!HasAnnouncementPermission())
+        {
+            Navigation.NavigateTo("/", forceLoad: false);
+            return;
+        }
+
         await RunAnnouncementMaintenanceAsync();
         await LoadDataAsync();
     }
+
+    private bool HasAnnouncementPermission()
+        => ModuleCards?.Any(m => m.ModuleKey == "announcements" && m.IsEnabled) == true;
 
     private async Task RunAnnouncementMaintenanceAsync()
     {
@@ -637,6 +650,12 @@
 
             _ = JS.InvokeVoidAsync("Swal.fire", new { icon = "success", title = successMsg, toast = true, position = "top-end", showConfirmButton = false, timer = 2000 });
             await LoadDataAsync();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            Logger.LogWarning(ex, "公告寫入權限不足");
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "warning", title = "權限不足", text = ex.Message, confirmButtonColor = "#6B8EAD" });
+            Navigation.NavigateTo("/", forceLoad: false);
         }
         catch (Exception ex)
         {

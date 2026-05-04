@@ -21,6 +21,27 @@
             關閉
         </button>
     }
+    else if (IsHistorical)
+    {
+        @* 階段已結束 — 唯讀追蹤模式：保留歷程查看，移除所有編輯/決策按鈕 *@
+        var stageName = Assignment.Stage switch
+        {
+            ReviewStage.Mutual => "交互審題",
+            ReviewStage.Expert => "專家審題",
+            ReviewStage.Final  => "總召審題",
+            _                  => "審題"
+        };
+        <div class="flex items-center gap-3 text-sm text-slate-main font-medium">
+            <i class="fa-solid fa-clock-rotate-left text-morandi text-xl"></i>
+            <span>
+                <strong class="text-morandi">@stageName</strong> 階段已結束 — 此處保留供您追蹤後續修題與其他審題者的評論
+            </span>
+        </div>
+        <button type="button" @onclick="OnRequestClose"
+                class="px-5 py-2 text-sm bg-morandi hover:bg-[#5a7a99] text-white rounded-lg font-bold transition cursor-pointer">
+            關閉
+        </button>
+    }
     else if (Assignment.IsDecided)
     {
         var (decLabel, decColor) = Assignment.Decision switch
@@ -70,6 +91,12 @@
 @code {
     [Parameter, EditorRequired] public ReviewAssignmentInfo? Assignment { get; set; }
     [Parameter] public bool CanFinalReviewerEdit { get; set; }
+
+    /// <summary>
+    /// 該分配的階段已不是專案目前進行中的審題階段（如互審結束後、原 mutual reviewer 仍能查看）。
+    /// true 時顯示「階段已結束」唯讀提示列，移除所有編輯/決策按鈕。
+    /// </summary>
+    [Parameter] public bool IsHistorical { get; set; }
 
     /// <summary>儲存意見草稿（不下決策）</summary>
     [Parameter] public EventCallback OnSaveDraft { get; set; }

@@ -14,10 +14,11 @@ public interface IReviewService
 {
     // ====== Phase 3.1：讀取 ======
     /// <summary>
-    /// 取得當前使用者於指定專案、指定階段的審題作業區列表。
-    /// 回傳「分配給我但未決策」優先排在前面，已決策的「已決策」附在後面。
+    /// 取得當前使用者於指定專案的所有審題分配（跨所有階段）。
+    /// 排序：待處理優先、其次階段新→舊、最後依編輯時間新→舊。
+    /// 已離開階段的歷史記錄會保留並由 UI 端標記為唯讀以利追蹤。
     /// </summary>
-    Task<List<ReviewListItem>> GetMyAssignmentsAsync(int projectId, int reviewerUserId, ReviewStage stage);
+    Task<List<ReviewListItem>> GetMyAssignmentsAsync(int projectId, int reviewerUserId);
 
     /// <summary>
     /// 取得指定專案的「審核結果與歷史」清單（Adopted / Rejected / ClosedNotAdopted）。
@@ -52,8 +53,10 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     //  Phase 3.1：讀取
     // ====================================================================
 
-    public async Task<List<ReviewListItem>> GetMyAssignmentsAsync(int projectId, int reviewerUserId, ReviewStage stage)
+    public async Task<List<ReviewListItem>> GetMyAssignmentsAsync(int projectId, int reviewerUserId)
     {
+        // 不再依 ReviewStage 篩選 — 顯示該使用者於本專案的全部分配
+        // 已離開階段的紀錄變成唯讀（追蹤功能），由前端比對 currentPhase 決定按鈕
         const string sql = """
             SELECT
                 ra.Id              AS AssignmentId,
@@ -71,19 +74,18 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
             WHERE ra.ProjectId   = @ProjectId
               AND ra.ReviewerId  = @ReviewerId
-              AND ra.ReviewStage = @Stage
               AND q.IsDeleted    = 0
             ORDER BY
-                CASE WHEN ra.ReviewStatus = 2 THEN 1 ELSE 0 END,  -- 已完成沉到下方
-                ra.CreatedAt DESC;
+                CASE WHEN ra.ReviewStatus = 2 THEN 1 ELSE 0 END,  -- 待處理(0/1) 優先
+                ra.ReviewStage DESC,                              -- 較新階段在上方
+                ISNULL(ra.DecidedAt, ra.CreatedAt) DESC;          -- 同階段依編輯時間新→舊
             """;
 
         using var conn = _db.CreateConnection();
         var rows = await conn.QueryAsync<AssignmentListRow>(sql, new
         {
             ProjectId  = projectId,
-            ReviewerId = reviewerUserId,
-            Stage      = (byte)stage
+            ReviewerId = reviewerUserId
         });
 
         return rows.Select(r => new ReviewListItem

@@ -15,7 +15,7 @@
             @if (IsReadOnly)
             {
                 <span class="ml-auto text-xs px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full font-bold border border-gray-200">
-                    <i class="fa-solid fa-lock mr-1"></i> 已決策
+                    <i class="fa-solid fa-lock mr-1"></i> @(string.IsNullOrEmpty(LockReason) ? "已決策" : LockReason)
                 </span>
             }
         </h3>
@@ -62,6 +62,8 @@
     [Parameter, EditorRequired] public string Comment { get; set; } = string.Empty;
     [Parameter] public EventCallback<string> CommentChanged { get; set; }
     [Parameter] public bool IsReadOnly { get; set; }
+    /// <summary>唯讀時 lock 標籤上顯示的原因（null/空 → 預設「已決策」）</summary>
+    [Parameter] public string? LockReason { get; set; }
     [Parameter] public List<ReviewHistoryEntry> History { get; set; } = new();
     [Parameter] public List<ReviewSimilarityEntry> SimilarQuestions { get; set; } = new();
 
