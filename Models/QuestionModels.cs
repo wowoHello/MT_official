@@ -356,6 +356,7 @@ public static class QuestionStatus
     public const byte Rejected           = 10;  // 不採用
     public const byte SentBack           = 11;  // 改後再審（過渡）
     public const byte ClosedNotAdopted   = 12;  // 結案未採用
+    public const byte Archived           = 13;  // 結案入庫
 
     public static readonly Dictionary<byte, string> Labels = new()
     {
@@ -364,15 +365,16 @@ public static class QuestionStatus
         [5] = "專審中", [6] = "專審修題中",
         [7] = "總審中", [8] = "總審修題中",
         [9] = "採用", [10] = "不採用",
-        [11] = "改後再審", [12] = "結案未採用"
+        [11] = "改後再審", [12] = "結案未採用",
+        [13] = "結案入庫"
     };
 
     // 三 Tab 對應的 status 範圍
     // ※ Status 2-8 同時出現在 compose 與 revision：命題端視為「命題流程已結束（已送審）」唯讀快照；
-    //    審題端視為「審/修題進行中」工作區。結案 (9/10/12) 後才從 compose tab 消失。
+    //    審題端視為「審/修題進行中」工作區。結案 (9/10/12/13) 後才從 compose tab 消失。
     public static readonly byte[] ComposeTabStatuses  = [0, 1, 2, 3, 4, 5, 6, 7, 8];
     public static readonly byte[] RevisionTabStatuses = [2, 3, 4, 5, 6, 7, 8];
-    public static readonly byte[] HistoryTabStatuses  = [9, 10, 12];
+    public static readonly byte[] HistoryTabStatuses  = [9, 10, 12, 13];
 
     /// <summary>命題作業區的「已送審」分類：所有命題流程結束後仍未結案的狀態（2-8）。</summary>
     public static readonly byte[] SubmittedSnapshotStatuses = [2, 3, 4, 5, 6, 7, 8];
@@ -467,6 +469,12 @@ public class QuestionFormData
     public List<SubQuestionFreeResponse> ShortSubQuestions { get; set; } = [new()];
     public List<ListenGroupSubQuestion> ListenGroupSubQuestions { get; set; } =
         [new() { FixedDifficulty = 3 }, new() { FixedDifficulty = 4 }];
+
+    /// <summary>題目建立時間（審題 Modal 顯示用，由 GetByIdAsync 填入）</summary>
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>題目最後編輯時間（審題 Modal 顯示用，由 GetByIdAsync 填入）</summary>
+    public DateTime UpdatedAt { get; set; }
 }
 
 // ======================================================================

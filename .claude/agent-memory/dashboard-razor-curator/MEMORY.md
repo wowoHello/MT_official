@@ -1,1 +1,2 @@
 - [Dashboard KPI 實作模式](project_dashboard_kpi.md) — 4 張 KPI 卡片資料來源、Status 碼對應、Service 查詢結構
+- [Dashboard 參考文件路徑](reference_dashboard_doc.md) — 整合文件位於 pageFinal_doc/Dashboard.md，舊原型 html/js 已棄用

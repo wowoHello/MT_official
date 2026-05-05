@@ -55,4 +55,12 @@ public class OverviewListResult
     /// 用於「待修編」卡：StatusCounts 會包含全部修題狀態題目（含已送出者），此處扣除已送出。
     /// </summary>
     public int PendingRevisionCount { get; set; }
+
+    /// <summary>
+    /// 梯次當前實際 PhaseCode（2-8 對應命題階段~總召修題；null = 梯次不在任何進行中階段）。
+    /// 給進度球與當前狀態 Badge 做「梯次階段感知」判定：
+    /// 例如題目 Status=ExpertEditing(6) 但梯次 PhaseCode 仍 < 6（專審中），
+    /// 表示該題「已被審題人按下改後再審」但梯次尚未推進到專修，畫面應顯示「專審完成」而非「專審修題中」。
+    /// </summary>
+    public byte? CurrentPhaseCode { get; set; }
 }

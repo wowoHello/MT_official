@@ -1,37 +1,45 @@
 @* ====================================================================== *@
 @*  RevisionReferencePanel — 修題參考粘性側欄（右欄）                        *@
 @*                                                                          *@
-@*  三大區塊由上至下：                                                      *@
-@*    1. 審題意見（跨階段累積、匿名化「審題老師 A/B/C」、預設展開）           *@
-@*    2. 我的修題歷程（自己過往修題說明、預設摺疊）                          *@
-@*    3. 本次修題說明（必填）                                               *@
+@*  三層 Elevation 策略：                                                    *@
+@*    Tier 0 外層容器  bg-oatmeal/60（由 RevisionSlideOver 提供）           *@
+@*    Tier 1 區塊白卡  bg-white + border-stone-200 + shadow-sm              *@
+@*    Tier 2 內部小卡  bg-{stage}/5 + 左側 1px rounded 色帶                  *@
 @*                                                                          *@
-@*  字體最小 text-xs，配色：互審 morandi 藍 / 專審 terracotta / 總審 紅      *@
+@*  區塊：                                                                  *@
+@*    1. 修題參考（最頂層提示卡，gradient）                                  *@
+@*    2. 審題意見（互審 morandi / 專審 terracotta / 總審 amber，預設展開）   *@
+@*    3. 我的修題歷程（sage 安心綠，預設摺疊）                               *@
+@*    4. 本次修題說明（CTA 主角區，sage 強化）                               *@
+@*                                                                          *@
+@*  字體：標題 text-sm / 內容 text-sm leading-relaxed / 時間 text-xs        *@
 @* ====================================================================== *@
 
 <div class="flex flex-col h-full overflow-hidden">
 
-    @* Header（sticky 標題） *@
-    <div class="px-4 py-3 border-b border-gray-100 bg-gray-50 flex-shrink-0 z-10">
-        <h3 class="text-sm font-bold text-slate-main flex items-center gap-2">
-            <i class="fa-solid fa-book-bookmark text-morandi"></i> 修題參考
-        </h3>
-        <p class="text-xs text-gray-500 mt-1">參考歷次審題意見與您的修題紀錄</p>
-    </div>
+    @* 可捲動的內容區 — Tier 0 由父層 aside 提供 oatmeal/60 *@
+    <div class="flex-grow overflow-y-auto custom-scroll p-5 space-y-4">
 
-    @* 可捲動的內容區 *@
-    <div class="flex-grow overflow-y-auto custom-scroll">
+        @* ========== 區塊 1：修題參考標題列（最頂層提示卡） ========== *@
+        <div class="px-4 py-3 rounded-xl bg-gradient-to-br from-morandi/10 to-morandi/5 border border-morandi/20">
+            <h3 class="text-sm font-bold text-slate-main flex items-center gap-2">
+                <i class="fa-solid fa-bookmark text-morandi"></i> 修題參考
+            </h3>
+            <p class="text-xs text-gray-500 mt-0.5">參考歷次審題意見與您的修題紀錄</p>
+        </div>
 
-        @* ========== 區塊 1：審題意見（預設展開） ========== *@
-        <details open class="border-b border-gray-100">
-            <summary class="px-4 py-3 cursor-pointer font-bold text-sm text-slate-main flex items-center gap-2 hover:bg-gray-50 transition list-none">
-                <i class="fa-solid fa-comments text-morandi"></i>
-                審題意見
-                <span class="text-xs bg-morandi/10 text-morandi px-2 py-0.5 rounded-full font-bold ml-1">@Comments.Count 筆</span>
-                <i class="fa-solid fa-chevron-down ml-auto text-xs text-gray-400 transition-transform"></i>
+        @* ========== 區塊 2：審題意見摺疊卡（Tier 1 白卡） ========== *@
+        <details open class="group bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
+            <summary class="w-full px-4 py-3 flex items-center justify-between bg-stone-50/60 border-b border-stone-100 hover:bg-stone-100/60 transition-colors cursor-pointer list-none">
+                <span class="text-sm font-bold text-slate-main flex items-center gap-2">
+                    <i class="fa-solid fa-comments text-morandi"></i>
+                    審題意見
+                    <span class="px-2 py-0.5 bg-morandi/10 text-morandi text-xs font-bold rounded-full border border-morandi/20">@Comments.Count 筆</span>
+                </span>
+                <i class="fa-solid fa-chevron-down text-gray-400 text-xs transition-transform group-open:rotate-180"></i>
             </summary>
 
-            <div class="px-4 pb-3 space-y-2">
+            <div class="p-3 space-y-3">
                 @if (Comments.Count == 0)
                 {
                     <p class="text-xs text-gray-400 italic text-center py-3">尚無審題意見</p>
@@ -40,34 +48,46 @@
                 {
                     @foreach (var c in Comments)
                     {
-                        var stageInfo = GetStageBadge(c.Stage);
-                        <div class="rounded-lg border @stageInfo.BorderCss bg-white p-3 shadow-sm">
-                            <div class="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
-                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold @stageInfo.BadgeCss">
-                                    <i class="fa-solid @stageInfo.Icon mr-1"></i> @stageInfo.Name
+                        var s = GetStageStyle(c.Stage);
+                        @* Tier 2 內部小卡：bg-{stage}/5 + 左側 1px rounded 色帶 *@
+                        <div class="relative @s.BgClass rounded-lg border @s.BorderClass @s.HoverBorderClass pl-3 pr-4 py-3 transition-colors">
+                            @* 左側 1px rounded 色帶 *@
+                            <span class="absolute left-0 top-3 bottom-3 w-1 rounded-full @s.BarClass"></span>
+
+                            @* Header: stage badge + 時間 *@
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="px-2 py-0.5 @s.BadgeBgClass text-white text-xs font-bold rounded-md flex items-center gap-1">
+                                    <i class="fa-solid @s.Icon text-[10px]"></i> @s.Name
                                 </span>
-                                <span class="text-xs text-gray-400">@c.DecidedAt.ToString("MM/dd HH:mm")</span>
+                                <span class="text-xs text-gray-400 tabular-nums">@c.DecidedAt.ToString("MM/dd HH:mm")</span>
                             </div>
-                            <p class="text-xs text-gray-500 mb-1.5">
-                                <i class="fa-regular fa-user mr-0.5"></i> @c.AnonName
-                            </p>
-                            <div class="text-sm text-slate-main leading-relaxed whitespace-pre-wrap break-words">@c.Comment</div>
+
+                            @* 匿名審題者 pill：白底 + 細邊框 *@
+                            <div class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-white rounded-md @s.BorderClass border mb-2">
+                                <i class="fa-regular fa-circle-user @s.IconColorClass text-xs"></i>
+                                <span class="text-xs font-medium text-slate-main">@c.AnonName</span>
+                            </div>
+
+                            @* 意見本文 *@
+                            <p class="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap break-words">@c.Comment</p>
                         </div>
                     }
                 }
             </div>
         </details>
 
-        @* ========== 區塊 2：我的修題歷程（預設摺疊） ========== *@
-        <details class="border-b border-gray-100">
-            <summary class="px-4 py-3 cursor-pointer font-bold text-sm text-slate-main flex items-center gap-2 hover:bg-gray-50 transition list-none">
-                <i class="fa-solid fa-clock-rotate-left text-sage"></i>
-                我的修題歷程
-                <span class="text-xs bg-sage/10 text-sage px-2 py-0.5 rounded-full font-bold ml-1">@MyReplies.Count 筆</span>
-                <i class="fa-solid fa-chevron-down ml-auto text-xs text-gray-400 transition-transform"></i>
+        @* ========== 區塊 3：我的修題歷程摺疊卡（Tier 1 白卡 / sage 色系） ========== *@
+        <details class="group bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
+            <summary class="w-full px-4 py-3 flex items-center justify-between bg-stone-50/60 border-b border-stone-100 hover:bg-stone-100/60 transition-colors cursor-pointer list-none">
+                <span class="text-sm font-bold text-slate-main flex items-center gap-2">
+                    <i class="fa-solid fa-clock-rotate-left text-sage"></i>
+                    我的修題歷程
+                    <span class="px-2 py-0.5 bg-sage/10 text-sage text-xs font-bold rounded-full border border-sage/20">@MyReplies.Count 筆</span>
+                </span>
+                <i class="fa-solid fa-chevron-down text-gray-400 text-xs transition-transform group-open:rotate-180"></i>
             </summary>
 
-            <div class="px-4 pb-3 space-y-2">
+            <div class="p-3 space-y-3">
                 @if (MyReplies.Count == 0)
                 {
                     <p class="text-xs text-gray-400 italic text-center py-3">尚無修題紀錄</p>
@@ -77,26 +97,28 @@
                     @foreach (var r in MyReplies)
                     {
                         var stageName = GetEditingStageName(r.Stage);
-                        <div class="rounded-lg border border-sage/30 bg-sage/5 p-3">
-                            <div class="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
-                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-sage text-white">
-                                    <i class="fa-solid fa-pen mr-1"></i> @stageName
+                        @* Tier 2 內部小卡：sage 色系 *@
+                        <div class="relative bg-sage/5 rounded-lg border border-sage/15 hover:border-sage/30 pl-3 pr-4 py-3 transition-colors">
+                            <span class="absolute left-0 top-3 bottom-3 w-1 rounded-full bg-sage"></span>
+
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="px-2 py-0.5 bg-sage text-white text-xs font-bold rounded-md flex items-center gap-1">
+                                    <i class="fa-solid fa-pen text-[10px]"></i> @stageName
                                 </span>
-                                <span class="text-xs text-gray-400">@r.CreatedAt.ToString("MM/dd HH:mm")</span>
+                                <span class="text-xs text-gray-400 tabular-nums">@r.CreatedAt.ToString("MM/dd HH:mm")</span>
                             </div>
-                            <div class="text-sm text-slate-main leading-relaxed whitespace-pre-wrap break-words">@StripHtml(r.Content)</div>
+
+                            <p class="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap break-words">@StripHtml(r.Content)</p>
                         </div>
                     }
                 }
             </div>
         </details>
 
-        @* ========== 區塊 3：本次修題說明（必填） ========== *@
-        <div class="px-4 py-4 bg-oatmeal/40">
-            <RevisionReplyEditor Value="@RevisionNote"
-                                 ValueChanged="OnRevisionNoteChanged"
-                                 IsReadOnly="@IsReadOnly" />
-        </div>
+        @* ========== 區塊 4：本次修題說明（CTA 主角區） ========== *@
+        <RevisionReplyEditor Value="@RevisionNote"
+                             ValueChanged="OnRevisionNoteChanged"
+                             IsReadOnly="@IsReadOnly" />
     </div>
 </div>
 
@@ -113,13 +135,59 @@
         await RevisionNoteChanged.InvokeAsync(newValue);
     }
 
-    private static (string BorderCss, string BadgeCss, string Icon, string Name) GetStageBadge(byte stage) => stage switch
+    /// <summary>
+    /// 各審題階段的樣式：互審 morandi 灰藍、專審 terracotta 赤陶、總審 amber 琥珀。
+    /// 全使用 CSS 變數對應的色票（已在 tailwind.css 中註冊）。
+    /// </summary>
+    private static StageStyle GetStageStyle(byte stage) => stage switch
     {
-        1 => ("border-morandi/30",    "bg-morandi text-white",     "fa-clipboard-check", "互審"),
-        2 => ("border-terracotta/30", "bg-terracotta text-white",  "fa-user-graduate",   "專審"),
-        3 => ("border-red-200",       "bg-red-600 text-white",     "fa-crown",           "總審"),
-        _ => ("border-gray-300",      "bg-gray-300 text-white",    "fa-circle",          "審題")
+        1 => new StageStyle(
+            BgClass:           "bg-morandi/5",
+            BorderClass:       "border-morandi/15",
+            HoverBorderClass:  "hover:border-morandi/30",
+            BarClass:          "bg-morandi",
+            BadgeBgClass:      "bg-morandi",
+            IconColorClass:    "text-morandi",
+            Icon:              "fa-people-arrows",
+            Name:              "互審"),
+        2 => new StageStyle(
+            BgClass:           "bg-terracotta/5",
+            BorderClass:       "border-terracotta/15",
+            HoverBorderClass:  "hover:border-terracotta/30",
+            BarClass:          "bg-terracotta",
+            BadgeBgClass:      "bg-terracotta",
+            IconColorClass:    "text-terracotta",
+            Icon:              "fa-user-tie",
+            Name:              "專審"),
+        3 => new StageStyle(
+            BgClass:           "bg-amber-50",
+            BorderClass:       "border-amber-200",
+            HoverBorderClass:  "hover:border-amber-300",
+            BarClass:          "bg-amber-500",
+            BadgeBgClass:      "bg-amber-500",
+            IconColorClass:    "text-amber-600",
+            Icon:              "fa-crown",
+            Name:              "總審"),
+        _ => new StageStyle(
+            BgClass:           "bg-stone-50",
+            BorderClass:       "border-stone-200",
+            HoverBorderClass:  "hover:border-stone-300",
+            BarClass:          "bg-stone-400",
+            BadgeBgClass:      "bg-stone-400",
+            IconColorClass:    "text-stone-500",
+            Icon:              "fa-circle",
+            Name:              "審題")
     };
+
+    private record StageStyle(
+        string BgClass,
+        string BorderClass,
+        string HoverBorderClass,
+        string BarClass,
+        string BadgeBgClass,
+        string IconColorClass,
+        string Icon,
+        string Name);
 
     private static string GetEditingStageName(byte stage) => stage switch
     {

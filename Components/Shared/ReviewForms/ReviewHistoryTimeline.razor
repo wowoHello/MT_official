@@ -1,8 +1,8 @@
 @* ====================================================================== *@
-@*  ReviewHistoryTimeline — 歷程軌跡時間軸                                   *@
+@*  ReviewHistoryTimeline — 歷程軌跡（卡片 + timeline 連線版面）             *@
 @*  資料源：union of MT_AuditLogs + MT_ReviewAssignments + MT_RevisionReplies *@
 @*  視覺：                                                                   *@
-@*    - 連續垂直軸線 + 圓點圖示（為長串歷程提供節奏感）                       *@
+@*    - 每筆紀錄獨立成卡片，左側保留垂直連線與圓點節點                       *@
 @*    - 三色 Kind：QuestionEvent (sage)、ReviewComment (morandi)、RevisionReply (terracotta) *@
 @*  匿名行為：ShowActorName=false（預設，Reviews 用，公平性匿名）             *@
 @*           ShowActorName=true（Overview 管理員視角，顯示真名）             *@
@@ -16,69 +16,100 @@
         <i class="fa-solid fa-chevron-down ml-auto text-xs text-gray-400 transition-transform"></i>
     </summary>
 
-    <div class="px-5 pb-5 bg-gray-50/30">
+    <div class="px-5 pb-5 bg-gray-50/30 pt-3">
         @if (Entries.Count == 0)
         {
             <p class="text-xs text-gray-400 italic text-center py-3">尚無歷程紀錄</p>
         }
         else
         {
-            @* 外層 relative 容器：擺放連續垂直軸線；內層每筆繪製圓點與卡片 *@
-            <ol class="relative pl-6 pt-2">
-                @* 連續垂直軸線：絕對定位 + 第一筆中央起、最後一筆中央止 *@
-                <span class="absolute left-2 top-3 bottom-3 w-px bg-gray-200" aria-hidden="true"></span>
+            @* 外層容器：relative + pl-6 為左側連線與圓點預留空間 *@
+            <div class="relative pl-6 space-y-3">
 
-                @{ var idx = 0; }
+                @* 垂直軸線：從頂部延伸至底部，固定在 left-2 *@
+                <span class="absolute left-2 top-3 bottom-3 w-px bg-gray-200"></span>
+
                 @foreach (var entry in Entries)
                 {
-                    idx++;
-                    var (dotCss, badgeCss, dotIcon) = entry.Kind switch
+                    @* 依 Kind 決定 badge 配色 *@
+                    var badgeCss = entry.Kind switch
                     {
-                        ReviewHistoryKind.QuestionEvent => ("bg-sage",       "bg-sage text-white",       "fa-pen-nib"),
-                        ReviewHistoryKind.ReviewComment => ("bg-morandi",    "bg-morandi text-white",    "fa-magnifying-glass"),
-                        ReviewHistoryKind.RevisionReply => ("bg-terracotta", "bg-terracotta text-white", "fa-pen-to-square"),
-                        _                               => ("bg-gray-300",   "bg-gray-300 text-white",   "fa-circle")
+                        ReviewHistoryKind.QuestionEvent => "bg-sage/10 text-sage border border-sage/30",
+                        ReviewHistoryKind.ReviewComment => "bg-morandi/10 text-morandi border border-morandi/30",
+                        ReviewHistoryKind.RevisionReply => "bg-terracotta/10 text-terracotta border border-terracotta/30",
+                        _                               => "bg-gray-100 text-gray-500 border border-gray-200"
                     };
 
+                    @* 決定圓點的背景色與 fa 圖示（搭配 Kind 三色） *@
+                    var dotBgCss = entry.Kind switch
+                    {
+                        ReviewHistoryKind.QuestionEvent => "bg-sage",
+                        ReviewHistoryKind.ReviewComment => "bg-morandi",
+                        ReviewHistoryKind.RevisionReply => "bg-terracotta",
+                        _                               => "bg-gray-400"
+                    };
+                    var dotIcon = entry.Kind switch
+                    {
+                        ReviewHistoryKind.QuestionEvent => "fa-pen",
+                        ReviewHistoryKind.ReviewComment => "fa-comment",
+                        ReviewHistoryKind.RevisionReply => "fa-reply",
+                        _                               => "fa-circle"
+                    };
+
+                    @* 決定左側人物圖示顏色（與 badge 同系列） *@
+                    var iconCss = entry.Kind switch
+                    {
+                        ReviewHistoryKind.QuestionEvent => "text-sage",
+                        ReviewHistoryKind.ReviewComment => "text-morandi",
+                        ReviewHistoryKind.RevisionReply => "text-terracotta",
+                        _                               => "text-gray-400"
+                    };
+
+                    @* 匿名邏輯：ShowActorName=false 時依 Kind / Label 顯示角色稱謂
+                       互審＝命題老師之間互評；專審＝審題委員；總審＝總召集人 *@
+                    var anonymousName = entry.Kind switch
+                    {
+                        ReviewHistoryKind.QuestionEvent => "命題老師",
+                        ReviewHistoryKind.RevisionReply => "命題老師",
+                        ReviewHistoryKind.ReviewComment => entry.Label.Contains("互審") ? "命題老師"
+                                                          : entry.Label.Contains("總審") ? "總召集人"
+                                                          : "審題委員",
+                        _                               => "操作人"
+                    };
                     var displayName = ShowActorName && !string.IsNullOrWhiteSpace(entry.ActorName)
                         ? entry.ActorName
-                        : entry.Kind switch
-                        {
-                            ReviewHistoryKind.QuestionEvent => "命題老師",
-                            ReviewHistoryKind.RevisionReply => "命題老師",
-                            ReviewHistoryKind.ReviewComment => "審題老師",
-                            _                               => "操作人"
-                        };
+                        : anonymousName;
 
-                    <li class="relative pb-5 last:pb-0">
-                        @* 圓點：定位在垂直軸線上 *@
-                        <span class="absolute -left-[18px] top-1.5 w-4 h-4 rounded-full @dotCss flex items-center justify-center shadow-sm ring-2 ring-white" aria-hidden="true">
-                            <i class="fa-solid @dotIcon text-[8px] text-white"></i>
+                    @* 卡片容器：relative 讓圓點可以 absolute 定位在左側 *@
+                    <div class="relative bg-gray-50 border border-gray-200 rounded-lg p-3">
+
+                        @* 圓點節點：absolute 定位在卡片左側外，疊在垂直軸線上方
+                           -left-[18px] 讓圓點中心對齊 left-2 的軸線
+                           ring-2 ring-white 讓圓點從灰線浮起 *@
+                        <span class="absolute -left-[18px] top-3 w-4 h-4 rounded-full @dotBgCss ring-2 ring-white flex items-center justify-center z-10">
+                            <i class="fa-solid @dotIcon text-white" style="font-size: 0.45rem;"></i>
                         </span>
 
-                        @* 卡片內容 *@
-                        <div class="ml-1">
-                            <div class="flex items-center gap-2 mb-1 flex-wrap">
-                                <span class="text-xs px-2 py-0.5 rounded font-bold @badgeCss">@entry.Label</span>
-                                <span class="text-xs text-gray-400">@entry.At.ToString("yyyy/MM/dd HH:mm")</span>
-                                <span class="text-xs text-gray-300 ml-auto">#@idx</span>
+                        @* 頂部列：左側（人物圖示 + 姓名 + 動作 badge）、右側（時間） *@
+                        <div class="flex justify-between items-center flex-wrap gap-2">
+                            <div class="flex items-center gap-2">
+                                <i class="fa-solid fa-user-circle @iconCss text-base"></i>
+                                <span class="text-xs font-bold text-slate-main">@displayName</span>
+                                <span class="inline-block px-2 py-0.5 rounded text-xs font-bold border @badgeCss">@entry.Label</span>
                             </div>
-                            <p class="text-xs text-gray-600 mb-2 flex items-center gap-1">
-                                <i class="fa-regular fa-user text-gray-400"></i>
-                                <span>操作人：</span>
-                                <span class="font-bold text-slate-main">@displayName</span>
-                            </p>
-                            @if (!string.IsNullOrWhiteSpace(entry.ContentHtml))
-                            {
-                                @* 純文字渲染 — whitespace-pre-wrap 保留換行；不再用 MarkupString 避免 XSS *@
-                                <div class="text-sm text-slate-main bg-white p-2.5 rounded-md border border-gray-100 leading-relaxed whitespace-pre-wrap">
-                                    @entry.ContentHtml
-                                </div>
-                            }
+                            <span class="text-xs text-gray-500">@entry.At.ToString("yyyy/MM/dd HH:mm")</span>
                         </div>
-                    </li>
+
+                        @* 內容區：白色內框（意見文字）*@
+                        @if (!string.IsNullOrWhiteSpace(entry.ContentHtml))
+                        {
+                            <div class="mt-2 bg-white border border-gray-200 rounded-md px-3 py-2 text-sm text-slate-main leading-relaxed whitespace-pre-wrap not-italic">
+                                @entry.ContentHtml
+                            </div>
+                        }
+                    </div>
                 }
-            </ol>
+            </div>
         }
     </div>
 </details>

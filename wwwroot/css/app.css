@@ -237,6 +237,29 @@
     letter-spacing: 0.15em;
 }
 
+/* --- 純文字 textarea：徹底壓掉 Grammarly / Edge Editor / 拼字檢查的疊加底線 --- */
+/* 即使 data-gramm/spellcheck="false" 仍可能殘留底線 → CSS 雙保險 */
+textarea.review-textarea {
+    text-decoration: none !important;
+    text-decoration-line: none !important;
+    -webkit-text-decoration-line: none !important;
+    text-decoration-color: transparent !important;
+    text-underline-offset: 0 !important;
+}
+textarea.review-textarea grammarly-extension,
+textarea.review-textarea + grammarly-extension,
+textarea.review-textarea ~ grammarly-extension {
+    display: none !important;
+}
+
+/* --- 審題 Modal：隱藏 PreviewHeader「全民中文檢定」大標題 --- */
+/* review-no-cwt-title 加在 ReviewQuestionDisplay 內的 PreviewXxx 外層 */
+/* PreviewHeader 根節點為 <div class="text-center ... font-serif"> */
+/* 選擇器精確鎖定 text-center + font-serif 組合，考卷主體不含此組合 */
+.review-no-cwt-title .text-center.font-serif {
+    display: none;
+}
+
 /* --- 自訂捲軸 --- */
 .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
 .custom-scroll::-webkit-scrollbar-track { background: transparent; }

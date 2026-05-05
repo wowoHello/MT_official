@@ -6,7 +6,7 @@
 @* ====================================================================== *@
 
 @{
-    var (stage, tone) = ResolveStage(Status);
+    var (stage, tone) = ResolveStage(Status, CurrentPhaseCode);
     var lamps = new string[7];
     for (var i = 0; i < 7; i++) lamps[i] = GetLampTone(i + 1, stage, tone);
 }
@@ -41,11 +41,12 @@
             var lamp = lamps[i - 1];
             var labelCss = lamp switch
             {
-                "gray"  => "text-gray-300",                       // 未完成：明顯較淡
-                "green" => "text-sage font-extrabold",            // 已完成：sage 強調
-                "blue"  => "text-morandi font-extrabold",         // 進行中：morandi 強調
-                "red"   => "text-terracotta font-extrabold",      // 修題中：terracotta 強調
-                _       => "text-gray-700"
+                "gray"      => "text-gray-300",                       // 未完成：明顯較淡
+                "green"     => "text-sage font-extrabold",            // 已完成：sage 強調
+                "awaitNext" => "text-morandi font-extrabold",         // 該審完成等待中：morandi 強調，與 sage 綠區隔
+                "blue"      => "text-morandi font-extrabold",         // 進行中：morandi 強調
+                "red"       => "text-terracotta font-extrabold",      // 修題中：terracotta 強調
+                _           => "text-gray-700"
             };
             <div class="w-8 text-center text-xs font-bold flex-shrink-0 @labelCss">
                 @StageNames[i - 1]
@@ -61,34 +62,67 @@
 @code {
     [Parameter, EditorRequired] public byte Status { get; set; }
 
+    /// <summary>
+    /// 梯次當前 PhaseCode（2-8 對應命題階段~總召修題；null = 不傳或未在任何進行中階段）。
+    /// 用於「梯次階段感知」：題目 Status 已進入修題狀態（4/6/8），但梯次尚未推進到對應修題階段時，
+    /// 改顯示為「該審完成等待中」（morandi 藍 ✓）而非紅色筆。
+    /// 預設 null —— 不傳此參數時完全沿用舊行為，Reviews 等其他頁面零影響。
+    /// </summary>
+    [Parameter] public byte? CurrentPhaseCode { get; set; }
+
     private static readonly string[] StageNames = ["命題", "互審", "互修", "專審", "專修", "總審", "總修"];
 
     /// <summary>
     /// 將 14 種 QuestionStatus 對應到 7 階段燈號的 (當前階段, 當前階段燈色)。
-    /// tone 特殊值："green" 全綠、"rejected" 卡關紅後續灰。
+    /// tone 特殊值：
+    ///   "green"     → 全綠（採用）
+    ///   "rejected"  → 卡關紅後續灰
+    ///   "preDone"   → 該審完成、梯次未推進；倒數第 1 顆（stage-1）顯示莫蘭迪藍 ✓，更早顯示 sage 綠 ✓
     /// </summary>
-    private static (int Stage, string Tone) ResolveStage(byte status) => status switch
+    private static (int Stage, string Tone) ResolveStage(byte status, byte? currentPhaseCode)
     {
-        QuestionStatus.Draft             => (1, "blue"),
-        QuestionStatus.Completed         => (1, "blue"),
-        QuestionStatus.Submitted         => (2, "blue"),
-        QuestionStatus.PeerReviewing     => (2, "blue"),
-        QuestionStatus.PeerEditing       => (3, "red"),
-        QuestionStatus.ExpertReviewing   => (4, "blue"),
-        QuestionStatus.ExpertEditing     => (5, "red"),
-        QuestionStatus.FinalReviewing    => (6, "blue"),
-        QuestionStatus.FinalEditing      => (7, "red"),
-        QuestionStatus.SentBack          => (7, "red"),
-        QuestionStatus.Adopted           => (8, "green"),
-        QuestionStatus.Rejected          => (7, "rejected"),
-        QuestionStatus.ClosedNotAdopted  => (7, "rejected"),
-        _                                => (1, "gray")
-    };
+        // 規則 A：題目已進入修題狀態，但梯次尚未推進到對應修題階段 → 「該審完成等待中」
+        // 例：ExpertEditing(6) 但梯次 PhaseCode < 6（仍在專審 5 或更早）→ 視為專審完成等待專修開始
+        if (status == QuestionStatus.PeerEditing   && (currentPhaseCode is null || currentPhaseCode < QuestionStatus.PeerEditing))
+            return (3, "preDone");
+        if (status == QuestionStatus.ExpertEditing && (currentPhaseCode is null || currentPhaseCode < QuestionStatus.ExpertEditing))
+            return (5, "preDone");
+        if (status == QuestionStatus.FinalEditing  && (currentPhaseCode is null || currentPhaseCode < QuestionStatus.FinalEditing))
+            return (7, "preDone");
+
+        // 規則 B / C：維持原有對應
+        return status switch
+        {
+            QuestionStatus.Draft             => (1, "blue"),
+            QuestionStatus.Completed         => (1, "blue"),
+            QuestionStatus.Submitted         => (2, "blue"),
+            QuestionStatus.PeerReviewing     => (2, "blue"),
+            QuestionStatus.PeerEditing       => (3, "red"),
+            QuestionStatus.ExpertReviewing   => (4, "blue"),
+            QuestionStatus.ExpertEditing     => (5, "red"),
+            QuestionStatus.FinalReviewing    => (6, "blue"),
+            QuestionStatus.FinalEditing      => (7, "red"),
+            QuestionStatus.SentBack          => (7, "red"),
+            QuestionStatus.Adopted           => (8, "green"),
+            QuestionStatus.Rejected          => (7, "rejected"),
+            QuestionStatus.ClosedNotAdopted  => (7, "rejected"),
+            _                                => (1, "gray")
+        };
+    }
 
     private static string GetLampTone(int i, int stage, string tone)
     {
         if (tone == "green")    return "green";                       // 採用 → 全綠
         if (tone == "rejected") return i < stage ? "green" : i == stage ? "red" : "gray";
+        if (tone == "preDone")
+        {
+            // 倒數第 1 顆（剛完成的審題階段，stage-1）：莫蘭迪藍 ✓，與一般完成的 sage 綠 ✓ 區隔
+            // 更早的階段：仍維持 sage 綠 ✓（已穩定完成）
+            // 當前 stage 與之後：灰（修題階段尚未由梯次開放）
+            if (i == stage - 1) return "awaitNext";
+            if (i < stage - 1)  return "green";
+            return "gray";
+        }
         if (i < stage) return "green";
         if (i > stage) return "gray";
         return tone;
@@ -97,21 +131,24 @@
     private static string LampClass(string tone) => tone switch
     {
         // 已完成：sage 實心 + 細陰影，視覺最重
-        "green" => "bg-sage border-sage text-white shadow-sm ring-2 ring-sage/20",
+        "green"     => "bg-sage border-sage text-white shadow-sm ring-2 ring-sage/20",
+        // 該審完成等待中：莫蘭迪藍半填 + 同色描邊與 ✓，視覺上明顯有別於 sage 綠（強調「等下一階段推進」）
+        "awaitNext" => "bg-morandi/15 border-morandi text-morandi shadow-sm ring-2 ring-morandi/20",
         // 進行中：morandi 實心 + 呼吸動畫
-        "blue"  => "bg-morandi border-morandi text-white animate-pulse shadow-sm",
+        "blue"      => "bg-morandi border-morandi text-white animate-pulse shadow-sm",
         // 修題中：terracotta 實心
-        "red"   => "bg-terracotta border-terracotta text-white shadow-sm",
+        "red"       => "bg-terracotta border-terracotta text-white shadow-sm",
         // 未完成：白底虛線細邊框 + 淡灰字，明顯「尚未抵達」的 ghost 樣式
-        _       => "bg-white border-dashed border-gray-300 text-gray-300"
+        _           => "bg-white border-dashed border-gray-300 text-gray-300"
     };
 
     private static string LampIcon(string tone) => tone switch
     {
-        "green" => "fa-check",
-        "blue"  => "fa-spinner fa-spin",
-        "red"   => "fa-pen",
-        _       => "fa-circle"
+        "green"     => "fa-check",
+        "awaitNext" => "fa-check",       // 同樣是 ✓，但顏色不同（莫蘭迪藍）以表達等待語意
+        "blue"      => "fa-spinner fa-spin",
+        "red"       => "fa-pen",
+        _           => "fa-circle"
     };
 
     /// <summary>連線著色：左燈為基準（同色，不打折）。</summary>
@@ -121,10 +158,11 @@
         var leftLamp = GetLampTone(leftIdx, stage, tone);
         return leftLamp switch
         {
-            "green" => "bg-sage",
-            "blue"  => "bg-morandi",
-            "red"   => "bg-terracotta",
-            _       => "bg-gray-300"
+            "green"     => "bg-sage",
+            "awaitNext" => "bg-morandi/40",   // 銜接「該審完成等待中」燈：莫蘭迪藍系，與 sage 區隔
+            "blue"      => "bg-morandi",
+            "red"       => "bg-terracotta",
+            _           => "bg-gray-300"
         };
     }
 }

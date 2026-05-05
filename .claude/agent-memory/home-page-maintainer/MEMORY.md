@@ -1,0 +1,1 @@
+- [首頁參考素材路徑](reference_home_prototype.md) — 首頁規格文件改為 D:\MTrefer\pageFinal_doc\Home.md，舊原型 html/js 已棄用

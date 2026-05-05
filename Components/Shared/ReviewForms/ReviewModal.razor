@@ -77,6 +77,11 @@
                             <i class="fa-solid @stageIcon mr-1"></i> @stageName
                         </span>
 
+                        @* 編輯時間：優先顯示 UpdatedAt，未編輯過則顯示 CreatedAt，均為 MinValue 顯示「—」 *@
+                        <span class="text-xs text-gray-400 shrink-0 ml-1">
+                            <i class="fa-solid fa-clock mr-1"></i>最後編輯時間：@EditedAtLabel
+                        </span>
+
                         @if (data.FinalReturnCount >= 2 && stage == ReviewStage.Final)
                         {
                             <span class="ml-2 inline-flex items-center px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold border border-red-200 shrink-0">
@@ -124,9 +129,11 @@
             <div class="w-[30%] border-l border-gray-200 bg-white flex flex-col">
                 @if (data is not null)
                 {
+                    @* 同階段內不論已否決策皆可繼續編輯（與互審行為一致）；
+                       只有「不是分配給此人」或「階段已結束」時才唯讀 *@
                     <ReviewActionPanel @ref="actionPanel"
                                        @bind-Comment="commentDraft"
-                                       IsReadOnly="@((data.MyAssignment?.IsDecided ?? true) || IsHistoricalAssignment)"
+                                       IsReadOnly="@(data.MyAssignment is null || IsHistoricalAssignment)"
                                        LockReason="@(IsHistoricalAssignment ? "階段已結束" : null)"
                                        History="@data.History"
                                        SimilarQuestions="@data.SimilarQuestions" />
@@ -379,9 +386,34 @@
         ? ""
         : QuestionConstants.DifficultyLabels.GetValueOrDefault(data.Question.Difficulty.Value, "");
 
+    /// <summary>
+    /// 顯示題目最後編輯時間（命題老師真實操作的時間）。
+    /// 資料來源：ReviewService.GetModalDataAsync 已從 MT_AuditLogs 查出命題老師最後真實編輯時間，
+    /// 並覆蓋進 question.UpdatedAt，故此處直接讀 UpdatedAt 即可。
+    /// 覆蓋邏輯說明：篩選 TargetType=3、UserId NOT NULL、Reason 非系統批次清單，取最大 CreatedAt；
+    /// 若無紀錄（極舊資料無 AuditLog），fallback 為 question.CreatedAt（建立時間）。
+    /// 舊資料（UpdatedAt 曾被審題決策污染）自此次查詢起自動呈現正確值，無需修改歷史資料。
+    /// </summary>
+    private string EditedAtLabel
+    {
+        get
+        {
+            if (data is null) return "—";
+
+            // question.UpdatedAt 已由 ReviewService.GetModalDataAsync 校正為命題老師真實編輯時間
+            var display = data.Question.UpdatedAt != DateTime.MinValue ? data.Question.UpdatedAt
+                        : data.Question.CreatedAt  != DateTime.MinValue ? data.Question.CreatedAt
+                        : DateTime.MinValue;
+            return display == DateTime.MinValue
+                ? "—"
+                : display.ToString("yyyy/MM/dd HH:mm");
+        }
+    }
+
     private async Task CloseAsync()
     {
-        IsVisible = false;
+        // 不直接寫 IsVisible — 它是 [Parameter]，下次 OnParametersSetAsync 會被父層覆蓋。
+        // 唯一可信賴的關閉路徑：通知父層 → 父層更新 state → 父層 re-render 把 IsVisible 變回 false
         loadedQuestionId = null;   // 下次再開同題時強制重撈最新狀態
         data = null;
         commentDraft = string.Empty;

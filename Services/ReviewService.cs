@@ -14,11 +14,11 @@ public interface IReviewService
 {
     // ====== Phase 3.1：讀取 ======
     /// <summary>
-    /// 取得當前使用者於指定專案的所有審題分配（跨所有階段）。
+    /// 取得當前使用者於指定專案的所有審題分配（跨所有階段）+ 專案目前進行中的審題階段。
     /// 排序：待處理優先、其次階段新→舊、最後依編輯時間新→舊。
-    /// 已離開階段的歷史記錄會保留並由 UI 端標記為唯讀以利追蹤。
+    /// 每筆 Item 已標記 IsHistorical（Stage != currentStage），UI 端不再做 stage 比對。
     /// </summary>
-    Task<List<ReviewListItem>> GetMyAssignmentsAsync(int projectId, int reviewerUserId);
+    Task<ReviewAssignmentListResult> GetMyAssignmentsAsync(int projectId, int reviewerUserId);
 
     /// <summary>
     /// 取得指定專案的「審核結果與歷史」清單（Adopted / Rejected / ClosedNotAdopted）。
@@ -59,10 +59,10 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     //  Phase 3.1：讀取
     // ====================================================================
 
-    public async Task<List<ReviewListItem>> GetMyAssignmentsAsync(int projectId, int reviewerUserId)
+    public async Task<ReviewAssignmentListResult> GetMyAssignmentsAsync(int projectId, int reviewerUserId)
     {
         // 不再依 ReviewStage 篩選 — 顯示該使用者於本專案的全部分配
-        // 已離開階段的紀錄變成唯讀（追蹤功能），由前端比對 currentPhase 決定按鈕
+        // 同 query 撈當前 phase；前端 IsHistorical 由本 service 計算後填入，避免 UI 重做判斷
         const string sql = """
             SELECT
                 ra.Id              AS AssignmentId,
@@ -87,27 +87,50 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 ISNULL(ra.DecidedAt, ra.CreatedAt) DESC;          -- 同階段依編輯時間新→舊
             """;
 
-        using var conn = _db.CreateConnection();
-        var rows = await conn.QueryAsync<AssignmentListRow>(sql, new
-        {
-            ProjectId  = projectId,
-            ReviewerId = reviewerUserId
-        });
+        // 當前進行中的審題階段（僅 PhaseCode 3/5/7 對應 Mutual/Expert/Final；其餘為 null）
+        const string phaseSql = """
+            SELECT TOP 1 PhaseCode FROM dbo.MT_ProjectPhases
+            WHERE ProjectId = @ProjectId
+              AND PhaseCode > 1
+              AND CAST(GETDATE() AS DATE) BETWEEN StartDate AND EndDate
+            ORDER BY SortOrder;
+            """;
 
-        return rows.Select(r => new ReviewListItem
+        // 不能 Task.WhenAll —— 同一個 connection 並行 query 需要 MultipleActiveResultSets=True，
+        // 我們的連線字串沒開（也不該開，MARS 有效能 / 鎖定副作用）。改順序執行
+        using var conn = _db.CreateConnection();
+        var rows = await conn.QueryAsync<AssignmentListRow>(sql, new { ProjectId = projectId, ReviewerId = reviewerUserId });
+        var phaseCode = await conn.ExecuteScalarAsync<byte?>(phaseSql, new { ProjectId = projectId });
+
+        var currentStage = phaseCode switch
         {
-            AssignmentId = r.AssignmentId,
-            QuestionId   = r.QuestionId,
-            QuestionCode = r.QuestionCode,
-            TypeKey      = QuestionConstants.TypeIdToKey.GetValueOrDefault(r.TypeId, ""),
-            Level        = r.Level,
-            Difficulty   = r.Difficulty,
-            SummaryText  = StripHtml(r.SummaryHtml),
-            Stage        = (ReviewStage)r.Stage,
-            Decision     = r.Decision is null ? null : (ReviewDecision)r.Decision.Value,
-            Status       = (ReviewTaskStatus)r.Status,
-            LastEditedAt = r.LastEditedAt
+            3 => (ReviewStage?)ReviewStage.Mutual,
+            5 => ReviewStage.Expert,
+            7 => ReviewStage.Final,
+            _ => null
+        };
+
+        var items = rows.Select(r =>
+        {
+            var stage = (ReviewStage)r.Stage;
+            return new ReviewListItem
+            {
+                AssignmentId = r.AssignmentId,
+                QuestionId   = r.QuestionId,
+                QuestionCode = r.QuestionCode,
+                TypeKey      = QuestionConstants.TypeIdToKey.GetValueOrDefault(r.TypeId, ""),
+                Level        = r.Level,
+                Difficulty   = r.Difficulty,
+                SummaryText  = StripHtml(r.SummaryHtml),
+                Stage        = stage,
+                Decision     = r.Decision is null ? null : (ReviewDecision)r.Decision.Value,
+                Status       = (ReviewTaskStatus)r.Status,
+                LastEditedAt = r.LastEditedAt,
+                IsHistorical = currentStage is null || stage != currentStage
+            };
         }).ToList();
+
+        return new ReviewAssignmentListResult(items, currentStage);
     }
 
     public async Task<List<ReviewHistoryItem>> GetHistoryAsync(int projectId)
@@ -174,6 +197,46 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
 
         using var conn = _db.CreateConnection();
 
+        // 1.5 從 AuditLogs 取「命題老師最後真實編輯時間」，覆蓋可能因舊版本污染的 UpdatedAt。
+        // 篩選邏輯：
+        //   - TargetType=3（Questions）、TargetId=questionId
+        //   - UserId IS NOT NULL（排除系統批次事件，系統批次 UserId 為 NULL）
+        //   - Action IN (0=Create, 1=Modify)
+        //   - NewValue 的 Reason 欄位不存在（一般命題編輯），或 = 'Revision'（修題也屬老師親自編輯）
+        //   - 排除 Reason 屬於已知系統批次清單
+        // Fallback：若無任何符合記錄，保留原始 CreatedAt 作為「建立時間」顯示。
+        const string lastEditSql = """
+            SELECT TOP 1 CreatedAt
+            FROM dbo.MT_AuditLogs
+            WHERE TargetType  = 3
+              AND TargetId    = @QuestionId
+              AND UserId      IS NOT NULL
+              AND Action      IN (0, 1)
+              AND (
+                  NewValue IS NULL
+                  OR JSON_VALUE(NewValue, '$.Reason') IS NULL
+                  OR JSON_VALUE(NewValue, '$.Reason') = 'Revision'
+              )
+              AND (
+                  JSON_VALUE(NewValue, '$.Reason') IS NULL
+                  OR JSON_VALUE(NewValue, '$.Reason') NOT IN (
+                      'CompositionPhaseEnded',
+                      'PeerEditingPhaseStart',
+                      'ExpertReviewingPhaseStart',
+                      'ExpertEditingPhaseStart',
+                      'FinalReviewingPhaseStart',
+                      'FinalEditingPhaseStart',
+                      'FinalReviewAssigned'
+                  )
+              )
+            ORDER BY CreatedAt DESC;
+            """;
+        var lastTeacherEditAt = await conn.ExecuteScalarAsync<DateTime?>(lastEditSql, new { QuestionId = questionId });
+
+        // 用 AuditLogs 的真實命題老師編輯時間覆蓋 question.UpdatedAt
+        // 若 AuditLogs 無紀錄（極舊資料），fallback 為 question.CreatedAt（建立時間永遠正確）
+        question.UpdatedAt = lastTeacherEditAt ?? question.CreatedAt;
+
         // 2. 命題者顯示名稱
         const string creatorSql = """
             SELECT ISNULL(u.DisplayName, '') FROM dbo.MT_Questions q
@@ -223,7 +286,9 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 Stage      = (ReviewStage)myAssignment.Stage,
                 Status     = (ReviewTaskStatus)myAssignment.Status,
                 Decision   = myAssignment.Decision is null ? null : (ReviewDecision)myAssignment.Decision.Value,
-                Comment    = myAssignment.Comment,
+                // 舊資料可能殘留 Quill HTML 標籤（<u> / <br> / <p> 等），textarea 不渲染 HTML
+                // 會把標籤直接當成字面顯示出現怪線條 — 載入時統一 strip 為純文字
+                Comment    = StripHtmlFull(myAssignment.Comment),
                 DecidedAt  = myAssignment.DecidedAt,
                 CreatedAt  = myAssignment.CreatedAt
             },
@@ -366,11 +431,9 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 return false;   // 該分配不存在 / 不是分配給此使用者
             }
 
-            if (meta.Decision is not null)
-            {
-                tx.Rollback();
-                return false;   // 已決策過，不允許重複決策
-            }
+            // 同階段內允許重複決策（與互審「儲存意見可再修改」概念一致）—
+            // 下一階段（修題）開始時 IsHistorical 會在 UI 端鎖定，不會走到這裡
+            var isResubmit = meta.Decision is not null;
 
             // 2. 規則檢查：互審不可下決策（無採用/退回按鈕，本不應走到此 method）
             if (meta.Stage == (byte)ReviewStage.Mutual)
@@ -410,13 +473,15 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                     "SELECT Status FROM dbo.MT_Questions WHERE Id = @Id",
                     new { Id = meta.QuestionId }, tx);
 
+                // 審題決策僅更新 Status，不動 UpdatedAt（UpdatedAt 語意保留給命題老師實際編輯內容的時刻）
                 await conn.ExecuteAsync(
-                    "UPDATE dbo.MT_Questions SET Status = @Status, UpdatedAt = SYSDATETIME() WHERE Id = @Id;",
+                    "UPDATE dbo.MT_Questions SET Status = @Status WHERE Id = @Id;",
                     new { Id = meta.QuestionId, Status = newQuestionStatus.Value }, tx);
             }
 
             // 6. 總召「改後再審」→ 累加退回計數（達 2 次自動解鎖總召自編）
-            if (meta.Stage == (byte)ReviewStage.Final && req.Decision == ReviewDecision.Revise)
+            //    再次決策時不重複加，避免使用者「Revise → Approve → Revise」誤計多次
+            if (!isResubmit && meta.Stage == (byte)ReviewStage.Final && req.Decision == ReviewDecision.Revise)
             {
                 await BumpReturnCountAsync(conn, tx, meta.QuestionId, operatorUserId);
             }
@@ -592,7 +657,11 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         return entries.OrderByDescending(e => e.At).ToList();
     }
 
-    /// <summary>判斷某筆 Audit 是否為系統自動事件（如命題階段結束的自動分配），這類事件不顯示於使用者歷程。</summary>
+    /// <summary>
+    /// 判斷某筆 Audit 是否為系統自動事件（如命題階段結束的自動分配、系統批次升級 Status），
+    /// 這類事件不顯示於使用者歷程。
+    /// 判斷依據：NewValue JSON 含有 Reason 欄位，且其值屬於已知的系統批次 Reason 清單。
+    /// </summary>
     private static bool IsSystemAutoAuditEvent(string? newValueJson)
     {
         if (string.IsNullOrEmpty(newValueJson)) return false;
@@ -602,8 +671,15 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             if (doc.RootElement.TryGetProperty("Reason", out var reasonProp))
             {
                 var reason = reasonProp.GetString();
-                // 系統行為清單：未來新增系統 Reason 在此補
-                return reason is "CompositionPhaseEnded";
+                // 系統行為清單：含命題階段結束、各審題/修題階段批次升級 Status 的事件
+                // EnsureCompositionPhaseClosedAsync 寫的 Reason
+                // EnsurePhaseTransitionAsync 各階段寫的 Reason
+                return reason is "CompositionPhaseEnded"
+                               or "PeerEditingPhaseStart"
+                               or "ExpertReviewingPhaseStart"
+                               or "ExpertEditingPhaseStart"
+                               or "FinalReviewingPhaseStart"
+                               or "FinalEditingPhaseStart";
             }
         }
         catch

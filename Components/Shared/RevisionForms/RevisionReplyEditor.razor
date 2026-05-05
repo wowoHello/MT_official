@@ -1,32 +1,62 @@
 @* ====================================================================== *@
-@*  RevisionReplyEditor — 「本次修題說明」編輯器                             *@
+@*  RevisionReplyEditor — 「本次修題說明」CTA 主角區                          *@
 @*                                                                          *@
-@*  必填欄位；純 textarea（與審題意見體驗一致，對年長者最直覺）              *@
-@*  Plan_010-C：放在 RevisionReferencePanel 最下方                           *@
+@*  視覺強化：                                                              *@
+@*    - sage 色 ring + border-2 + shadow-md（強調主動作）                   *@
+@*    - 頂部漸層色條（sage → sage/40，rounded-b）                            *@
+@*    - textarea: focus 時 ring-2 + 切回白底（有對焦感）                    *@
+@*                                                                          *@
+@*  字體：標題 text-sm font-bold / 內容 text-sm leading-relaxed             *@
 @* ====================================================================== *@
 
-<div class="space-y-2">
-    <label class="text-xs font-bold text-slate-main flex items-center gap-1">
-        <i class="fa-solid fa-pen-to-square text-terracotta"></i> 本次修題說明
-        <span class="text-terracotta">*</span>
+<div class="relative bg-white rounded-xl border-2 border-sage/30 shadow-md p-4 ring-1 ring-sage/10">
+
+    @* 頂部漸層色條 — 強化主角地位 *@
+    <div class="absolute top-0 left-4 right-4 h-1 bg-gradient-to-r from-sage to-sage/40 rounded-b"></div>
+
+    @* 標題列 *@
+    <label class="flex items-center gap-2 mb-3 mt-1">
+        <i class="fa-solid fa-pen-to-square text-sage"></i>
+        <span class="text-sm font-bold text-slate-main">本次修題說明</span>
+        <span class="text-terracotta text-sm font-bold">*</span>
     </label>
 
-    <textarea value="@Value"
-              @oninput="OnInputAsync"
-              readonly="@IsReadOnly"
-              placeholder="請敘述本次調整重點，例如：依互審意見將選項 C 改為更具區辨度的詞彙…"
-              class="w-full h-[160px] px-3 py-2 text-sm leading-relaxed border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-morandi focus:border-morandi resize-none read-only:bg-gray-50 read-only:cursor-not-allowed"></textarea>
+    @* textarea：用 Blazor 內建 InputTextArea — 正確處理 IME composition；
+       data-gramm 等屬性禁用 Grammarly / Microsoft Editor 等擴充工具的底線疊加。 *@
+    <InputTextArea Value="@Value"
+                   ValueChanged="OnValueChangedAsync"
+                   ValueExpression="@(() => Value)"
+                   readonly="@IsReadOnly"
+                   placeholder="請說明此次修改的內容與依據…"
+                   lang="zxx"
+                   spellcheck="false"
+                   writingsuggestions="false"
+                   autocomplete="off"
+                   autocorrect="off"
+                   autocapitalize="off"
+                   data-gramm="false"
+                   data-gramm_editor="false"
+                   data-enable-grammarly="false"
+                   data-ms-editor="false"
+                   class="review-textarea no-underline w-full min-h-[120px] px-3 py-2.5 text-sm text-gray-700 leading-relaxed bg-stone-50/40 border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sage/30 focus:border-sage focus:bg-white transition-all placeholder:text-gray-400 resize-none read-only:bg-gray-50 read-only:cursor-not-allowed" />
 
+    @* 提示說明 *@
     @if (!IsReadOnly && string.IsNullOrWhiteSpace(Value))
     {
-        <p class="text-xs text-terracotta font-bold flex items-center gap-1">
+        <p class="text-xs text-terracotta font-bold flex items-center gap-1 mt-2">
             <i class="fa-solid fa-circle-exclamation"></i>
             修題說明為必填，請敘述本次調整重點。
         </p>
     }
     else if (IsReadOnly && string.IsNullOrWhiteSpace(Value))
     {
-        <p class="text-xs text-gray-400 italic">（修題期間已結束，無修題說明）</p>
+        <p class="text-xs text-gray-400 italic mt-2">（修題期間已結束，無修題說明）</p>
+    }
+    else
+    {
+        <p class="text-xs text-gray-500 flex items-center gap-1 mt-2">
+            <i class="fa-solid fa-circle-info"></i> 此說明會與題目修改一同送出供下一階段審題參考
+        </p>
     }
 </div>
 
@@ -37,9 +67,6 @@
     /// <summary>唯讀模式（修題期間已過）</summary>
     [Parameter] public bool IsReadOnly { get; set; }
 
-    private async Task OnInputAsync(ChangeEventArgs e)
-    {
-        Value = e.Value?.ToString() ?? "";
-        await ValueChanged.InvokeAsync(Value);
-    }
+    private async Task OnValueChangedAsync(string newValue)
+        => await ValueChanged.InvokeAsync(newValue ?? "");
 }

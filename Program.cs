@@ -87,6 +87,11 @@ builder.Services.AddScoped<IHomeService, HomeService>();
 // 命題儀表板 KPI 統計（Dashboard.razor）
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 
+// 階段轉換協調器：CwtList / Reviews / OverviewService 共用入口，60 秒去重
+// Singleton + IMemoryCache 跨 user 跨 tab 共享狀態，避免雜訊 SQL
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<IPhaseTransitionCoordinator, PhaseTransitionCoordinator>();
+
 var app = builder.Build();
 
 // =========================================================

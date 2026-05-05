@@ -8,7 +8,9 @@
 @inject IQuestionService QuestionService
 @inject IProjectService ProjectService
 @inject IReviewService ReviewService
+@inject IPhaseTransitionCoordinator PhaseCoordinator
 @inject NavigationManager Navigation
+@inject ILogger<Reviews> Logger
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
 
@@ -16,25 +18,25 @@
     <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur-sm border-b border-gray-200">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
-                <nav class="flex text-sm text-gray-500 mb-1 font-medium" aria-label="Breadcrumb">
+                <nav class="flex text-sm text-gray-500 mb-2 font-medium" aria-label="Breadcrumb">
                     <ol class="inline-flex items-center space-x-1">
                         <li>
-                            <NavLink href="" Match="NavLinkMatch.All" class="hover:text-morandi transition-colors focus:outline-none">
+                            <NavLink href="" Match="NavLinkMatch.All" class="hover:text-[var(--color-morandi)] transition-colors focus:outline-none">
                                 <i class="fa-solid fa-house mr-1"></i> 首頁
                             </NavLink>
                         </li>
                         <li>
                             <div class="flex items-center">
                                 <i class="fa-solid fa-chevron-right text-xs mx-1.5"></i>
-                                <span class="text-slate-main">審題任務</span>
+                                <span class="text-[var(--color-slate-main)]">審題任務</span>
                             </div>
                         </li>
                     </ol>
                 </nav>
                 <div class="flex items-center gap-3">
                     <h1 tabindex="-1" class="text-2xl font-bold flex items-center gap-2 focus:outline-none">
-                        <i class="fa-solid fa-magnifying-glass-chart text-terracotta"></i> 審題任務
-                    </h1>
+                        <i class="fa-solid fa-magnifying-glass-chart text-[var(--color-morandi)]"></i> 審題任務
+                    </h1>                    
                     @* 當前階段指示燈：與 CwtList 一致 — 進行中 sage（綠）；急迫倒數 ≤5 天才轉 terracotta 警示 *@
                     @if (currentPhase is not null)
                     {
@@ -71,6 +73,7 @@
                         </span>
                     }
                 </div>
+                <p class="text-sm text-gray-500 mt-1">互審 / 專審 / 總召審題的決策、退回與歷史。</p>
             </div>
         </div>
     </div>
@@ -166,9 +169,9 @@
                         @if (!IsCompositionPhase)
                         {
                             @* 統計摘要條 — 待處理/已完成只算目前階段；歷史紀錄獨立顯示供追蹤 *@
-                            var activePending   = assignments.Count(a => !IsHistorical(a) && !a.IsCompleted);
-                            var activeCompleted = assignments.Count(a => !IsHistorical(a) &&  a.IsCompleted);
-                            var historicalCount = assignments.Count(IsHistorical);
+                            var activePending   = assignments.Count(a => !a.IsHistorical && !a.IsCompleted);
+                            var activeCompleted = assignments.Count(a => !a.IsHistorical &&  a.IsCompleted);
+                            var historicalCount = assignments.Count(a =>  a.IsHistorical);
                             <div class="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 bg-white rounded-xl border border-gray-200 px-5 py-3 text-sm font-medium shadow-sm">
                                 <div class="flex items-center gap-1.5 text-gray-700">
                                     <i class="fa-solid fa-list-check text-morandi"></i>
@@ -184,7 +187,7 @@
                                 <span class="text-gray-300">|</span>
                                 <div class="flex items-center gap-1.5 text-gray-700">
                                     <i class="fa-solid fa-circle-check text-sage"></i>
-                                    已完成
+                                    已審題
                                     <span class="text-lg font-bold text-sage ml-0.5">@activeCompleted</span>
                                 </div>
                                 @if (historicalCount > 0)
@@ -242,7 +245,7 @@
                                 {
                                     <option value="all">所有狀態</option>
                                     <option value="pending">待審</option>
-                                    <option value="completed">已完成</option>
+                                    <option value="completed">已審題</option>
                                     <option value="historical">歷史紀錄</option>
                                 }
                                 else
@@ -333,6 +336,7 @@
                                     <tr>
                                         <th class="px-4 py-2 text-left whitespace-nowrap">題號</th>
                                         <th class="px-4 py-2 text-left whitespace-nowrap">題型</th>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap">等級</th>
                                         <th class="px-4 py-2 text-left">題目摘要</th>
                                         <th class="px-4 py-2 text-center whitespace-nowrap">階段</th>
                                         <th class="px-4 py-2 text-center whitespace-nowrap">狀態</th>
@@ -350,6 +354,16 @@
                                                 <span class="inline-block px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-bold border border-gray-200">
                                                     @QuestionConstants.TypeLabels.GetValueOrDefault(item.TypeKey, "未知")
                                                 </span>
+                                            </td>
+                                            <td class="px-4 py-3 whitespace-nowrap">
+                                                @if (item.Level is byte lv)
+                                                {
+                                                    <span class="text-xs text-morandi font-bold">@(item.TypeKey == QuestionTypeCodes.Listen ? QuestionConstants.ListenLevelLabels.GetValueOrDefault(lv, "") : QuestionConstants.GeneralLevelLabels.GetValueOrDefault(lv, ""))</span>
+                                                }
+                                                @if (item.Difficulty is byte d)
+                                                {
+                                                    <span class="text-xs text-terracotta font-bold ml-2">@QuestionConstants.DifficultyLabels.GetValueOrDefault(d, "")</span>
+                                                }
                                             </td>
                                             <td class="px-4 py-3 max-w-md">
                                                 <div class="text-gray-700 truncate" title="@item.SummaryText">
@@ -377,7 +391,7 @@
                                             </td>
                                             <td class="px-4 py-3 text-center whitespace-nowrap">
                                                 @{
-                                                    var historical = IsHistorical(item);
+                                                    var historical = item.IsHistorical;
                                                 }
                                                 @if (historical)
                                                 {
@@ -387,7 +401,7 @@
                                                 }
                                                 else if (item.IsCompleted)
                                                 {
-                                                    <span class="inline-block px-2 py-0.5 rounded text-xs font-bold bg-sage/15 text-sage border border-sage/30">已完成</span>
+                                                    <span class="inline-block px-2 py-0.5 rounded text-xs font-bold bg-sage/15 text-sage border border-sage/30">已審題</span>
                                                 }
                                                 else
                                                 {
@@ -547,6 +561,10 @@
     private bool needNoPermissionRedirect;
     private bool permissionChecked;
 
+    // 守門：相同 projectId 不重複載入（OnParametersSetAsync 會被 cascading parameter 反覆觸發）
+    // Decision/Save 後改呼叫 ReloadAsync() 強制 reload
+    private int? loadedProjectId;
+
     // 七階段資料（資料來源：MT_ProjectPhases，PhaseCode 2~8；排除 PhaseCode=1 產學區間）
     private ProjectPhaseInfo? currentPhase;
     private List<ProjectPhaseInfo> phases = new();
@@ -592,35 +610,28 @@
             phases = new();
             currentPhase = null;
             isLoadingPhases = false;
+            loadedProjectId = null;
             return;
         }
 
-        // Plan_002b：與 CwtList 並列為兩個觸發點，避免審題專家不進 CwtList 時分配卡住。
-        // EnsureCompositionPhaseClosedAsync 為 Idempotent，重複呼叫安全且短路。
-        try
-        {
-            await QuestionService.EnsureCompositionPhaseClosedAsync(CurrentProject.Id);
-        }
-        catch (InvalidOperationException ex)
-        {
-            // 命題教師不足 2 人 → 警示但仍載入頁面（讓總召看得到當前狀態）
-            await ShowToastAsync("warning", ex.Message);
-        }
+        // 同 projectId 不重跑：cascading parameter / parent re-render 會反覆觸發
+        // Decision/Save 後想強制 reload 改呼叫 ReloadAsync()
+        if (loadedProjectId == CurrentProject.Id) return;
+        loadedProjectId = CurrentProject.Id;
 
-        // 後續階段自動升級（4/5/6/7/8）— Idempotent，每次進頁面都跑一次
-        try
-        {
-            await QuestionService.EnsurePhaseTransitionAsync(CurrentProject.Id);
-        }
-        catch
-        {
-            // 失敗不阻擋頁面載入
-        }
+        await LoadProjectAsync(CurrentProject.Id);
+    }
 
-        // 階段資料：每次 CurrentProject 變更都需要重新載入（切換梯次）
-        await LoadPhasesAsync(CurrentProject.Id);
+    /// <summary>專案首次載入或顯式 reload — 集中所有 side effect 入口</summary>
+    private async Task LoadProjectAsync(int projectId)
+    {
+        // 階段轉換統一委派 PhaseTransitionCoordinator —
+        // 60 秒去重 + 統一 logging，try/catch 全部收進 coordinator 內
+        await PhaseCoordinator.EnsureAsync(projectId);
 
-        // 取得當前登入者 Id（每次進頁面都會取，但 currentUserId 一旦取得就快取）
+        await LoadPhasesAsync(projectId);
+
+        // 取得當前登入者 Id（每位使用者每次進頁面只跑一次）
         if (currentUserId is null)
         {
             var authState = await AuthState;
@@ -628,7 +639,6 @@
             if (int.TryParse(claim, out var uid)) currentUserId = uid;
         }
 
-        // 載入審題作業區列表（依當前階段對應的 ReviewStage）+ 審核結果與歷史
         await Task.WhenAll(LoadAssignmentsAsync(), LoadHistoryAsync());
 
         // 權限檢查：每位使用者每次進頁面只跑一次
@@ -636,7 +646,7 @@
         permissionChecked = true;
 
         if (currentUserId is null) return;
-        var isMember = await QuestionService.IsProjectMemberAsync(currentUserId.Value, CurrentProject.Id);
+        var isMember = await QuestionService.IsProjectMemberAsync(currentUserId.Value, projectId);
         if (!isMember) needNoPermissionRedirect = true;
     }
 
@@ -645,15 +655,18 @@
         if (CurrentProject is null || currentUserId is null)
         {
             assignments = new();
+            InvalidateFilter();
             return;
         }
 
         isLoadingList = true;
         try
         {
-            // 一次撈出該使用者於本專案所有階段的分配；前端再依 CurrentReviewStage 判斷誰是歷史唯讀
-            assignments = await ReviewService.GetMyAssignmentsAsync(
+            // Service 端已標記每筆 IsHistorical，前端不再做 stage 比對
+            var result = await ReviewService.GetMyAssignmentsAsync(
                 CurrentProject.Id, currentUserId.Value);
+            assignments = result.Items;
+            InvalidateFilter();
         }
         finally
         {
@@ -661,18 +674,15 @@
         }
     }
 
-    /// <summary>判斷是否為「歷史唯讀」紀錄：該分配的階段已不是當前進行中的審題階段</summary>
-    private bool IsHistorical(ReviewListItem item)
-        => CurrentReviewStage is null || item.Stage != CurrentReviewStage;
-
     private async Task LoadHistoryAsync()
     {
-        if (CurrentProject is null) { historyItems = new(); return; }
+        if (CurrentProject is null) { historyItems = new(); InvalidateFilter(); return; }
 
         isLoadingHistory = true;
         try
         {
             historyItems = await ReviewService.GetHistoryAsync(CurrentProject.Id);
+            InvalidateFilter();
         }
         finally
         {
@@ -696,18 +706,18 @@
     //  篩選與分頁
     // ============================================================
 
-    /// <summary>切 Tab：保留篩選條件，僅重置頁碼到第 1 頁</summary>
+    /// <summary>切 Tab：保留篩選條件但 cache 須失效（兩 Tab 用不同 source list）</summary>
     private void SwitchTab(string tab)
     {
         currentTab  = tab;
         currentPage = 1;
+        // FilteredCount 會切換取 FilteredAssignments / FilteredHistory；cache 本身不需失效
     }
 
-    private void OnKeywordChanged(string? keyword) { queryKeyword = keyword; currentPage = 1; }
-
-    private void OnTypeFilterChanged(ChangeEventArgs e)   { queryType   = e.Value?.ToString() ?? "all"; currentPage = 1; }
-    private void OnLevelFilterChanged(ChangeEventArgs e)  { queryLevel  = e.Value?.ToString() ?? "all"; currentPage = 1; }
-    private void OnStatusFilterChanged(ChangeEventArgs e) { queryStatus = e.Value?.ToString() ?? "all"; currentPage = 1; }
+    private void OnKeywordChanged(string? keyword)        { queryKeyword = keyword; currentPage = 1; InvalidateFilter(); }
+    private void OnTypeFilterChanged(ChangeEventArgs e)   { queryType   = e.Value?.ToString() ?? "all"; currentPage = 1; InvalidateFilter(); }
+    private void OnLevelFilterChanged(ChangeEventArgs e)  { queryLevel  = e.Value?.ToString() ?? "all"; currentPage = 1; InvalidateFilter(); }
+    private void OnStatusFilterChanged(ChangeEventArgs e) { queryStatus = e.Value?.ToString() ?? "all"; currentPage = 1; InvalidateFilter(); }
     private void OnPageSizeChanged(ChangeEventArgs e)
     {
         if (int.TryParse(e.Value?.ToString(), out var n) && n > 0) pageSize = n;
@@ -737,21 +747,31 @@
         return level == lv;
     }
 
-    // ----- 計算屬性：套篩選後的結果 -----
-    private IReadOnlyList<ReviewListItem> FilteredAssignments => assignments
+    // ----- 篩選結果：cached + invalidate flag，避免每 render 重建 List -----
+    private List<ReviewListItem>?  cachedAssignments;
+    private List<ReviewHistoryItem>? cachedHistory;
+
+    /// <summary>篩選條件或來源資料變動時呼叫，下次存取會重算</summary>
+    private void InvalidateFilter()
+    {
+        cachedAssignments = null;
+        cachedHistory     = null;
+    }
+
+    private IReadOnlyList<ReviewListItem> FilteredAssignments => cachedAssignments ??= assignments
         .Where(a => MatchKeywordOn(a.QuestionCode, a.SummaryText))
         .Where(a => MatchType(a.TypeKey))
         .Where(a => MatchLevel(a.Level))
         .Where(a => queryStatus switch
         {
-            "pending"    => !IsHistorical(a) && !a.IsCompleted,
-            "completed"  => !IsHistorical(a) &&  a.IsCompleted,
-            "historical" =>  IsHistorical(a),
+            "pending"    => !a.IsHistorical && !a.IsCompleted,
+            "completed"  => !a.IsHistorical &&  a.IsCompleted,
+            "historical" =>  a.IsHistorical,
             _            =>  true
         })
         .ToList();
 
-    private IReadOnlyList<ReviewHistoryItem> FilteredHistory => historyItems
+    private IReadOnlyList<ReviewHistoryItem> FilteredHistory => cachedHistory ??= historyItems
         .Where(h => MatchKeywordOn(h.QuestionCode, h.SummaryText))
         .Where(h => MatchType(h.TypeKey))
         .Where(h => MatchLevel(h.Level))

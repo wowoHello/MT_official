@@ -39,13 +39,25 @@
             </div>
         </div>
 
-        @* 純 textarea — 不需富文本格式，年長者更直覺 *@
-        <textarea id="@textareaId"
-                  value="@Comment"
-                  @oninput="OnInputAsync"
-                  readonly="@IsReadOnly"
-                  placeholder="請輸入審題意見…"
-                  class="w-full h-[200px] px-3 py-2 text-sm leading-relaxed border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-morandi focus:border-morandi resize-none read-only:bg-gray-50 read-only:cursor-not-allowed"></textarea>
+        @* 用 Blazor 內建 InputTextArea — 正確處理 IME composition，避免中文注音/拼音重複輸入
+           瀏覽器原生輔助 + 擴充工具 (Grammarly/MS Editor) 防護仍保留 *@
+        <InputTextArea id="@textareaId"
+                       Value="@Comment"
+                       ValueChanged="OnValueChangedAsync"
+                       ValueExpression="@(() => Comment)"
+                       readonly="@IsReadOnly"
+                       placeholder="請輸入審題意見…"
+                       lang="zxx"
+                       spellcheck="false"
+                       writingsuggestions="false"
+                       autocomplete="off"
+                       autocorrect="off"
+                       autocapitalize="off"
+                       data-gramm="false"
+                       data-gramm_editor="false"
+                       data-enable-grammarly="false"
+                       data-ms-editor="false"
+                       class="review-textarea no-underline w-full h-[200px] px-3 py-2 text-sm leading-relaxed text-slate-main border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-morandi focus:border-morandi resize-none read-only:bg-gray-50 read-only:cursor-not-allowed" />
     </div>
 
     @* ===== 下半部：歷程軌跡 + 相似題比對（共用同一個內捲容器） ===== *@
@@ -73,18 +85,18 @@
     /// <summary>讓父層（ReviewModal 頂部橫幅按鈕）能呼叫展開相似題列表</summary>
     public Task ExpandSimilarityAsync() => similaritySection?.ExpandAsync() ?? Task.CompletedTask;
 
-    private async Task OnInputAsync(ChangeEventArgs e)
-    {
-        var newValue = e.Value?.ToString() ?? string.Empty;
-        Comment = newValue;
-        await CommentChanged.InvokeAsync(newValue);
-    }
+    private async Task OnValueChangedAsync(string newValue)
+        => await CommentChanged.InvokeAsync(newValue ?? string.Empty);
 
     private async Task InsertCannedAsync(string text)
     {
         if (IsReadOnly) return;
-        // JS helper 會直接修改 textarea 並觸發 input 事件 → Blazor @oninput 同步 Comment
-        await JS.InvokeVoidAsync("TextareaHelper.insertAtCursor", textareaId, text);
+        // 由 JS 回傳插入後的新值，再由 Blazor 明確同步，避免 synthetic change 與 IME / Editor 打架。
+        var nextValue = await JS.InvokeAsync<string?>("TextareaHelper.insertAtCursor", textareaId, text);
+        if (nextValue is not null)
+        {
+            await OnValueChangedAsync(nextValue);
+        }
     }
 
     /// <summary>

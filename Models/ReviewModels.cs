@@ -154,7 +154,21 @@ public class ReviewListItem
     /// 用 ReviewStatus 而非 Decision，因互審無決策但 Comment 儲存後即視為完成。
     /// </summary>
     public bool IsCompleted => Status == ReviewTaskStatus.Completed;
+
+    /// <summary>
+    /// 是否為「歷史唯讀」紀錄：本 Assignment 的 Stage 已不是專案目前進行中的審題階段。
+    /// Service 在組裝列表時依 currentStage 設值；UI 端直接讀取，不再做 stage 比對。
+    /// </summary>
+    public bool IsHistorical { get; set; }
 }
+
+/// <summary>
+/// 審題作業區列表 + 當前審題階段（命題/修題期間為 null）。
+/// 包成 record 讓 service 一次回傳 items + currentStage，UI 不再自行推導 IsHistorical。
+/// </summary>
+public sealed record ReviewAssignmentListResult(
+    List<ReviewListItem> Items,
+    ReviewStage? CurrentStage);
 
 /// <summary>審核結果與歷史 Tab 的單列（採用 / 不採用）</summary>
 public class ReviewHistoryItem

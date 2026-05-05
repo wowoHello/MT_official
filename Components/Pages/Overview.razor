@@ -31,8 +31,9 @@
                     </ol>
                 </nav>
                 <h1 tabindex="-1" class="text-2xl font-bold flex items-center gap-2 focus:outline-none">
-                    <i class="fa-solid fa-layer-group text-morandi"></i> 當前梯次：命題總覽
+                    <i class="fa-solid fa-layer-group text-[var(--color-morandi)]"></i> 當前梯次：命題總覽
                 </h1>
+                    <p class="text-sm text-gray-500 mt-1">全梯次試題列表、題目內容與審題全局結果檢視。</p>
             </div>
         </div>
     </div>
@@ -166,7 +167,7 @@
                             @* col-span-6 在 min-w-[1080px] 容器內理應 ~510px，但實際上 fr 配置會被內容多寡擠壓，
                                直接給 min-w-[480px] 鎖住 stepper 所需空間，確保 7 顆球與連線不被壓縮 *@
                             <div class="col-span-6 min-w-[480px]">
-                                <PhaseProgressStepper Status="item.Status" />
+                                <PhaseProgressStepper Status="item.Status" CurrentPhaseCode="result.CurrentPhaseCode" />
                             </div>
                             <div class="col-span-1 flex flex-col items-center gap-1.5">
                                 @if (item.IsDeleted)
@@ -181,17 +182,18 @@
                                 }
                                 else
                                 {
-                                    @* 修題階段（4/6/8）依本題是否已送出修題說明，呈現不同細粒度狀態 *@
-                                    var inEditing = item.Status is QuestionStatus.PeerEditing
-                                                                 or QuestionStatus.ExpertEditing
-                                                                 or QuestionStatus.FinalEditing;
-                                    @if (inEditing && item.HasRepliedThisStage)
+                                    @* 當前狀態 Badge：依「題目 Status × 梯次 PhaseCode × 本人是否送出修題」三維度判定 *@
+                                    var display = ResolveDisplayStatus(item.Status, result.CurrentPhaseCode, item.HasRepliedThisStage);
+                                    @if (display.IsAwaitingNext)
                                     {
-                                        <StatusBadge StatusText="修題已送出" BadgeType="success" Compact="true" />
+                                        @* 「OO 完成」等待下一階段：用莫蘭迪藍 inline badge，與綠色「修題已送出 / 完成」做語意區隔 *@
+                                        <span class="inline-flex items-center px-2 py-0.5 bg-morandi/10 text-morandi rounded text-xs font-bold whitespace-nowrap border border-morandi/20">
+                                            <i class="fa-solid fa-circle-check text-xs mr-1"></i>@display.Text
+                                        </span>
                                     }
                                     else
                                     {
-                                        <StatusBadge StatusText="@QuestionStatus.Labels.GetValueOrDefault(item.Status, "未知")" Compact="true" />
+                                        <StatusBadge StatusText="@display.Text" BadgeType="@display.BadgeType" Compact="true" />
                                     }
                                 }
                             </div>
@@ -494,6 +496,35 @@
     private int CountOf(byte status) => result.StatusCounts.GetValueOrDefault(status, 0);
     private int SumCounts(byte[] statuses) => statuses.Sum(s => result.StatusCounts.GetValueOrDefault(s, 0));
     private int TotalQuestions() => result.StatusCounts.Values.Sum();
+
+    /// <summary>
+    /// 解析「當前狀態」Badge 的顯示內容：依「題目 Status × 梯次 PhaseCode × 本人是否送出修題」三維度判定。
+    /// 三種情境對應規則：
+    ///  A. 題目 Status ∈ {4,6,8} 但梯次 PhaseCode 尚未推進到對應修題階段 → 「OO 完成」（莫蘭迪藍）。
+    ///  B. 梯次已到修題階段，且本人已於本階段送出修題說明 → 「修題已送出」（綠）。
+    ///  C. 其他狀態（含修題進行中尚未送出）→ 沿用 QuestionStatus.Labels 對應文字。
+    /// </summary>
+    private static (string Text, string BadgeType, bool IsAwaitingNext) ResolveDisplayStatus(
+        byte status, byte? currentPhaseCode, bool hasRepliedThisStage)
+    {
+        // 規則 A：「該審完成等待中」——題目已被審題人決策進入修題狀態，但梯次仍在前一審階段
+        if (status == QuestionStatus.PeerEditing   && (currentPhaseCode is null || currentPhaseCode < QuestionStatus.PeerEditing))
+            return ("互審完成", "info", true);
+        if (status == QuestionStatus.ExpertEditing && (currentPhaseCode is null || currentPhaseCode < QuestionStatus.ExpertEditing))
+            return ("專審完成", "info", true);
+        if (status == QuestionStatus.FinalEditing  && (currentPhaseCode is null || currentPhaseCode < QuestionStatus.FinalEditing))
+            return ("總審完成", "info", true);
+
+        // 規則 B：梯次已到對應修題階段、且本人已送出修題說明 → 綠色「修題已送出」
+        var inEditing = status is QuestionStatus.PeerEditing
+                                or QuestionStatus.ExpertEditing
+                                or QuestionStatus.FinalEditing;
+        if (inEditing && hasRepliedThisStage)
+            return ("修題已送出", "success", false);
+
+        // 規則 C：其餘狀態沿用 QuestionStatus.Labels（StatusBadge 內部會推斷色系）
+        return (QuestionStatus.Labels.GetValueOrDefault(status, "未知"), "default", false);
+    }
 
     private RenderFragment StatCard(string title, int value, string icon, string iconColor, string valueColor) => __builder =>
     {

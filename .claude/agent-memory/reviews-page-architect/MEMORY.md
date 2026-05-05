@@ -1,0 +1,2 @@
+- [審題任務參考文件路徑](reference_reviews_doc.md) — Reviews.md 為主要規格文件，舊原型 html/js 已棄用
+- [審題 Modal 考卷預覽風格決策](feedback_preview_style_in_review.md) — 隱藏 PreviewHeader 標題用 CSS，解析用 details open，BuildTags 自包不 DI

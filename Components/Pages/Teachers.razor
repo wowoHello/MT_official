@@ -15,24 +15,25 @@
     <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur border-b border-gray-200">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-                <nav class="flex text-sm text-gray-500 mb-1 font-medium" aria-label="Breadcrumb">
+                <nav class="flex text-sm text-gray-500 mb-2 font-medium" aria-label="Breadcrumb">
                     <ol class="inline-flex items-center space-x-1 md:space-x-2">
                         <li class="inline-flex items-center">
-                            <NavLink href="" Match="NavLinkMatch.All" class="inline-flex items-center hover:text-morandi transition-colors focus:outline-none">
+                            <NavLink href="" Match="NavLinkMatch.All" class="inline-flex items-center hover:text-[var(--color-morandi)] transition-colors focus:outline-none">
                                 <i class="fa-solid fa-house mr-1"></i> 首頁
                             </NavLink>
                         </li>
                         <li>
                             <div class="flex items-center">
                                 <i class="fa-solid fa-chevron-right text-xs mx-1"></i>
-                                <span class="text-slate-main">教師管理系統</span>
+                                <span class="text-[var(--color-slate-main)]">教師管理系統</span>
                             </div>
                         </li>
                     </ol>
                 </nav>
                 <h1 tabindex="-1" class="text-2xl font-bold flex items-center gap-2 focus:outline-none">
-                    <i class="fa-solid fa-chalkboard-user text-morandi"></i> 教師管理系統 (人才庫)
+                    <i class="fa-solid fa-chalkboard-user text-[var(--color-morandi)]"></i> 教師管理系統 (人才庫)
                 </h1>
+                <p class="text-sm text-gray-500 mt-1">教師人才庫、跨梯次命審歷程與帳號管理。</p>
             </div>
             <div class="flex gap-2">
                 <button type="button" @onclick="HandleExport"

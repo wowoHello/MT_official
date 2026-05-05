@@ -42,30 +42,27 @@
             關閉
         </button>
     }
-    else if (Assignment.IsDecided)
-    {
-        var (decLabel, decColor) = Assignment.Decision switch
-        {
-            ReviewDecision.Approve => ("採用",     "text-sage"),
-            ReviewDecision.Revise  => ("改後再審", "text-terracotta"),
-            ReviewDecision.Reject  => ("不採用",   "text-red-700"),
-            _                      => ("—",       "text-gray-500")
-        };
-        <div class="flex items-center gap-3 text-sm text-slate-main font-medium">
-            <i class="fa-solid fa-circle-check text-sage text-xl"></i>
-            <span>
-                您已於
-                <strong>@(Assignment.DecidedAt?.ToString("yyyy/MM/dd HH:mm") ?? "—")</strong>
-                對此題評定為「<strong class="@decColor">@decLabel</strong>」
-            </span>
-        </div>
-        <button type="button" @onclick="OnRequestClose"
-                class="px-5 py-2 text-sm bg-morandi hover:bg-[#5a7a99] text-white rounded-lg font-bold transition cursor-pointer">
-            關閉
-        </button>
-    }
     else
     {
+        @* 已決策時顯示先前決定的提示（不鎖定 — 階段未結束前皆可重新決策） *@
+        @if (Assignment.IsDecided)
+        {
+            var (decLabel, decColor) = Assignment.Decision switch
+            {
+                ReviewDecision.Approve => ("採用",     "text-sage"),
+                ReviewDecision.Revise  => ("改後再審", "text-terracotta"),
+                ReviewDecision.Reject  => ("不採用",   "text-red-700"),
+                _                      => ("—",       "text-gray-500")
+            };
+            <div class="flex items-center gap-2 text-xs text-gray-500 mr-4 shrink-0">
+                <i class="fa-solid fa-clock-rotate-left text-morandi"></i>
+                <span>
+                    先前評定：<strong class="@decColor">@decLabel</strong>
+                    <span class="text-gray-400">（@(Assignment.DecidedAt?.ToString("MM/dd HH:mm") ?? "—")）</span>
+                </span>
+            </div>
+        }
+
         @switch (Assignment.Stage)
         {
             case ReviewStage.Mutual:

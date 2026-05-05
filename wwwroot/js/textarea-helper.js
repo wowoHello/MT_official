@@ -5,11 +5,11 @@
 window.TextareaHelper = {
     /**
      * 在指定 textarea 的游標位置插入文字（取代當前選取範圍若有），
-     * 並觸發 input 事件讓 Blazor @bind 同步資料。
+     * 回傳插入後的新值，交由 Blazor 端自行決定如何同步狀態。
      */
     insertAtCursor(textareaId, text) {
         const ta = document.getElementById(textareaId);
-        if (!ta || !text) return;
+        if (!ta || !text) return null;
 
         const start = ta.selectionStart ?? ta.value.length;
         const end   = ta.selectionEnd   ?? ta.value.length;
@@ -20,12 +20,12 @@ window.TextareaHelper = {
         const needsLeadingBreak = before.length > 0 && !before.endsWith('\n');
         const insertText = needsLeadingBreak ? '\n' + text : text;
 
-        ta.value = before + insertText + after;
+        const nextValue = before + insertText + after;
+        ta.value = nextValue;
         const newPos = start + insertText.length;
         ta.setSelectionRange(newPos, newPos);
         ta.focus();
 
-        // 觸發 input 事件讓 Blazor @bind:event="oninput" 接收新值
-        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        return nextValue;
     }
 };

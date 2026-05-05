@@ -1,1 +1,2 @@
 - [Announcements 頁面未完成缺口](project_status_gaps.md) — 2026-05-04 Re-review：5 項缺口均未解決，P0 為 AnnouncementPerm 未實作
+- [Announcements 頁面參考素材位置](reference_announcements_prototype.md) — 原型已整合至 D:\MTrefer\pageFinal_doc\Announcements.md，舊 HTML/JS 棄用

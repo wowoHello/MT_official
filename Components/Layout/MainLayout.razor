@@ -400,11 +400,7 @@
         currentUserId = userId;
 
         await ReloadVisibleProjectsAsync();
-        await ReloadModuleCardsAsync();
         await InitializeHubConnectionAsync();
-
-        // 初次載入時檢查當前頁面是否有權限（防止直接輸入網址偷渡）
-        EnforceModuleAccess(Navigation.Uri);
 
         // 訂閱導航事件，後續每次路由變更時檢查模組存取權限
         Navigation.LocationChanged += OnLocationChanged;
@@ -431,28 +427,33 @@
             Logger.LogInformation("讀取 storage Key={Key} Success={Success} Value={Value}",
                 ProjectStorageKey, stored.Success, stored.Success ? stored.Value : -1);
 
-            if (!stored.Success) return;
-
-            var match = availableProjects.FirstOrDefault(p => p.Id == stored.Value);
-            // 上次選的梯次已被刪除/結案/無權限 → 維持 fallback 結果，並清掉過期紀錄
-            if (match is null)
+            if (stored.Success)
             {
-                Logger.LogInformation("storage 紀錄的梯次 Id={Id} 已不在可見清單，清除紀錄", stored.Value);
-                await ProtectedLocalStorage.DeleteAsync(ProjectStorageKey);
-                return;
+                var match = availableProjects.FirstOrDefault(p => p.Id == stored.Value);
+                // 上次選的梯次已被刪除/結案/無權限 → 清掉過期紀錄，稍後改走 fallback
+                if (match is null)
+                {
+                    Logger.LogInformation("storage 紀錄的梯次 Id={Id} 已不在可見清單，清除紀錄", stored.Value);
+                    await ProtectedLocalStorage.DeleteAsync(ProjectStorageKey);
+                }
+                else if (currentProject?.Id != match.Id)
+                {
+                    Logger.LogInformation("還原梯次成功 從={Old} 還原為={New}", currentProject?.Id, match.Id);
+                    currentProject = match;
+                }
+                else
+                {
+                    Logger.LogInformation("storage 還原結果與目前梯次相同 Id={Id}，跳過切換", match.Id);
+                }
             }
 
-            // 與 fallback 結果相同就不必重載權限，避免閃爍
-            if (currentProject?.Id == match.Id)
-            {
-                Logger.LogInformation("storage 還原結果與 fallback 相同 Id={Id}，跳過重載", match.Id);
-                return;
-            }
+            currentProject ??= GetDefaultProject();
 
-            Logger.LogInformation("還原梯次成功 從={Old} 還原為={New}", currentProject?.Id, match.Id);
-            currentProject = match;
-            await ReloadModuleCardsAsync();
-            EnforceModuleAccess(Navigation.Uri);
+            if (currentProject is not null)
+            {
+                await ReloadModuleCardsAsync();
+                EnforceModuleAccess(Navigation.Uri);
+            }
         }
         catch (Exception ex)
         {
@@ -806,11 +807,24 @@
                 ? availableProjects.FirstOrDefault(project => project.Id == previousProjectId.Value)
                 : null;
 
-            currentProject ??= availableProjects
-                .OrderBy(project => IsClosedProject(project))
-                .ThenByDescending(project => project.Year)
-                .ThenByDescending(project => project.Id)
-                .FirstOrDefault();
+            // 首次載入先不要急著套 fallback，等 OnAfterRenderAsync 從 storage 還原完再決定，
+            // 才不會在 F5 時先跳到第一筆梯次，之後又被改回來。
+            if (currentProject is null && hasRestoredProjectFromStorage)
+            {
+                currentProject = GetDefaultProject();
+            }
+
+            // Home 會用 ModuleCards == null 判斷「尚在載入」。
+            // 若梯次在後續重載流程中才被補上（例如 storage 還原後、Hub 同步後），
+            // 也要一併把模組權限補齊，避免首頁卡在無限 spinner。
+            if (currentProject is not null && (moduleCards is null || previousProjectId != currentProject.Id))
+            {
+                await ReloadModuleCardsAsync();
+            }
+            else if (currentProject is null)
+            {
+                moduleCards = [];
+            }
         }
         catch (Exception ex)
         {
@@ -819,6 +833,13 @@
             currentProject = null;
         }
     }
+
+    private ProjectSwitcherItem? GetDefaultProject()
+        => availableProjects
+            .OrderBy(project => IsClosedProject(project))
+            .ThenByDescending(project => project.Year)
+            .ThenByDescending(project => project.Id)
+            .FirstOrDefault();
 
     private static bool IsClosedProject(ProjectSwitcherItem project)
         => project.IsClosed;

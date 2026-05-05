@@ -1,0 +1,1 @@
+- [CwtList 整合規格文件路徑](reference_cwtlist_spec_doc.md) — 權威文件改為 D:\MTrefer\pageFinal_doc\CwtList.md，舊原型 html/js 已棄用

@@ -31,11 +31,16 @@ public interface IOverviewService
     string LevelLabel(string typeKey, byte? level);
 }
 
-public class OverviewService(IQuestionService questionService, IReviewService reviewService, IDatabaseService db) : IOverviewService
+public class OverviewService(
+    IQuestionService questionService,
+    IReviewService reviewService,
+    IDatabaseService db,
+    IPhaseTransitionCoordinator phaseCoordinator) : IOverviewService
 {
     private readonly IQuestionService _questionService = questionService;
     private readonly IReviewService   _reviewService   = reviewService;
     private readonly IDatabaseService _db = db;
+    private readonly IPhaseTransitionCoordinator _phaseCoordinator = phaseCoordinator;
 
     public async Task<OverviewListResult> LoadAsync(int projectId, OverviewFilter filter)
     {
@@ -43,21 +48,20 @@ public class OverviewService(IQuestionService questionService, IReviewService re
         var listFilter = filter.ToListFilter(projectId);
         listFilter.IncludeDeleted = true;
 
-        // 確保階段轉換已執行（idempotent；保證 Overview 看到的 Status 與當前階段對齊）
-        // 命題階段結束 + 後續各階段（4/5/6/7/8）自動升級，避免使用者只進 Overview 不進 CwtList 卡狀態
-        try
-        {
-            await _questionService.EnsureCompositionPhaseClosedAsync(projectId);
-            await _questionService.EnsurePhaseTransitionAsync(projectId);
-        }
-        catch
-        {
-            // 階段轉換失敗不阻擋頁面載入；UI 端會顯示原狀態
-        }
+        // 階段轉換統一委派 PhaseTransitionCoordinator（60 秒去重 + 統一 logging）
+        await _phaseCoordinator.EnsureAsync(projectId);
 
-        var countsTask  = _questionService.GetStatusCountsAsync(projectId, creatorId: null);
-        var listTask    = _questionService.ListAsync(listFilter);
-        var pendingTask = GetPendingRevisionCountAsync(projectId);
+        // countsTask、listTask、phaseTask 三者彼此獨立，並行執行
+        var countsTask = _questionService.GetStatusCountsAsync(projectId, creatorId: null);
+        var listTask   = _questionService.ListAsync(listFilter);
+        var phaseTask  = _questionService.GetCurrentPhaseAsync(projectId);
+
+        // pendingTask 需要 phaseTask 的結果（PhaseCode 由 MT_ProjectPhases 動態計算，
+        // MT_Projects 沒有 PhaseCode 欄位），所以單獨先 await phaseTask 取得 PhaseCode 後再查詢
+        var phase = await phaseTask;
+        var phaseCode = phase is { PhaseCode: var pc } ? (byte?)pc : null;
+        var pendingTask = GetPendingRevisionCountAsync(projectId, phaseCode);
+
         await Task.WhenAll(countsTask, listTask, pendingTask);
 
         var list = listTask.Result;
@@ -68,22 +72,31 @@ public class OverviewService(IQuestionService questionService, IReviewService re
             TotalCount           = list.TotalCount,
             Page                 = list.Page,
             PageSize             = list.PageSize,
-            PendingRevisionCount = pendingTask.Result
+            PendingRevisionCount = pendingTask.Result,
+            // 梯次當前 PhaseCode（null = 不在任何進行中階段）；轉 byte? 讓 UI 端易於比對 QuestionStatus 常數
+            CurrentPhaseCode     = phaseCode
         };
     }
 
     /// <summary>
-    /// 計算「待修編」實際數量：Status IN (4,6,8) 且命題者尚未於該階段於 MT_RevisionReplies 留下紀錄。
-    /// 與 QuestionService.GetListAsync 的 HasRepliedThisStage 子查詢同邏輯，差別在此為彙總計數。
+    /// 計算「待修編」實際數量：Status = 梯次當前 PhaseCode（限修題階段 4/6/8）
+    /// 且命題者尚未於該階段於 MT_RevisionReplies 留下紀錄。
+    /// 用 PhaseCode 同時鎖「目前階段」與「修題狀態」（因修題階段 Status 與 PhaseCode 為 1:1 對齊）；
+    /// PhaseCode 由 IQuestionService.GetCurrentPhaseAsync 統一計算（依 MT_ProjectPhases 日期區間）後傳入，
+    /// 避免在 SQL 內重複實作日期比對邏輯，保持單一資料來源。
+    /// 若 phaseCode 為 null 或不在 {4,6,8}，直接回 0（不打 DB）。
     /// </summary>
-    private async Task<int> GetPendingRevisionCountAsync(int projectId)
+    private async Task<int> GetPendingRevisionCountAsync(int projectId, byte? phaseCode)
     {
+        // 邊界守門：非修題階段直接回 0
+        if (phaseCode is not (4 or 6 or 8)) return 0;
+
         const string sql = """
             SELECT COUNT(1)
             FROM dbo.MT_Questions q
             WHERE q.ProjectId = @ProjectId
               AND q.IsDeleted = 0
-              AND q.Status IN (4, 6, 8)
+              AND q.Status    = @PhaseCode
               AND NOT EXISTS (
                     SELECT 1 FROM dbo.MT_RevisionReplies rr
                     WHERE rr.QuestionId = q.Id
@@ -93,7 +106,7 @@ public class OverviewService(IQuestionService questionService, IReviewService re
             """;
 
         using var conn = _db.CreateConnection();
-        return await conn.ExecuteScalarAsync<int>(sql, new { ProjectId = projectId });
+        return await conn.ExecuteScalarAsync<int>(sql, new { ProjectId = projectId, PhaseCode = phaseCode.Value });
     }
 
     public async Task<List<OverviewCreatorOption>> GetCreatorOptionsAsync(int projectId)

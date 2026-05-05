@@ -405,8 +405,9 @@ public class DashboardService : IDashboardService
         var reviewed = row?.Reviewed ?? 0;
         var total    = row?.TotalCount ?? 0;
 
-        // Fallback：專審/總審等階段 ReviewAssignments 尚未自動建立（Plan_011 待實作）
-        // → 改用 Question.Status 池作為「待審池」總數
+        // Fallback：階段尚未跑過 EnsurePhaseTransitionAsync 觸發分配時，ReviewAssignments 可能還沒建好
+        // → 改用 Question.Status 池作為「待審池」總數，避免儀表板顯示 0
+        // （正常流程下 Plan_011 已會在進入 PhaseCode=5/7 時自動建立 ReviewAssignments）
         if (total == 0)
         {
             const string fallbackSql = """
@@ -478,7 +479,7 @@ public class DashboardService : IDashboardService
         var revised = row?.Revised ?? 0;
         var total   = row?.TotalCount ?? 0;
 
-        // Fallback：專修/總修等階段對應的審題 assignments 尚未建立（Plan_011 待實作）
+        // Fallback：階段尚未跑過 EnsurePhaseTransitionAsync 時 assignments 可能還沒建好
         // → 待修池改用 Question.Status 計算；已修數獨立查 MT_RevisionReplies
         if (total == 0)
         {

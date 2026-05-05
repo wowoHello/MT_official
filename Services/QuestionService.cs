@@ -37,9 +37,12 @@ public interface IQuestionService
     Task<bool> SaveRevisionAsync(SaveRevisionRequest req, int operatorUserId);
 
     /// <summary>
-    /// 依當前梯次階段，批次升級題目 Status（Idempotent，可重複呼叫）。
+    /// 依當前梯次階段，批次升級題目 Status + 階段需要的審題分配（Idempotent，可重複呼叫）。
     /// PhaseCode=4 互審修題：Status 2/3 → 4（PeerEditing）
-    /// 後續階段（5/6/7/8）將於 Plan_011 補上。
+    /// PhaseCode=5 專家審題：Status → 5；建立 ReviewStage=2 分配（Plan_011）
+    /// PhaseCode=6 專審修題：Status → 6（無分配）
+    /// PhaseCode=7 總召審題：Status → 7；建立 ReviewStage=3 分配，含總召迴避（Plan_011）
+    /// PhaseCode=8 總召修題：Status → 8（無分配）
     /// </summary>
     Task<int> EnsurePhaseTransitionAsync(int projectId);
 }
@@ -367,7 +370,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 Stem, Analysis, CorrectAnswer,
                 OptionA, OptionB, OptionC, OptionD,
                 ArticleTitle, ArticleContent, AudioUrl, GradingNote,
-                Topic, Subtopic, Genre, Material, WritingMode, AudioType, CoreAbility, DetailIndicator
+                Topic, Subtopic, Genre, Material, WritingMode, AudioType, CoreAbility, DetailIndicator,
+                CreatedAt, UpdatedAt
             FROM dbo.MT_Questions
             WHERE Id = @Id;
             """;
@@ -409,7 +413,9 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             GradingNote     = master.GradingNote ?? "",
             Options         = [master.OptionA ?? "", master.OptionB ?? "", master.OptionC ?? "", master.OptionD ?? ""],
             Answer          = master.CorrectAnswer ?? "",
-            AudioUrl        = master.AudioUrl ?? ""
+            AudioUrl        = master.AudioUrl ?? "",
+            CreatedAt       = master.CreatedAt,
+            UpdatedAt       = master.UpdatedAt
         };
 
         // 題組型才需要載子題
@@ -557,7 +563,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 CASE WHEN q.Status = 0 THEN 0
                      WHEN q.Status = 1 THEN 1
                      ELSE 2 END,
-                q.UpdatedAt DESC
+                q.Id ASC
             OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
             """;
 
@@ -690,10 +696,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 return false;
             }
 
-            // 2. 狀態 1 → 2
+            // 2. 狀態 1 → 2（僅改 Status；UpdatedAt 語意保留給命題老師實際編輯內容的時刻）
             await conn.ExecuteAsync("""
                 UPDATE dbo.MT_Questions
-                SET Status = @Submitted, UpdatedAt = SYSDATETIME()
+                SET Status = @Submitted
                 WHERE Id = @Id;
                 """,
                 new { Id = questionId, Submitted = QuestionStatus.Submitted }, tx);
@@ -736,10 +742,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 return false;
             }
 
-            // 2. 復原：IsDeleted=0、DeletedAt=NULL、UpdatedAt 重置
+            // 2. 復原：IsDeleted=0、DeletedAt=NULL；不動 UpdatedAt（保留老師最後編輯的時間語意）
             await conn.ExecuteAsync("""
                 UPDATE dbo.MT_Questions
-                SET IsDeleted = 0, DeletedAt = NULL, UpdatedAt = SYSDATETIME()
+                SET IsDeleted = 0, DeletedAt = NULL
                 WHERE Id = @Id;
                 """,
                 new { Id = questionId }, tx);
@@ -814,11 +820,11 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                     "命題階段已結束，但本梯次命題教師不足 2 人，無法執行互審分配。");
             }
 
-            // 4. 批次升級狀態 1 → 2
+            // 4. 批次升級狀態 1 → 2（系統批次，僅改 Status；不動 UpdatedAt）
             await conn.ExecuteAsync(
                 """
                 UPDATE dbo.MT_Questions
-                SET Status = @Submitted, UpdatedAt = SYSDATETIME()
+                SET Status = @Submitted
                 WHERE ProjectId = @ProjectId
                   AND Status = @Completed
                   AND IsDeleted = 0;
@@ -928,9 +934,12 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
     }
 
     // ====================================================================
-    //  Plan_010 補丁：階段推進時的批次 Status 升級
-    //  PhaseCode=4 互審修題進入時：所有 Status IN (2 已送審 / 3 互審中) → 4 PeerEditing
-    //  PhaseCode 5/6/7/8 的轉換將於 Plan_011 補上（含 專審 / 總審 ReviewAssignment 建立）
+    //  Plan_010 / Plan_011：階段推進時的批次 Status 升級 + 分配
+    //  PhaseCode=4 互審修題：Status IN (2 已送審 / 3 互審中) → 4 PeerEditing
+    //  PhaseCode=5 專家審題：升級 Status → 5；同步建立 ReviewStage=2 分配
+    //  PhaseCode=6 專審修題：升級 Status → 6（無分配）
+    //  PhaseCode=7 總召審題：升級 Status → 7；同步建立 ReviewStage=3 分配（含總召迴避）
+    //  PhaseCode=8 總召修題：升級 Status → 8（無分配）
     // ====================================================================
     public async Task<int> EnsurePhaseTransitionAsync(int projectId)
     {
@@ -999,46 +1008,57 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 """,
                 new { ProjectId = projectId, Froms = fromStatuses.Select(b => (int)b).ToList() }, tx)).AsList();
 
-            if (candidates.Count == 0)
+            // 4. 批次 UPDATE（candidates 可能為空，例如題目早已升級至目標狀態，仍須繼續執行分配）
+            if (candidates.Count > 0)
             {
-                tx.Commit();
-                return 0;
+                // 系統批次階段升級，僅改 Status；不動 UpdatedAt（保留命題老師最後編輯內容的時間語意）
+                await conn.ExecuteAsync("""
+                    UPDATE dbo.MT_Questions
+                    SET Status = @ToStatus
+                    WHERE ProjectId = @ProjectId
+                      AND IsDeleted = 0
+                      AND Status IN @Froms;
+                    """,
+                    new
+                    {
+                        ProjectId = projectId,
+                        ToStatus  = toStatus,
+                        Froms     = fromStatuses.Select(b => (int)b).ToList()
+                    }, tx);
+
+                // 5. 逐筆 AuditLog（UserId=NULL 表系統批次）
+                const string auditSql = """
+                    INSERT INTO dbo.MT_AuditLogs
+                        (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
+                    VALUES
+                        (NULL, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
+                    """;
+
+                foreach (var (qid, oldStatus) in candidates)
+                {
+                    await conn.ExecuteAsync(auditSql, new
+                    {
+                        ProjectId  = projectId,
+                        Action     = AuditLogAction.Modify,
+                        TargetType = AuditLogTargetType.Questions,
+                        TargetId   = qid,
+                        OldValue   = JsonSerializer.Serialize(new { Status = oldStatus }),
+                        NewValue   = JsonSerializer.Serialize(new { Status = toStatus, Reason = reasonLabel })
+                    }, tx);
+                }
             }
 
-            // 4. 批次 UPDATE
-            await conn.ExecuteAsync("""
-                UPDATE dbo.MT_Questions
-                SET Status = @ToStatus, UpdatedAt = SYSDATETIME()
-                WHERE ProjectId = @ProjectId
-                  AND IsDeleted = 0
-                  AND Status IN @Froms;
-                """,
-                new
-                {
-                    ProjectId = projectId,
-                    ToStatus  = toStatus,
-                    Froms     = fromStatuses.Select(b => (int)b).ToList()
-                }, tx);
-
-            // 5. 逐筆 AuditLog（UserId=NULL 表系統批次）
-            const string auditSql = """
-                INSERT INTO dbo.MT_AuditLogs
-                    (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
-                VALUES
-                    (NULL, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
-                """;
-
-            foreach (var (qid, oldStatus) in candidates)
+            // Plan_011：PhaseCode=5/7 不論本次是否有題目升級，都要嘗試分配（idempotent）
+            //  情境：題目早已被升級至目標 Status，但分配紀錄尚未建立（例如舊版本進入過該階段）
+            //  - 5 專家審題：分配給「審題委員」，ReviewStage=2
+            //  - 7 總召審題：分配給「總召集人」，ReviewStage=3，並排除其在 Stage=2 已審過的題目
+            if (phaseCode.Value == 5)
             {
-                await conn.ExecuteAsync(auditSql, new
-                {
-                    ProjectId  = projectId,
-                    Action     = AuditLogAction.Modify,
-                    TargetType = AuditLogTargetType.Questions,
-                    TargetId   = qid,
-                    OldValue   = JsonSerializer.Serialize(new { Status = oldStatus }),
-                    NewValue   = JsonSerializer.Serialize(new { Status = toStatus, Reason = reasonLabel })
-                }, tx);
+                await AssignExpertReviewersAsync(conn, tx, projectId);
+            }
+            else if (phaseCode.Value == 7)
+            {
+                await AssignFinalReviewersAsync(conn, tx, projectId);
             }
 
             tx.Commit();
@@ -1048,6 +1068,319 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         {
             tx.Rollback();
             throw;
+        }
+    }
+
+    // ====================================================================
+    //  Plan_011：專家審題（ReviewStage=2）分配
+    //  - 池：MT_Roles.Name = N'審題委員'
+    //  - 迴避：自命不自審（ReviewerId != Question.CreatorId）
+    //  - Idempotent：透過 existingPairs 去重，可重複呼叫
+    // ====================================================================
+    private async Task AssignExpertReviewersAsync(IDbConnection conn, IDbTransaction tx, int projectId)
+    {
+        // 1. 撈題目候選（Status=ExpertReviewing 且未刪除）
+        var candidates = (await conn.QueryAsync<(int Id, int CreatorId)>(
+            """
+            SELECT Id, CreatorId
+            FROM dbo.MT_Questions
+            WHERE ProjectId = @ProjectId
+              AND IsDeleted = 0
+              AND Status = @Expert
+            ORDER BY Id;
+            """,
+            new { ProjectId = projectId, Expert = QuestionStatus.ExpertReviewing }, tx)).AsList();
+
+        if (candidates.Count == 0) return;
+
+        // 2. 撈審題池
+        var reviewerIds = (await conn.QueryAsync<int>(
+            """
+            SELECT pm.UserId
+            FROM dbo.MT_ProjectMembers pm
+            INNER JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
+            INNER JOIN dbo.MT_Roles r ON r.Id = pmr.RoleId
+            WHERE pm.ProjectId = @ProjectId AND r.Name = N'審題委員';
+            """,
+            new { ProjectId = projectId }, tx)).Distinct().ToList();
+
+        // 3. 池不足前置警告（Plan_011 §3.1.2）
+        if (reviewerIds.Count == 0)
+        {
+            await conn.ExecuteAsync(
+                """
+                INSERT INTO dbo.MT_AuditLogs
+                    (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
+                VALUES
+                    (NULL, @ProjectId, @Action, @TargetType, @TargetId, NULL, @NewValue, SYSDATETIME());
+                """,
+                new
+                {
+                    ProjectId  = projectId,
+                    Action     = AuditLogAction.Modify,
+                    TargetType = AuditLogTargetType.Projects,
+                    TargetId   = projectId,
+                    NewValue   = JsonSerializer.Serialize(new
+                    {
+                        Reason = "ExpertReviewerPoolEmpty",
+                        Message = "專家審題階段已開始，但本梯次尚未指派任何審題委員"
+                    })
+                }, tx);
+            throw new InvalidOperationException("專家審題階段已開始，但本梯次尚未指派任何審題委員，請先至專案管理頁分配人員。");
+        }
+
+        // 4. 載入既有 ReviewStage=2 負載基準（idempotent）
+        var loadCounts = reviewerIds.ToDictionary(id => id, _ => 0);
+        var existingLoads = await conn.QueryAsync<(int ReviewerId, int Cnt)>(
+            """
+            SELECT ReviewerId, COUNT(*) AS Cnt
+            FROM dbo.MT_ReviewAssignments
+            WHERE ProjectId = @ProjectId AND ReviewStage = 2
+            GROUP BY ReviewerId;
+            """,
+            new { ProjectId = projectId }, tx);
+        foreach (var (rid, cnt) in existingLoads)
+        {
+            if (loadCounts.ContainsKey(rid)) loadCounts[rid] = cnt;
+        }
+
+        // 5. 撈既有 (QuestionId, ReviewerId) 防重複
+        var existingPairs = (await conn.QueryAsync<(int QuestionId, int ReviewerId)>(
+            """
+            SELECT QuestionId, ReviewerId
+            FROM dbo.MT_ReviewAssignments
+            WHERE ProjectId = @ProjectId AND ReviewStage = 2;
+            """,
+            new { ProjectId = projectId }, tx))
+            .Select(x => (x.QuestionId, x.ReviewerId))
+            .ToHashSet();
+
+        // 6. 逐題分配：負載最低 + 不為 Creator + 該題尚未分給此人
+        const string insertSql = """
+            INSERT INTO dbo.MT_ReviewAssignments
+                (QuestionId, ProjectId, ReviewerId, ReviewStage, ReviewStatus, CreatedAt)
+            VALUES
+                (@QuestionId, @ProjectId, @ReviewerId, 2, 0, SYSDATETIME());
+            """;
+
+        const string auditSql = """
+            INSERT INTO dbo.MT_AuditLogs
+                (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
+            VALUES
+                (NULL, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
+            """;
+
+        foreach (var (questionId, creatorId) in candidates)
+        {
+            var bestReviewer = loadCounts
+                .Where(kv => kv.Key != creatorId
+                          && !existingPairs.Contains((questionId, kv.Key)))
+                .OrderBy(kv => kv.Value)
+                .ThenBy(kv => kv.Key)
+                .Select(kv => (int?)kv.Key)
+                .FirstOrDefault();
+
+            if (bestReviewer is null) continue; // 已分配過 / 無人可分
+
+            await conn.ExecuteAsync(insertSql, new
+            {
+                QuestionId = questionId,
+                ProjectId  = projectId,
+                ReviewerId = bestReviewer.Value
+            }, tx);
+
+            loadCounts[bestReviewer.Value]++;
+            existingPairs.Add((questionId, bestReviewer.Value));
+
+            await conn.ExecuteAsync(auditSql, new
+            {
+                ProjectId  = projectId,
+                Action     = AuditLogAction.Modify,
+                TargetType = AuditLogTargetType.Questions,
+                TargetId   = questionId,
+                OldValue   = JsonSerializer.Serialize(new { ReviewStage = 2, Status = "Pending" }),
+                NewValue   = JsonSerializer.Serialize(new
+                {
+                    ReviewStage = 2,
+                    ReviewerId = bestReviewer.Value,
+                    Reason = "ExpertReviewAssigned"
+                })
+            }, tx);
+        }
+    }
+
+    // ====================================================================
+    //  Plan_011：總召審題（ReviewStage=3）分配
+    //  - 池：MT_Roles.Name = N'總召集人'
+    //  - 迴避 A：不分配 Stage=2 已審過題目
+    //  - 迴避 B：池下限 — 兼任審題委員時強制 ≥ 2
+    //  - 迴避 C：自命不自審
+    // ====================================================================
+    private async Task AssignFinalReviewersAsync(IDbConnection conn, IDbTransaction tx, int projectId)
+    {
+        var candidates = (await conn.QueryAsync<(int Id, int CreatorId)>(
+            """
+            SELECT Id, CreatorId
+            FROM dbo.MT_Questions
+            WHERE ProjectId = @ProjectId
+              AND IsDeleted = 0
+              AND Status = @Final
+            ORDER BY Id;
+            """,
+            new { ProjectId = projectId, Final = QuestionStatus.FinalReviewing }, tx)).AsList();
+
+        if (candidates.Count == 0) return;
+
+        var reviewerIds = (await conn.QueryAsync<int>(
+            """
+            SELECT pm.UserId
+            FROM dbo.MT_ProjectMembers pm
+            INNER JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
+            INNER JOIN dbo.MT_Roles r ON r.Id = pmr.RoleId
+            WHERE pm.ProjectId = @ProjectId AND r.Name = N'總召集人';
+            """,
+            new { ProjectId = projectId }, tx)).Distinct().ToList();
+
+        const string warnSql = """
+            INSERT INTO dbo.MT_AuditLogs
+                (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
+            VALUES
+                (NULL, @ProjectId, @Action, @TargetType, @TargetId, NULL, @NewValue, SYSDATETIME());
+            """;
+
+        // 池為 0 → 阻擋
+        if (reviewerIds.Count == 0)
+        {
+            await conn.ExecuteAsync(warnSql, new
+            {
+                ProjectId  = projectId,
+                Action     = AuditLogAction.Modify,
+                TargetType = AuditLogTargetType.Projects,
+                TargetId   = projectId,
+                NewValue   = JsonSerializer.Serialize(new
+                {
+                    Reason  = "FinalReviewerPoolEmpty",
+                    Message = "總召審題階段已開始，但本梯次尚未指派任何總召集人"
+                })
+            }, tx);
+            throw new InvalidOperationException("總召審題階段已開始，但本梯次尚未指派任何總召集人，請先至專案管理頁分配人員。");
+        }
+
+        // 撈 Stage=2 已審過的 (QuestionId, ReviewerId)，作為迴避基準
+        var stage2Pairs = (await conn.QueryAsync<(int QuestionId, int ReviewerId)>(
+            """
+            SELECT QuestionId, ReviewerId
+            FROM dbo.MT_ReviewAssignments
+            WHERE ProjectId = @ProjectId AND ReviewStage = 2;
+            """,
+            new { ProjectId = projectId }, tx))
+            .Select(x => (x.QuestionId, x.ReviewerId))
+            .ToHashSet();
+
+        // 兼任審題委員的總召（出現在 stage2Pairs 任何 ReviewerId 中且也在 reviewerIds）
+        var stage2ReviewerSet = stage2Pairs.Select(p => p.ReviewerId).ToHashSet();
+        var dualRoleCount = reviewerIds.Count(id => stage2ReviewerSet.Contains(id));
+
+        // 池下限保護：兼任 ≥ 1 時，總召池須 ≥ 2
+        if (dualRoleCount >= 1 && reviewerIds.Count < 2)
+        {
+            await conn.ExecuteAsync(warnSql, new
+            {
+                ProjectId  = projectId,
+                Action     = AuditLogAction.Modify,
+                TargetType = AuditLogTargetType.Projects,
+                TargetId   = projectId,
+                NewValue   = JsonSerializer.Serialize(new
+                {
+                    Reason  = "FinalReviewerPoolUnderQuota",
+                    Message = "總召集人兼任審題委員時，至少需設定 2 名總召集人"
+                })
+            }, tx);
+            throw new InvalidOperationException("總召集人兼任審題委員時，至少需設定 2 名總召集人以分攤迴避題目，請至專案管理頁補齊人員。");
+        }
+
+        // 載入既有 Stage=3 負載
+        var loadCounts = reviewerIds.ToDictionary(id => id, _ => 0);
+        var existingLoads = await conn.QueryAsync<(int ReviewerId, int Cnt)>(
+            """
+            SELECT ReviewerId, COUNT(*) AS Cnt
+            FROM dbo.MT_ReviewAssignments
+            WHERE ProjectId = @ProjectId AND ReviewStage = 3
+            GROUP BY ReviewerId;
+            """,
+            new { ProjectId = projectId }, tx);
+        foreach (var (rid, cnt) in existingLoads)
+        {
+            if (loadCounts.ContainsKey(rid)) loadCounts[rid] = cnt;
+        }
+
+        // 既有 Stage=3 (QuestionId, ReviewerId) 防重
+        var existingPairs = (await conn.QueryAsync<(int QuestionId, int ReviewerId)>(
+            """
+            SELECT QuestionId, ReviewerId
+            FROM dbo.MT_ReviewAssignments
+            WHERE ProjectId = @ProjectId AND ReviewStage = 3;
+            """,
+            new { ProjectId = projectId }, tx))
+            .Select(x => (x.QuestionId, x.ReviewerId))
+            .ToHashSet();
+
+        // 把 Stage=2 的 (Q, R) 也納入 existingPairs，自動迴避
+        foreach (var pair in stage2Pairs)
+        {
+            existingPairs.Add(pair);
+        }
+
+        const string insertSql = """
+            INSERT INTO dbo.MT_ReviewAssignments
+                (QuestionId, ProjectId, ReviewerId, ReviewStage, ReviewStatus, CreatedAt)
+            VALUES
+                (@QuestionId, @ProjectId, @ReviewerId, 3, 0, SYSDATETIME());
+            """;
+
+        const string auditSql = """
+            INSERT INTO dbo.MT_AuditLogs
+                (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
+            VALUES
+                (NULL, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
+            """;
+
+        foreach (var (questionId, creatorId) in candidates)
+        {
+            var bestReviewer = loadCounts
+                .Where(kv => kv.Key != creatorId
+                          && !existingPairs.Contains((questionId, kv.Key)))
+                .OrderBy(kv => kv.Value)
+                .ThenBy(kv => kv.Key)
+                .Select(kv => (int?)kv.Key)
+                .FirstOrDefault();
+
+            if (bestReviewer is null) continue;
+
+            await conn.ExecuteAsync(insertSql, new
+            {
+                QuestionId = questionId,
+                ProjectId  = projectId,
+                ReviewerId = bestReviewer.Value
+            }, tx);
+
+            loadCounts[bestReviewer.Value]++;
+            existingPairs.Add((questionId, bestReviewer.Value));
+
+            await conn.ExecuteAsync(auditSql, new
+            {
+                ProjectId  = projectId,
+                Action     = AuditLogAction.Modify,
+                TargetType = AuditLogTargetType.Questions,
+                TargetId   = questionId,
+                OldValue   = JsonSerializer.Serialize(new { ReviewStage = 3, Status = "Pending" }),
+                NewValue   = JsonSerializer.Serialize(new
+                {
+                    ReviewStage = 3,
+                    ReviewerId  = bestReviewer.Value,
+                    Reason      = "FinalReviewAssigned"
+                })
+            }, tx);
         }
     }
 
@@ -1096,7 +1429,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         var comments = commentRows.Select(r => new ReviewCommentEntry
         {
             Stage     = r.Stage,
-            AnonName  = $"審題老師 {(char)('A' + (r.AnonIndex - 1) % 26)}",
+            AnonName  = $"審題委員 {(char)('A' + (r.AnonIndex - 1) % 26)}",
             Comment   = r.Comment ?? "",
             DecidedAt = r.DecidedAt
         }).ToList();
@@ -1621,6 +1954,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         public byte? AudioType { get; set; }
         public byte? CoreAbility { get; set; }
         public byte? DetailIndicator { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
     }
 
     private sealed class SubQuestionRowDto

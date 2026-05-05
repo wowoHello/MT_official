@@ -7,32 +7,33 @@
 @using MT.Components.Shared.QuestionForms
 @using MT.Components.Shared.QuestionPreviews
 @inject IQuestionService QuestionService
+@inject IPhaseTransitionCoordinator PhaseCoordinator
 @inject NavigationManager Navigation
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
 
     <!-- Header: Breadcrumb + Title + Actions -->
-    <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur-sm border-b border-gray-200">
+    <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur border-b border-gray-200">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
-                <nav class="flex text-sm text-gray-500 mb-1 font-medium" aria-label="Breadcrumb">
-                    <ol class="inline-flex items-center space-x-1">
-                        <li>
-                            <NavLink href="" Match="NavLinkMatch.All" class="hover:text-morandi transition-colors focus:outline-none">
+                <nav class="flex text-sm text-gray-500 mb-2 font-medium" aria-label="Breadcrumb">
+                    <ol class="inline-flex items-center space-x-1 md:space-x-2">
+                        <li class="inline-flex items-center">
+                            <NavLink href="" Match="NavLinkMatch.All" class="inline-flex items-center hover:text-[var(--color-morandi)] transition-colors focus:outline-none">
                                 <i class="fa-solid fa-house mr-1"></i> 首頁
                             </NavLink>
                         </li>
                         <li>
                             <div class="flex items-center">
-                                <i class="fa-solid fa-chevron-right text-xs mx-1.5"></i>
-                                <span class="text-slate-main">命題任務</span>
+                                <i class="fa-solid fa-chevron-right text-xs mx-1"></i>
+                                <span class="text-[var(--color-slate-main)]">命題任務</span>
                             </div>
                         </li>
                     </ol>
                 </nav>
                 <div class="flex items-center gap-3">
                     <h1 tabindex="-1" class="text-2xl font-bold flex items-center gap-2 focus:outline-none">
-                        <i class="fa-solid fa-pen-ruler text-morandi"></i> 命題任務
+                        <i class="fa-solid fa-pen-ruler text-[var(--color-morandi)]"></i> 命題任務
                     </h1>
                     <!-- 當前階段指示燈 -->
                     @if (currentPhase is not null)
@@ -58,6 +59,7 @@
                         </span>
                     }
                 </div>
+                <p class="text-sm text-gray-500 mt-1">我的命題作業、審修任務與審核結果歷程。</p>
             </div>
             <button @onclick="() => OpenComposeModal(null)"
                 disabled="@IsCompositionPhaseClosed"
@@ -546,26 +548,8 @@
         if (loadedProjectId == CurrentProject.Id) return;   // 同專案重派 → 不重載
         loadedProjectId = CurrentProject.Id;
 
-        // Plan_008：進入頁面前先觸發命題階段結束的批次轉換 + 互審分配（Idempotent）
-        try
-        {
-            await QuestionService.EnsureCompositionPhaseClosedAsync(CurrentProject.Id);
-        }
-        catch (InvalidOperationException ex)
-        {
-            // 命題教師不足 2 人時 throw —— 提示後仍繼續載入頁面（讓總召看到草稿/完成題目）
-            await ShowToastAsync("warning", ex.Message);
-        }
-
-        // Plan_010 補丁：互審修題（PhaseCode=4）進入時，批次升級 Status 2/3 → 4
-        try
-        {
-            await QuestionService.EnsurePhaseTransitionAsync(CurrentProject.Id);
-        }
-        catch (Exception ex)
-        {
-            await ShowToastAsync("warning", $"階段轉換失敗：{ex.Message}");
-        }
+        // 階段轉換統一委派 PhaseTransitionCoordinator
+        await PhaseCoordinator.EnsureAsync(CurrentProject.Id);
 
         await LoadPageDataAsync();
     }

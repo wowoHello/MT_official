@@ -63,14 +63,27 @@
                                 <i class="fa-solid fa-triangle-exclamation mr-1"></i> 已退回 2 次
                             </span>
                         }
+
+                        @* 最後編輯時間（緊接階段 badge 之後，與其他 badge 同一群組） *@
+                        @if (data.Question.UpdatedAt != default)
+                        {
+                            <span class="inline-flex items-center gap-1.5 text-xs text-gray-400 shrink-0"
+                                  title="題目最後編輯時間">
+                                <i class="fa-regular fa-clock"></i>
+                                最後編輯：<span class="tabular-nums font-medium">@data.Question.UpdatedAt.ToString("yyyy/MM/dd HH:mm")</span>
+                            </span>
+                        }
                     }
                 </div>
 
-                <button type="button" @onclick="TryCloseAsync"
-                        title="關閉"
-                        class="text-gray-400 hover:text-terracotta hover:bg-gray-100 text-xl w-9 h-9 flex items-center justify-center rounded-lg transition cursor-pointer focus:outline-none shrink-0">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
+                @* 右側資訊區：X 關閉鈕 *@
+                <div class="flex items-center gap-3 shrink-0">
+                    <button type="button" @onclick="TryCloseAsync"
+                            title="關閉"
+                            class="text-gray-400 hover:text-terracotta hover:bg-gray-100 text-xl w-9 h-9 flex items-center justify-center rounded-lg transition cursor-pointer focus:outline-none shrink-0">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
             </div>
 
             @* ============== Phase Banner（倒數提醒，僅 ≤5 天時 terracotta） ============== *@
@@ -174,7 +187,7 @@
                                 </fieldset>
 
                                 @* ----- 右：修題參考側欄（與 Reviews.razor 右側一致 w-[30%]） ----- *@
-                                <aside class="w-[30%] flex-shrink-0 bg-white border-l border-gray-200 flex flex-col">
+                                <aside class="w-[30%] flex-shrink-0 bg-oatmeal/60 border-l border-stone-200 flex flex-col">
                                     <RevisionReferencePanel Comments="@data.Comments"
                                                              MyReplies="@data.MyReplies"
                                                              RevisionNote="@revisionNote"
@@ -230,20 +243,7 @@
 
                         @if (data.IsEditable)
                         {
-                            <button type="button" @onclick="() => SaveAsync(finalize: false)"
-                                    disabled="@(isSaving || string.IsNullOrWhiteSpace(revisionNote))"
-                                    class="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
-                                @if (isSaving && pendingAction == "draft")
-                                {
-                                    <span><i class="fa-solid fa-spinner fa-spin mr-1"></i> 儲存中…</span>
-                                }
-                                else
-                                {
-                                    <span>儲存草稿</span>
-                                }
-                            </button>
-
-                            <button type="button" @onclick="() => SaveAsync(finalize: true)"
+                            <button type="button" @onclick="SaveAsync"
                                     disabled="@(isSaving || string.IsNullOrWhiteSpace(revisionNote))"
                                     title="@(string.IsNullOrWhiteSpace(revisionNote) ? "請先填寫修題說明" : null)"
                                     class="px-5 py-2 text-sm bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
@@ -303,7 +303,7 @@
 
     private bool sidebarCollapsed;
     private bool isSaving;
-    private string? pendingAction;     // "draft" / "complete" / "resubmit"
+    private string? pendingAction;     // "complete" / "resubmit"
 
     /// <summary>本次修題說明（雙向綁到右側 Reference Panel；Plan_010-C 會接到 RevisionReplyEditor）</summary>
     private string revisionNote = "";
@@ -345,8 +345,11 @@
         }
     }
 
-    /// <summary>儲存修題（Plan_010-A 後端）。finalize 為視覺差異旗標，後端目前邏輯一致。</summary>
-    private async Task SaveAsync(bool finalize)
+    /// <summary>
+    /// 完成修題 — 將題目欄位（題幹/選項/答案/解析…）與修題說明一併寫入 DB（單一 atomic 路徑）。
+    /// 修題流程不提供「儲存草稿」入口；按下完成即送出並關閉視窗。
+    /// </summary>
+    private async Task SaveAsync()
     {
         if (data is null || !data.IsEditable || isSaving) return;
         if (string.IsNullOrWhiteSpace(revisionNote))
@@ -356,7 +359,7 @@
         }
 
         isSaving = true;
-        pendingAction = finalize ? "complete" : "draft";
+        pendingAction = "complete";
         try
         {
             var ok = await QuestionService.SaveRevisionAsync(new SaveRevisionRequest
@@ -372,18 +375,9 @@
                 return;
             }
 
-            await ShowToastAsync("success", finalize ? "修題完成已儲存" : "修題草稿已儲存");
+            await ShowToastAsync("success", "修題完成已儲存");
             await OnSaved.InvokeAsync();
-
-            if (finalize)
-            {
-                await CloseAsync();
-            }
-            else
-            {
-                // 重新載入以更新 HasReplied / MyReplies 列表
-                await LoadAsync(data.Question.Id);
-            }
+            await CloseAsync();
         }
         catch (InvalidOperationException ex)
         {
@@ -421,8 +415,8 @@
     }
 
     /// <summary>
-    /// 嘗試關閉（取消 / X 按鈕用）：若有未儲存修題說明會跳 SweetAlert 確認，避免誤觸丟失。
-    /// 注意：SaveAsync 成功後會直接呼叫 CloseAsync，跳過這層確認。
+    /// 嘗試關閉（取消 / X 按鈕用）：若有已輸入但未送出的修題說明會跳 SweetAlert 確認。
+    /// 取消即丟棄變更（修題流程不提供草稿保留）；SaveAsync 成功後會直接呼叫 CloseAsync 跳過這層確認。
     /// </summary>
     private async Task TryCloseAsync()
     {
@@ -439,7 +433,7 @@
         {
             icon = "warning",
             title = "確定離開修題畫面？",
-            text  = "尚有未儲存的修題說明，離開將會遺失。",
+            text  = "已輸入的修題說明與題目變更尚未送出，離開將會遺失。",
             showCancelButton  = true,
             confirmButtonText = "確定離開",
             cancelButtonText  = "繼續修題",
