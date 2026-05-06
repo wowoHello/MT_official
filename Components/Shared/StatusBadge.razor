@@ -86,6 +86,9 @@
         if (string.IsNullOrEmpty(StatusText)) return "default";
 
         var text = StatusText.Trim();
+        // 「不採用」「結案未採用」必須在「採用」之前判斷，否則 Contains("採用") 會誤判
+        if (text.Contains("不採用") || text == "結案未採用" || text.Contains("停用") || text.Contains("失敗") || text.Contains("異常") || text.Contains("已下架"))
+            return "danger";
         if (text.Contains("完成") || text.Contains("採用") || text.Contains("啟用") || text.Contains("已發佈") || text.Contains("已修題"))
             return "success";
         if (text.Contains("準備中"))
@@ -94,8 +97,6 @@
             return "info";
         if (text.Contains("退回") || text.Contains("修題") || text.Contains("待審"))
             return "warning";
-        if (text.Contains("不採用") || text.Contains("停用") || text.Contains("失敗") || text.Contains("異常") || text.Contains("已下架"))
-            return "danger";
         if (text.Contains("結案"))
             return "closed";
         if (text.Contains("草稿") || text.Contains("關閉"))

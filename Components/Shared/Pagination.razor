@@ -1,0 +1,150 @@
+@* ====================================================================== *@
+@*  Pagination — 共用分頁元件                                              *@
+@*                                                                          *@
+@*  使用範例：                                                              *@
+@*    <Pagination CurrentPage="@page" TotalPages="@totalPages"              *@
+@*                IsLoading="@isLoading" OnPageChanged="GoToPageAsync" />   *@
+@*                                                                          *@
+@*  特性：                                                                  *@
+@*    - 首頁/末頁 + 上一頁/下一頁 + 數字頁碼 + 省略號                       *@
+@*    - ≤7 頁全顯示；>7 頁採「首末頁 + 當前頁 ±2 + 省略號」                  *@
+@*    - 莫蘭迪色系；當前頁 bg-morandi text-white                            *@
+@*    - text-xs 起跳（適合年長者）；按鈕 ≥32px 觸控區                       *@
+@*    - aria-label / aria-current 完整無障礙標記                            *@
+@*    - IsLoading 時整列禁用，避免重複點擊                                  *@
+@*                                                                          *@
+@*  Razor 父層注意：                                                        *@
+@*    - TotalPages <= 1 時元件自動不渲染（無需父層判斷）                    *@
+@* ====================================================================== *@
+
+@if (TotalPages > 1)
+{
+    <nav role="navigation" aria-label="分頁導覽"
+         class="flex items-center justify-center gap-1 py-3 px-2 border-t border-gray-100 bg-white flex-wrap">
+
+        @* 首頁 *@
+        <button type="button"
+                @onclick="() => GoToAsync(1)"
+                disabled="@(IsDisabled(1))"
+                title="第一頁"
+                aria-label="跳至第一頁"
+                class="@ButtonCss(false)">
+            <i class="fa-solid fa-angles-left"></i>
+        </button>
+
+        @* 上一頁 *@
+        <button type="button"
+                @onclick="() => GoToAsync(CurrentPage - 1)"
+                disabled="@(IsDisabled(CurrentPage - 1))"
+                title="上一頁"
+                aria-label="上一頁"
+                class="@ButtonCss(false)">
+            <i class="fa-solid fa-chevron-left"></i>
+        </button>
+
+        @* 頁碼 / 省略號 *@
+        @foreach (var (p, idx) in BuildPages().Select((value, i) => (value, i)))
+        {
+            @if (p is null)
+            {
+                <span class="px-1.5 sm:px-2 text-gray-400 text-xs select-none" aria-hidden="true" @key="@($"e{idx}")">…</span>
+            }
+            else if (p == CurrentPage)
+            {
+                <button type="button" disabled
+                        @key="@p"
+                        aria-current="page"
+                        aria-label="@($"目前位於第 {p} 頁，共 {TotalPages} 頁")"
+                        class="@ButtonCss(true)">
+                    @p
+                </button>
+            }
+            else
+            {
+                <button type="button"
+                        @key="@p"
+                        @onclick="() => GoToAsync(p.Value)"
+                        disabled="@IsLoading"
+                        title="@($"第 {p} 頁")"
+                        aria-label="@($"跳至第 {p} 頁")"
+                        class="@ButtonCss(false)">
+                    @p
+                </button>
+            }
+        }
+
+        @* 下一頁 *@
+        <button type="button"
+                @onclick="() => GoToAsync(CurrentPage + 1)"
+                disabled="@(IsDisabled(CurrentPage + 1))"
+                title="下一頁"
+                aria-label="下一頁"
+                class="@ButtonCss(false)">
+            <i class="fa-solid fa-chevron-right"></i>
+        </button>
+
+        @* 末頁 *@
+        <button type="button"
+                @onclick="() => GoToAsync(TotalPages)"
+                disabled="@(IsDisabled(TotalPages))"
+                title="最後一頁"
+                aria-label="跳至最後一頁"
+                class="@ButtonCss(false)">
+            <i class="fa-solid fa-angles-right"></i>
+        </button>
+
+        @* 文字摘要（小螢幕擠不下時也保留語意） *@
+        <span class="ml-2 text-xs text-gray-500 font-medium tabular-nums hidden sm:inline">
+            第 <strong class="text-morandi">@CurrentPage</strong> / @TotalPages 頁
+        </span>
+    </nav>
+}
+
+@code {
+    /// <summary>當前頁碼（1-based）。</summary>
+    [Parameter, EditorRequired] public int CurrentPage { get; set; }
+
+    /// <summary>總頁數。≤1 時元件不渲染。</summary>
+    [Parameter, EditorRequired] public int TotalPages { get; set; }
+
+    /// <summary>頁碼變更回呼（傳出目標頁碼）。</summary>
+    [Parameter, EditorRequired] public EventCallback<int> OnPageChanged { get; set; }
+
+    /// <summary>父層載入中：禁用所有按鈕避免重複觸發。</summary>
+    [Parameter] public bool IsLoading { get; set; }
+
+    /// <summary>跳頁防呆：超出範圍 / 等於當前 / 載入中皆忽略。</summary>
+    private async Task GoToAsync(int page)
+    {
+        if (IsDisabled(page)) return;
+        await OnPageChanged.InvokeAsync(page);
+    }
+
+    /// <summary>判定按鈕是否禁用（超界 / 等於當前 / Loading）。</summary>
+    private bool IsDisabled(int page)
+        => IsLoading || page < 1 || page > TotalPages || page == CurrentPage;
+
+    /// <summary>
+    /// 產生頁碼陣列：≤7 頁全顯示；&gt;7 頁採「首末頁 + 當前頁前後 ±2」+ 省略號（null）。
+    /// 範例：總 12 頁、目前第 6 頁 → [1, …, 4, 5, 6, 7, 8, …, 12]
+    /// </summary>
+    private IReadOnlyList<int?> BuildPages()
+    {
+        if (TotalPages <= 7)
+            return Enumerable.Range(1, TotalPages).Select(i => (int?)i).ToList();
+
+        var pages = new List<int?> { 1 };
+        var start = Math.Max(2, CurrentPage - 2);
+        var end   = Math.Min(TotalPages - 1, CurrentPage + 2);
+        if (start > 2) pages.Add(null);
+        for (var i = start; i <= end; i++) pages.Add(i);
+        if (end < TotalPages - 1) pages.Add(null);
+        pages.Add(TotalPages);
+        return pages;
+    }
+
+    /// <summary>按鈕共用 Tailwind class（活躍 vs 一般）。</summary>
+    private static string ButtonCss(bool isCurrent) => isCurrent
+        ? "min-w-[2rem] h-8 px-2.5 text-xs font-bold rounded-md bg-morandi text-white shadow-sm cursor-default tabular-nums"
+        : "min-w-[2rem] h-8 px-2.5 text-xs font-medium rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-morandi/5 hover:text-morandi hover:border-morandi/40 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-gray-600 disabled:hover:border-gray-200 focus:outline-none focus:ring-2 focus:ring-morandi/40 tabular-nums";
+}

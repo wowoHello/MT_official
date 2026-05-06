@@ -22,8 +22,10 @@ public enum AlertType : byte
     PersonalBacklog = 1,
     /// <summary>配額缺口警示（管理員視角，命題階段倒數時觸發）。</summary>
     QuotaGap = 2,
-    /// <summary>階段逾期警示（不分角色，紅色 + 跳閃）。</summary>
-    PhaseOverdue = 3
+    /// <summary>階段逾期警示（僅管理員，紅色 + 跳閃）。</summary>
+    PhaseOverdue = 3,
+    /// <summary>管理員視角：全梯次任務彙整（審題/修題待辦總數，PhaseCode 3~8）。</summary>
+    AdminSummary = 4
 }
 
 /// <summary>單筆急件警示資料。</summary>
@@ -44,6 +46,4 @@ public class UrgentAlertItem
     /// <summary>副訊息（次列顯示，例如倒數天數）。</summary>
     public string Subtitle { get; set; } = string.Empty;
 
-    /// <summary>點擊跳轉的 URL（含 ?tab= 參數）。</summary>
-    public string RedirectUrl { get; set; } = string.Empty;
 }

@@ -167,7 +167,9 @@
                             @* col-span-6 在 min-w-[1080px] 容器內理應 ~510px，但實際上 fr 配置會被內容多寡擠壓，
                                直接給 min-w-[480px] 鎖住 stepper 所需空間，確保 7 顆球與連線不被壓縮 *@
                             <div class="col-span-6 min-w-[480px]">
-                                <PhaseProgressStepper Status="item.Status" CurrentPhaseCode="result.CurrentPhaseCode" />
+                                <PhaseProgressStepper Status="item.Status"
+                                                      CurrentPhaseCode="result.CurrentPhaseCode"
+                                                      HasRepliedThisStage="item.HasRepliedThisStage" />
                             </div>
                             <div class="col-span-1 flex flex-col items-center gap-1.5">
                                 @if (item.IsDeleted)
@@ -202,37 +204,7 @@
                     </div>
                 </div>
 
-                @if (result.PageCount > 1)
-                {
-                    <div class="flex items-center justify-center gap-1.5 py-4 border-t border-gray-100 bg-white shrink-0">
-                        <button @onclick="() => GoToPageAsync(filter.Page - 1)" disabled="@(filter.Page <= 1)"
-                            class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                            aria-label="上一頁">
-                            <i class="fa-solid fa-chevron-left"></i>
-                        </button>
-                        @foreach (var p in BuildPageNumbers(filter.Page, result.PageCount))
-                        {
-                            @if (p is null)
-                            {
-                                <span class="px-2 text-gray-400 text-sm select-none">…</span>
-                            }
-                            else if (p == filter.Page)
-                            {
-                                <button class="px-3 py-1 text-sm rounded bg-morandi text-white font-bold cursor-default" aria-current="page">@p</button>
-                            }
-                            else
-                            {
-                                <button @onclick="() => GoToPageAsync(p.Value)"
-                                    class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 hover:text-morandi cursor-pointer">@p</button>
-                            }
-                        }
-                        <button @onclick="() => GoToPageAsync(filter.Page + 1)" disabled="@(filter.Page >= result.PageCount)"
-                            class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                            aria-label="下一頁">
-                            <i class="fa-solid fa-chevron-right"></i>
-                        </button>
-                    </div>
-                }
+                <Pagination CurrentPage="@filter.Page" TotalPages="@result.PageCount" IsLoading="@isLoading" OnPageChanged="GoToPageAsync" />
             }
         </div>
     </div>
@@ -427,25 +399,6 @@
         {
             showDetailModal = false;
         }
-    }
-
-    /// <summary>
-    /// 產生分頁器頁碼陣列：≤7 頁全顯示；&gt;7 頁採「首末頁 + 當前頁前後 ±2」+ 省略號（null 代表 …）。
-    /// 範例：總 12 頁、目前第 6 頁 → [1, …, 4, 5, 6, 7, 8, …, 12]
-    /// </summary>
-    private static IReadOnlyList<int?> BuildPageNumbers(int current, int total)
-    {
-        if (total <= 7)
-            return Enumerable.Range(1, total).Select(i => (int?)i).ToList();
-
-        var pages = new List<int?> { 1 };
-        var start = Math.Max(2, current - 2);
-        var end   = Math.Min(total - 1, current + 2);
-        if (start > 2) pages.Add(null);
-        for (var i = start; i <= end; i++) pages.Add(i);
-        if (end < total - 1) pages.Add(null);
-        pages.Add(total);
-        return pages;
     }
 
     private async Task RestoreAsync(int questionId, string questionCode)

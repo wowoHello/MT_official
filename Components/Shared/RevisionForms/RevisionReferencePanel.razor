@@ -42,7 +42,7 @@
             <div class="p-3 space-y-3">
                 @if (Comments.Count == 0)
                 {
-                    <p class="text-xs text-gray-400 italic text-center py-3">尚無審題意見</p>
+                    <EmptyState IconClass="fa-comments" Message="尚無審題意見" Compact="true" />
                 }
                 else
                 {
@@ -90,7 +90,7 @@
             <div class="p-3 space-y-3">
                 @if (MyReplies.Count == 0)
                 {
-                    <p class="text-xs text-gray-400 italic text-center py-3">尚無修題紀錄</p>
+                    <EmptyState IconClass="fa-clock-rotate-left" Message="尚無修題紀錄" Compact="true" />
                 }
                 else
                 {

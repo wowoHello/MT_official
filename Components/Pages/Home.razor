@@ -119,15 +119,14 @@
                                 var dotClass = isCritical ? "bg-red-500" : "bg-amber-500";
                                 var titleClass = isCritical ? "text-red-700" : "text-amber-700";
                                 var cardClass = isOverdue
-                                    ? "bg-red-50 border-red-200 hover:border-red-300"
-                                    : "bg-white border-red-100 hover:border-red-200";
+                                    ? "bg-red-50 border-red-200"
+                                    : "bg-white border-red-100";
                                 var iconClass = isOverdue
                                     ? "fa-solid fa-triangle-exclamation text-red-600"
                                     : isQuotaGap ? "fa-solid fa-chart-pie text-amber-600"
                                     : "fa-regular fa-clock text-gray-400";
 
-                                <li class="rounded-lg border px-3 py-2.5 shadow-sm transition-all cursor-pointer flex items-start gap-3 hover:shadow-md @cardClass"
-                                    @onclick="() => NavigateToAlertAsync(alert)">
+                                <li class="rounded-lg border px-3 py-2.5 shadow-sm flex items-start gap-3 @cardClass">
                                     <span class="mt-1.5 inline-block w-2.5 h-2.5 rounded-full @dotClass @((isCritical || isOverdue) ? "animate-pulse" : "")"></span>
                                     <div class="flex-1 min-w-0">
                                         <p class="text-sm font-bold @titleClass leading-snug">@alert.Title</p>
@@ -136,7 +135,6 @@
                                             <span>@alert.Subtitle</span>
                                         </p>
                                     </div>
-                                    <i class="fa-solid fa-chevron-right text-gray-300 mt-1.5 text-xs"></i>
                                 </li>
                             }
                         </ul>
@@ -367,12 +365,6 @@
     {
         selectedAnnouncement = item;
         showAnnouncementModal = true;
-    }
-
-    private void NavigateToAlertAsync(UrgentAlertItem alert)
-    {
-        if (string.IsNullOrWhiteSpace(alert.RedirectUrl)) return;
-        Navigation.NavigateTo(alert.RedirectUrl);
     }
 
     /// <summary>使用說明手冊：PDF 尚未建置，先以提示取代。</summary>

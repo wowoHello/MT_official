@@ -84,7 +84,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             ORDER BY
                 CASE WHEN ra.ReviewStatus = 2 THEN 1 ELSE 0 END,  -- 待處理(0/1) 優先
                 ra.ReviewStage DESC,                              -- 較新階段在上方
-                ISNULL(ra.DecidedAt, ra.CreatedAt) DESC;          -- 同階段依編輯時間新→舊
+                q.Id ASC;                                          -- 同階段依題目 ID 升冪（與 CwtList 統一）
             """;
 
         // 當前進行中的審題階段（僅 PhaseCode 3/5/7 對應 Mutual/Expert/Final；其餘為 null）
@@ -149,7 +149,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             WHERE q.ProjectId = @ProjectId
               AND q.IsDeleted = 0
               AND q.Status IN @Statuses
-            ORDER BY q.UpdatedAt DESC;
+            ORDER BY q.Id ASC;  -- 依題目 ID 升冪（與 CwtList 統一）
             """;
 
         using var conn = _db.CreateConnection();
@@ -479,9 +479,11 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                     new { Id = meta.QuestionId, Status = newQuestionStatus.Value }, tx);
             }
 
-            // 6. 總召「改後再審」→ 累加退回計數（達 2 次自動解鎖總召自編）
+            // 6. 總召「改後採用」或「不採用」→ 累加退回計數（達 3 次自動解鎖總召自編）
             //    再次決策時不重複加，避免使用者「Revise → Approve → Revise」誤計多次
-            if (!isResubmit && meta.Stage == (byte)ReviewStage.Final && req.Decision == ReviewDecision.Revise)
+            //    Reject 同樣計入：退回次數涵蓋所有「不採用→交回修改」情境
+            if (!isResubmit && meta.Stage == (byte)ReviewStage.Final &&
+                (req.Decision == ReviewDecision.Revise || req.Decision == ReviewDecision.Reject))
             {
                 await BumpReturnCountAsync(conn, tx, meta.QuestionId, operatorUserId);
             }
@@ -528,15 +530,22 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     /// 回傳 null 表示題目狀態不變（互審無此能力 / 專審採用維持等批次重派）。
     /// 集中對應邏輯 — 未來規則調整只動此一處。
     /// </summary>
+    /// <summary>
+    /// 依「審題階段 + 決策」計算題目應切換的新 Question.Status。
+    /// 回傳 null 表示題目狀態不變。
+    /// 總審三決策全部回 null：Status 維持 7（FinalReviewing）Buffer，
+    /// 等 PhaseCode=8 時由 EnsurePhaseTransitionAsync 批次分流。
+    /// </summary>
     private static byte? MapDecisionToQuestionStatus(byte stage, ReviewDecision decision)
         => (stage, decision) switch
         {
             ((byte)ReviewStage.Expert, ReviewDecision.Approve) => null,
             ((byte)ReviewStage.Expert, ReviewDecision.Revise)  => QuestionStatus.ExpertEditing,
 
-            ((byte)ReviewStage.Final,  ReviewDecision.Approve) => QuestionStatus.Adopted,
-            ((byte)ReviewStage.Final,  ReviewDecision.Reject)  => QuestionStatus.Rejected,
-            ((byte)ReviewStage.Final,  ReviewDecision.Revise)  => QuestionStatus.FinalEditing,
+            // 總審三決策皆 null — Buffer 到 PhaseCode=8 時才批次分流
+            ((byte)ReviewStage.Final,  ReviewDecision.Approve) => null,
+            ((byte)ReviewStage.Final,  ReviewDecision.Reject)  => null,
+            ((byte)ReviewStage.Final,  ReviewDecision.Revise)  => null,
 
             _ => null   // 互審不在此處理；異常組合不變更
         };
@@ -555,7 +564,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 ON target.QuestionId = src.QuestionId
             WHEN MATCHED THEN
                 UPDATE SET ReturnCount = target.ReturnCount + 1,
-                           CanEditByReviewer = CASE WHEN target.ReturnCount + 1 >= 2 THEN 1 ELSE 0 END
+                           CanEditByReviewer = CASE WHEN target.ReturnCount + 1 >= 3 THEN 1 ELSE 0 END
             WHEN NOT MATCHED THEN
                 INSERT (QuestionId, FinalReviewerId, ReturnCount, CanEditByReviewer)
                 VALUES (@QuestionId, @FinalReviewerId, 1, 0);
@@ -651,7 +660,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             });
         }
 
-        // 對總審「改後再審」加退回次數標示（總審第一次退回／總審第二次退回...）
+        // 對總審「改後採用」加退回次數標示（總審第一次退回／總審第二次退回...）
         ApplyFinalReturnSequence(entries);
 
         return entries.OrderByDescending(e => e.At).ToList();
@@ -690,7 +699,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     }
 
     /// <summary>
-    /// 對「總審意見（改後再審）」依時間排序加退回次數，產出「總審第一次退回 / 總審第二次退回...」。
+    /// 對「總審意見（改後採用）」依時間排序加退回次數，產出「總審第一次退回 / 總審第二次退回...」。
     /// 互審/專審無「退回」業務概念，不處理。
     /// </summary>
     private static void ApplyFinalReturnSequence(List<ReviewHistoryEntry> entries)
@@ -732,7 +741,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         return $"{stageName}（{decision switch
         {
             (byte)ReviewDecision.Approve => "採用",
-            (byte)ReviewDecision.Revise  => "改後再審",
+            (byte)ReviewDecision.Revise  => "改後採用",
             (byte)ReviewDecision.Reject  => "不採用",
             _                            => ""
         }}）";

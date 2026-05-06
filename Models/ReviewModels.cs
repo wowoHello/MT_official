@@ -12,10 +12,10 @@ public enum ReviewStage : byte
     /// <summary>互審（一審）— 命題教師之間互評，僅給意見、無決策按鈕</summary>
     Mutual = 1,
 
-    /// <summary>專審（二審）— 專家學者，可採用 / 改後再審（無不採用）</summary>
+    /// <summary>專審（二審）— 專家學者，可採用 / 改後採用（無不採用）</summary>
     Expert = 2,
 
-    /// <summary>總審（三審）— 總召，可採用 / 改後再審 / 不採用</summary>
+    /// <summary>總審（三審）— 總召，可採用 / 改後採用 / 不採用</summary>
     Final  = 3
 }
 
@@ -33,7 +33,7 @@ public enum ReviewDecision : byte
     /// <summary>採用 / 通過</summary>
     Approve = 1,
 
-    /// <summary>改後再審 / 修正</summary>
+    /// <summary>改後採用 / 修正後再送審</summary>
     Revise  = 2,
 
     /// <summary>不採用 / 退回（僅總審可用）</summary>

@@ -2,8 +2,8 @@
 @*  ReviewDecisionBar — 審題 Modal 底部決策按鈕列                              *@
 @*  依當前 Assignment.Stage 與 IsDecided 狀態切換 5 種按鈕配置：                *@
 @*    1. 互審：[儲存意見]                                                     *@
-@*    2. 專審：[儲存草稿] + [改後再審] + [採用]                                  *@
-@*    3. 總審：[儲存草稿] + [改後再審] + [不採用] + [採用]                        *@
+@*    2. 專審：[儲存草稿] + [改後採用] + [採用]                                  *@
+@*    3. 總審：[儲存草稿] + [改後採用] + [不採用] + [採用]                        *@
 @*    4. 總審第 3 次：[儲存草稿] + [編輯題目] + [不採用] + [採用]                  *@
 @*    5. 已決策：唯讀提示列                                                   *@
 @*  destructive-emphasis：「不採用」用 red-700 + 視覺隔離                      *@
@@ -50,7 +50,7 @@
             var (decLabel, decColor) = Assignment.Decision switch
             {
                 ReviewDecision.Approve => ("採用",     "text-sage"),
-                ReviewDecision.Revise  => ("改後再審", "text-terracotta"),
+                ReviewDecision.Revise  => ("改後採用", "text-terracotta"),
                 ReviewDecision.Reject  => ("不採用",   "text-red-700"),
                 _                      => ("—",       "text-gray-500")
             };
@@ -176,7 +176,7 @@
                 else
                 {
                     <i class="fa-solid fa-rotate-left mr-1.5"></i>
-                    <span>改後再審</span>
+                    <span>改後採用</span>
                 }
             </button>
             <button type="button"
@@ -227,7 +227,7 @@
                 else
                 {
                     <i class="fa-solid fa-rotate-left mr-1.5"></i>
-                    <span>改後再審</span>
+                    <span>改後採用</span>
                 }
             </button>
             @* destructive-emphasis：不採用單獨 red-700 + 額外 gap *@

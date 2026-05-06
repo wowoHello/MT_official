@@ -47,9 +47,11 @@ public class TeacherService : ITeacherService
 {
     private const string DefaultTeacherPassword = "CSF@01024304";
 
-    // 題目狀態碼常數（對應 MT_Questions.Status）
-    private const int StatusAdopted = 12;
-    private const int StatusRejected = 13;
+    // 題目結案後狀態碼常數（對應 MT_Questions.Status 結案分支）
+    // StatusClosedAdopted = 12 (Archived) / StatusClosedNotAdopted = 11 (ClosedNotAdopted)
+    // 與 QuestionStatus.Adopted=9 / Rejected=10 命名區分，避免混淆
+    private const int StatusClosedAdopted      = 12;   // 結案入庫（原 13，前移）
+    private const int StatusClosedNotAdopted   = 11;   // 結案未採用（原 12，前移）
 
     private readonly IDatabaseService _db;
     private readonly ILogger<TeacherService> _logger;
@@ -219,8 +221,8 @@ public class TeacherService : ITeacherService
         {
             UserId = teacherUserId,
             ProjectId = filterProjectId,
-            Adopted = StatusAdopted,
-            Rejected = StatusRejected
+            Adopted = StatusClosedAdopted,
+            Rejected = StatusClosedNotAdopted
         });
     }
 
@@ -389,7 +391,7 @@ public class TeacherService : ITeacherService
             GROUP BY q.ProjectId;
             """;
 
-        var questionRows = (await conn.QueryAsync(questionSql, new { UserId = teacherUserId, Adopted = StatusAdopted })).ToList();
+        var questionRows = (await conn.QueryAsync(questionSql, new { UserId = teacherUserId, Adopted = StatusClosedAdopted })).ToList();
         var questionMap = questionRows.ToDictionary(r => (int)r.ProjectId);
 
         foreach (var project in projects)

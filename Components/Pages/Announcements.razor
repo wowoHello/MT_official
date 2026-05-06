@@ -140,7 +140,7 @@
                 }
                 else
                 {
-                    @foreach (var ann in FilteredList)
+                    @foreach (var ann in PagedList)
                     {
                         <div class="grid grid-cols-12 gap-2 px-6 py-3.5 border-b border-gray-50 hover:bg-gray-50/50 transition-colors items-center cursor-pointer"
                              @onclick="() => OpenViewModal(ann)">
@@ -213,6 +213,7 @@
                     }
                 }
             </div>
+            <Pagination CurrentPage="@currentPage" TotalPages="@TotalPages" OnPageChanged="GoToPage" />
         </div>
     </div>
 </div>
@@ -387,9 +388,38 @@
     private List<ProjectDropdownItem> projectDropdown = new();
 
     // ─── 篩選 ───
-    private string filterKeyword = "";
-    private byte filterCategory = 0;       // 0 = 全部
-    private string filterDisplayStatus = "all";  // 依顯示狀態篩選
+    private string _filterKeyword = "";
+    private string filterKeyword
+    {
+        get => _filterKeyword;
+        set { _filterKeyword = value; currentPage = 1; }
+    }
+
+    private byte _filterCategory = 0;
+    private byte filterCategory
+    {
+        get => _filterCategory;
+        set { _filterCategory = value; currentPage = 1; }
+    }
+
+    private string _filterDisplayStatus = "all";
+    private string filterDisplayStatus
+    {
+        get => _filterDisplayStatus;
+        set { _filterDisplayStatus = value; currentPage = 1; }
+    }
+
+    // ─── 分頁 ───
+    private const int PageSize = 10;
+    private int currentPage = 1;
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(FilteredList.Count / (double)PageSize));
+    private IEnumerable<AnnouncementListItem> PagedList =>
+        FilteredList.Skip((currentPage - 1) * PageSize).Take(PageSize);
+    private void GoToPage(int page)
+    {
+        if (page < 1 || page > TotalPages || page == currentPage) return;
+        currentPage = page;
+    }
 
     // ─── 表單 ───
     private AnnouncementFormModel formModel = new();

@@ -354,9 +354,9 @@ public static class QuestionStatus
     public const byte FinalEditing       = 8;   // 總審修題中
     public const byte Adopted            = 9;   // 採用
     public const byte Rejected           = 10;  // 不採用
-    public const byte SentBack           = 11;  // 改後再審（過渡）
-    public const byte ClosedNotAdopted   = 12;  // 結案未採用
-    public const byte Archived           = 13;  // 結案入庫
+    // Status=11（SentBack）已於 2026-05-05 正式廢用（D1 決策），不再使用
+    public const byte ClosedNotAdopted   = 11;  // 結案未採用（原 12，前移一位）
+    public const byte Archived           = 12;  // 結案入庫（原 13，前移一位）
 
     public static readonly Dictionary<byte, string> Labels = new()
     {
@@ -365,16 +365,16 @@ public static class QuestionStatus
         [5] = "專審中", [6] = "專審修題中",
         [7] = "總審中", [8] = "總審修題中",
         [9] = "採用", [10] = "不採用",
-        [11] = "改後再審", [12] = "結案未採用",
-        [13] = "結案入庫"
+        [11] = "結案未採用",
+        [12] = "結案入庫"
     };
 
     // 三 Tab 對應的 status 範圍
     // ※ Status 2-8 同時出現在 compose 與 revision：命題端視為「命題流程已結束（已送審）」唯讀快照；
-    //    審題端視為「審/修題進行中」工作區。結案 (9/10/12/13) 後才從 compose tab 消失。
+    //    審題端視為「審/修題進行中」工作區。結案 (9/10/11/12) 後才從 compose tab 消失。
     public static readonly byte[] ComposeTabStatuses  = [0, 1, 2, 3, 4, 5, 6, 7, 8];
     public static readonly byte[] RevisionTabStatuses = [2, 3, 4, 5, 6, 7, 8];
-    public static readonly byte[] HistoryTabStatuses  = [9, 10, 12, 13];
+    public static readonly byte[] HistoryTabStatuses  = [9, 10, 11, 12];
 
     /// <summary>命題作業區的「已送審」分類：所有命題流程結束後仍未結案的狀態（2-8）。</summary>
     public static readonly byte[] SubmittedSnapshotStatuses = [2, 3, 4, 5, 6, 7, 8];
@@ -422,6 +422,10 @@ public class QuestionListFilter
 
     /// <summary>關鍵字是否額外比對命題教師姓名（MT_Users.DisplayName）。僅 Overview 用，CwtList/Reviews 預設 false。</summary>
     public bool SearchCreatorName { get; set; } = false;
+
+    /// <summary>修題回覆篩選：true=只看已送出修題、false=只看未送出、null=不限。
+    /// 僅在 Status ∈ {4,6,8} 時有意義；其他 Tab/Status 設此值無效果。</summary>
+    public bool? HasReplied { get; set; }
 }
 
 public class QuestionListResult

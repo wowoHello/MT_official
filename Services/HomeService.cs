@@ -98,21 +98,29 @@ public class HomeService : IHomeService
                 INNER JOIN dbo.MT_ProjectMembers pm ON pm.Id = mq.ProjectMemberId
                 WHERE pm.ProjectId = @ProjectId AND pm.UserId = @UserId;
 
-                -- 4) 各修題階段中、未完成的題數（依 Status 分組）
-                SELECT Status, COUNT(*) AS Cnt
-                FROM dbo.MT_Questions
-                WHERE ProjectId = @ProjectId
-                  AND CreatorId = @UserId
-                  AND IsDeleted = 0
-                  AND Status IN (4, 6, 8)
-                GROUP BY Status;
+                -- 4) 各修題階段中、尚未送出修題說明的題數（依 Status 分組）
+                --    排除：MT_RevisionReplies 已有該使用者於相同修題階段送出回覆的題目
+                SELECT q.Status, COUNT(*) AS Cnt
+                FROM dbo.MT_Questions q
+                WHERE q.ProjectId = @ProjectId
+                  AND q.CreatorId = @UserId
+                  AND q.IsDeleted = 0
+                  AND q.Status IN (4, 6, 8)
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM dbo.MT_RevisionReplies rr
+                      WHERE rr.QuestionId = q.Id
+                        AND rr.UserId     = q.CreatorId
+                        AND rr.Stage      = q.Status
+                  )
+                GROUP BY q.Status;
 
-                -- 5) 待審任務（依 ReviewStage 分組）
+                -- 5) 個人待審任務（依 ReviewStage 分組，含待審 0 與審核中 1）
                 SELECT ReviewStage, COUNT(*) AS Cnt
                 FROM dbo.MT_ReviewAssignments
                 WHERE ProjectId = @ProjectId
                   AND ReviewerId = @UserId
-                  AND ReviewStatus = 0
+                  AND ReviewStatus IN (0, 1)
                 GROUP BY ReviewStage;
 
                 -- 6) 系統角色分類（Category：0=內部人員、1=外部人員，用於判斷管理員視角）
@@ -138,6 +146,28 @@ public class HomeService : IHomeService
                   AND p.EndDate < CAST(GETDATE() AS DATE)
                   AND (pNext.StartDate IS NULL OR pNext.StartDate > CAST(GETDATE() AS DATE))
                 ORDER BY p.PhaseCode DESC;
+
+                -- 9) 管理員視角：全梯次待審彙整（ReviewStage 1/2/3，含待審 0 與審核中 1）
+                SELECT ReviewStage, COUNT(*) AS Cnt
+                FROM dbo.MT_ReviewAssignments
+                WHERE ProjectId = @ProjectId
+                  AND ReviewStatus IN (0, 1)
+                GROUP BY ReviewStage;
+
+                -- 10) 管理員視角：全梯次待修題彙整（Status 4/6/8，無對應 RevisionReplies）
+                SELECT q.Status, COUNT(*) AS Cnt
+                FROM dbo.MT_Questions q
+                WHERE q.ProjectId = @ProjectId
+                  AND q.IsDeleted = 0
+                  AND q.Status IN (4, 6, 8)
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM dbo.MT_RevisionReplies rr
+                      WHERE rr.QuestionId = q.Id
+                        AND rr.UserId     = q.CreatorId
+                        AND rr.Stage      = q.Status
+                  )
+                GROUP BY q.Status;
                 """;
 
             using var grid = await conn.QueryMultipleAsync(sql, new
@@ -157,6 +187,11 @@ public class HomeService : IHomeService
             var systemRoleCategory = await grid.ReadFirstOrDefaultAsync<byte?>();
             var quotaGap = await grid.ReadFirstOrDefaultAsync<QuotaGapRow>() ?? new QuotaGapRow();
             var overdue = await grid.ReadFirstOrDefaultAsync<OverdueRow>();
+            // 結果集 9/10：管理員全梯次彙整
+            var adminReviewByStage = (await grid.ReadAsync<StageCountRow>())
+                .ToDictionary(r => r.ReviewStage, r => r.Cnt);
+            var adminEditingByStatus = (await grid.ReadAsync<StatusCountRow>())
+                .ToDictionary(r => r.Status, r => r.Cnt);
 
             // 管理員視角 = 系統角色屬內部人員（Category=0）OR 梯次角色為總召
             var isAdmin = systemRoleCategory == CategoryInternal
@@ -164,8 +199,8 @@ public class HomeService : IHomeService
 
             var alerts = new List<UrgentAlertItem>();
 
-            // [警示一] 階段逾期（任何角色，固定紅 + 跳閃）
-            if (overdue is not null)
+            // [警示一] 階段逾期（僅管理員，固定紅 + 跳閃）
+            if (overdue is not null && isAdmin)
             {
                 alerts.Add(new UrgentAlertItem
                 {
@@ -175,38 +210,43 @@ public class HomeService : IHomeService
                     PhaseName = overdue.PhaseName,
                     DaysLeft = -overdue.DaysOverdue,
                     Title = $"{overdue.PhaseName}已逾期 {overdue.DaysOverdue} 天",
-                    Subtitle = isAdmin ? "請盡速推進階段時程" : "請聯絡專案管理員協助處理",
-                    RedirectUrl = isAdmin ? "/projects" : "/overview"
+                    Subtitle = "請盡速推進階段時程"
                 });
             }
 
-            // [警示二/三] 各階段倒數（個人積壓 + 純倒數 + 配額缺口）
+            // [警示二/三] 各階段倒數（個人積壓 + 管理員彙整 + 配額缺口）
             foreach (var phase in phases)
             {
+                // 個人視角（命題教師 / 審題委員 / 總召）
                 BuildAlertForPhase(phase, roles, quotaRow, editingByStatus, reviewByStage, alerts);
 
-                // 管理員：對該階段補上純倒數提醒（若尚未因個人任務加入）
-                if (isAdmin && !alerts.Any(a => a.PhaseCode == phase.PhaseCode
-                    && (a.AlertType == AlertType.PhaseCountdown || a.AlertType == AlertType.PersonalBacklog)))
+                // 管理員視角：各階段全梯次彙整（與個人 backlog 可並存，防重複只針對 AdminSummary 本身）
+                if (isAdmin)
                 {
-                    alerts.Add(BuildAdminPhaseCountdown(phase));
-                }
-
-                // 管理員專屬：命題階段倒數時，加入「配額缺口」警示
-                if (isAdmin && phase.PhaseCode == 2
-                    && quotaGap.TargetTotal > 0
-                    && quotaGap.ProducedTotal < quotaGap.TargetTotal)
-                {
-                    alerts.Add(BuildQuotaGapAlert(phase, quotaGap));
+                    if (phase.PhaseCode == 2)
+                    {
+                        // 命題階段：有缺口才加 QuotaGap；缺口為 0 則純倒數
+                        if (quotaGap.TargetTotal > 0 && quotaGap.ProducedTotal < quotaGap.TargetTotal)
+                            alerts.Add(BuildQuotaGapAlert(phase, quotaGap));
+                        else if (!alerts.Any(a => a.PhaseCode == phase.PhaseCode && a.AlertType == AlertType.PhaseCountdown))
+                            alerts.Add(BuildAdminPhaseCountdown(phase));
+                    }
+                    else
+                    {
+                        // PhaseCode 3~8：全梯次彙整（AdminSummary），不與個人 backlog 互斥
+                        if (!alerts.Any(a => a.PhaseCode == phase.PhaseCode && a.AlertType == AlertType.AdminSummary))
+                            alerts.Add(BuildAdminSummaryAlert(phase, adminReviewByStage, adminEditingByStatus));
+                    }
                 }
             }
 
-            // 排序：逾期 > 配額缺口 > 個人積壓 > 純倒數，再依嚴重度與剩餘天數
+            // 排序：逾期 > 配額缺口/彙整 > 個人積壓 > 純倒數，再依嚴重度與剩餘天數
             return alerts
                 .OrderBy(a => a.AlertType switch
                 {
                     AlertType.PhaseOverdue => 0,
                     AlertType.QuotaGap => 1,
+                    AlertType.AdminSummary => 1,
                     AlertType.PersonalBacklog => 2,
                     _ => 3
                 })
@@ -221,7 +261,7 @@ public class HomeService : IHomeService
         }
     }
 
-    /// <summary>管理員視角：純階段倒數提醒（不論是否有任務）。</summary>
+    /// <summary>管理員視角：命題階段配額已達標時的純倒數提醒。</summary>
     private static UrgentAlertItem BuildAdminPhaseCountdown(PhaseRow phase)
     {
         var severity = phase.DaysLeft <= CriticalThresholdDays
@@ -236,8 +276,45 @@ public class HomeService : IHomeService
             PhaseName = phase.PhaseName,
             DaysLeft = phase.DaysLeft,
             Title = $"{phase.PhaseName}{FormatPhaseDeadline(phase.DaysLeft)}",
-            Subtitle = "點擊查看梯次總覽",
-            RedirectUrl = "/overview"
+            Subtitle = "梯次配額已達標"
+        };
+    }
+
+    /// <summary>管理員視角：PhaseCode 3~8 的全梯次任務彙整警示。</summary>
+    private static UrgentAlertItem BuildAdminSummaryAlert(
+        PhaseRow phase,
+        Dictionary<byte, int> adminReviewByStage,
+        Dictionary<byte, int> adminEditingByStatus)
+    {
+        var (totalPending, taskLabel) = phase.PhaseCode switch
+        {
+            3 => (adminReviewByStage.GetValueOrDefault((byte)1, 0), "人待給意見"),
+            4 => (adminEditingByStatus.GetValueOrDefault((byte)4, 0), "題待修題"),
+            5 => (adminReviewByStage.GetValueOrDefault((byte)2, 0), "題待審"),
+            6 => (adminEditingByStatus.GetValueOrDefault((byte)6, 0), "題待修題"),
+            7 => (adminReviewByStage.GetValueOrDefault((byte)3, 0), "題待審"),
+            8 => (adminEditingByStatus.GetValueOrDefault((byte)8, 0), "題待修題"),
+            _ => (0, string.Empty)
+        };
+
+        var severity = phase.DaysLeft <= CriticalThresholdDays
+            ? AlertSeverity.Critical
+            : AlertSeverity.Warning;
+
+        var title = totalPending > 0
+            ? $"全梯次尚有 {totalPending} {taskLabel}"
+            : $"{phase.PhaseName}進行中";
+
+        return new UrgentAlertItem
+        {
+            AlertType = AlertType.AdminSummary,
+            Severity = severity,
+            PhaseCode = phase.PhaseCode,
+            PhaseName = phase.PhaseName,
+            DaysLeft = phase.DaysLeft,
+            PendingCount = totalPending,
+            Title = title,
+            Subtitle = $"{phase.PhaseName}{FormatPhaseRemaining(phase.DaysLeft)}"
         };
     }
 
@@ -257,8 +334,7 @@ public class HomeService : IHomeService
             DaysLeft = phase.DaysLeft,
             PendingCount = shortage,
             Title = $"梯次還缺 {shortage} 題未產出",
-            Subtitle = $"達成率 {ratio}%，命題階段{FormatPhaseRemaining(phase.DaysLeft)}",
-            RedirectUrl = "/overview"
+            Subtitle = $"達成率 {ratio}%，命題階段{FormatPhaseRemaining(phase.DaysLeft)}"
         };
     }
 
@@ -281,44 +357,37 @@ public class HomeService : IHomeService
     {
         // PhaseCode → (是否有角色資格、要看的個人任務數)
         // 2=命題, 3=互審, 4=互修, 5=專審, 6=專修, 7=總審, 8=總修
-        var (eligible, pending, redirectUrl, taskLabel) = phase.PhaseCode switch
+        var (eligible, pending, taskLabel) = phase.PhaseCode switch
         {
             2 => (
                 roles.Contains(RoleProposer),
                 Math.Max(0, quota.Quota - quota.Produced),
-                "/cwt-list?tab=compose",
                 "未命題"),
             3 => (
                 roles.Contains(RoleProposer),
                 reviewByStage.GetValueOrDefault((byte)1, 0),
-                "/reviews?tab=peer",
-                "待審"),
+                "待給意見"),
             4 => (
                 roles.Contains(RoleProposer),
                 editingByStatus.GetValueOrDefault((byte)4, 0),
-                "/cwt-list?tab=revision",
                 "待修題"),
             5 => (
                 roles.Contains(RoleExpert),
                 reviewByStage.GetValueOrDefault((byte)2, 0),
-                "/reviews?tab=expert",
                 "待審"),
             6 => (
                 roles.Contains(RoleProposer),
                 editingByStatus.GetValueOrDefault((byte)6, 0),
-                "/cwt-list?tab=revision",
                 "待修題"),
             7 => (
                 roles.Contains(RoleConvener),
                 reviewByStage.GetValueOrDefault((byte)3, 0),
-                "/reviews?tab=final",
                 "待審"),
             8 => (
                 roles.Contains(RoleProposer),
                 editingByStatus.GetValueOrDefault((byte)8, 0),
-                "/cwt-list?tab=revision",
                 "待修題"),
-            _ => (false, 0, string.Empty, string.Empty)
+            _ => (false, 0, string.Empty)
         };
 
         if (!eligible) return;
@@ -339,8 +408,7 @@ public class HomeService : IHomeService
                 DaysLeft = phase.DaysLeft,
                 PendingCount = pending,
                 Title = $"您還有 {pending} 題{taskLabel}",
-                Subtitle = $"{phase.PhaseName}{FormatPhaseDeadline(phase.DaysLeft)}",
-                RedirectUrl = redirectUrl
+                Subtitle = $"{phase.PhaseName}{FormatPhaseDeadline(phase.DaysLeft)}"
             });
         }
         else
@@ -355,8 +423,7 @@ public class HomeService : IHomeService
                 DaysLeft = phase.DaysLeft,
                 PendingCount = 0,
                 Title = $"{phase.PhaseName}{FormatPhaseDeadline(phase.DaysLeft)}",
-                Subtitle = "目前任務皆已完成",
-                RedirectUrl = redirectUrl
+                Subtitle = "目前任務皆已完成"
             });
         }
     }

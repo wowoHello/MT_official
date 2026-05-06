@@ -100,12 +100,29 @@
                             <span class="text-xs text-gray-500">@entry.At.ToString("yyyy/MM/dd HH:mm")</span>
                         </div>
 
-                        @* 內容區：白色內框（意見文字）*@
+                        @* 內容區：白色內框（意見文字）；總審「不採用」加紅字警示 *@
                         @if (!string.IsNullOrWhiteSpace(entry.ContentHtml))
                         {
-                            <div class="mt-2 bg-white border border-gray-200 rounded-md px-3 py-2 text-sm text-slate-main leading-relaxed whitespace-pre-wrap not-italic">
-                                @entry.ContentHtml
-                            </div>
+                            @* 判斷是否為總審不採用意見（Label 含「不採用」且來自 ReviewComment 類型） *@
+                            var isRejectComment = entry.Kind == ReviewHistoryKind.ReviewComment
+                                                  && entry.Label.Contains("不採用");
+
+                            @if (isRejectComment)
+                            {
+                                <div class="mt-1.5 text-xs font-semibold text-red-600 flex items-center gap-1">
+                                    <i class="fa-solid fa-triangle-exclamation"></i>
+                                    <span>總審決策：不採用 — 請注意以下意見</span>
+                                </div>
+                                <div class="mt-1 bg-red-50 border border-red-200 rounded-md px-3 py-2 text-sm text-red-700 leading-relaxed whitespace-pre-wrap not-italic font-medium">
+                                    @entry.ContentHtml
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="mt-2 bg-white border border-gray-200 rounded-md px-3 py-2 text-sm text-slate-main leading-relaxed whitespace-pre-wrap not-italic">
+                                    @entry.ContentHtml
+                                </div>
+                            }
                         }
                     </div>
                 }

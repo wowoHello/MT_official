@@ -166,7 +166,9 @@
                         {
                             @StatCard("審題總計", SumCounts(QuestionStatus.RevisionTabStatuses), "fa-layer-group", "text-terracotta", "text-slate-main", "all", "顯示全部題目")
                             @StatCard("審題鎖定", SumCounts([QuestionStatus.Submitted, QuestionStatus.PeerReviewing, QuestionStatus.ExpertReviewing, QuestionStatus.FinalReviewing]), "fa-lock", "text-morandi", "text-morandi", "locked", "點一下套用篩選")
-                            @StatCard("修題中", SumCounts([QuestionStatus.PeerEditing, QuestionStatus.ExpertEditing, QuestionStatus.FinalEditing]), "fa-lock-open", "text-terracotta", "text-terracotta", "editing", "點一下套用篩選")
+                            @* 「修題中」改為僅未送出修題；新增「已修題」(sage) 顯示已送出 *@
+                            @StatCard("修題中", RevisionEditingActiveCount, "fa-lock-open", "text-terracotta", "text-terracotta", "editing", "點一下套用篩選")
+                            @StatCard("已修題", revisionRepliedCount, "fa-circle-check", "text-sage", "text-sage", "replied", "點一下套用篩選")
                         }
                         else
                         {
@@ -202,15 +204,6 @@
                         </select>
                     </div>
                     <div class="flex flex-wrap items-center justify-between gap-3 w-full xl:w-auto xl:justify-end">
-                        <label class="flex items-center gap-2 text-sm text-gray-500 font-medium whitespace-nowrap">
-                            每頁顯示
-                            <select value="@pageSize" @onchange="OnPageSizeChanged"
-                                class="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                                <option value="12">12 題</option>
-                                <option value="24">24 題</option>
-                                <option value="48">48 題</option>
-                            </select>
-                        </label>
                         <div class="text-sm text-gray-500 font-medium flex-shrink-0">
                             共 <span class="text-morandi font-bold">@listResult.TotalCount</span> 題
                         </div>
@@ -303,21 +296,11 @@
                         </table>
                     </div>
 
-                    @* 分頁器 *@
-                    @if (listResult.PageCount > 1)
-                    {
-                        <div class="flex items-center justify-center gap-2 py-4 border-t border-gray-100">
-                            <button @onclick="() => GoToPageAsync(currentPage - 1)" disabled="@(currentPage <= 1)"
-                                class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
-                                <i class="fa-solid fa-chevron-left"></i>
-                            </button>
-                            <span class="text-sm text-gray-600 font-medium">第 @currentPage / @listResult.PageCount 頁</span>
-                            <button @onclick="() => GoToPageAsync(currentPage + 1)" disabled="@(currentPage >= listResult.PageCount)"
-                                class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
-                                <i class="fa-solid fa-chevron-right"></i>
-                            </button>
-                        </div>
-                    }
+                    @* 分頁器（共用元件，TotalPages ≤ 1 時自動不渲染）*@
+                    <Pagination CurrentPage="@currentPage"
+                                TotalPages="@listResult.PageCount"
+                                IsLoading="@isLoadingList"
+                                OnPageChanged="GoToPageAsync" />
                 }
             </div>
         </div>
@@ -516,7 +499,10 @@
     private Dictionary<byte, int> statusCounts = [];
     private bool isLoadingList;
     private int currentPage = 1;
-    private int pageSize = 12;
+    private int pageSize = 10;
+
+    // 審修作業區「已修題」卡片計數（本人在 Status∈{4,6,8} 已送出 RevisionReplies 的題目數）
+    private int revisionRepliedCount;
 
     // 篩選條件
     private string? queryKeyword;
@@ -563,11 +549,14 @@
             var phaseTask    = QuestionService.GetCurrentPhaseAsync(CurrentProject!.Id);
             var countsTask   = QuestionService.GetStatusCountsAsync(CurrentProject!.Id, currentUserId!.Value);
             var phaseEndTask = QuestionService.GetCompositionPhaseEndAsync(CurrentProject!.Id);
-            await Task.WhenAll(quotaTask, phaseTask, countsTask, phaseEndTask);
+            // 本人視角「已修題」計數（給審修作業區「已修題」統計卡片用）
+            var repliedTask  = QuestionService.GetMyRevisionRepliedCountAsync(CurrentProject!.Id, currentUserId!.Value);
+            await Task.WhenAll(quotaTask, phaseTask, countsTask, phaseEndTask, repliedTask);
             quotaProgress             = quotaTask.Result;
             currentPhase              = phaseTask.Result;
             statusCounts              = countsTask.Result;
             compositionPhaseEndDate   = phaseEndTask.Result;
+            revisionRepliedCount      = repliedTask.Result;
         }
         finally
         {
@@ -612,6 +601,7 @@
                 Tab              = currentTab,
                 StatusFilter     = ResolveStatusFilter(),
                 StatusesOverride = ResolveStatusesOverride(),
+                HasReplied       = ResolveHasReplied(),
                 QuestionTypeId   = int.TryParse(queryTypeId, out var t) ? t : null,
                 Level            = byte.TryParse(queryLevel, out var l) ? l : null,
                 Keyword          = string.IsNullOrWhiteSpace(queryKeyword) ? null : queryKeyword.Trim(),
@@ -642,8 +632,29 @@
     /// <summary>多狀態 filter override（如「已送審」card 涵蓋 Status 2-8）。</summary>
     private byte[]? ResolveStatusesOverride() => (currentTab, activeFilter) switch
     {
-        ("compose", "submitted") => QuestionStatus.SubmittedSnapshotStatuses,
-        _                        => null
+        ("compose",  "submitted") => QuestionStatus.SubmittedSnapshotStatuses,
+        // 審題鎖定：送審 + 三個審查中（2,3,5,7），不含修題中的 4,6,8
+        ("revision", "locked")    => [QuestionStatus.Submitted,
+                                      QuestionStatus.PeerReviewing,
+                                      QuestionStatus.ExpertReviewing,
+                                      QuestionStatus.FinalReviewing],
+        // editing/replied 都對齊修題狀態 (4,6,8)，差異由 ResolveHasReplied 處理
+        ("revision", "editing")   => [QuestionStatus.PeerEditing,
+                                      QuestionStatus.ExpertEditing,
+                                      QuestionStatus.FinalEditing],
+        ("revision", "replied")   => [QuestionStatus.PeerEditing,
+                                      QuestionStatus.ExpertEditing,
+                                      QuestionStatus.FinalEditing],
+        _                         => null
+    };
+
+    /// <summary>把 activeFilter 對應到 QuestionListFilter.HasReplied
+    /// （editing=未送出、replied=已送出、其餘=不限）。</summary>
+    private bool? ResolveHasReplied() => (currentTab, activeFilter) switch
+    {
+        ("revision", "editing") => false,
+        ("revision", "replied") => true,
+        _                       => null
     };
 
     private async Task SwitchTab(string tab)
@@ -682,13 +693,6 @@
         await LoadListAsync();
     }
 
-    private async Task OnPageSizeChanged(ChangeEventArgs e)
-    {
-        if (int.TryParse(e.Value?.ToString(), out var n)) pageSize = n;
-        currentPage = 1;
-        await LoadListAsync();
-    }
-
     private async Task GoToPageAsync(int page)
     {
         if (page < 1 || page > listResult.PageCount || page == currentPage) return;
@@ -698,6 +702,11 @@
 
     private int CountOf(byte status) => statusCounts.GetValueOrDefault(status, 0);
     private int SumCounts(byte[] statuses) => statuses.Sum(s => statusCounts.GetValueOrDefault(s, 0));
+
+    /// <summary>「修題中」(尚未送出) 的計數 = 全部修題狀態 (4,6,8) 扣除已送出修題回覆。</summary>
+    private int RevisionEditingActiveCount =>
+        SumCounts([QuestionStatus.PeerEditing, QuestionStatus.ExpertEditing, QuestionStatus.FinalEditing])
+        - revisionRepliedCount;
 
     private bool IsEditableStatus(byte status)
     {
@@ -731,7 +740,18 @@
         if (currentTab == "history")
             return ("fa-box-archive", "尚無已判決的試題", "等待總審判決後，已採用 / 不採用題目會出現於此。");
 
-        // revision tab：依階段提示
+        // revision tab：先依使用者點擊的卡片 filter 提示，再 fallback 到階段提示。
+        switch (activeFilter)
+        {
+            case "locked":
+                return ("fa-lock", "目前沒有審題鎖定中的題目", "進行審題的階段時，待審題目會在此顯示。");
+            case "editing":
+                return ("fa-pen", "目前沒有等待修題的題目", "審題人退回的題目會在此顯示，等待您修改。");
+            case "replied":
+                return ("fa-circle-check", "目前沒有已修題的題目", "您送出修題說明後，題目會在此顯示。");
+        }
+
+        // activeFilter == "all" 或其他：依當前階段給予整體脈絡提示。
         var code = currentPhase?.PhaseCode;
         return code switch
         {

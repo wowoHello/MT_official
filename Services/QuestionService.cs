@@ -24,6 +24,10 @@ public interface IQuestionService
     // P4 新增：列表頁統計卡片用（依 status 分桶計數）
     Task<Dictionary<byte, int>> GetStatusCountsAsync(int projectId, int? creatorId);
 
+    // Plan_012：CwtList 審修作業區「已修題」卡片計數（僅本人視角）。
+    // 回傳 Status∈{4,6,8} 且本人在當前 Stage 已寫過 RevisionReplies 的題目數。
+    Task<int> GetMyRevisionRepliedCountAsync(int projectId, int userId);
+
     // P4 新增：使用者在某專案是否為成員（用於審題任務權限攔截）
     Task<bool> IsProjectMemberAsync(int userId, int projectId);
 
@@ -501,6 +505,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         args.Add("Keyword",        filter.Keyword);
         args.Add("Offset",         (page - 1) * pageSize);
         args.Add("PageSize",       pageSize);
+        // Plan_012：HasReplied 篩選（僅 CwtList revision tab 帶；其它 Tab 為 null 不影響 SQL 判定）
+        args.Add("HasReplied",     filter.HasReplied);
 
         // ⚠️ Dapper 把 byte[] 當作 VARBINARY，不會展開為 IN (...)；必須轉成 List<int> 才會自動展開
         if (statuses.Length > 0)
@@ -517,6 +523,19 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         // count 查詢需要 JOIN MT_Users 才能比對姓名；CwtList/Reviews 不需要 JOIN（效能最佳）
         var countJoin = filter.SearchCreatorName ? "LEFT JOIN dbo.MT_Users u ON u.Id = q.CreatorId" : "";
 
+        // Plan_012：HasReplied 條件 — 僅在 @HasReplied 非 null 時生效；
+        // 條件意義：題目 Status∈{4,6,8} 且本人在當前 Stage 是否已寫過 MT_RevisionReplies
+        const string repliedClause = """
+              AND (@HasReplied IS NULL OR
+                   (q.Status IN (4, 6, 8) AND
+                    @HasReplied = CAST(CASE WHEN EXISTS (
+                        SELECT 1 FROM dbo.MT_RevisionReplies rr
+                        WHERE rr.QuestionId = q.Id
+                          AND rr.UserId     = q.CreatorId
+                          AND rr.Stage      = q.Status
+                    ) THEN 1 ELSE 0 END AS BIT)))
+            """;
+
         var countSql = $"""
             SELECT COUNT(*)
             FROM dbo.MT_Questions q
@@ -527,7 +546,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
               {(statuses.Length > 0 ? "AND q.Status IN @Statuses" : "")}
               AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
               AND (@Level IS NULL OR q.Level = @Level)
-              {keywordClause};
+              {keywordClause}
+              {repliedClause};
             """;
 
         // Plan_010：HasRepliedThisStage —— 同題 + 同 UserId（= q.CreatorId）+ Stage 對齊 q.Status
@@ -559,6 +579,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
               AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
               AND (@Level IS NULL OR q.Level = @Level)
               {keywordClause}
+              {repliedClause}
             ORDER BY
                 CASE WHEN q.Status = 0 THEN 0
                      WHEN q.Status = 1 THEN 1
@@ -614,6 +635,33 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         var rows = await conn.QueryAsync<StatusCountDto>(sql,
             new { ProjectId = projectId, CreatorId = creatorId });
         return rows.ToDictionary(r => r.Status, r => r.Cnt);
+    }
+
+    /// <summary>
+    /// Plan_012：CwtList 審修作業區「已修題」卡片計數（本人視角）。
+    /// 計算 Status∈{4,6,8} 且本人在當前 Stage 已寫過 MT_RevisionReplies 的題目數。
+    /// 條件鍵 (ProjectId, CreatorId, Status, IsDeleted) 與 (QuestionId, UserId, Stage)
+    /// 皆為 ListAsync 既有索引服務範圍，不額外造成負擔。
+    /// </summary>
+    public async Task<int> GetMyRevisionRepliedCountAsync(int projectId, int userId)
+    {
+        const string sql = """
+            SELECT COUNT(*)
+            FROM dbo.MT_Questions q
+            WHERE q.ProjectId = @ProjectId
+              AND q.IsDeleted = 0
+              AND q.CreatorId = @UserId
+              AND q.Status IN (4, 6, 8)
+              AND EXISTS (
+                  SELECT 1 FROM dbo.MT_RevisionReplies rr
+                  WHERE rr.QuestionId = q.Id
+                    AND rr.UserId     = q.CreatorId
+                    AND rr.Stage      = q.Status
+              );
+            """;
+        using var conn = _db.CreateConnection();
+        return await conn.ExecuteScalarAsync<int>(sql,
+            new { ProjectId = projectId, UserId = userId });
     }
 
     /// <summary>使用者是否為該專案的成員（命題或審題身分均算）。</summary>
@@ -958,6 +1006,13 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
         if (phaseCode is null) return 0;
 
+        // PhaseCode=8 總召修題：依總審決策分流處理（Buffer 化）
+        // 與其他階段走完全不同路徑，獨立 return
+        if (phaseCode.Value == 8)
+        {
+            return await EnsureFinalEditingPhaseAsync(conn, projectId);
+        }
+
         // 2. 依階段決定要升級的舊狀態與目標狀態
         // 各階段也接收前序「被遺漏」的題目（避免某題卡在舊狀態）
         var (fromStatuses, toStatus, reasonLabel) = phaseCode.Value switch
@@ -985,10 +1040,6 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                                QuestionStatus.ExpertEditing },
                   QuestionStatus.FinalReviewing,
                   "FinalReviewingPhaseStart"),
-            // 總召修題（8）：總審中 → 總審修題中
-            8 => (new byte[] { QuestionStatus.FinalReviewing },
-                  QuestionStatus.FinalEditing,
-                  "FinalEditingPhaseStart"),
             _ => (Array.Empty<byte>(), (byte)0, "")
         };
 
@@ -1063,6 +1114,131 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
             tx.Commit();
             return candidates.Count;
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    // ====================================================================
+    //  PhaseCode=8 總召修題：Buffer 化分流
+    //  依 Stage=3 的 Assignment.Decision 批次決定題目最終 Status：
+    //    Decision=Approve(1)             → Adopted(9)
+    //    Decision=Revise(2)/Reject(3)    → FinalEditing(8)
+    //    Decision=NULL（未決策）          → FinalEditing(8)（D2 最後機會）
+    //    無 Stage=3 Assignment（防禦）    → FinalEditing(8)
+    //  所有 UPDATE 在同一 Transaction，AuditLog 分兩批（Adopted / FinalEditing）寫入
+    // ====================================================================
+    private async Task<int> EnsureFinalEditingPhaseAsync(IDbConnection conn, int projectId)
+    {
+        using var tx = conn.BeginTransaction(IsolationLevel.Serializable);
+        try
+        {
+            // Step 4-1：Decision=Approve → Adopted(9)
+            const string approveUpdateSql = """
+                UPDATE q
+                SET q.Status = @Adopted
+                FROM dbo.MT_Questions q
+                INNER JOIN dbo.MT_ReviewAssignments a
+                    ON a.QuestionId = q.Id AND a.Stage = 3
+                WHERE q.ProjectId = @ProjectId
+                  AND q.IsDeleted  = 0
+                  AND q.Status     = @FinalReviewing
+                  AND a.Decision   = @Approve;
+                """;
+            await conn.ExecuteAsync(approveUpdateSql, new
+            {
+                ProjectId     = projectId,
+                Adopted        = (int)QuestionStatus.Adopted,
+                FinalReviewing = (int)QuestionStatus.FinalReviewing,
+                Approve        = 1   // ReviewDecision.Approve
+            }, tx);
+
+            // Step 4-2 + 4-3：Decision=Revise/Reject 或 NULL（未決策）→ FinalEditing(8)
+            const string editingUpdateSql = """
+                UPDATE q
+                SET q.Status = @FinalEditing
+                FROM dbo.MT_Questions q
+                INNER JOIN dbo.MT_ReviewAssignments a
+                    ON a.QuestionId = q.Id AND a.Stage = 3
+                WHERE q.ProjectId = @ProjectId
+                  AND q.IsDeleted  = 0
+                  AND q.Status     = @FinalReviewing
+                  AND (a.Decision IN (2, 3) OR a.Decision IS NULL);
+                """;
+            await conn.ExecuteAsync(editingUpdateSql, new
+            {
+                ProjectId     = projectId,
+                FinalEditing   = (int)QuestionStatus.FinalEditing,
+                FinalReviewing = (int)QuestionStatus.FinalReviewing
+            }, tx);
+
+            // Step 4-4：完全無 Stage=3 Assignment（防禦）→ FinalEditing(8)
+            const string orphanUpdateSql = """
+                UPDATE dbo.MT_Questions
+                SET Status = @FinalEditing
+                WHERE ProjectId = @ProjectId
+                  AND IsDeleted  = 0
+                  AND Status     = @FinalReviewing
+                  AND Id NOT IN (
+                      SELECT DISTINCT QuestionId
+                      FROM dbo.MT_ReviewAssignments
+                      WHERE Stage = 3
+                  );
+                """;
+            await conn.ExecuteAsync(orphanUpdateSql, new
+            {
+                ProjectId     = projectId,
+                FinalEditing   = (int)QuestionStatus.FinalEditing,
+                FinalReviewing = (int)QuestionStatus.FinalReviewing
+            }, tx);
+
+            // 讀取剛升級的題目清單（供 AuditLog 記錄）
+            var adoptedIds = (await conn.QueryAsync<int>(
+                "SELECT Id FROM dbo.MT_Questions WHERE ProjectId = @ProjectId AND Status = @Adopted AND IsDeleted = 0;",
+                new { ProjectId = projectId, Adopted = (int)QuestionStatus.Adopted }, tx)).AsList();
+            var editingIds = (await conn.QueryAsync<int>(
+                "SELECT Id FROM dbo.MT_Questions WHERE ProjectId = @ProjectId AND Status = @FinalEditing AND IsDeleted = 0;",
+                new { ProjectId = projectId, FinalEditing = (int)QuestionStatus.FinalEditing }, tx)).AsList();
+
+            // 批次 AuditLog（UserId=NULL 表系統批次）
+            const string auditSql = """
+                INSERT INTO dbo.MT_AuditLogs
+                    (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
+                VALUES
+                    (NULL, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
+                """;
+
+            foreach (var qid in adoptedIds)
+            {
+                await conn.ExecuteAsync(auditSql, new
+                {
+                    ProjectId  = projectId,
+                    Action     = AuditLogAction.Modify,
+                    TargetType = AuditLogTargetType.Questions,
+                    TargetId   = qid,
+                    OldValue   = JsonSerializer.Serialize(new { Status = QuestionStatus.FinalReviewing }),
+                    NewValue   = JsonSerializer.Serialize(new { Status = QuestionStatus.Adopted, Reason = "FinalAdoptedPhaseStart" })
+                }, tx);
+            }
+
+            foreach (var qid in editingIds)
+            {
+                await conn.ExecuteAsync(auditSql, new
+                {
+                    ProjectId  = projectId,
+                    Action     = AuditLogAction.Modify,
+                    TargetType = AuditLogTargetType.Questions,
+                    TargetId   = qid,
+                    OldValue   = JsonSerializer.Serialize(new { Status = QuestionStatus.FinalReviewing }),
+                    NewValue   = JsonSerializer.Serialize(new { Status = QuestionStatus.FinalEditing, Reason = "FinalEditingPhaseStart" })
+                }, tx);
+            }
+
+            tx.Commit();
+            return adoptedIds.Count + editingIds.Count;
         }
         catch
         {

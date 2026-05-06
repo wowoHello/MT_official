@@ -364,7 +364,13 @@ public class ProjectService : IProjectService
     }
 
     /// <summary>
-    /// 提前結案：標記梯次為結案，並把非「採用」狀態的題目全部改為「不採用」入庫。
+    /// 結案入庫：標記梯次為結案，並批次更新該梯次內所有未刪除題目的狀態。
+    /// 邏輯（同一 Serializable transaction 內原子提交）：
+    ///   1. MT_Projects.ClosedAt 設為現在時間（已結案者直接拋例外）
+    ///   2. Status = 9 (採用)        → Status = 12 (結案入庫 / Archived)
+    ///   3. Status ∉ {9, 11, 12} 且 IsDeleted = 0 → Status = 11 (結案未採用 / ClosedNotAdopted)
+    ///   4. 寫一筆 MT_AuditLogs（Action = Update / Target = Projects）
+    /// 任何一步失敗整批 rollback；成功後 SignalR 廣播 ProjectChanged。
     /// </summary>
     public async Task CloseProjectAsync(int projectId, int closedBy)
     {
@@ -391,14 +397,25 @@ public class ProjectService : IProjectService
                 throw new InvalidOperationException("專案已結案或不存在，無法重複結案。");
             }
 
-            // 2) 非採用題目改為「結案未採用」(Status = 12)
-            const string updateQuestionsSql = """
+            // 2a) 採用題目升為「結案入庫」(Status = 12，原 13 前移)
+            const string archiveSql = """
                 UPDATE dbo.MT_Questions
                 SET Status = 12,
                     UpdatedAt = SYSDATETIME()
                 WHERE ProjectId = @ProjectId
                   AND IsDeleted = 0
-                  AND Status <> 9;
+                  AND Status = 9;
+                """;
+            await conn.ExecuteAsync(archiveSql, new { ProjectId = projectId }, trans);
+
+            // 2b) 其餘非採用、非已結案題目改為「結案未採用」(Status = 11，原 12 前移)
+            const string updateQuestionsSql = """
+                UPDATE dbo.MT_Questions
+                SET Status = 11,
+                    UpdatedAt = SYSDATETIME()
+                WHERE ProjectId = @ProjectId
+                  AND IsDeleted = 0
+                  AND Status NOT IN (9, 11, 12);
                 """;
 
             await conn.ExecuteAsync(updateQuestionsSql, new { ProjectId = projectId }, trans);

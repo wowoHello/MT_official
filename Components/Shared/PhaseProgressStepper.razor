@@ -6,7 +6,7 @@
 @* ====================================================================== *@
 
 @{
-    var (stage, tone) = ResolveStage(Status, CurrentPhaseCode);
+    var (stage, tone) = ResolveStage(Status, CurrentPhaseCode, HasRepliedThisStage);
     var lamps = new string[7];
     for (var i = 0; i < 7; i++) lamps[i] = GetLampTone(i + 1, stage, tone);
 }
@@ -70,16 +70,26 @@
     /// </summary>
     [Parameter] public byte? CurrentPhaseCode { get; set; }
 
+    /// <summary>
+    /// 當前修題階段（4/6/8）內，本人是否已送出修題說明。
+    /// true 時搭配「Status == CurrentPhaseCode == 修題狀態」三條件成立 →
+    ///   對應修題球（3/5/7）由 red（terracotta ✏）改為 awaitNext（morandi ✓），語意：「我這題已修完，等下一階段審題人接手」。
+    /// 預設 false —— 不傳此參數時完全沿用舊行為（紅色筆），Reviews / CwtList 等其他頁面零影響。
+    /// </summary>
+    [Parameter] public bool HasRepliedThisStage { get; set; } = false;
+
     private static readonly string[] StageNames = ["命題", "互審", "互修", "專審", "專修", "總審", "總修"];
 
     /// <summary>
     /// 將 14 種 QuestionStatus 對應到 7 階段燈號的 (當前階段, 當前階段燈色)。
     /// tone 特殊值：
-    ///   "green"     → 全綠（採用）
-    ///   "rejected"  → 卡關紅後續灰
-    ///   "preDone"   → 該審完成、梯次未推進；倒數第 1 顆（stage-1）顯示莫蘭迪藍 ✓，更早顯示 sage 綠 ✓
+    ///   "green"        → 全綠（採用）
+    ///   "rejected"     → 卡關紅後續灰
+    ///   "preDone"      → 該審完成、梯次未推進；倒數第 1 顆（stage-1）顯示莫蘭迪藍 ✓，更早顯示 sage 綠 ✓
+    ///   "revisionSent" → 修題已送出（Status == PhaseCode == 修題階段 + HasRepliedThisStage = true）；
+    ///                    當前修題球（stage 本身）顯示莫蘭迪藍 ✓，之前階段 sage 綠 ✓，之後灰
     /// </summary>
-    private static (int Stage, string Tone) ResolveStage(byte status, byte? currentPhaseCode)
+    private static (int Stage, string Tone) ResolveStage(byte status, byte? currentPhaseCode, bool hasRepliedThisStage)
     {
         // 規則 A：題目已進入修題狀態，但梯次尚未推進到對應修題階段 → 「該審完成等待中」
         // 例：ExpertEditing(6) 但梯次 PhaseCode < 6（仍在專審 5 或更早）→ 視為專審完成等待專修開始
@@ -89,6 +99,16 @@
             return (5, "preDone");
         if (status == QuestionStatus.FinalEditing  && (currentPhaseCode is null || currentPhaseCode < QuestionStatus.FinalEditing))
             return (7, "preDone");
+
+        // 規則 A.5：梯次 PhaseCode 與題目 Status 同步在修題階段，且本人已送出修題說明
+        //          → 修題球本身轉為 awaitNext（莫蘭迪藍 ✓），語意：「我這題已修完，等下一階段審題人接手」
+        //          互修(4) / 專修(6) / 總修(8) 三階段邏輯一致
+        if (status == QuestionStatus.PeerEditing   && currentPhaseCode == QuestionStatus.PeerEditing   && hasRepliedThisStage)
+            return (3, "revisionSent");
+        if (status == QuestionStatus.ExpertEditing && currentPhaseCode == QuestionStatus.ExpertEditing && hasRepliedThisStage)
+            return (5, "revisionSent");
+        if (status == QuestionStatus.FinalEditing  && currentPhaseCode == QuestionStatus.FinalEditing  && hasRepliedThisStage)
+            return (7, "revisionSent");
 
         // 規則 B / C：維持原有對應
         return status switch
@@ -102,7 +122,6 @@
             QuestionStatus.ExpertEditing     => (5, "red"),
             QuestionStatus.FinalReviewing    => (6, "blue"),
             QuestionStatus.FinalEditing      => (7, "red"),
-            QuestionStatus.SentBack          => (7, "red"),
             QuestionStatus.Adopted           => (8, "green"),
             QuestionStatus.Rejected          => (7, "rejected"),
             QuestionStatus.ClosedNotAdopted  => (7, "rejected"),
@@ -121,6 +140,15 @@
             // 當前 stage 與之後：灰（修題階段尚未由梯次開放）
             if (i == stage - 1) return "awaitNext";
             if (i < stage - 1)  return "green";
+            return "gray";
+        }
+        if (tone == "revisionSent")
+        {
+            // 修題已送出：當前修題球本身（i == stage）轉為 awaitNext（莫蘭迪藍 ✓），語意「等下一階段審題人接手」
+            // 之前所有階段：sage 綠 ✓（已穩定完成）
+            // 之後階段：灰（尚未開始）
+            if (i == stage) return "awaitNext";
+            if (i < stage)  return "green";
             return "gray";
         }
         if (i < stage) return "green";

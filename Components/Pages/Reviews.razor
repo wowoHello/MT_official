@@ -256,16 +256,7 @@
                                 }
                             </select>
                         </div>
-                        <div class="flex flex-wrap items-center justify-between gap-3 w-full xl:w-auto xl:justify-end">
-                            <label class="flex items-center gap-2 text-sm text-gray-500 font-medium whitespace-nowrap">
-                                每頁顯示
-                                <select value="@pageSize" @onchange="OnPageSizeChanged"
-                                    class="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
-                                    <option value="12">12 題</option>
-                                    <option value="24">24 題</option>
-                                    <option value="48">48 題</option>
-                                </select>
-                            </label>
+                        <div class="flex items-center gap-3 w-full xl:w-auto xl:justify-end">
                             <div class="text-sm text-gray-500 font-medium flex-shrink-0">
                                 共 <span class="text-morandi font-bold">@FilteredCount</span> 題
                             </div>
@@ -401,7 +392,17 @@
                                                 }
                                                 else if (item.IsCompleted)
                                                 {
-                                                    <span class="inline-block px-2 py-0.5 rounded text-xs font-bold bg-sage/15 text-sage border border-sage/30">已審題</span>
+                                                    @* 互審無決策只給意見；專/總審依 Decision 顯示判決，色彩 token 對齊 ReviewDecisionBar 的「先前評定」 *@
+                                                    var (doneLabel, doneCss) = item.Stage == ReviewStage.Mutual
+                                                        ? ("已給意見", "bg-morandi/15 text-morandi border-morandi/30")
+                                                        : item.Decision switch
+                                                        {
+                                                            ReviewDecision.Approve => ("已審：採用",     "bg-sage/15 text-sage border-sage/30"),
+                                                            ReviewDecision.Revise  => ("已審：改後採用", "bg-terracotta/15 text-terracotta border-terracotta/30"),
+                                                            ReviewDecision.Reject  => ("已審：不採用",   "bg-red-50 text-red-700 border-red-200"),
+                                                            _                      => ("已審題",         "bg-gray-100 text-gray-600 border-gray-300")
+                                                        };
+                                                    <span class="inline-block px-2 py-0.5 rounded text-xs font-bold border @doneCss">@doneLabel</span>
                                                 }
                                                 else
                                                 {
@@ -429,20 +430,10 @@
                         </div>
 
                         @* 分頁器 *@
-                        @if (TotalPages > 1)
-                        {
-                            <div class="flex items-center justify-center gap-2 py-4 border-t border-gray-100">
-                                <button @onclick="() => GoToPage(currentPage - 1)" disabled="@(currentPage <= 1)"
-                                    class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
-                                    <i class="fa-solid fa-chevron-left"></i>
-                                </button>
-                                <span class="text-sm text-gray-600 font-medium">第 @currentPage / @TotalPages 頁</span>
-                                <button @onclick="() => GoToPage(currentPage + 1)" disabled="@(currentPage >= TotalPages)"
-                                    class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
-                                    <i class="fa-solid fa-chevron-right"></i>
-                                </button>
-                            </div>
-                        }
+                        <Pagination CurrentPage="@currentPage"
+                                    TotalPages="@TotalPages"
+                                    IsLoading="@isLoadingList"
+                                    OnPageChanged="GoToPage" />
                     }
                 }
                 else
@@ -520,20 +511,10 @@
                         </div>
 
                         @* 分頁器 *@
-                        @if (TotalPages > 1)
-                        {
-                            <div class="flex items-center justify-center gap-2 py-4 border-t border-gray-100">
-                                <button @onclick="() => GoToPage(currentPage - 1)" disabled="@(currentPage <= 1)"
-                                    class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
-                                    <i class="fa-solid fa-chevron-left"></i>
-                                </button>
-                                <span class="text-sm text-gray-600 font-medium">第 @currentPage / @TotalPages 頁</span>
-                                <button @onclick="() => GoToPage(currentPage + 1)" disabled="@(currentPage >= TotalPages)"
-                                    class="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
-                                    <i class="fa-solid fa-chevron-right"></i>
-                                </button>
-                            </div>
-                        }
+                        <Pagination CurrentPage="@currentPage"
+                                    TotalPages="@TotalPages"
+                                    IsLoading="@isLoadingHistory"
+                                    OnPageChanged="GoToPage" />
                     }
                 }
             </div>
@@ -587,7 +568,7 @@
     private string queryType   = "all";  // 題型 key 或 "all"
     private string queryLevel  = "all";  // byte 字串或 "all"
     private string queryStatus = "all";  // 作業區: all/pending/completed；歷史: all/adopted/rejected
-    private int pageSize       = 12;
+    private int pageSize       = 10;
     private int currentPage    = 1;
 
     // ReviewModal 開關
@@ -718,12 +699,6 @@
     private void OnTypeFilterChanged(ChangeEventArgs e)   { queryType   = e.Value?.ToString() ?? "all"; currentPage = 1; InvalidateFilter(); }
     private void OnLevelFilterChanged(ChangeEventArgs e)  { queryLevel  = e.Value?.ToString() ?? "all"; currentPage = 1; InvalidateFilter(); }
     private void OnStatusFilterChanged(ChangeEventArgs e) { queryStatus = e.Value?.ToString() ?? "all"; currentPage = 1; InvalidateFilter(); }
-    private void OnPageSizeChanged(ChangeEventArgs e)
-    {
-        if (int.TryParse(e.Value?.ToString(), out var n) && n > 0) pageSize = n;
-        currentPage = 1;
-    }
-
     private void GoToPage(int page)
     {
         var total = TotalPages;
