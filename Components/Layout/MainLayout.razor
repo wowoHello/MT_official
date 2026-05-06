@@ -449,11 +449,10 @@
 
             currentProject ??= GetDefaultProject();
 
-            if (currentProject is not null)
-            {
-                await ReloadModuleCardsAsync();
-                EnforceModuleAccess(Navigation.Uri);
-            }
+            // 不論 currentProject 是否為 null 都要重載模組權限：
+            // 系統管理員等內部身分即便沒參與任何梯次，仍應依 MT_Users.RoleId 判定後台卡片。
+            await ReloadModuleCardsAsync();
+            EnforceModuleAccess(Navigation.Uri);
         }
         catch (Exception ex)
         {
@@ -814,16 +813,12 @@
                 currentProject = GetDefaultProject();
             }
 
-            // Home 會用 ModuleCards == null 判斷「尚在載入」。
-            // 若梯次在後續重載流程中才被補上（例如 storage 還原後、Hub 同步後），
-            // 也要一併把模組權限補齊，避免首頁卡在無限 spinner。
-            if (currentProject is not null && (moduleCards is null || previousProjectId != currentProject.Id))
+            // Home 會用 ModuleCards == null 判斷「尚在載入」；不論有無梯次都呼叫一次，
+            // 讓 RoleService 用「系統角色 ∪ 梯次角色」的聯集判定（projectId=null 時退化成只看系統角色），
+            // 才能讓系統管理員等內部身分在無梯次時仍看得到後台卡片。
+            if (moduleCards is null || previousProjectId != currentProject?.Id)
             {
                 await ReloadModuleCardsAsync();
-            }
-            else if (currentProject is null)
-            {
-                moduleCards = [];
             }
         }
         catch (Exception ex)

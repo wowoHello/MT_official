@@ -7,7 +7,8 @@
 
 <div class="p-5 lg:p-6 pb-16 max-w-4xl mx-auto space-y-4 min-h-full">
 
-    <FormSectionCard Title="聽力音檔" Icon="fa-headphones" Required="true">
+    <FormSectionCard Title="聽力音檔" Icon="fa-headphones" Required="true"
+        DataField="AudioUrl" ContainerClass="@InvalidRing("AudioUrl")">
         <div class="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-morandi hover:bg-morandi/5 transition-all cursor-pointer group">
             @if (string.IsNullOrEmpty(AudioFileName))
             {
@@ -29,17 +30,20 @@
         </div>
     </FormSectionCard>
 
-    <FormSectionCard Title="題幹" Icon="fa-pen" Required="true">
+    <FormSectionCard Title="題幹" Icon="fa-pen" Required="true"
+        DataField="Stem" ContainerClass="@InvalidRing("Stem")">
         <QuillField Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="題幹" Placeholder="點擊此處開始編輯題幹內容..." />
     </FormSectionCard>
 
-    <FormSectionCard Title="選項與答案" Icon="fa-list-ol" Required="true" HintText="請點選正確答案">
+    <FormSectionCard Title="選項與答案" Icon="fa-list-ol" Required="true" HintText="請點選正確答案"
+        DataField="@OptionsFieldKey" ContainerClass="@InvalidRingAny(OptionsAndAnswerKeys)">
         <OptionGroup Options="@Options" OptionsChanged="OptionsChanged"
             Answer="@Answer" AnswerChanged="AnswerChanged"
             RadioName="@($"listen-answer-{Id}")" Layout="OptionGroup.OptionLayout.Grid" />
     </FormSectionCard>
 
-    <FormSectionCard Title="試題解析" Icon="fa-lightbulb" IconColor="text-amber-500" Required="true" HintText="紀錄答案理由">
+    <FormSectionCard Title="試題解析" Icon="fa-lightbulb" IconColor="text-amber-500" Required="true" HintText="紀錄答案理由"
+        DataField="Analysis" ContainerClass="@InvalidRing("Analysis")">
         <QuillField Value="@Analysis" ValueChanged="v => { Analysis = v; AnalysisChanged.InvokeAsync(v); }" FieldLabel="解析" Placeholder="點擊此處開始編輯解析，可說明正確答案依據與其他選項錯誤原因..." />
     </FormSectionCard>
 </div>
@@ -62,4 +66,19 @@
     [Parameter] public string Analysis { get; set; } = "";
     [Parameter] public EventCallback<string> AnalysisChanged { get; set; }
 
+    /// <summary>由父層傳入的驗證失敗欄位集合。</summary>
+    [Parameter] public HashSet<string>? InvalidFields { get; set; }
+
+    private static readonly string[] OptionsAndAnswerKeys =
+        ["Options_0", "Options_1", "Options_2", "Options_3", "Answer"];
+
+    private string OptionsFieldKey =>
+        OptionsAndAnswerKeys.FirstOrDefault(k => InvalidFields?.Contains(k) == true)
+        ?? "Options_0";
+
+    private string InvalidRing(string fieldKey) =>
+        InvalidFields?.Contains(fieldKey) == true ? "ring-2 ring-red-400" : "";
+
+    private string InvalidRingAny(IEnumerable<string> keys) =>
+        keys.Any(k => InvalidFields?.Contains(k) == true) ? "ring-2 ring-red-400" : "";
 }

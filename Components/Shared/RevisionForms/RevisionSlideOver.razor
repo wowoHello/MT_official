@@ -146,7 +146,8 @@
                                             @bind-Topic="data.Question.Topic" @bind-Subtopic="data.Question.Subtopic"
                                             @bind-WritingMode="data.Question.WritingMode" @bind-Genre="data.Question.Genre"
                                             @bind-AudioType="data.Question.AudioType" @bind-Material="data.Question.Material"
-                                            @bind-CoreAbility="data.Question.CoreAbility" @bind-DetailIndicator="data.Question.DetailIndicator" />
+                                            @bind-CoreAbility="data.Question.CoreAbility" @bind-DetailIndicator="data.Question.DetailIndicator"
+                                            InvalidFields="invalidFields" />
                                     </div>
 
                                     @* ----- 中：題目編輯主區 ----- *@
@@ -156,31 +157,37 @@
                                             case QuestionTypeCodes.Single:
                                             case QuestionTypeCodes.Select:
                                                 <QuestionFormSingle @bind-Stem="data.Question.Stem" @bind-Options="data.Question.Options"
-                                                                    @bind-Answer="data.Question.Answer" @bind-Analysis="data.Question.Analysis" />
+                                                                    @bind-Answer="data.Question.Answer" @bind-Analysis="data.Question.Analysis"
+                                                                    InvalidFields="invalidFields" />
                                                 break;
                                             case QuestionTypeCodes.LongText:
                                                 <QuestionFormLongText @bind-Stem="data.Question.Stem" @bind-Passage="data.Question.ArticleContent"
-                                                                      @bind-GradingNote="data.Question.GradingNote" />
+                                                                      @bind-GradingNote="data.Question.GradingNote"
+                                                                      InvalidFields="invalidFields" />
                                                 break;
                                             case QuestionTypeCodes.ReadGroup:
                                                 <QuestionFormReadGroup Status="@data.QStatus" @bind-Stem="data.Question.Stem"
                                                                        @bind-Passage="data.Question.ArticleContent"
-                                                                       @bind-SubQuestions="data.Question.ReadSubQuestions" />
+                                                                       @bind-SubQuestions="data.Question.ReadSubQuestions"
+                                                                       InvalidFields="invalidFields" />
                                                 break;
                                             case QuestionTypeCodes.ShortGroup:
                                                 <QuestionFormShortGroup Status="@data.QStatus" @bind-Stem="data.Question.Stem"
                                                                         @bind-Passage="data.Question.ArticleContent"
-                                                                        @bind-SubQuestions="data.Question.ShortSubQuestions" />
+                                                                        @bind-SubQuestions="data.Question.ShortSubQuestions"
+                                                                        InvalidFields="invalidFields" />
                                                 break;
                                             case QuestionTypeCodes.Listen:
                                                 <QuestionFormListen @bind-AudioFileName="data.Question.AudioUrl" @bind-Stem="data.Question.Stem"
                                                                     @bind-Options="data.Question.Options" @bind-Answer="data.Question.Answer"
-                                                                    @bind-Analysis="data.Question.Analysis" />
+                                                                    @bind-Analysis="data.Question.Analysis"
+                                                                    InvalidFields="invalidFields" />
                                                 break;
                                             case QuestionTypeCodes.ListenGroup:
                                                 <QuestionFormListenGroup @bind-AudioFileName="data.Question.AudioUrl"
                                                                          @bind-Passage="data.Question.ArticleContent"
-                                                                         @bind-SubQuestions="data.Question.ListenGroupSubQuestions" />
+                                                                         @bind-SubQuestions="data.Question.ListenGroupSubQuestions"
+                                                                         InvalidFields="invalidFields" />
                                                 break;
                                         }
                                     </div>
@@ -216,9 +223,18 @@
                     <div class="text-xs text-gray-500 flex items-center gap-2 min-w-0 truncate">
                         @if (!data.IsEditable)
                         {
-                            <span class="inline-flex items-center gap-1 text-gray-400">
-                                <i class="fa-solid fa-lock"></i> 目前非修題期間，僅供檢視
-                            </span>
+                            @if (data.CurrentPhaseCode is 3 or 5 or 7)
+                            {
+                                <span class="inline-flex items-center gap-1 text-morandi">
+                                    <i class="fa-solid fa-lock"></i> @GetPhaseName(data.CurrentPhaseCode)進行中，僅供檢視（評語會即時更新）
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="inline-flex items-center gap-1 text-gray-400">
+                                    <i class="fa-solid fa-lock"></i> 目前非修題期間，僅供檢視
+                                </span>
+                            }
                         }
                         else if (string.IsNullOrWhiteSpace(revisionNote))
                         {
@@ -257,12 +273,12 @@
                                 }
                             </button>
 
-                            @* [送出再審] 僅總審修題（PhaseCode=8）擁有 *@
+                            @* [完成送審] 僅總審修題（PhaseCode=8）擁有 *@
                             @if (data.CurrentPhaseCode == 8)
                             {
                                 <button type="button" @onclick="OnResubmitAsync"
-                                        disabled="@(isSaving || !data.HasReplied)"
-                                        title="@(data.HasReplied ? "送回給總召再次審題" : "請先完成修題後才能送出再審")"
+                                        disabled="@(isSaving || string.IsNullOrWhiteSpace(revisionNote))"
+                                        title="@(string.IsNullOrWhiteSpace(revisionNote) ? "請先填寫修題說明" : "送回給總召再次審題")"
                                         class="px-5 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
                                     @if (isSaving && pendingAction == "resubmit")
                                     {
@@ -270,7 +286,7 @@
                                     }
                                     else
                                     {
-                                        <i class="fa-solid fa-paper-plane"></i> <span>送出再審</span>
+                                        <i class="fa-solid fa-paper-plane"></i> <span>完成送審</span>
                                     }
                                 </button>
                             }
@@ -308,6 +324,9 @@
     /// <summary>本次修題說明（雙向綁到右側 Reference Panel；Plan_010-C 會接到 RevisionReplyEditor）</summary>
     private string revisionNote = "";
 
+    /// <summary>欄位驗證紅框集合：由 SaveAsync 驗證填入；子元件以 [Parameter] 接收用以畫紅框。</summary>
+    private HashSet<string> invalidFields = new();
+
     protected override async Task OnParametersSetAsync()
     {
         if (!IsVisible || QuestionId is null) return;
@@ -323,6 +342,7 @@
         loadError = null;
         data = null;
         revisionNote = "";
+        invalidFields.Clear();
         try
         {
             data = await QuestionService.GetRevisionDataAsync(questionId, CurrentUserId);
@@ -352,6 +372,18 @@
     private async Task SaveAsync()
     {
         if (data is null || !data.IsEditable || isSaving) return;
+
+        // 1. 題目欄位完整性檢查（與 CwtList 命題端共用同一份 validator）
+        //    缺欄位時：Swal 條列訊息 + 紅框 + 滾動到第一個錯誤；不繼續送出
+        var errors = QuestionFormValidator.ValidateForCompletion(data.Question);
+        if (errors.Count > 0)
+        {
+            await ShowValidationErrorsAsync(errors);
+            return;
+        }
+        invalidFields.Clear();
+
+        // 2. 修題說明必填（最後檢查，避免欄位錯誤被修題說明訊息掩蓋）
         if (string.IsNullOrWhiteSpace(revisionNote))
         {
             await ShowToastAsync("warning", "請先填寫修題說明");
@@ -394,15 +426,78 @@
         }
     }
 
-    /// <summary>送出再審（總審修題獨有）— 完整流程留待 Plan_011 與審題系統整合，目前先 toast 提示。</summary>
+    /// <summary>
+    /// 完成送審（總審修題獨有）：
+    ///   1. 先存題目內容 + 修題說明（沿用 SaveRevisionAsync）
+    ///   2. Status 8 → 7、為 Stage=3 既有 Reviewer INSERT 新 Pending row、寫稽核
+    /// 與 [完成修題] 差異：完成修題只存不送；本動作會將題目重新進入待審佇列。
+    /// </summary>
     private async Task OnResubmitAsync()
     {
-        await ShowToastAsync("info", "「送出再審」流程將於 Plan_011 與審題系統整合時開放");
+        if (data is null || !data.IsEditable || data.CurrentPhaseCode != 8 || isSaving) return;
+
+        // 題目欄位完整性檢查（與完成修題共用同一份 validator）
+        var errors = QuestionFormValidator.ValidateForCompletion(data.Question);
+        if (errors.Count > 0)
+        {
+            await ShowValidationErrorsAsync(errors);
+            return;
+        }
+        invalidFields.Clear();
+
+        if (string.IsNullOrWhiteSpace(revisionNote))
+        {
+            await ShowToastAsync("warning", "請先填寫修題說明");
+            return;
+        }
+
+        isSaving = true;
+        pendingAction = "resubmit";
+        try
+        {
+            // 1. 先存修題內容（題目本體 + 修題說明）；Status 維持 8
+            var saveOk = await QuestionService.SaveRevisionAsync(new SaveRevisionRequest
+            {
+                QuestionId   = data.Question.Id,
+                FormData     = data.Question,
+                RevisionNote = revisionNote
+            }, CurrentUserId);
+            if (!saveOk)
+            {
+                await ShowToastAsync("error", "儲存失敗，題目狀態可能已變動");
+                return;
+            }
+
+            // 2. Status 8 → 7、INSERT 新 Stage=3 Pending Assignment、AuditLog
+            var resubmitOk = await QuestionService.ResubmitAfterFinalEditingAsync(data.Question.Id, CurrentUserId);
+            if (!resubmitOk)
+            {
+                await ShowToastAsync("error", "送審失敗，題目狀態可能已變動");
+                return;
+            }
+
+            await ShowToastAsync("success", "已完成送審，等待總審複審");
+            await OnSaved.InvokeAsync();
+            await CloseAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            await ShowToastAsync("warning", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync("error", $"送審失敗：{ex.Message}");
+        }
+        finally
+        {
+            isSaving = false;
+            pendingAction = null;
+        }
     }
 
     private async Task OnQuestionTypeChanged(string newType)
     {
-        // 修題模式下：題型在送審後通常已固定；此 callback 預留供未來總召修題時使用
+        // 修題模式下：題型在送審後通常已固定；此 callback 預留供未來總審修題時使用
         if (data is null) return;
         data.Question.QuestionType = newType;
         await Task.CompletedTask;
@@ -455,6 +550,42 @@
 
     private record SwalResult(bool IsConfirmed, bool IsDenied, bool IsDismissed);
 
+    /// <summary>
+    /// 把 QuestionFormValidator 的錯誤集合顯示給使用者：
+    ///   1. invalidFields 填入所有 FieldKey，子元件依此畫紅框
+    ///   2. SweetAlert2 條列所有錯誤訊息（warning icon）
+    ///   3. 透過 JS interop 滾動到第一個錯誤欄位
+    /// </summary>
+    private async Task ShowValidationErrorsAsync(List<ValidationError> errors)
+    {
+        invalidFields.Clear();
+        foreach (var err in errors)
+        {
+            invalidFields.Add(err.FieldKey);
+        }
+
+        var listItems = string.Concat(errors.Select(e =>
+            $"<li class='text-left'>{System.Net.WebUtility.HtmlEncode(e.Message)}</li>"));
+        var html = $"<ul class='text-sm text-gray-700 leading-relaxed pl-5 list-disc space-y-1'>{listItems}</ul>";
+
+        await JS.InvokeVoidAsync("Swal.fire", new
+        {
+            icon = "warning",
+            title = "尚有未填寫欄位",
+            html,
+            confirmButtonText = "我知道了",
+            confirmButtonColor = "#6B8EAD"
+        });
+
+        var firstKey = errors[0].FieldKey;
+        if (!string.IsNullOrEmpty(firstKey))
+        {
+            await JS.InvokeVoidAsync("scrollToFirstInvalid", firstKey);
+        }
+
+        StateHasChanged();
+    }
+
     private ValueTask ShowToastAsync(string icon, string title) =>
         JS.InvokeVoidAsync("Swal.fire", new
         {
@@ -493,16 +624,22 @@
 
     private static (string Css, string Icon, string Name) GetPhaseBadge(byte phaseCode) => phaseCode switch
     {
-        4 => ("bg-terracotta/15 text-terracotta border-terracotta/30", "fa-pen",          "互審修題"),
-        6 => ("bg-terracotta/15 text-terracotta border-terracotta/30", "fa-pen",          "專審修題"),
-        8 => ("bg-red-50 text-red-700 border-red-200",                  "fa-crown",        "總審修題"),
-        _ => ("bg-gray-100 text-gray-500 border-gray-300",              "fa-circle",       "非修題期")
+        3 => ("bg-morandi/15 text-morandi border-morandi/30",            "fa-lock",  "交互審題進行中"),
+        4 => ("bg-terracotta/15 text-terracotta border-terracotta/30",   "fa-pen",   "互審修題"),
+        5 => ("bg-morandi/15 text-morandi border-morandi/30",            "fa-lock",  "專家審題進行中"),
+        6 => ("bg-terracotta/15 text-terracotta border-terracotta/30",   "fa-pen",   "專審修題"),
+        7 => ("bg-morandi/15 text-morandi border-morandi/30",            "fa-lock",  "總召審題進行中"),
+        8 => ("bg-red-50 text-red-700 border-red-200",                   "fa-crown", "總審修題"),
+        _ => ("bg-gray-100 text-gray-500 border-gray-300",               "fa-circle","非修題期")
     };
 
     private static string GetPhaseName(byte phaseCode) => phaseCode switch
     {
+        3 => "交互審題",
         4 => "互審修題",
+        5 => "專家審題",
         6 => "專審修題",
+        7 => "總召審題",
         8 => "總審修題",
         _ => "修題"
     };

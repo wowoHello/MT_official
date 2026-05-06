@@ -113,7 +113,35 @@
     /// <summary>父層通知目前哪個按鈕觸發儲存（控制 spinner 位置）</summary>
     [Parameter] public string? PendingAction { get; set; }
 
+    /// <summary>
+    /// 父層傳入的當前意見內容（雙向綁在 ReviewActionPanel 的 commentDraft）。
+    /// 用於決策按鈕的 disabled 判定：意見字數不足時禁用送出按鈕，避免空白決策。
+    /// 「儲存意見草稿」按鈕不受此限制。
+    /// </summary>
+    [Parameter] public string Comment { get; set; } = string.Empty;
+
+    /// <summary>意見最小字數（trim 後）。低於此字數時送出/決策按鈕被禁用。</summary>
+    [Parameter] public int MinCommentLength { get; set; } = 10;
+
+    private int CommentLength => (Comment ?? string.Empty).Trim().Length;
+    private bool IsCommentTooShort => CommentLength < MinCommentLength;
+
+    /// <summary>給 disabled 按鈕的 title 提示，說明為何被禁用。</summary>
+    private string ShortCommentTooltip
+        => $"意見需至少 {MinCommentLength} 字（目前 {CommentLength} 字）";
+
     private bool IsBusy(string action) => IsSubmitting && PendingAction == action;
+
+    /// <summary>意見不足提示徽章（決策按鈕禁用時顯示在按鈕群左側）。</summary>
+    private RenderFragment ShortCommentHint => __builder =>
+    {
+        if (!IsCommentTooShort) return;
+        <span class="text-xs text-terracotta font-bold flex items-center gap-1.5 mr-2 shrink-0"
+              title="@ShortCommentTooltip">
+            <i class="fa-solid fa-pen-clip"></i>
+            <span class="tabular-nums">意見需至少 @MinCommentLength 字（目前 @CommentLength）</span>
+        </span>
+    };
 
     // ==========================================================
     //  各階段按鈕組（RenderFragment 屬性）
@@ -129,21 +157,25 @@
             <i class="fa-solid fa-circle-info text-morandi"></i>
             互審階段僅提供意見回饋，老師將依您的建議修題
         </p>
-        <button type="button"
-                disabled="@IsSubmitting"
-                @onclick="() => OnSaveDraft.InvokeAsync()"
-                class="px-6 py-2.5 bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
-            @if (IsBusy("save"))
-            {
-                <i class="fa-solid fa-spinner fa-spin mr-1.5"></i>
-                <span>儲存中…</span>
-            }
-            else
-            {
-                <i class="fa-solid @icon mr-1.5"></i>
-                <span>@label</span>
-            }
-        </button>
+        <div class="flex items-center">
+            @ShortCommentHint
+            <button type="button"
+                    disabled="@(IsSubmitting || IsCommentTooShort)"
+                    title="@(IsCommentTooShort ? ShortCommentTooltip : null)"
+                    @onclick="() => OnSaveDraft.InvokeAsync()"
+                    class="px-6 py-2.5 bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+                @if (IsBusy("save"))
+                {
+                    <i class="fa-solid fa-spinner fa-spin mr-1.5"></i>
+                    <span>儲存中…</span>
+                }
+                else
+                {
+                    <i class="fa-solid @icon mr-1.5"></i>
+                    <span>@label</span>
+                }
+            </button>
+        </div>
     };
 
     private RenderFragment RenderExpertButtons => __builder =>
@@ -164,8 +196,10 @@
             }
         </button>
         <div class="flex items-center gap-3">
+            @ShortCommentHint
             <button type="button"
-                    disabled="@IsSubmitting"
+                    disabled="@(IsSubmitting || IsCommentTooShort)"
+                    title="@(IsCommentTooShort ? ShortCommentTooltip : null)"
                     @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Revise)"
                     class="px-5 py-2.5 bg-terracotta hover:bg-[#c87a5d] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
                 @if (IsBusy("revise"))
@@ -180,7 +214,8 @@
                 }
             </button>
             <button type="button"
-                    disabled="@IsSubmitting"
+                    disabled="@(IsSubmitting || IsCommentTooShort)"
+                    title="@(IsCommentTooShort ? ShortCommentTooltip : null)"
                     @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Approve)"
                     class="px-6 py-2.5 bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
                 @if (IsBusy("approve"))
@@ -215,8 +250,10 @@
             }
         </button>
         <div class="flex items-center gap-3">
+            @ShortCommentHint
             <button type="button"
-                    disabled="@IsSubmitting"
+                    disabled="@(IsSubmitting || IsCommentTooShort)"
+                    title="@(IsCommentTooShort ? ShortCommentTooltip : null)"
                     @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Revise)"
                     class="px-5 py-2.5 bg-terracotta hover:bg-[#c87a5d] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
                 @if (IsBusy("revise"))
@@ -233,7 +270,8 @@
             @* destructive-emphasis：不採用單獨 red-700 + 額外 gap *@
             <span class="w-px h-8 bg-gray-300 mx-2"></span>
             <button type="button"
-                    disabled="@IsSubmitting"
+                    disabled="@(IsSubmitting || IsCommentTooShort)"
+                    title="@(IsCommentTooShort ? ShortCommentTooltip : null)"
                     @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Reject)"
                     class="px-5 py-2.5 bg-red-700 hover:bg-red-800 text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
                 @if (IsBusy("reject"))
@@ -248,7 +286,8 @@
                 }
             </button>
             <button type="button"
-                    disabled="@IsSubmitting"
+                    disabled="@(IsSubmitting || IsCommentTooShort)"
+                    title="@(IsCommentTooShort ? ShortCommentTooltip : null)"
                     @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Approve)"
                     class="px-6 py-2.5 bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
                 @if (IsBusy("approve"))
@@ -283,6 +322,7 @@
             }
         </button>
         <div class="flex items-center gap-3">
+            @ShortCommentHint
             <button type="button"
                     disabled="@IsSubmitting"
                     @onclick="() => OnRequestEdit.InvokeAsync()"
@@ -292,7 +332,8 @@
             </button>
             <span class="w-px h-8 bg-gray-300 mx-2"></span>
             <button type="button"
-                    disabled="@IsSubmitting"
+                    disabled="@(IsSubmitting || IsCommentTooShort)"
+                    title="@(IsCommentTooShort ? ShortCommentTooltip : null)"
                     @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Reject)"
                     class="px-5 py-2.5 bg-red-700 hover:bg-red-800 text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
                 @if (IsBusy("reject"))
@@ -307,7 +348,8 @@
                 }
             </button>
             <button type="button"
-                    disabled="@IsSubmitting"
+                    disabled="@(IsSubmitting || IsCommentTooShort)"
+                    title="@(IsCommentTooShort ? ShortCommentTooltip : null)"
                     @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Approve)"
                     class="px-6 py-2.5 bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
                 @if (IsBusy("approve"))

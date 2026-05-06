@@ -7,11 +7,14 @@
 
 <div class="p-5 lg:p-6 pb-16 max-w-4xl mx-auto space-y-4 min-h-full">
 
-    <FormSectionCard Title="題幹" Icon="fa-file-lines" Required="true">
+    <FormSectionCard Title="題幹" Icon="fa-file-lines" Required="true"
+        DataField="Stem" ContainerClass="@InvalidRing("Stem")">
         <QuillField Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="題幹" Placeholder="請輸入題幹內容..." />
     </FormSectionCard>
 
-    <FormSectionCard Title="選項與答案" Icon="fa-list-ol" Required="true" HintText="請點選正確答案">
+    @* 選項與答案：四個選項 + 答案任一缺漏皆畫紅框；data-field 取最常見的 Answer 作為主要錨點 *@
+    <FormSectionCard Title="選項與答案" Icon="fa-list-ol" Required="true" HintText="請點選正確答案"
+        DataField="@OptionsFieldKey" ContainerClass="@InvalidRingAny(OptionsAndAnswerKeys)">
         <OptionGroup Options="@Options" OptionsChanged="OptionsChanged"
             Answer="@Answer" AnswerChanged="AnswerChanged"
             RadioName="@($"answer-{Id}")" Layout="OptionGroup.OptionLayout.Vertical" />
@@ -37,4 +40,21 @@
     [Parameter] public string Analysis { get; set; } = "";
     [Parameter] public EventCallback<string> AnalysisChanged { get; set; }
 
+    /// <summary>由父層傳入的驗證失敗欄位集合，用以決定欄位是否需要紅框。</summary>
+    [Parameter] public HashSet<string>? InvalidFields { get; set; }
+
+    // 選項/答案的所有 FieldKey（任一不滿足都讓整張卡片畫紅框）
+    private static readonly string[] OptionsAndAnswerKeys =
+        ["Options_0", "Options_1", "Options_2", "Options_3", "Answer"];
+
+    // 滾動錨點：以第一個未填的選項或 Answer 為主；若都沒命中則使用 Options_0
+    private string OptionsFieldKey =>
+        OptionsAndAnswerKeys.FirstOrDefault(k => InvalidFields?.Contains(k) == true)
+        ?? "Options_0";
+
+    private string InvalidRing(string fieldKey) =>
+        InvalidFields?.Contains(fieldKey) == true ? "ring-2 ring-red-400" : "";
+
+    private string InvalidRingAny(IEnumerable<string> keys) =>
+        keys.Any(k => InvalidFields?.Contains(k) == true) ? "ring-2 ring-red-400" : "";
 }

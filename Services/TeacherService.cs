@@ -208,9 +208,9 @@ public class TeacherService : ITeacherService
         const string sql = """
             SELECT
                 COUNT(*) AS TotalCount,
-                SUM(CASE WHEN q.Status = @Adopted THEN 1 ELSE 0 END) AS AdoptedCount,
-                SUM(CASE WHEN q.Status = @Rejected THEN 1 ELSE 0 END) AS RejectedCount,
-                SUM(CASE WHEN q.Status NOT IN (@Adopted, @Rejected) AND q.Status > 0 THEN 1 ELSE 0 END) AS ReviewingCount
+                SUM(CASE WHEN q.Status IN (9, 12) THEN 1 ELSE 0 END) AS AdoptedCount,
+                SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END) AS RejectedCount,
+                SUM(CASE WHEN q.Status BETWEEN 1 AND 8 THEN 1 ELSE 0 END) AS ReviewingCount
             FROM dbo.MT_Questions q
             WHERE q.CreatorId = @UserId
               AND q.IsDeleted = 0
@@ -220,9 +220,7 @@ public class TeacherService : ITeacherService
         return await conn.QuerySingleAsync<TeacherComposeStats>(sql, new
         {
             UserId = teacherUserId,
-            ProjectId = filterProjectId,
-            Adopted = StatusClosedAdopted,
-            Rejected = StatusClosedNotAdopted
+            ProjectId = filterProjectId
         });
     }
 
@@ -384,14 +382,14 @@ public class TeacherService : ITeacherService
             SELECT
                 q.ProjectId,
                 COUNT(*) AS QuestionCount,
-                SUM(CASE WHEN q.Status = @Adopted THEN 1 ELSE 0 END) AS AdoptedCount
+                SUM(CASE WHEN q.Status IN (9, 12) THEN 1 ELSE 0 END) AS AdoptedCount
             FROM dbo.MT_Questions q
             WHERE q.CreatorId = @UserId
               AND q.IsDeleted = 0
             GROUP BY q.ProjectId;
             """;
 
-        var questionRows = (await conn.QueryAsync(questionSql, new { UserId = teacherUserId, Adopted = StatusClosedAdopted })).ToList();
+        var questionRows = (await conn.QueryAsync(questionSql, new { UserId = teacherUserId })).ToList();
         var questionMap = questionRows.ToDictionary(r => (int)r.ProjectId);
 
         foreach (var project in projects)
@@ -578,6 +576,17 @@ public class TeacherService : ITeacherService
         if (string.IsNullOrWhiteSpace(req.Email)) throw new ArgumentException("電子信箱必填。");
         if (string.IsNullOrWhiteSpace(req.School)) throw new ArgumentException("任教學校必填。");
 
+        // 服務層正規化：避免使用者複製貼上帶到前後空白導致 Email 比對 miss、UNIQUE 衝突誤判
+        req.DisplayName = req.DisplayName.Trim();
+        req.Email       = req.Email.Trim();
+        req.School      = req.School.Trim();
+        req.Phone       = req.Phone?.Trim();
+        req.IdNumber    = req.IdNumber?.Trim();
+        req.Department  = req.Department?.Trim();
+        req.Title       = req.Title?.Trim();
+        req.Expertise   = req.Expertise?.Trim();
+        req.Note        = req.Note?.Trim();
+
         using var conn = (System.Data.Common.DbConnection)_db.CreateConnection();
         await conn.OpenAsync();
 
@@ -713,6 +722,16 @@ public class TeacherService : ITeacherService
         if (req.TeacherId <= 0) throw new ArgumentException("TeacherId 必填。");
         if (string.IsNullOrWhiteSpace(req.DisplayName)) throw new ArgumentException("教師姓名必填。");
         if (string.IsNullOrWhiteSpace(req.School)) throw new ArgumentException("任教學校必填。");
+
+        // 與 Create 對齊：服務層統一 trim，避免前端漏帶或外部入口直呼造成資料不一致
+        req.DisplayName = req.DisplayName.Trim();
+        req.School      = req.School.Trim();
+        req.Phone       = req.Phone?.Trim();
+        req.IdNumber    = req.IdNumber?.Trim();
+        req.Department  = req.Department?.Trim();
+        req.Title       = req.Title?.Trim();
+        req.Expertise   = req.Expertise?.Trim();
+        req.Note        = req.Note?.Trim();
 
         using var conn = (System.Data.Common.DbConnection)_db.CreateConnection();
         await conn.OpenAsync();

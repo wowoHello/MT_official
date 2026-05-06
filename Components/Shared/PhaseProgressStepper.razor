@@ -41,12 +41,13 @@
             var lamp = lamps[i - 1];
             var labelCss = lamp switch
             {
-                "gray"      => "text-gray-300",                       // 未完成：明顯較淡
-                "green"     => "text-sage font-extrabold",            // 已完成：sage 強調
-                "awaitNext" => "text-morandi font-extrabold",         // 該審完成等待中：morandi 強調，與 sage 綠區隔
-                "blue"      => "text-morandi font-extrabold",         // 進行中：morandi 強調
-                "red"       => "text-terracotta font-extrabold",      // 修題中：terracotta 強調
-                _           => "text-gray-700"
+                "gray"        => "text-gray-300",                     // 未完成：明顯較淡
+                "green"       => "text-sage font-extrabold",          // 已完成：sage 強調
+                "awaitNext"   => "text-morandi font-extrabold",       // 該審完成等待中：morandi 強調，與 sage 綠區隔
+                "blue"        => "text-morandi font-extrabold",       // 進行中：morandi 強調
+                "red"         => "text-terracotta font-extrabold",    // 修題中：terracotta 強調
+                "rejectedRed" => "text-morandi-red font-extrabold",   // 不採用：莫蘭迪紅強調，與 terracotta 區隔
+                _             => "text-gray-700"
             };
             <div class="w-8 text-center text-xs font-bold flex-shrink-0 @labelCss">
                 @StageNames[i - 1]
@@ -63,7 +64,7 @@
     [Parameter, EditorRequired] public byte Status { get; set; }
 
     /// <summary>
-    /// 梯次當前 PhaseCode（2-8 對應命題階段~總召修題；null = 不傳或未在任何進行中階段）。
+    /// 梯次當前 PhaseCode（2-8 對應命題階段~總審修題；null = 不傳或未在任何進行中階段）。
     /// 用於「梯次階段感知」：題目 Status 已進入修題狀態（4/6/8），但梯次尚未推進到對應修題階段時，
     /// 改顯示為「該審完成等待中」（morandi 藍 ✓）而非紅色筆。
     /// 預設 null —— 不傳此參數時完全沿用舊行為，Reviews 等其他頁面零影響。
@@ -85,6 +86,7 @@
     /// tone 特殊值：
     ///   "green"        → 全綠（採用）
     ///   "rejected"     → 卡關紅後續灰
+    ///   "draftDone"    → 命題完成（Status == Completed）；第 1 顆命題球顯示 sage 綠 ✓，後續灰
     ///   "preDone"      → 該審完成、梯次未推進；倒數第 1 顆（stage-1）顯示莫蘭迪藍 ✓，更早顯示 sage 綠 ✓
     ///   "revisionSent" → 修題已送出（Status == PhaseCode == 修題階段 + HasRepliedThisStage = true）；
     ///                    當前修題球（stage 本身）顯示莫蘭迪藍 ✓，之前階段 sage 綠 ✓，之後灰
@@ -114,7 +116,7 @@
         return status switch
         {
             QuestionStatus.Draft             => (1, "blue"),
-            QuestionStatus.Completed         => (1, "blue"),
+            QuestionStatus.Completed         => (1, "draftDone"),
             QuestionStatus.Submitted         => (2, "blue"),
             QuestionStatus.PeerReviewing     => (2, "blue"),
             QuestionStatus.PeerEditing       => (3, "red"),
@@ -132,7 +134,7 @@
     private static string GetLampTone(int i, int stage, string tone)
     {
         if (tone == "green")    return "green";                       // 採用 → 全綠
-        if (tone == "rejected") return i < stage ? "green" : i == stage ? "red" : "gray";
+        if (tone == "rejected") return i < stage ? "green" : i == stage ? "rejectedRed" : "gray";
         if (tone == "preDone")
         {
             // 倒數第 1 顆（剛完成的審題階段，stage-1）：莫蘭迪藍 ✓，與一般完成的 sage 綠 ✓ 區隔
@@ -151,6 +153,13 @@
             if (i < stage)  return "green";
             return "gray";
         }
+        if (tone == "draftDone")
+        {
+            // 命題完成：第 1 顆命題球本身轉為 sage 綠 ✓（已完成、等送審推進）
+            // 後續所有階段：灰（梯次尚未推進到互審階段）
+            if (i == stage) return "green";
+            return "gray";
+        }
         if (i < stage) return "green";
         if (i > stage) return "gray";
         return tone;
@@ -159,24 +168,27 @@
     private static string LampClass(string tone) => tone switch
     {
         // 已完成：sage 實心 + 細陰影，視覺最重
-        "green"     => "bg-sage border-sage text-white shadow-sm ring-2 ring-sage/20",
+        "green"       => "bg-sage border-sage text-white shadow-sm ring-2 ring-sage/20",
         // 該審完成等待中：莫蘭迪藍半填 + 同色描邊與 ✓，視覺上明顯有別於 sage 綠（強調「等下一階段推進」）
-        "awaitNext" => "bg-morandi/15 border-morandi text-morandi shadow-sm ring-2 ring-morandi/20",
+        "awaitNext"   => "bg-morandi/15 border-morandi text-morandi shadow-sm ring-2 ring-morandi/20",
         // 進行中：morandi 實心 + 呼吸動畫
-        "blue"      => "bg-morandi border-morandi text-white animate-pulse shadow-sm",
+        "blue"        => "bg-morandi border-morandi text-white animate-pulse shadow-sm",
         // 修題中：terracotta 實心
-        "red"       => "bg-terracotta border-terracotta text-white shadow-sm",
+        "red"         => "bg-terracotta border-terracotta text-white shadow-sm",
+        // 不採用：莫蘭迪紅實心，與 terracotta（修題中）視覺區隔，搭配 X 圖示更貼合「終止」語意
+        "rejectedRed" => "bg-morandi-red border-morandi-red text-white shadow-sm",
         // 未完成：白底虛線細邊框 + 淡灰字，明顯「尚未抵達」的 ghost 樣式
-        _           => "bg-white border-dashed border-gray-300 text-gray-300"
+        _             => "bg-white border-dashed border-gray-300 text-gray-300"
     };
 
     private static string LampIcon(string tone) => tone switch
     {
-        "green"     => "fa-check",
-        "awaitNext" => "fa-check",       // 同樣是 ✓，但顏色不同（莫蘭迪藍）以表達等待語意
-        "blue"      => "fa-spinner fa-spin",
-        "red"       => "fa-pen",
-        _           => "fa-circle"
+        "green"       => "fa-check",
+        "awaitNext"   => "fa-check",       // 同樣是 ✓，但顏色不同（莫蘭迪藍）以表達等待語意
+        "blue"        => "fa-spinner fa-spin",
+        "red"         => "fa-pen",
+        "rejectedRed" => "fa-xmark",       // 不採用：用 X 替代鉛筆，明確表達「最終駁回」而非「修題中」
+        _             => "fa-circle"
     };
 
     /// <summary>連線著色：左燈為基準（同色，不打折）。</summary>
@@ -186,11 +198,12 @@
         var leftLamp = GetLampTone(leftIdx, stage, tone);
         return leftLamp switch
         {
-            "green"     => "bg-sage",
-            "awaitNext" => "bg-morandi/40",   // 銜接「該審完成等待中」燈：莫蘭迪藍系，與 sage 區隔
-            "blue"      => "bg-morandi",
-            "red"       => "bg-terracotta",
-            _           => "bg-gray-300"
+            "green"       => "bg-sage",
+            "awaitNext"   => "bg-morandi/40",   // 銜接「該審完成等待中」燈：莫蘭迪藍系，與 sage 區隔
+            "blue"        => "bg-morandi",
+            "red"         => "bg-terracotta",
+            "rejectedRed" => "bg-morandi-red",
+            _             => "bg-gray-300"
         };
     }
 }

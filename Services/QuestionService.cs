@@ -41,12 +41,18 @@ public interface IQuestionService
     Task<bool> SaveRevisionAsync(SaveRevisionRequest req, int operatorUserId);
 
     /// <summary>
+    /// 總審修題「完成送審」：將 Status 8 → 7，為 Stage=3 既有審題者 INSERT 新一筆 Pending Assignment
+    /// （保留歷次決策歷程），並寫稽核。回傳 false 表示題目當前不是 FinalEditing 狀態。
+    /// </summary>
+    Task<bool> ResubmitAfterFinalEditingAsync(int questionId, int userId);
+
+    /// <summary>
     /// 依當前梯次階段，批次升級題目 Status + 階段需要的審題分配（Idempotent，可重複呼叫）。
     /// PhaseCode=4 互審修題：Status 2/3 → 4（PeerEditing）
     /// PhaseCode=5 專家審題：Status → 5；建立 ReviewStage=2 分配（Plan_011）
     /// PhaseCode=6 專審修題：Status → 6（無分配）
     /// PhaseCode=7 總召審題：Status → 7；建立 ReviewStage=3 分配，含總召迴避（Plan_011）
-    /// PhaseCode=8 總召修題：Status → 8（無分配）
+    /// PhaseCode=8 總審修題：Status → 8（無分配）
     /// </summary>
     Task<int> EnsurePhaseTransitionAsync(int projectId);
 }
@@ -987,7 +993,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
     //  PhaseCode=5 專家審題：升級 Status → 5；同步建立 ReviewStage=2 分配
     //  PhaseCode=6 專審修題：升級 Status → 6（無分配）
     //  PhaseCode=7 總召審題：升級 Status → 7；同步建立 ReviewStage=3 分配（含總召迴避）
-    //  PhaseCode=8 總召修題：升級 Status → 8（無分配）
+    //  PhaseCode=8 總審修題：升級 Status → 8（無分配）
     // ====================================================================
     public async Task<int> EnsurePhaseTransitionAsync(int projectId)
     {
@@ -1006,7 +1012,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
         if (phaseCode is null) return 0;
 
-        // PhaseCode=8 總召修題：依總審決策分流處理（Buffer 化）
+        // PhaseCode=8 總審修題：依總審決策分流處理（Buffer 化）
         // 與其他階段走完全不同路徑，獨立 return
         if (phaseCode.Value == 8)
         {
@@ -1123,87 +1129,71 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
     }
 
     // ====================================================================
-    //  PhaseCode=8 總召修題：Buffer 化分流
-    //  依 Stage=3 的 Assignment.Decision 批次決定題目最終 Status：
-    //    Decision=Approve(1)             → Adopted(9)
-    //    Decision=Revise(2)/Reject(3)    → FinalEditing(8)
-    //    Decision=NULL（未決策）          → FinalEditing(8)（D2 最後機會）
-    //    無 Stage=3 Assignment（防禦）    → FinalEditing(8)
-    //  所有 UPDATE 在同一 Transaction，AuditLog 分兩批（Adopted / FinalEditing）寫入
+    //  PhaseCode=8 總審修題：殘留分流（PhaseCode=7→8 transition 與後續每次 coordinator 觸發時呼叫）
+    //
+    //  PhaseCode=7 期間總審 Approve 已即時設 Status=9（ReviewService.SubmitDecisionAsync），
+    //  本 method 只負責把仍卡在 Status=7 的殘留題目升至 FinalEditing(8)，
+    //  讓命題者可以進入 [審修作業區] 編輯後再送審。
+    //
+    //  Idempotent 守門：必須排除「老師已用 [完成送審] resubmit 過」的題目，否則會把回到
+    //  Status=7 等待下一輪總審的題目錯誤升回 Status=8（資料來回切換）。
+    //  判定為 resubmit 的條件：(Q, R, Stage=3) 存在某筆 Pending 紀錄，
+    //  其 CreatedAt 晚於同 (Q, R, Stage=3) 已 Completed 的紀錄。
+    //
+    //  AuditLog 只記錄本次實際升級的題目（先 SELECT 後 UPDATE，避免每次重複記錄既有 Status=8）。
     // ====================================================================
     private async Task<int> EnsureFinalEditingPhaseAsync(IDbConnection conn, int projectId)
     {
         using var tx = conn.BeginTransaction(IsolationLevel.Serializable);
         try
         {
-            // Step 4-1：Decision=Approve → Adopted(9)
-            const string approveUpdateSql = """
-                UPDATE q
-                SET q.Status = @Adopted
+            // 1. 撈出本次將升級的題目：Status=7 且非 resubmit 過
+            //    （無 Stage=3 Assignment 的孤兒也涵蓋於此 — NOT EXISTS 的兩個 row 都找不到 → 條件成立）
+            const string candidatesSql = """
+                SELECT q.Id
                 FROM dbo.MT_Questions q
-                INNER JOIN dbo.MT_ReviewAssignments a
-                    ON a.QuestionId = q.Id AND a.Stage = 3
                 WHERE q.ProjectId = @ProjectId
-                  AND q.IsDeleted  = 0
-                  AND q.Status     = @FinalReviewing
-                  AND a.Decision   = @Approve;
-                """;
-            await conn.ExecuteAsync(approveUpdateSql, new
-            {
-                ProjectId     = projectId,
-                Adopted        = (int)QuestionStatus.Adopted,
-                FinalReviewing = (int)QuestionStatus.FinalReviewing,
-                Approve        = 1   // ReviewDecision.Approve
-            }, tx);
-
-            // Step 4-2 + 4-3：Decision=Revise/Reject 或 NULL（未決策）→ FinalEditing(8)
-            const string editingUpdateSql = """
-                UPDATE q
-                SET q.Status = @FinalEditing
-                FROM dbo.MT_Questions q
-                INNER JOIN dbo.MT_ReviewAssignments a
-                    ON a.QuestionId = q.Id AND a.Stage = 3
-                WHERE q.ProjectId = @ProjectId
-                  AND q.IsDeleted  = 0
-                  AND q.Status     = @FinalReviewing
-                  AND (a.Decision IN (2, 3) OR a.Decision IS NULL);
-                """;
-            await conn.ExecuteAsync(editingUpdateSql, new
-            {
-                ProjectId     = projectId,
-                FinalEditing   = (int)QuestionStatus.FinalEditing,
-                FinalReviewing = (int)QuestionStatus.FinalReviewing
-            }, tx);
-
-            // Step 4-4：完全無 Stage=3 Assignment（防禦）→ FinalEditing(8)
-            const string orphanUpdateSql = """
-                UPDATE dbo.MT_Questions
-                SET Status = @FinalEditing
-                WHERE ProjectId = @ProjectId
-                  AND IsDeleted  = 0
-                  AND Status     = @FinalReviewing
-                  AND Id NOT IN (
-                      SELECT DISTINCT QuestionId
-                      FROM dbo.MT_ReviewAssignments
-                      WHERE Stage = 3
+                  AND q.IsDeleted = 0
+                  AND q.Status    = @FinalReviewing
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM dbo.MT_ReviewAssignments p
+                      INNER JOIN dbo.MT_ReviewAssignments c
+                          ON c.QuestionId  = p.QuestionId
+                         AND c.ReviewerId  = p.ReviewerId
+                         AND c.ReviewStage = p.ReviewStage
+                      WHERE p.QuestionId   = q.Id
+                        AND p.ReviewStage  = 3
+                        AND p.ReviewStatus = 0   -- Pending（resubmit 後新增的待審 row）
+                        AND c.ReviewStatus = 2   -- Completed（先前已決策的歷史 row）
+                        AND p.CreatedAt    > c.CreatedAt
                   );
                 """;
-            await conn.ExecuteAsync(orphanUpdateSql, new
+
+            var ids = (await conn.QueryAsync<int>(candidatesSql, new
             {
-                ProjectId     = projectId,
-                FinalEditing   = (int)QuestionStatus.FinalEditing,
+                ProjectId      = projectId,
                 FinalReviewing = (int)QuestionStatus.FinalReviewing
+            }, tx)).ToList();
+
+            if (ids.Count == 0)
+            {
+                tx.Commit();
+                return 0;
+            }
+
+            // 2. 批次 UPDATE → FinalEditing(8)
+            await conn.ExecuteAsync("""
+                UPDATE dbo.MT_Questions
+                SET Status = @FinalEditing
+                WHERE Id IN @Ids;
+                """, new
+            {
+                FinalEditing = (int)QuestionStatus.FinalEditing,
+                Ids          = ids
             }, tx);
 
-            // 讀取剛升級的題目清單（供 AuditLog 記錄）
-            var adoptedIds = (await conn.QueryAsync<int>(
-                "SELECT Id FROM dbo.MT_Questions WHERE ProjectId = @ProjectId AND Status = @Adopted AND IsDeleted = 0;",
-                new { ProjectId = projectId, Adopted = (int)QuestionStatus.Adopted }, tx)).AsList();
-            var editingIds = (await conn.QueryAsync<int>(
-                "SELECT Id FROM dbo.MT_Questions WHERE ProjectId = @ProjectId AND Status = @FinalEditing AND IsDeleted = 0;",
-                new { ProjectId = projectId, FinalEditing = (int)QuestionStatus.FinalEditing }, tx)).AsList();
-
-            // 批次 AuditLog（UserId=NULL 表系統批次）
+            // 3. 批次 AuditLog（UserId=NULL 表系統批次）
             const string auditSql = """
                 INSERT INTO dbo.MT_AuditLogs
                     (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
@@ -1211,20 +1201,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                     (NULL, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
                 """;
 
-            foreach (var qid in adoptedIds)
-            {
-                await conn.ExecuteAsync(auditSql, new
-                {
-                    ProjectId  = projectId,
-                    Action     = AuditLogAction.Modify,
-                    TargetType = AuditLogTargetType.Questions,
-                    TargetId   = qid,
-                    OldValue   = JsonSerializer.Serialize(new { Status = QuestionStatus.FinalReviewing }),
-                    NewValue   = JsonSerializer.Serialize(new { Status = QuestionStatus.Adopted, Reason = "FinalAdoptedPhaseStart" })
-                }, tx);
-            }
-
-            foreach (var qid in editingIds)
+            foreach (var qid in ids)
             {
                 await conn.ExecuteAsync(auditSql, new
                 {
@@ -1238,7 +1215,86 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             }
 
             tx.Commit();
-            return adoptedIds.Count + editingIds.Count;
+            return ids.Count;
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    // ====================================================================
+    //  總審修題「完成送審」：Status 8 → 7 + 為 Stage=3 既有 Reviewer INSERT 新 Pending row
+    //  保留歷次決策歷程（不刪舊 Assignment 紀錄；走 INSERT 形成多輪審題軌跡）
+    // ====================================================================
+    public async Task<bool> ResubmitAfterFinalEditingAsync(int questionId, int userId)
+    {
+        using var conn = _db.CreateConnection();
+        conn.Open();
+
+        // 守門：必須是 FinalEditing(8) 才能送審；其他狀態回 false 由 caller toast 提示
+        var status = await conn.ExecuteScalarAsync<byte?>(
+            "SELECT Status FROM dbo.MT_Questions WHERE Id = @Id AND IsDeleted = 0;",
+            new { Id = questionId });
+        if (status != QuestionStatus.FinalEditing) return false;
+
+        using var tx = conn.BeginTransaction(IsolationLevel.Serializable);
+        try
+        {
+            // 1. Status 8 → 7
+            await conn.ExecuteAsync(
+                "UPDATE dbo.MT_Questions SET Status = @Final WHERE Id = @Id;",
+                new { Id = questionId, Final = QuestionStatus.FinalReviewing }, tx);
+
+            // 2. 取該題 Stage=3 所有 ReviewerId（distinct，跨多輪保留全部歷史審題者）
+            var reviewerIds = (await conn.QueryAsync<int>(
+                "SELECT DISTINCT ReviewerId FROM dbo.MT_ReviewAssignments WHERE QuestionId = @Id AND ReviewStage = 3;",
+                new { Id = questionId }, tx)).AsList();
+
+            // 3. 為每位 reviewer INSERT 新一筆 Pending(0) Assignment — 形成新一輪審題任務
+            //    既有 row 不動（保留 Decision/Comment/DecidedAt 歷程）
+            //    Idempotent：若該 (Q, R, Stage=3) 已存在 Pending row（前次 resubmit 殘留 / 重複按）則 skip insert，
+            //    避免撞 UQ_MT_ReviewAssignments_Pending 唯一索引；同時整個 method 重複呼叫不會出錯
+            const string insertSql = """
+                INSERT INTO dbo.MT_ReviewAssignments
+                    (QuestionId, ProjectId, ReviewerId, ReviewStage, ReviewStatus, CreatedAt)
+                SELECT @QuestionId, q.ProjectId, @ReviewerId, 3, 0, SYSDATETIME()
+                FROM dbo.MT_Questions q
+                WHERE q.Id = @QuestionId
+                  AND NOT EXISTS (
+                      SELECT 1 FROM dbo.MT_ReviewAssignments
+                      WHERE QuestionId   = @QuestionId
+                        AND ReviewerId   = @ReviewerId
+                        AND ReviewStage  = 3
+                        AND ReviewStatus = 0
+                  );
+                """;
+            foreach (var reviewerId in reviewerIds)
+            {
+                await conn.ExecuteAsync(insertSql,
+                    new { QuestionId = questionId, ReviewerId = reviewerId }, tx);
+            }
+
+            // 4. AuditLog（題目層級）
+            await conn.ExecuteAsync("""
+                INSERT INTO dbo.MT_AuditLogs
+                    (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
+                SELECT @UserId, ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME()
+                FROM dbo.MT_Questions WHERE Id = @TargetId;
+                """,
+                new
+                {
+                    UserId     = userId,
+                    Action     = AuditLogAction.Modify,
+                    TargetType = AuditLogTargetType.Questions,
+                    TargetId   = questionId,
+                    OldValue   = JsonSerializer.Serialize(new { Status = (byte)QuestionStatus.FinalEditing }),
+                    NewValue   = JsonSerializer.Serialize(new { Status = (byte)QuestionStatus.FinalReviewing, Reason = "FinalEditingResubmit" })
+                }, tx);
+
+            tx.Commit();
+            return true;
         }
         catch
         {

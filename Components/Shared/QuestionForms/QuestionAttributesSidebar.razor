@@ -14,7 +14,7 @@
     </div>
 
     <!-- 題型選擇 -->
-    <div>
+    <div data-field="QuestionType" class="@InvalidRing("QuestionType")">
         <label class="block text-sm font-bold text-gray-700 mb-1.5">題型 <span class="text-red-400">*</span></label>
         <select @bind="QuestionType" @bind:after="OnTypeChanged"
             disabled="@IsFormReadOnly"
@@ -27,7 +27,7 @@
     </div>
 
     <!-- 等級（聽力題組母題無等級） -->
-    <div class="@(QuestionType == QuestionTypeCodes.ListenGroup ? "hidden" : "")">
+    <div data-field="Level" class="@(QuestionType == QuestionTypeCodes.ListenGroup ? "hidden" : "") @InvalidRing("Level")">
         <label class="block text-sm font-bold text-gray-700 mb-1.5">等級 <span class="text-red-400">*</span></label>
         <select @bind="Level" @bind:after="OnLevelChanged"
             disabled="@IsFormReadOnly"
@@ -60,7 +60,7 @@
                 </div>
                 <!-- 主類 + 次類 並排 -->
                 <div class="grid grid-cols-2 gap-2">
-                    <div>
+                    <div data-field="Topic" class="@InvalidRing("Topic")">
                         <label class="block text-xs font-medium text-gray-600 mb-1">主類 <span class="text-red-400">*</span></label>
                         <select @bind="Topic" @bind:after="OnTopicChanged"
                             disabled="@IsFormReadOnly"
@@ -72,7 +72,7 @@
                             }
                         </select>
                     </div>
-                    <div>
+                    <div data-field="Subtopic" class="@InvalidRing("Subtopic")">
                         <label class="block text-xs font-medium text-gray-600 mb-1">次類 <span class="text-red-400">*</span></label>
                         <select @bind="Subtopic" @bind:after="() => SubtopicChanged.InvokeAsync(Subtopic)"
                             class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed @(Topic is null ? "bg-gray-50 text-gray-300" : "")"
@@ -107,7 +107,7 @@
                         適用等級：初～優級（不含高級）
                     </span>
                 </div>
-                <div>
+                <div data-field="WritingMode" class="@InvalidRing("WritingMode")">
                     <label class="block text-xs font-medium text-gray-600 mb-1">寫作模式 <span class="text-red-400">*</span></label>
                     <select @bind="WritingMode" @bind:after="() => WritingModeChanged.InvokeAsync(WritingMode)"
                         disabled="@IsFormReadOnly"
@@ -138,7 +138,7 @@
                         適用等級：初～優級
                     </span>
                 </div>
-                <div>
+                <div data-field="Genre" class="@InvalidRing("Genre")">
                     <label class="block text-xs font-medium text-gray-600 mb-1">文體 <span class="text-red-400">*</span></label>
                     <select @bind="Genre" @bind:after="() => GenreChanged.InvokeAsync(Genre)"
                         disabled="@IsFormReadOnly"
@@ -180,7 +180,7 @@
                         <input type="text" value="篇章辨析" disabled class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-gray-100 text-gray-400">
                     </div>
                 </div>
-                <div>
+                <div data-field="Genre" class="@InvalidRing("Genre")">
                     <label class="block text-xs font-medium text-gray-600 mb-1">文體 <span class="text-red-400">*</span></label>
                     <select @bind="Genre" @bind:after="() => GenreChanged.InvokeAsync(Genre)"
                         disabled="@IsFormReadOnly"
@@ -213,8 +213,8 @@
                 </div>
 
                 <!-- 核心能力（依等級自動帶入；難度五由使用者選） -->
-                <div>
-                    <label class="block text-xs font-medium text-gray-600 mb-1">核心能力</label>
+                <div data-field="CoreAbility" class="@InvalidRing("CoreAbility")">
+                    <label class="block text-xs font-medium text-gray-600 mb-1">核心能力 <span class="text-red-400">*</span></label>
                     @if (Level is null || !QuestionConstants.ListenLevelCoreAbilityMap.TryGetValue(Level.Value, out var abilities))
                     {
                         <input type="text" value="請先選擇等級" disabled
@@ -240,7 +240,7 @@
                 </div>
 
                 <!-- 細目指標 -->
-                <div>
+                <div data-field="DetailIndicator" class="@InvalidRing("DetailIndicator")">
                     <label class="block text-xs font-medium text-gray-600 mb-1">細目指標 <span class="text-red-400">*</span></label>
                     <select @bind="DetailIndicator" @bind:after="() => DetailIndicatorChanged.InvokeAsync(DetailIndicator)"
                         class="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed @(CoreAbility is null ? "bg-gray-50 text-gray-300" : "")"
@@ -258,7 +258,7 @@
 
                 <!-- 語音類型 + 素材分類 並排 -->
                 <div class="grid grid-cols-2 gap-2">
-                    <div>
+                    <div data-field="AudioType" class="@InvalidRing("AudioType")">
                         <label class="block text-xs font-medium text-gray-600 mb-1">語音類型 <span class="text-red-400">*</span></label>
                         <select @bind="AudioType" @bind:after="() => AudioTypeChanged.InvokeAsync(AudioType)"
                             disabled="@IsFormReadOnly"
@@ -270,7 +270,7 @@
                             }
                         </select>
                     </div>
-                    <div>
+                    <div data-field="Material" class="@InvalidRing("Material")">
                         <label class="block text-xs font-medium text-gray-600 mb-1">素材分類 <span class="text-red-400">*</span></label>
                         <select @bind="Material" @bind:after="() => MaterialChanged.InvokeAsync(Material)"
                             disabled="@IsFormReadOnly"
@@ -305,7 +305,7 @@
                 </div>
 
                 <div class="grid grid-cols-2 gap-2">
-                    <div>
+                    <div data-field="AudioType" class="@InvalidRing("AudioType")">
                         <label class="block text-xs font-medium text-gray-600 mb-1">語音類型 <span class="text-red-400">*</span></label>
                         <select @bind="AudioType" @bind:after="() => AudioTypeChanged.InvokeAsync(AudioType)"
                             disabled="@IsFormReadOnly"
@@ -317,7 +317,7 @@
                             }
                         </select>
                     </div>
-                    <div>
+                    <div data-field="Material" class="@InvalidRing("Material")">
                         <label class="block text-xs font-medium text-gray-600 mb-1">素材分類 <span class="text-red-400">*</span></label>
                         <select @bind="Material" @bind:after="() => MaterialChanged.InvokeAsync(Material)"
                             disabled="@IsFormReadOnly"
@@ -340,7 +340,7 @@
     </div>
 
     <!-- 難易度（聽力題組母題無難易度） -->
-    <div class="@(QuestionType == QuestionTypeCodes.ListenGroup ? "hidden" : "")">
+    <div data-field="Difficulty" class="@(QuestionType == QuestionTypeCodes.ListenGroup ? "hidden" : "") @InvalidRing("Difficulty")">
         <label class="block text-sm font-bold text-gray-700 mb-1.5">難易度 <span class="text-red-400">*</span></label>
         <select @bind="Difficulty" @bind:after="() => DifficultyChanged.InvokeAsync(Difficulty)"
             disabled="@IsFormReadOnly"
@@ -366,6 +366,19 @@
     [CascadingParameter(Name = "IsFormReadOnly")] private bool IsFormReadOnly { get; set; }
 
     [Parameter] public bool IsCollapsed { get; set; } = false;
+
+    /// <summary>
+    /// 由 CwtList 傳入的「驗證失敗欄位」集合；非 null 且包含 fieldKey 則畫紅框。
+    /// 之所以用 HashSet&lt;string&gt; 而不是 List：HashSet 的 Contains 是 O(1)，
+    /// 在每次 render 時都會被多個欄位呼叫，效能較佳。
+    /// </summary>
+    [Parameter] public HashSet<string>? InvalidFields { get; set; }
+
+    /// <summary>渲染紅框的 Tailwind 類別（ring-2 ring-red-400 + 圓角）。</summary>
+    private string InvalidRing(string fieldKey) =>
+        InvalidFields?.Contains(fieldKey) == true
+            ? "ring-2 ring-red-400 rounded-lg"
+            : "";
 
     [Parameter] public string QuestionType { get; set; } = QuestionTypeCodes.Single;
     [Parameter] public EventCallback<string> QuestionTypeChanged { get; set; }

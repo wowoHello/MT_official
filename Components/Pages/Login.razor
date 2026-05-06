@@ -77,6 +77,7 @@
                             class="@BuildLoginInputClass(nameof(loginModel.Username), true)"
                             placeholder="請輸入帳號或信箱" />
                     </div>
+                    @RenderFieldError(nameof(loginModel.Username))
                 </div>
 
                 <!-- Password -->
@@ -96,6 +97,7 @@
                             <i class="fa-regular @(showPassword ? "fa-eye" : "fa-eye-slash")"></i>
                         </button>
                     </div>
+                    @RenderFieldError(nameof(loginModel.Password))
                     <!-- Remember Me & Forgot Password -->
                     <div class="flex items-center justify-between mt-2">
                         <label class="flex items-center gap-2 cursor-pointer group rounded-md px-1 py-0.5 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--color-morandi)] has-[:focus-visible]:ring-offset-2 transition-shadow">
@@ -114,7 +116,7 @@
 
                 <!-- Captcha -->
                 <div>
-                    <label for="captcha" class="block text-sm font-medium mb-1">驗證碼</label>
+                    <label for="captcha" class="block text-sm font-medium mb-1">驗證碼 <span class="text-xs text-gray-400 font-normal">（不分大小寫）</span></label>
                     <div class="flex gap-3">
                         <InputText id="captcha" @bind-Value="loginModel.CaptchaInput" disabled="@isLoading"
                             @bind-Value:after="() => ClearFieldError(nameof(loginModel.CaptchaInput))"
@@ -125,6 +127,7 @@
                                 class="rounded border border-gray-200 cursor-pointer bg-white h-[42px] w-[140px]" title="點擊重新產生" />
                         </div>
                     </div>
+                    @RenderFieldError(nameof(loginModel.CaptchaInput))
                 </div>
 
                 <!-- Security Notice -->
@@ -136,6 +139,8 @@
                             <li>請勿將帳號密碼交給他人使用。</li>
                             <li>登入後若需離開座位，請確實登出系統。</li>
                             <li>建議定期更換密碼以確保帳號安全。</li>
+                            <li>請避免在公共或共用電腦上勾選「記住登入狀態」。</li>
+                            <li>若發現帳號異常使用情形，請立即通知系統管理員。</li>
                         </ul>
                     </div>
                 </div>
@@ -278,7 +283,8 @@
     private int resetResendCountdown = 0;
     private CancellationTokenSource? resetResendCountdownCts;
     private string? browserUserAgent;
-    private readonly HashSet<string> fieldErrors = [];
+    /// <summary>欄位錯誤訊息（key=欄位名，value=訊息；訊息為空字串時僅紅框、不顯示文字）。</summary>
+    private readonly Dictionary<string, string> fieldErrors = new();
 
     private bool IsResetResendDisabled => isSendingReset || resetResendCountdown > 0;
 
@@ -345,7 +351,7 @@
         }
 
         classes.Add(includeLeftIconPadding ? "pl-10" : "px-4");
-        classes.Add(fieldErrors.Contains(fieldName) ? "border-red-400" : "border-gray-300");
+        classes.Add(fieldErrors.ContainsKey(fieldName) ? "border-red-400" : "border-gray-300");
 
         if (!string.IsNullOrWhiteSpace(extraClasses))
         {
@@ -355,13 +361,20 @@
         return string.Join(" ", classes);
     }
 
-    private void SetFieldError(params string[] fieldNames)
+    /// <summary>
+    /// 設定欄位錯誤狀態。msg 為空字串時僅紅框、不顯示欄位下方訊息（適用「帳密錯誤」這種無法歸屬單一欄位的情境）。
+    /// 每次呼叫會清空原有錯誤，避免殘留。
+    /// </summary>
+    private void SetFieldError(params (string Field, string Message)[] errors)
     {
         fieldErrors.Clear();
 
-        foreach (var fieldName in fieldNames.Where(static name => !string.IsNullOrWhiteSpace(name)))
+        foreach (var (field, msg) in errors)
         {
-            fieldErrors.Add(fieldName);
+            if (!string.IsNullOrWhiteSpace(field))
+            {
+                fieldErrors[field] = msg ?? string.Empty;
+            }
         }
     }
 
@@ -393,13 +406,16 @@
         errorMessage = "";
         fieldErrors.Clear();
 
-        // 基本驗證
+        // 基本驗證 — 各欄位給予專屬訊息以提示要填什麼
         if (string.IsNullOrWhiteSpace(loginModel.Username) || string.IsNullOrWhiteSpace(loginModel.Password))
         {
             errorMessage = "請輸入完整的帳號密碼。";
-            SetFieldError(
-                string.IsNullOrWhiteSpace(loginModel.Username) ? nameof(loginModel.Username) : string.Empty,
-                string.IsNullOrWhiteSpace(loginModel.Password) ? nameof(loginModel.Password) : string.Empty);
+            var requiredErrors = new List<(string, string)>();
+            if (string.IsNullOrWhiteSpace(loginModel.Username))
+                requiredErrors.Add((nameof(loginModel.Username), "請輸入帳號或信箱"));
+            if (string.IsNullOrWhiteSpace(loginModel.Password))
+                requiredErrors.Add((nameof(loginModel.Password), "請輸入密碼"));
+            SetFieldError(requiredErrors.ToArray());
             return;
         }
 
@@ -407,7 +423,7 @@
         if (!string.Equals(loginModel.CaptchaInput?.Trim(), generatedCaptcha, StringComparison.OrdinalIgnoreCase))
         {
             errorMessage = "驗證碼錯誤，請重新輸入。";
-            SetFieldError(nameof(loginModel.CaptchaInput));
+            SetFieldError((nameof(loginModel.CaptchaInput), "驗證碼錯誤，請重新輸入"));
             await AuthService.LogLoginAttemptAsync(
                 null,
                 loginModel.Username.Trim(),
@@ -431,8 +447,11 @@
 
             if (!success || user is null)
             {
+                // 帳密錯誤無法歸咎單一欄位 — 兩欄都紅框、訊息留空，僅靠頂部 banner 顯示原因
                 errorMessage = message;
-                SetFieldError(nameof(loginModel.Username), nameof(loginModel.Password));
+                SetFieldError(
+                    (nameof(loginModel.Username), string.Empty),
+                    (nameof(loginModel.Password), string.Empty));
                 loginModel.CaptchaInput = "";
                 GenerateNewCaptcha();
                 isLoading = false;
@@ -586,6 +605,18 @@
             // Modal 關閉或重新發送時取消倒數，屬正常流程。
         }
     }
+
+    /// <summary>欄位下方紅字提示：fieldErrors 內訊息為空時不渲染（保留紅框做最小干擾的提示）。</summary>
+    private RenderFragment RenderFieldError(string fieldName) => __builder =>
+    {
+        if (fieldErrors.TryGetValue(fieldName, out var msg) && !string.IsNullOrEmpty(msg))
+        {
+            <p class="text-xs text-red-500 mt-1 flex items-center gap-1">
+                <i class="fa-solid fa-circle-exclamation"></i>
+                <span>@msg</span>
+            </p>
+        }
+    };
 
     // --- 表單模型類別 ---
     private sealed class LoginFormModel

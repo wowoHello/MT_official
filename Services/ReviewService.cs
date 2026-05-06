@@ -464,9 +464,38 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 Completed = (byte)ReviewTaskStatus.Completed
             }, tx);
 
-            // 5. 依「階段 + 決策」計算題目應切換到的新狀態（null 代表不變）
+            // 5. 取目前進行中的 PhaseCode（決定首輪/次輪總審分流）
+            //    與 GetCurrentPhaseCodeInTxAsync 邏輯一致：PhaseCode>1 + 今天落於 Start/EndDate 之間
+            const string phaseSql = """
+                SELECT TOP 1 PhaseCode FROM dbo.MT_ProjectPhases
+                WHERE ProjectId = @ProjectId
+                  AND PhaseCode > 1
+                  AND CAST(GETDATE() AS DATE) BETWEEN StartDate AND EndDate
+                ORDER BY SortOrder;
+                """;
+            var currentPhaseCode = await conn.ExecuteScalarAsync<byte?>(phaseSql, new { meta.ProjectId }, tx);
+
+            // 6. 依「階段 + PhaseCode + 決策」計算題目應切換到的新狀態（null 代表不變或交給後續邏輯）
             byte? oldQuestionStatus = null;
-            byte? newQuestionStatus = MapDecisionToQuestionStatus(meta.Stage, req.Decision);
+            byte? newQuestionStatus = MapDecisionToQuestionStatus(meta.Stage, req.Decision, currentPhaseCode);
+
+            // 6-1. 第 3 輪 Reject 偵測：PhaseCode=8 + Final + Reject + 該題已退回 ≥2 次 → Rejected(10)
+            //      ReturnCount=2 表示已退回 2 次（老師已修兩輪）；本次 Reject 等同第 3 輪終結
+            if (newQuestionStatus is null
+                && currentPhaseCode == 8
+                && meta.Stage == (byte)ReviewStage.Final
+                && req.Decision == ReviewDecision.Reject)
+            {
+                var existingReturnCount = await conn.ExecuteScalarAsync<int?>(
+                    "SELECT TOP 1 ReturnCount FROM dbo.MT_ReviewReturnCounts WHERE QuestionId = @Id ORDER BY Id DESC;",
+                    new { Id = meta.QuestionId }, tx) ?? 0;
+
+                if (existingReturnCount >= 2)
+                {
+                    newQuestionStatus = QuestionStatus.Rejected;   // 10
+                }
+            }
+
             if (newQuestionStatus is not null)
             {
                 oldQuestionStatus = await conn.ExecuteScalarAsync<byte?>(
@@ -479,7 +508,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                     new { Id = meta.QuestionId, Status = newQuestionStatus.Value }, tx);
             }
 
-            // 6. 總召「改後採用」或「不採用」→ 累加退回計數（達 3 次自動解鎖總召自編）
+            // 7. 總召「改後再審」或「不採用」→ 累加退回計數（達 2 次自動解鎖總召自編）
             //    再次決策時不重複加，避免使用者「Revise → Approve → Revise」誤計多次
             //    Reject 同樣計入：退回次數涵蓋所有「不採用→交回修改」情境
             if (!isResubmit && meta.Stage == (byte)ReviewStage.Final &&
@@ -488,7 +517,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 await BumpReturnCountAsync(conn, tx, meta.QuestionId, operatorUserId);
             }
 
-            // 7. 寫稽核（帶狀態快照，方便日後追溯）
+            // 8. 寫稽核（帶狀態快照，方便日後追溯）
             const string auditSql = """
                 INSERT INTO dbo.MT_AuditLogs
                     (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
@@ -526,33 +555,47 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     // ====================================================================
 
     /// <summary>
-    /// 依「審題階段 + 決策」計算題目應切換的新 Question.Status。
-    /// 回傳 null 表示題目狀態不變（互審無此能力 / 專審採用維持等批次重派）。
-    /// 集中對應邏輯 — 未來規則調整只動此一處。
+    /// 依「目前 PhaseCode + 決策」計算題目應切換的新 Question.Status（僅總審階段使用）。
+    /// 互審不下決策；專審維持 Buffer（PhaseCode=6 開始時由 EnsurePhaseTransitionAsync 批次升 ExpertEditing）。
+    ///
+    /// 總審分兩輪：
+    ///   PhaseCode=7 首輪總審 (Status=FinalReviewing)：
+    ///     Approve → Adopted(9) 立即鎖定（題目本梯次無需再走 PhaseCode=8 修題）
+    ///     Revise/Reject → Buffer，PhaseCode=8 開始時由 EnsureFinalEditingPhaseAsync 批次降為 FinalEditing(8)
+    ///   PhaseCode=8 次輪以後總審 (老師 [完成送審] 後 Status=7、由總審再決策)：
+    ///     Approve → Archived(12) 直接入庫（兩輪通過視同結案採用）
+    ///     Revise  → FinalEditing(8) 立即退回老師再修
+    ///     Reject  → null（caller 依 ReturnCount 判定：第 3 輪 Reject = Rejected(10)；否則維持 buffer 等於 8）
+    ///
+    /// 集中對應邏輯 — 未來規則調整只動此一處。回傳 null 表示題目狀態不變或由 caller 自行決定。
     /// </summary>
-    /// <summary>
-    /// 依「審題階段 + 決策」計算題目應切換的新 Question.Status。
-    /// 回傳 null 表示題目狀態不變。
-    /// 總審三決策全部回 null：Status 維持 7（FinalReviewing）Buffer，
-    /// 等 PhaseCode=8 時由 EnsurePhaseTransitionAsync 批次分流。
-    /// </summary>
-    private static byte? MapDecisionToQuestionStatus(byte stage, ReviewDecision decision)
-        => (stage, decision) switch
+    private static byte? MapDecisionToQuestionStatus(byte stage, ReviewDecision decision, byte? currentPhaseCode)
+    {
+        // 互審不在此處理；專審決策維持 Buffer
+        if (stage != (byte)ReviewStage.Final) return null;
+
+        return (currentPhaseCode, decision) switch
         {
-            ((byte)ReviewStage.Expert, ReviewDecision.Approve) => null,
-            ((byte)ReviewStage.Expert, ReviewDecision.Revise)  => QuestionStatus.ExpertEditing,
+            // 首輪總審 (PhaseCode=7)：Approve 即時鎖定為 9；Revise/Reject Buffer
+            (7, ReviewDecision.Approve) => QuestionStatus.Adopted,        // 9
+            (7, _)                      => null,
 
-            // 總審三決策皆 null — Buffer 到 PhaseCode=8 時才批次分流
-            ((byte)ReviewStage.Final,  ReviewDecision.Approve) => null,
-            ((byte)ReviewStage.Final,  ReviewDecision.Reject)  => null,
-            ((byte)ReviewStage.Final,  ReviewDecision.Revise)  => null,
+            // 次輪以後 (PhaseCode=8)：Approve→12（兩輪通過直接入庫）；Revise→8（退回老師）
+            // Reject 由 caller 依 ReturnCount 決定 8（buffer）或 10（第 3 輪終結）
+            (8, ReviewDecision.Approve) => QuestionStatus.Archived,       // 12
+            (8, ReviewDecision.Revise)  => QuestionStatus.FinalEditing,   // 8
+            (8, ReviewDecision.Reject)  => null,
 
-            _ => null   // 互審不在此處理；異常組合不變更
+            _ => null
         };
+    }
 
     /// <summary>
     /// 總召退回計數 +1。第 1 次 INSERT，後續 UPDATE。
-    /// ReturnCount 達 2 後自動設 CanEditByReviewer=true（第 3 次解鎖總召自編）。
+    /// ReturnCount 達 2 後自動設 CanEditByReviewer=true：
+    ///   第 1 次退回：老師可修，再送審；ReturnCount=1
+    ///   第 2 次退回：老師可修，再送審；ReturnCount=2 → 解鎖總召自編（第 3 輪由總召親自定奪）
+    ///   第 3 輪：總召不再退回老師，直接 Approve→Archived(12) 或 Reject→Rejected(10)
     /// MERGE + HOLDLOCK 確保並發安全。
     /// </summary>
     private static async Task BumpReturnCountAsync(
@@ -564,7 +607,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 ON target.QuestionId = src.QuestionId
             WHEN MATCHED THEN
                 UPDATE SET ReturnCount = target.ReturnCount + 1,
-                           CanEditByReviewer = CASE WHEN target.ReturnCount + 1 >= 3 THEN 1 ELSE 0 END
+                           CanEditByReviewer = CASE WHEN target.ReturnCount + 1 >= 2 THEN 1 ELSE 0 END
             WHEN NOT MATCHED THEN
                 INSERT (QuestionId, FinalReviewerId, ReturnCount, CanEditByReviewer)
                 VALUES (@QuestionId, @FinalReviewerId, 1, 0);
@@ -699,15 +742,19 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     }
 
     /// <summary>
-    /// 對「總審意見（改後採用）」依時間排序加退回次數，產出「總審第一次退回 / 總審第二次退回...」。
+    /// 對「總審意見（改後採用 / 不採用）」依時間排序加退回次數，
+    /// 產出「總審第一次退回 / 總審第二次退回...」。
+    /// 不採用與改後採用在語意上同屬「退回給命題者」，故共用同一序列。
     /// 互審/專審無「退回」業務概念，不處理。
     /// </summary>
     private static void ApplyFinalReturnSequence(List<ReviewHistoryEntry> entries)
     {
         var finalReviseLabel = StageToLabel(ReviewStage.Final, (byte)ReviewDecision.Revise);
+        var finalRejectLabel = StageToLabel(ReviewStage.Final, (byte)ReviewDecision.Reject);
         int idx = 0;
         foreach (var e in entries
-            .Where(x => x.Kind == ReviewHistoryKind.ReviewComment && x.Label == finalReviseLabel)
+            .Where(x => x.Kind == ReviewHistoryKind.ReviewComment
+                     && (x.Label == finalReviseLabel || x.Label == finalRejectLabel))
             .OrderBy(x => x.At))
         {
             idx++;

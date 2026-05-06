@@ -8,11 +8,13 @@
 
 <div class="p-5 lg:p-6 pb-16 max-w-4xl mx-auto space-y-4 min-h-full">
 
-    <FormSectionCard Title="標題" Icon="fa-pen" Required="true">
+    <FormSectionCard Title="標題" Icon="fa-pen" Required="true"
+        DataField="Stem" ContainerClass="@InvalidRing("Stem")">
         <QuillField Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="標題" Placeholder="點擊此處開始編輯標題..." />
     </FormSectionCard>
 
-    <FormSectionCard Title="文章內容" Icon="fa-book-open" Required="true">
+    <FormSectionCard Title="文章內容" Icon="fa-book-open" Required="true"
+        DataField="ArticleContent" ContainerClass="@InvalidRing("ArticleContent")">
         <!-- 閱讀題組母題提醒 -->
         <div class="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md text-sm flex items-start gap-2">
             <i class="fa-solid fa-circle-info text-amber-500 mt-0.5 flex-shrink-0"></i>
@@ -40,10 +42,16 @@
             {
                 var idx = i;
                 var sq = SubQuestions[idx];
+                var n = idx + 1;
+                var stemKey     = $"ReadSub_{n}_Stem";
+                var analysisKey = $"ReadSub_{n}_Analysis";
+                var answerKey   = $"ReadSub_{n}_Answer";
+                var optionAnyKey = new[] { $"ReadSub_{n}_Options_0", $"ReadSub_{n}_Options_1",
+                                            $"ReadSub_{n}_Options_2", $"ReadSub_{n}_Options_3", answerKey };
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                     <!-- 子題標頭 -->
                     <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                        <span class="text-sm font-bold text-slate-main">第 @(idx + 1) 題</span>
+                        <span class="text-sm font-bold text-slate-main">第 @n 題</span>
                         @* 刪除子題僅在草稿狀態開放；命題完成後鎖定，避免送審/審題流程斷鏈 *@
                         @if (Status == QuestionStatus.Draft && SubQuestions.Count > 1)
                         {
@@ -55,16 +63,16 @@
                     </div>
                     <div class="p-4 space-y-4">
                         <!-- 題目內容 -->
-                        <div>
+                        <div data-field="@stemKey" class="@InvalidRing(stemKey) rounded-lg p-1">
                             <label class="block text-sm font-bold text-gray-700 mb-2">
                                 題目內容 <span class="text-red-400">*</span>
                             </label>
-                            <QuillField Value="@sq.Stem" ValueChanged="v => { sq.Stem = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }" FieldLabel="@($"第 {idx + 1} 題 題目內容")"
+                            <QuillField Value="@sq.Stem" ValueChanged="v => { sq.Stem = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }" FieldLabel="@($"第 {n} 題 題目內容")"
                                 Placeholder="點擊此處開始編輯題目內容，可插入圖片..." />
                         </div>
 
                         <!-- 選項與答案 -->
-                        <div>
+                        <div data-field="@answerKey" class="@InvalidRingAny(optionAnyKey) rounded-lg p-1">
                             <label class="block text-sm font-bold text-gray-700 mb-2">
                                 <i class="fa-solid fa-list-ol text-morandi"></i> 選項與答案 <span class="text-red-400">*</span>
                             </label>
@@ -74,12 +82,12 @@
                         </div>
 
                         <!-- 試題解析 -->
-                        <div>
+                        <div data-field="@analysisKey" class="@InvalidRing(analysisKey) rounded-lg p-1">
                             <label class="block text-sm font-bold text-gray-700 mb-2">
                                 試題解析（紀錄答案理由） <span class="text-red-400">*</span>
                             </label>
                             <QuillField Value="@sq.Analysis" ValueChanged="v => { sq.Analysis = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }"
-                                FieldLabel="@($"第 {idx + 1} 題 解析")"
+                                FieldLabel="@($"第 {n} 題 解析")"
                                 Placeholder="點擊此處開始編輯解析，可說明正確答案依據與其他選項錯誤原因..." />
                         </div>
                     </div>
@@ -102,6 +110,15 @@
 
     /// <summary>當前題目狀態，僅 Draft 開放刪除子題；其餘狀態（命題完成 / 送審後）按鈕隱藏</summary>
     [Parameter] public byte Status { get; set; } = QuestionStatus.Draft;
+
+    /// <summary>由父層傳入的驗證失敗欄位集合。</summary>
+    [Parameter] public HashSet<string>? InvalidFields { get; set; }
+
+    private string InvalidRing(string fieldKey) =>
+        InvalidFields?.Contains(fieldKey) == true ? "ring-2 ring-red-400" : "";
+
+    private string InvalidRingAny(IEnumerable<string> keys) =>
+        keys.Any(k => InvalidFields?.Contains(k) == true) ? "ring-2 ring-red-400" : "";
 
     private async Task AddSubQuestion()
     {

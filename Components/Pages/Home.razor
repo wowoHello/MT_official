@@ -179,9 +179,13 @@
                                         {
                                             <span class="bg-red-100 text-red-600 text-xs font-bold px-1.5 py-0.5 rounded">置頂</span>
                                         }
+                                        @if (IsNewAnnouncement(item.PublishDate))
+                                        {
+                                            <span class="bg-terracotta/15 text-terracotta border border-terracotta/30 text-xs font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-1"><i class="fa-solid fa-sparkles text-[10px]"></i>NEW</span>
+                                        }
                                         <span class="@GetCategoryBadgeClass(item.Category) text-xs font-bold px-1.5 py-0.5 rounded">@GetCategoryName(item.Category)</span>
                                         <span class="text-xs text-gray-400 ml-auto flex items-center gap-1">
-                                            <i class="fa-regular fa-calendar"></i> @item.PublishDate.ToString("yyyy-MM-dd")
+                                            <i class="fa-regular fa-calendar"></i> @FormatRelativeDate(item.PublishDate)
                                         </span>
                                     </div>
                                     <h4 class="text-sm font-bold text-slate-main hover:text-morandi mb-1 line-clamp-2 transition-colors">@item.Title</h4>
@@ -221,7 +225,7 @@
                                 <!-- 發佈資訊 -->
                                 <div class="text-xs text-gray-500 flex items-center gap-3">
                                     <span class="flex items-center gap-1">
-                                        <i class="fa-regular fa-clock"></i> 發佈時間：@selectedAnnouncement.PublishDate.ToString("yyyy-MM-dd")
+                                        <i class="fa-regular fa-clock"></i> 發佈時間：@selectedAnnouncement.PublishDate.ToString("yyyy-MM-dd")（@FormatRelativeDate(selectedAnnouncement.PublishDate)）
                                     </span>
                                     <span class="flex items-center gap-1">
                                         <i class="fa-regular fa-user"></i> @selectedAnnouncement.AuthorName
@@ -453,4 +457,29 @@
             text,
             confirmButtonColor = "#6B8EAD"
         });
+
+    // ================================================================
+    // 公告顯示輔助
+    // ================================================================
+
+    /// <summary>判斷公告是否為 3 天內新發佈（不含未來日期）。</summary>
+    private static bool IsNewAnnouncement(DateTime publishDate)
+    {
+        var days = (DateTime.Now.Date - publishDate.Date).Days;
+        return days >= 0 && days <= 3;
+    }
+
+    /// <summary>≤15 天顯示相對時間（今天/昨天/N 天前）；&gt;15 天顯示絕對日期 yyyy-MM-dd。</summary>
+    private static string FormatRelativeDate(DateTime dt)
+    {
+        var days = (DateTime.Now.Date - dt.Date).Days;
+        return days switch
+        {
+            < 0   => dt.ToString("yyyy-MM-dd"),
+            0     => "今天",
+            1     => "昨天",
+            <= 15 => $"{days} 天前",
+            _     => dt.ToString("yyyy-MM-dd")
+        };
+    }
 }

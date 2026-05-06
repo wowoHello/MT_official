@@ -36,7 +36,7 @@ public enum RevisionPhaseLabel
     Peer,
     /// <summary>專審修題（PhaseCode = 6，對應 RevisionStage = 2）。</summary>
     Expert,
-    /// <summary>總召修題（PhaseCode = 8，對應 RevisionStage = 3）。</summary>
+    /// <summary>總審修題（PhaseCode = 8，對應 RevisionStage = 3）。</summary>
     Final,
     /// <summary>已結案（含中途結案）— 凍結所有修題狀態。</summary>
     Closed
@@ -170,10 +170,10 @@ public enum LogTypeFilter : byte
     Question = 1,
     /// <summary>公告（TargetType=4）。</summary>
     Announcement = 2,
-    /// <summary>角色（TargetType=1）。</summary>
-    Role = 3,
-    /// <summary>教師（TargetType=5）。</summary>
-    Teacher = 4,
+    /// <summary>人員（TargetType IN (1,5)，涵蓋角色與教師）。</summary>
+    Members = 3,
+    /// <summary>專案（TargetType=2）。</summary>
+    Project = 4,
     /// <summary>審題（TargetType=6）。</summary>
     Review = 5,
     /// <summary>登入（特例：以 Action 過濾，含 Login=3 / Logout=4）。</summary>

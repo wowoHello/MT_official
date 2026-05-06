@@ -7,7 +7,7 @@
 @*    3. 標題列與內容區用淺色分隔線區隔，留白舒適                             *@
 @* ====================================================================== *@
 
-<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden @ContainerClass">
+<div data-field="@DataField" class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden @ContainerClass">
     @if (!string.IsNullOrEmpty(Title) || HeaderRight != null)
     {
         <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
@@ -44,10 +44,12 @@
     [Parameter] public bool Required { get; set; }
     [Parameter] public string? HintText { get; set; }
 
-    /// <summary>外層額外 class（例如限制寬度、margin override）。</summary>
+    /// <summary>外層額外 class（例如限制寬度、margin override、驗證紅框 ring-2 ring-red-400）。</summary>
     [Parameter] public string ContainerClass { get; set; } = "";
     /// <summary>Body 區 class（預設 p-5；想要自訂 padding 或無 padding 時覆寫）。</summary>
     [Parameter] public string BodyClass { get; set; } = "";
+    /// <summary>data-field 屬性（給 scrollToFirstInvalid 找錨點，留空不渲染）。</summary>
+    [Parameter] public string? DataField { get; set; }
 
     [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public RenderFragment? HeaderRight { get; set; }

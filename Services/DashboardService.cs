@@ -63,7 +63,7 @@ public class DashboardService : IDashboardService
         // ──────────────────────────────────────────────────────────────
         const string sqlStatusCounts = """
             SELECT
-                SUM(CASE WHEN Status = 9                          THEN 1 ELSE 0 END) AS AdoptedCount,
+                SUM(CASE WHEN Status IN (9, 12)                    THEN 1 ELSE 0 END) AS AdoptedCount,
                 SUM(CASE WHEN Status BETWEEN 2 AND 8              THEN 1 ELSE 0 END) AS InReviewCount,
                 SUM(CASE WHEN Status IN (4, 6, 8)                 THEN 1 ELSE 0 END) AS ReturnEditCount,
                 SUM(CASE WHEN Status = 4                          THEN 1 ELSE 0 END) AS PeerEditCount,
@@ -157,7 +157,8 @@ public class DashboardService : IDashboardService
 
         // ──────────────────────────────────────────────────────────────
         // 4. 圖表 1：各題型缺口達成率
-        //    Produced = Status 2~9（送審後所有進度，不含草稿 0,1）
+        //    Produced = Status ∈ {1, 2~9, 12} — 命題完成後（含送審、各審/修題、採用、結案入庫）
+        //               排除 0 草稿（尚未確認）、10 不採用、11 結案未採用
         //    Target   = MT_ProjectTargets.TargetCount
         //    使用 LEFT JOIN 確保即使無題目也回傳 7 筆（供圖表顯示 0 軸）
         // ──────────────────────────────────────────────────────────────
@@ -165,7 +166,7 @@ public class DashboardService : IDashboardService
             SELECT
                 qt.Id   AS QuestionTypeId,
                 qt.Name AS TypeName,
-                ISNULL(SUM(CASE WHEN q.Status BETWEEN 2 AND 9 THEN 1 ELSE 0 END), 0) AS Produced,
+                ISNULL(SUM(CASE WHEN q.Status NOT IN (0, 10, 11) THEN 1 ELSE 0 END), 0) AS Produced,
                 ISNULL((
                     SELECT SUM(pt2.TargetCount)
                     FROM dbo.MT_ProjectTargets pt2
@@ -219,8 +220,8 @@ public class DashboardService : IDashboardService
                         WHEN q.Status BETWEEN 1 AND 8
                          AND qrs.QuestionId IS NOT NULL
                         THEN 1 ELSE 0 END), 0) AS DoneStage,
-                    ISNULL(SUM(CASE WHEN q.Status = 9  THEN 1 ELSE 0 END), 0) AS Adopted,
-                    ISNULL(SUM(CASE WHEN q.Status = 10 THEN 1 ELSE 0 END), 0) AS Rejected
+                    ISNULL(SUM(CASE WHEN q.Status IN (9, 12)  THEN 1 ELSE 0 END), 0) AS Adopted,
+                    ISNULL(SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END), 0) AS Rejected
                 FROM      dbo.MT_QuestionTypes qt
                 LEFT JOIN dbo.MT_Questions q
                        ON q.QuestionTypeId = qt.Id AND q.ProjectId = @pid AND q.IsDeleted = 0
@@ -259,8 +260,8 @@ public class DashboardService : IDashboardService
                         WHEN q.Status BETWEEN 1 AND 8
                          AND qss.PendingCount = 0
                         THEN 1 ELSE 0 END), 0) AS DoneStage,
-                    ISNULL(SUM(CASE WHEN q.Status = 9  THEN 1 ELSE 0 END), 0) AS Adopted,
-                    ISNULL(SUM(CASE WHEN q.Status = 10 THEN 1 ELSE 0 END), 0) AS Rejected
+                    ISNULL(SUM(CASE WHEN q.Status IN (9, 12)  THEN 1 ELSE 0 END), 0) AS Adopted,
+                    ISNULL(SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END), 0) AS Rejected
                 FROM      dbo.MT_QuestionTypes qt
                 LEFT JOIN dbo.MT_Questions q
                        ON q.QuestionTypeId = qt.Id AND q.ProjectId = @pid AND q.IsDeleted = 0
@@ -294,8 +295,8 @@ public class DashboardService : IDashboardService
                     ISNULL(SUM(CASE WHEN q.Status BETWEEN 1 AND 8
                                      AND q.Status <> @inProgress AND q.Status <> 2
                                      THEN 1 ELSE 0 END), 0) AS DoneStage,
-                    ISNULL(SUM(CASE WHEN q.Status = 9  THEN 1 ELSE 0 END), 0) AS Adopted,
-                    ISNULL(SUM(CASE WHEN q.Status = 10 THEN 1 ELSE 0 END), 0) AS Rejected
+                    ISNULL(SUM(CASE WHEN q.Status IN (9, 12)  THEN 1 ELSE 0 END), 0) AS Adopted,
+                    ISNULL(SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END), 0) AS Rejected
                 FROM dbo.MT_QuestionTypes qt
                 LEFT JOIN dbo.MT_Questions q
                        ON q.QuestionTypeId = qt.Id AND q.ProjectId = @pid AND q.IsDeleted = 0
@@ -601,7 +602,7 @@ public class DashboardService : IDashboardService
                 5 => statusCounts2.Status5 == 0,  // 專家審題
                 6 => statusCounts2.Status6 == 0,  // 專審修題
                 7 => statusCounts2.Status7 == 0,  // 總召審題
-                8 => statusCounts2.Status8 == 0,  // 總召修題
+                8 => statusCounts2.Status8 == 0,  // 總審修題
                 _ => false
             };
 
@@ -679,7 +680,7 @@ public class DashboardService : IDashboardService
                       AND  QuestionTypeId = mq.QuestionTypeId
                       AND  CreatorId      = pm.UserId
                       AND  IsDeleted      = 0
-                      AND  Status BETWEEN 2 AND 9
+                      AND  Status NOT IN (0, 10, 11)
                 ) prod
                 WHERE   pm.ProjectId = @pid
                 GROUP BY pm.UserId, u.DisplayName
@@ -873,7 +874,7 @@ public class DashboardService : IDashboardService
                           AND  QuestionTypeId = mq.QuestionTypeId
                           AND  CreatorId      = pm.UserId
                           AND  IsDeleted      = 0
-                          AND  Status BETWEEN 2 AND 9
+                          AND  Status NOT IN (0, 10, 11)
                     ) prod
                     WHERE   pm.ProjectId = @pid AND pm.UserId IN @userIds
                     ORDER   BY pm.UserId, prod.Produced * 1.0 / NULLIF(mq.QuotaCount, 0) ASC
@@ -915,26 +916,32 @@ public class DashboardService : IDashboardService
     {
         using var conn = _db.CreateConnection();
 
-        // 過濾條件（C# 端解析，避免 SQL 動態字串拼接）：
-        //   typeCode  → 對應 MT_AuditLogs.TargetType（null = 不過濾）
+        // 過濾條件（C# 端解析）：
+        //   typeCodes → 對應 MT_AuditLogs.TargetType 的 IN 清單（空陣列 = 不過濾）
         //   loginOnly → 1 表示僅顯示 Action 3/4（登入/登出）
-        int? typeCode = query.TypeFilter switch
+        // Members 同時涵蓋 TargetType 1（角色）與 5（教師），需 IN 陣列。
+        int[] typeCodes = query.TypeFilter switch
         {
-            LogTypeFilter.Question     => 3,
-            LogTypeFilter.Announcement => 4,
-            LogTypeFilter.Role         => 1,
-            LogTypeFilter.Teacher      => 5,
-            LogTypeFilter.Review       => 6,
-            _                          => null
+            LogTypeFilter.Members      => [1, 5],
+            LogTypeFilter.Project      => [2],
+            LogTypeFilter.Question     => [3],
+            LogTypeFilter.Announcement => [4],
+            LogTypeFilter.Review       => [6],
+            _                          => []   // All / Login：不過濾 TargetType
         };
         int loginOnly  = query.TypeFilter == LogTypeFilter.Login ? 1 : 0;
         int includeGlb = query.IncludeGlobal ? 1 : 0;
+
+        // typeCodes 有值時才拼入 IN 條件，避免空 IN 造成語法錯誤
+        string typeCodeFilter = typeCodes.Length > 0
+            ? "AND al.TargetType IN @typeCodes"
+            : "";
 
         var sqlParams = new
         {
             pid           = query.ProjectId,
             includeGlobal = includeGlb,
-            typeCode,
+            typeCodes,
             loginOnly,
             skip          = query.Skip,
             take          = query.Take
@@ -942,7 +949,7 @@ public class DashboardService : IDashboardService
 
         // ── Step 1：主查詢（OFFSET FETCH 分頁）──────────────────────────
         // OldValue/NewValue 也帶出，以便目標資料已刪除時從 JSON 解析名稱
-        const string sqlMain = """
+        string sqlMain = $"""
             SELECT
                 al.Id,
                 al.UserId,
@@ -958,19 +965,19 @@ public class DashboardService : IDashboardService
             WHERE  ( al.ProjectId = @pid
                      OR (@includeGlobal = 1 AND al.ProjectId IS NULL) )
               AND  al.Action IN (0, 1, 2, 3, 4)
-              AND  ( @typeCode IS NULL OR al.TargetType = @typeCode )
+              {typeCodeFilter}
               AND  ( @loginOnly = 0     OR al.Action IN (3, 4) )
             ORDER  BY al.CreatedAt DESC
             OFFSET @skip ROWS FETCH NEXT @take ROWS ONLY;
             """;
 
-        const string sqlCount = """
+        string sqlCount = $"""
             SELECT COUNT(*)
             FROM   dbo.MT_AuditLogs al
             WHERE  ( al.ProjectId = @pid
                      OR (@includeGlobal = 1 AND al.ProjectId IS NULL) )
               AND  al.Action IN (0, 1, 2, 3, 4)
-              AND  ( @typeCode IS NULL OR al.TargetType = @typeCode )
+              {typeCodeFilter}
               AND  ( @loginOnly = 0     OR al.Action IN (3, 4) );
             """;
 

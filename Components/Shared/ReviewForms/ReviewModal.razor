@@ -155,6 +155,8 @@
                                IsHistorical="@IsHistoricalAssignment"
                                IsSubmitting="@isSubmitting"
                                PendingAction="@pendingAction"
+                               Comment="@commentDraft"
+                               MinCommentLength="@MinCommentLength"
                                OnSaveDraft="OnSaveDraftAsync"
                                OnSubmitDecision="OnSubmitDecisionAsync"
                                OnRequestEdit="OnRequestEditAsync"
@@ -214,6 +216,14 @@
     /// <summary>當前觸發儲存的按鈕識別（save / approve / revise / reject），用於 spinner 定位</summary>
     private string? pendingAction;
 
+    /// <summary>
+    /// 意見最小字數（trim 後）。低於此字數時：
+    ///   - 互審「儲存意見/修改意見」、專/總審「採用 / 改後採用 / 不採用」按鈕全部 disable
+    ///   - 「儲存意見草稿」與總審第 3 次「編輯題目」不受限
+    /// 與 ReviewDecisionBar.MinCommentLength 同步。
+    /// </summary>
+    private const int MinCommentLength = 10;
+
     /// <summary>頂部相似題橫幅「展開比對」按鈕點擊 → 滾動右側列表進視野並展開</summary>
     private async Task OnExpandSimilarityRequested()
     {
@@ -223,6 +233,15 @@
     private async Task OnSaveDraftAsync()
     {
         if (data?.MyAssignment is null || isSubmitting) return;
+
+        // 互審階段「儲存意見」即為最終送出 → 強制檢查字數（與 ReviewDecisionBar disabled 條件對齊，第二道防線）
+        // 專/總審的「儲存意見草稿」純草稿允許留空，僅互審需擋
+        if (data.MyAssignment.Stage == ReviewStage.Mutual
+            && (commentDraft ?? string.Empty).Trim().Length < MinCommentLength)
+        {
+            await ShowToastAsync("warning", $"意見需至少 {MinCommentLength} 字才能送出");
+            return;
+        }
 
         isSubmitting = true;
         pendingAction = "save";
@@ -268,6 +287,13 @@
     private async Task OnSubmitDecisionAsync(ReviewDecision decision)
     {
         if (data?.MyAssignment is null || isSubmitting) return;
+
+        // 決策一律強制留意見（與 ReviewDecisionBar disabled 條件對齊，第二道防線）
+        if ((commentDraft ?? string.Empty).Trim().Length < MinCommentLength)
+        {
+            await ShowToastAsync("warning", $"意見需至少 {MinCommentLength} 字才能送出決策");
+            return;
+        }
 
         // 決策按鈕對應 spinner 位置
         pendingAction = decision switch

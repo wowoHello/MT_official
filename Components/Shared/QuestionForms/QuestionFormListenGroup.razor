@@ -11,7 +11,8 @@
 
 <div class="p-5 lg:p-6 pb-16 max-w-4xl mx-auto space-y-4 min-h-full">
 
-    <FormSectionCard Title="聽力音檔" Icon="fa-headphones" Required="true">
+    <FormSectionCard Title="聽力音檔" Icon="fa-headphones" Required="true"
+        DataField="AudioUrl" ContainerClass="@InvalidRing("AudioUrl")">
         <div class="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-morandi hover:bg-morandi/5 transition-all cursor-pointer group">
             @if (string.IsNullOrEmpty(AudioFileName))
             {
@@ -33,7 +34,8 @@
         </div>
     </FormSectionCard>
 
-    <FormSectionCard Title="語音內容" Icon="fa-microphone" Required="true">
+    <FormSectionCard Title="語音內容" Icon="fa-microphone" Required="true"
+        DataField="ArticleContent" ContainerClass="@InvalidRing("ArticleContent")">
         <div class="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md text-sm flex items-start gap-2">
             <i class="fa-solid fa-circle-info text-amber-500 mt-0.5 flex-shrink-0"></i>
             <div class="text-xs leading-relaxed text-amber-700">
@@ -50,18 +52,26 @@
             {
                 var idx = i;
                 var sq = SubQuestions[idx];
+                var n = idx + 1;
                 var subLevelLabel = QuestionConstants.ListenLevelLabels.GetValueOrDefault(sq.FixedDifficulty, "");
+                var coreKey      = $"ListenSub_{n}_CoreAbility";
+                var indicatorKey = $"ListenSub_{n}_Indicator";
+                var stemKey      = $"ListenSub_{n}_Stem";
+                var analysisKey  = $"ListenSub_{n}_Analysis";
+                var answerKey    = $"ListenSub_{n}_Answer";
+                var optionAnyKey = new[] { $"ListenSub_{n}_Options_0", $"ListenSub_{n}_Options_1",
+                                            $"ListenSub_{n}_Options_2", $"ListenSub_{n}_Options_3", answerKey };
 
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                     <!-- 子題標頭 -->
                     <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                        <span class="text-sm font-bold text-slate-main">第 @(idx + 1) 題</span>
+                        <span class="text-sm font-bold text-slate-main">第 @n 題</span>
                         <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-600 text-xs font-bold">@subLevelLabel</span>
                     </div>
                     <div class="p-4 space-y-4">
                         <!-- 核心能力 + 細目指標 -->
                         <div class="grid grid-cols-2 gap-3">
-                            <div>
+                            <div data-field="@coreKey" class="@InvalidRing(coreKey) rounded-lg p-1">
                                 <label class="block text-xs font-medium text-gray-600 mb-1">核心能力 <span class="text-red-400">*</span></label>
                                 <select @bind="sq.CoreAbility" @bind:after="() => OnSubCoreAbilityChanged(sq)"
                                     class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
@@ -75,7 +85,7 @@
                                     }
                                 </select>
                             </div>
-                            <div>
+                            <div data-field="@indicatorKey" class="@InvalidRing(indicatorKey) rounded-lg p-1">
                                 <label class="block text-xs font-medium text-gray-600 mb-1">細目指標 <span class="text-red-400">*</span></label>
                                 <select @bind="sq.DetailIndicator"
                                     class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer @(sq.CoreAbility is null ? "bg-gray-50 text-gray-300" : "")"
@@ -93,16 +103,16 @@
                         </div>
 
                         <!-- 題目內容 -->
-                        <div>
+                        <div data-field="@stemKey" class="@InvalidRing(stemKey) rounded-lg p-1">
                             <label class="block text-sm font-bold text-gray-700 mb-2">
                                 題目內容 <span class="text-red-400">*</span>
                             </label>
-                            <QuillField Value="@sq.Stem" ValueChanged="v => { sq.Stem = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }" FieldLabel="@($"第 {idx + 1} 題 題目內容")"
+                            <QuillField Value="@sq.Stem" ValueChanged="v => { sq.Stem = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }" FieldLabel="@($"第 {n} 題 題目內容")"
                                 Placeholder="點擊此處開始編輯題目內容..." />
                         </div>
 
                         <!-- 選項與答案 -->
-                        <div>
+                        <div data-field="@answerKey" class="@InvalidRingAny(optionAnyKey) rounded-lg p-1">
                             <label class="block text-sm font-bold text-gray-700 mb-2">
                                 <i class="fa-solid fa-list-ol text-morandi"></i> 選項與答案 <span class="text-red-400">*</span>
                             </label>
@@ -112,12 +122,12 @@
                         </div>
 
                         <!-- 試題解析 -->
-                        <div>
+                        <div data-field="@analysisKey" class="@InvalidRing(analysisKey) rounded-lg p-1">
                             <label class="block text-sm font-bold text-gray-700 mb-2">
                                 試題解析（紀錄答案理由） <span class="text-red-400">*</span>
                             </label>
                             <QuillField Value="@sq.Analysis" ValueChanged="v => { sq.Analysis = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }"
-                                FieldLabel="@($"第 {idx + 1} 題 解析")"
+                                FieldLabel="@($"第 {n} 題 解析")"
                                 Placeholder="點擊此處開始編輯解析..." />
                         </div>
                     </div>
@@ -137,6 +147,15 @@
     [Parameter] public List<ListenGroupSubQuestion> SubQuestions { get; set; }
         = [new() { FixedDifficulty = 3 }, new() { FixedDifficulty = 4 }];
     [Parameter] public EventCallback<List<ListenGroupSubQuestion>> SubQuestionsChanged { get; set; }
+
+    /// <summary>由父層傳入的驗證失敗欄位集合。</summary>
+    [Parameter] public HashSet<string>? InvalidFields { get; set; }
+
+    private string InvalidRing(string fieldKey) =>
+        InvalidFields?.Contains(fieldKey) == true ? "ring-2 ring-red-400" : "";
+
+    private string InvalidRingAny(IEnumerable<string> keys) =>
+        keys.Any(k => InvalidFields?.Contains(k) == true) ? "ring-2 ring-red-400" : "";
 
     private void OnSubCoreAbilityChanged(ListenGroupSubQuestion sq)
     {

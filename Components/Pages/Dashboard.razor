@@ -5,6 +5,7 @@
 @* ====================================================================== *@
 @page "/dashboard"
 @inject IDashboardService DashboardService
+@inject IPhaseTransitionCoordinator PhaseCoordinator
 @inject ILogger<Dashboard> Logger
 @inject IJSRuntime JS
 @implements IAsyncDisposable
@@ -537,7 +538,7 @@
                     <ul class="max-h-[290px] overflow-y-auto divide-y divide-stone-100">
                         @foreach (var log in logPage.Logs)
                         {
-                            <li class="px-4 py-2.5 flex items-center gap-3 hover:bg-stone-50 cursor-pointer transition-colors duration-150">
+                            <li class="px-4 py-2.5 flex items-center gap-3">
                                 @* 動作圖示 *@
                                 <span class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-xs @LogIconBgClass(log.Action)">
                                     <i class="fa-solid @LogIconClass(log.Action)"></i>
@@ -723,12 +724,12 @@
     private static readonly (LogTypeFilter Filter, string Label)[] LogFilters =
     {
         (LogTypeFilter.All,          "全部"),
-        (LogTypeFilter.Question,     "試題"),
-        (LogTypeFilter.Announcement, "公告"),
-        (LogTypeFilter.Role,         "角色"),
-        (LogTypeFilter.Teacher,      "教師"),
-        (LogTypeFilter.Review,       "審題"),
         (LogTypeFilter.Login,        "登入"),
+        (LogTypeFilter.Members,      "人員"),
+        (LogTypeFilter.Project,      "專案"),
+        (LogTypeFilter.Announcement, "公告"),
+        (LogTypeFilter.Question,     "試題"),
+        (LogTypeFilter.Review,       "審題"),
     };
 
     protected override async Task OnParametersSetAsync()
@@ -785,6 +786,11 @@
 
         try
         {
+            // 階段轉換統一委派 PhaseTransitionCoordinator —
+            // 60 秒去重 + idempotent，確保管理員開儀表板就能看到真實的審題分配資料
+            // （而非 fallback 估算值）
+            await PhaseCoordinator.EnsureAsync(CurrentProject.Id);
+
             kpi = await DashboardService.GetKpiAsync(CurrentProject.Id);
             chartsNeedRender = true;
         }
@@ -1005,14 +1011,6 @@
         return "bg-[var(--color-terracotta)]";
     }
 
-    /// <summary>依 item.TargetUrl 跳轉對應頁面（PhaseDeadline 列點擊用）。</summary>
-    [Inject] private NavigationManager Nav { get; set; } = default!;
-    private void NavigateToUrgent(DashboardUrgentItem item)
-    {
-        if (!string.IsNullOrWhiteSpace(item.TargetUrl))
-            Nav.NavigateTo(item.TargetUrl);
-    }
-
     /// <summary>依嚴重度回傳背景底色 Tailwind class。</summary>
     private static string SeverityBgClass(UrgentSeverity s) => s switch
     {
@@ -1133,7 +1131,7 @@
     {
         MT.Models.RevisionPhaseLabel.Peer   => "互審修題",
         MT.Models.RevisionPhaseLabel.Expert => "專審修題",
-        MT.Models.RevisionPhaseLabel.Final  => "總召修題",
+        MT.Models.RevisionPhaseLabel.Final  => "總審修題",
         MT.Models.RevisionPhaseLabel.Closed => "已結案",
         _                                    => "非修題階段"
     };

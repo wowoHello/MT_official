@@ -180,9 +180,9 @@
                                 </div>
                                 <span class="text-gray-300">|</span>
                                 <div class="flex items-center gap-1.5 text-gray-700">
-                                    <i class="fa-solid fa-hourglass-half text-terracotta"></i>
+                                    <i class="fa-solid fa-hourglass-half text-amber-600"></i>
                                     待處理
-                                    <span class="text-lg font-bold text-terracotta ml-0.5">@activePending</span>
+                                    <span class="text-lg font-bold text-amber-600 ml-0.5">@activePending</span>
                                 </div>
                                 <span class="text-gray-300">|</span>
                                 <div class="flex items-center gap-1.5 text-gray-700">
@@ -207,7 +207,7 @@
                         <!-- 歷史 Tab 統計卡片 -->
                         <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                             @HistoryStatCard("全部題目", historyItems.Count.ToString(), "fa-layer-group", "text-morandi", "text-slate-main")
-                            @HistoryStatCard("已採用", historyItems.Count(h => h.FinalStatus == QuestionStatus.Adopted).ToString(), "fa-circle-check", "text-sage", "text-sage")
+                            @HistoryStatCard("已採用", historyItems.Count(h => h.FinalStatus is QuestionStatus.Adopted or QuestionStatus.Archived).ToString(), "fa-circle-check", "text-sage", "text-sage")
                             @HistoryStatCard("不採用", historyItems.Count(h => h.FinalStatus is QuestionStatus.Rejected or QuestionStatus.ClosedNotAdopted).ToString(), "fa-circle-xmark", "text-gray-400", "text-gray-400")
                         </div>
                     }
@@ -406,7 +406,7 @@
                                                 }
                                                 else
                                                 {
-                                                    <span class="inline-block px-2 py-0.5 rounded text-xs font-bold bg-terracotta/15 text-terracotta border border-terracotta/30">待審</span>
+                                                    <span class="inline-block px-2 py-0.5 rounded text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">待審</span>
                                                 }
                                             </td>
                                             <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">@item.LastEditedAt.ToString("yyyy/MM/dd HH:mm")</td>
@@ -752,7 +752,7 @@
         .Where(h => MatchLevel(h.Level))
         .Where(h => queryStatus switch
         {
-            "adopted"  => h.FinalStatus == QuestionStatus.Adopted,
+            "adopted"  => h.FinalStatus is QuestionStatus.Adopted or QuestionStatus.Archived,
             "rejected" => h.FinalStatus is QuestionStatus.Rejected or QuestionStatus.ClosedNotAdopted,
             _          => true
         })

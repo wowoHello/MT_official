@@ -7,11 +7,13 @@
 
 <div class="p-5 lg:p-6 pb-16 max-w-4xl mx-auto space-y-4 min-h-full">
 
-    <FormSectionCard Title="題目" Icon="fa-pen">
+    @* 題目（Stem）目前 razor 標非必填，僅作 anchor *@
+    <FormSectionCard Title="題目" Icon="fa-pen" DataField="Stem">
         <QuillField Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="題目" Placeholder="點擊此處開始編輯題目..." />
     </FormSectionCard>
 
-    <FormSectionCard Title="文章內容" Icon="fa-book-open" Required="true">
+    <FormSectionCard Title="文章內容" Icon="fa-book-open" Required="true"
+        DataField="ArticleContent" ContainerClass="@InvalidRing("ArticleContent")">
         <!-- 附圖提醒 -->
         <div class="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md text-sm flex items-start gap-2">
             <i class="fa-solid fa-image text-amber-500 mt-0.5 flex-shrink-0"></i>
@@ -23,7 +25,8 @@
         <QuillField Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }" FieldLabel="文章內容" Placeholder="點擊此處開始輸入文章內容..." />
     </FormSectionCard>
 
-    <FormSectionCard Title="批閱說明" Icon="fa-lightbulb" IconColor="text-amber-500">
+    <FormSectionCard Title="批閱說明" Icon="fa-lightbulb" IconColor="text-amber-500"
+        DataField="GradingNote" ContainerClass="@InvalidRing("GradingNote")">
         <QuillField Value="@GradingNote" ValueChanged="v => { GradingNote = v; GradingNoteChanged.InvokeAsync(v); }" FieldLabel="批閱說明" Placeholder="請簡要說明長文題目的批閱說明..." />
     </FormSectionCard>
 </div>
@@ -37,4 +40,10 @@
 
     [Parameter] public string GradingNote { get; set; } = "";
     [Parameter] public EventCallback<string> GradingNoteChanged { get; set; }
+
+    /// <summary>由父層傳入的驗證失敗欄位集合。</summary>
+    [Parameter] public HashSet<string>? InvalidFields { get; set; }
+
+    private string InvalidRing(string fieldKey) =>
+        InvalidFields?.Contains(fieldKey) == true ? "ring-2 ring-red-400" : "";
 }

@@ -173,7 +173,7 @@
                         else
                         {
                             @StatCard("全部題目", SumCounts(QuestionStatus.HistoryTabStatuses), "fa-layer-group", "text-morandi", "text-slate-main", "all", "顯示全部題目")
-                            @StatCard("已採用", CountOf(QuestionStatus.Adopted), "fa-circle-check", "text-sage", "text-sage", "adopted", "點一下套用篩選")
+                            @StatCard("已採用", SumCounts([QuestionStatus.Adopted, QuestionStatus.Archived]), "fa-circle-check", "text-sage", "text-sage", "adopted", "點一下套用篩選")
                             @StatCard("不採用", CountOf(QuestionStatus.Rejected) + CountOf(QuestionStatus.ClosedNotAdopted), "fa-circle-xmark", "text-gray-400", "text-gray-400", "rejected", "點一下套用篩選")
                         }
                     </div>
@@ -375,7 +375,8 @@
                             @bind-Topic="formData.Topic" @bind-Subtopic="formData.Subtopic"
                             @bind-WritingMode="formData.WritingMode" @bind-Genre="formData.Genre"
                             @bind-AudioType="formData.AudioType" @bind-Material="formData.Material"
-                            @bind-CoreAbility="formData.CoreAbility" @bind-DetailIndicator="formData.DetailIndicator" />
+                            @bind-CoreAbility="formData.CoreAbility" @bind-DetailIndicator="formData.DetailIndicator"
+                            InvalidFields="invalidFields" />
                     </div>
 
                 <!-- 右側：主要編輯區 -->
@@ -384,22 +385,28 @@
                     {
                         case QuestionTypeCodes.Single:
                         case QuestionTypeCodes.Select:
-                            <QuestionFormSingle @bind-Stem="formData.Stem" @bind-Options="formData.Options" @bind-Answer="formData.Answer" @bind-Analysis="formData.Analysis" />
+                            <QuestionFormSingle @bind-Stem="formData.Stem" @bind-Options="formData.Options" @bind-Answer="formData.Answer" @bind-Analysis="formData.Analysis"
+                                InvalidFields="invalidFields" />
                             break;
                         case QuestionTypeCodes.LongText:
-                            <QuestionFormLongText @bind-Stem="formData.Stem" @bind-Passage="formData.ArticleContent" @bind-GradingNote="formData.GradingNote" />
+                            <QuestionFormLongText @bind-Stem="formData.Stem" @bind-Passage="formData.ArticleContent" @bind-GradingNote="formData.GradingNote"
+                                InvalidFields="invalidFields" />
                             break;
                         case QuestionTypeCodes.ReadGroup:
-                            <QuestionFormReadGroup Status="@currentFormStatus" @bind-Stem="formData.Stem" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ReadSubQuestions" />
+                            <QuestionFormReadGroup Status="@currentFormStatus" @bind-Stem="formData.Stem" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ReadSubQuestions"
+                                InvalidFields="invalidFields" />
                             break;
                         case QuestionTypeCodes.ShortGroup:
-                            <QuestionFormShortGroup Status="@currentFormStatus" @bind-Stem="formData.Stem" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ShortSubQuestions" />
+                            <QuestionFormShortGroup Status="@currentFormStatus" @bind-Stem="formData.Stem" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ShortSubQuestions"
+                                InvalidFields="invalidFields" />
                             break;
                         case QuestionTypeCodes.Listen:
-                            <QuestionFormListen @bind-AudioFileName="formData.AudioUrl" @bind-Stem="formData.Stem" @bind-Options="formData.Options" @bind-Answer="formData.Answer" @bind-Analysis="formData.Analysis" />
+                            <QuestionFormListen @bind-AudioFileName="formData.AudioUrl" @bind-Stem="formData.Stem" @bind-Options="formData.Options" @bind-Answer="formData.Answer" @bind-Analysis="formData.Analysis"
+                                InvalidFields="invalidFields" />
                             break;
                         case QuestionTypeCodes.ListenGroup:
-                            <QuestionFormListenGroup @bind-AudioFileName="formData.AudioUrl" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ListenGroupSubQuestions" />
+                            <QuestionFormListenGroup @bind-AudioFileName="formData.AudioUrl" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ListenGroupSubQuestions"
+                                InvalidFields="invalidFields" />
                             break;
                     }
                 </div>
@@ -493,6 +500,9 @@
     // 儲存中防呆：避免重複送出
     private bool isSaving;
     private byte? pendingStatus;   // 哪一個按鈕觸發的（影響 spinner 顯示位置）
+
+    // 表單欄位錯誤集合：由 SaveAsync 驗證填入；子元件以 [Parameter] 接收用以畫紅框
+    private HashSet<string> invalidFields = new();
 
     // 列表狀態
     private QuestionListResult listResult = new();
@@ -623,7 +633,7 @@
         ("compose",  "draft")     => QuestionStatus.Draft,
         ("compose",  "done")      => QuestionStatus.Completed,
         // compose 的「已送審」涵蓋 Status 2-8（送審後尚未結案的快照），由 StatusesOverride 處理
-        ("history",  "adopted")   => QuestionStatus.Adopted,
+        // history 的「已採用」涵蓋 Status 9 / 12（首輪通過 / 兩輪通過 / 結案入庫），由 StatusesOverride 處理
         ("history",  "rejected")  => QuestionStatus.Rejected,
         // revision 子分類（locked/editing）涉及多 status，由 ListAsync 用 Tab 範圍處理；此處不單一過濾
         _                         => null
@@ -645,6 +655,8 @@
         ("revision", "replied")   => [QuestionStatus.PeerEditing,
                                       QuestionStatus.ExpertEditing,
                                       QuestionStatus.FinalEditing],
+        // 已採用：首輪總審通過 (9) + 次輪通過或結案入庫 (12)
+        ("history",  "adopted")   => [QuestionStatus.Adopted, QuestionStatus.Archived],
         _                         => null
     };
 
@@ -783,7 +795,7 @@
             7 => ("bg-morandi/10 text-morandi border-morandi/30",   "fa-lock",
                   "總召審題進行中", "題目已鎖定，總審期間無法修改。"),
             8 => ("bg-terracotta/10 text-terracotta border-terracotta/30", "fa-pen",
-                  "總召修題進行中", "請依總審意見修改題目後再次送審。"),
+                  "總審修題進行中", "請依總審意見修改題目後再次送審。"),
             _ when code is null or 1 or 2 && !IsCompositionPhaseClosed => (
                   "bg-gray-100 text-gray-500 border-gray-200", "fa-hourglass-start",
                   "審題尚未開始", "待命題階段結束後將自動進入互審，目前此區尚無題目。"),
@@ -855,26 +867,24 @@
         currentFormStatus    = listItem?.Status ?? QuestionStatus.Draft;
         currentFormUpdatedAt = listItem?.UpdatedAt;
         composeModalTitle    = IsEditableStatus(currentFormStatus) ? "編輯試題" : "檢視試題";
+        invalidFields.Clear();
         showComposeModal     = true;
     }
 
     /// <summary>
-    /// Plan_010：列點/按鈕分流。
-    /// - 審修作業區：開啟 RevisionSlideOver（修題專用）
+    /// 列點/按鈕分流：
+    /// - 審修作業區：一律開 RevisionSlideOver（鎖定階段唯讀檢視 + 即時追蹤評語；修題階段可編輯）
     /// - 命題作業區 / 審核結果與歷史：沿用 OpenEditAsync 命題 Modal（含唯讀模式）
     /// </summary>
     private async Task OpenRowAsync(int questionId, byte status)
     {
-        if (currentTab == "revision"
-            && status is QuestionStatus.PeerEditing or QuestionStatus.ExpertEditing or QuestionStatus.FinalEditing)
+        if (currentTab == "revision")
         {
-            // 修題狀態 → Slide-Over
             revisionQuestionId   = questionId;
             showRevisionSlideOver = true;
             return;
         }
 
-        // 其餘情境：FullScreen 命題 Modal（compose 唯讀快照 / revision 審題鎖定 / history 結果歷史）
         await OpenEditAsync(questionId);
     }
 
@@ -964,6 +974,7 @@
         currentFormStatus = QuestionStatus.Draft;
         currentFormUpdatedAt = null;
         composeModalTitle = "新增試題";
+        invalidFields.Clear();
         showComposeModal = true;
     }
 
@@ -971,6 +982,11 @@
     /// 存為草稿（status=0）或命題完成（status=1）。
     /// formData.Id == 0 → CreateAsync；> 0 → UpdateAsync。
     /// Service 層自動寫入 MT_AuditLogs。
+    ///
+    /// 進入儲存前先以 QuestionFormValidator 做欄位完整性檢查：
+    ///   - Draft  → 寬鬆驗證（題型 + 等級）
+    ///   - Other  → 嚴格驗證（依題型逐欄）
+    /// 失敗時：Swal 條列訊息 + 表單欄位畫紅框 + 滾動到第一個錯誤欄位。
     /// </summary>
     private async Task SaveAsync(byte targetStatus)
     {
@@ -980,6 +996,19 @@
             await ShowToastAsync("error", "找不到當前專案或使用者");
             return;
         }
+
+        // 欄位驗證（前端第一道防線；server-side 第二道防線目前未啟用）
+        var errors = targetStatus == QuestionStatus.Draft
+            ? QuestionFormValidator.ValidateForDraft(formData)
+            : QuestionFormValidator.ValidateForCompletion(formData);
+        if (errors.Count > 0)
+        {
+            await ShowValidationErrorsAsync(errors);
+            return;
+        }
+
+        // 通過驗證 → 清空紅框，繼續走儲存流程
+        invalidFields.Clear();
 
         isSaving = true;
         pendingStatus = targetStatus;
@@ -1031,6 +1060,45 @@
             showConfirmButton = false,
             timer = 2000
         });
+
+    /// <summary>
+    /// 把 QuestionFormValidator 的錯誤集合顯示給使用者：
+    ///   1. invalidFields 填入所有 FieldKey，子元件依此畫紅框
+    ///   2. SweetAlert2 條列所有錯誤訊息（warning icon）
+    ///   3. 透過 JS interop 滾動到第一個錯誤欄位
+    /// </summary>
+    private async Task ShowValidationErrorsAsync(List<ValidationError> errors)
+    {
+        // 1. 重建紅框集合（Clear → 重新加入，避免殘留上次驗證的舊欄位）
+        invalidFields.Clear();
+        foreach (var err in errors)
+        {
+            invalidFields.Add(err.FieldKey);
+        }
+
+        // 2. 組 <ul> HTML 條列訊息（FieldKey 不顯示給使用者，只用於畫紅框）
+        var listItems = string.Concat(errors.Select(e =>
+            $"<li class='text-left'>{System.Net.WebUtility.HtmlEncode(e.Message)}</li>"));
+        var html = $"<ul class='text-sm text-gray-700 leading-relaxed pl-5 list-disc space-y-1'>{listItems}</ul>";
+
+        await JS.InvokeVoidAsync("Swal.fire", new
+        {
+            icon = "warning",
+            title = "尚有未填寫欄位",
+            html,
+            confirmButtonText = "我知道了",
+            confirmButtonColor = "#6B8EAD"
+        });
+
+        // 3. 滾動到第一個錯誤欄位（前提：表單元件以 data-field 屬性標註）
+        var firstKey = errors[0].FieldKey;
+        if (!string.IsNullOrEmpty(firstKey))
+        {
+            await JS.InvokeVoidAsync("scrollToFirstInvalid", firstKey);
+        }
+
+        StateHasChanged();
+    }
 
     // 將 byte? 解碼為對應的中文標籤；若為 null 回傳 fallback
     private static string Label(byte? value, IReadOnlyDictionary<byte, string> map, string fallback) =>

@@ -916,6 +916,17 @@
         isSaving = true;
         try
         {
+            // 表單正規化：與 Roles.SaveAccount 一致，避免複製貼上帶到前後空白導致 Email 比對 miss
+            formModel.DisplayName = formModel.DisplayName.Trim();
+            formModel.Email       = formModel.Email?.Trim() ?? "";
+            formModel.School      = formModel.School.Trim();
+            formModel.Phone       = formModel.Phone?.Trim();
+            formModel.IdNumber    = formModel.IdNumber?.Trim();
+            formModel.Department  = formModel.Department?.Trim();
+            formModel.Title       = formModel.Title?.Trim();
+            formModel.Expertise   = formModel.Expertise?.Trim();
+            formModel.Note        = formModel.Note?.Trim();
+
             var authState = await AuthState;
             var operatorId = int.Parse(authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
 
