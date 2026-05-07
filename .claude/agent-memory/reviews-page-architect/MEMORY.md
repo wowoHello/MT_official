@@ -2,3 +2,4 @@
 - [審題 Modal 考卷預覽風格決策](feedback_preview_style_in_review.md) — 隱藏 PreviewHeader 標題用 CSS，解析用 details open，BuildTags 自包不 DI
 - [Status Renumbering v3.0](project_status_renumbering.md) — SentBack 完全移除，ClosedNotAdopted=11(原12)，Archived=12(原13)，HistoryTabStatuses=[9,10,11,12]
 - [總審 Buffer 化分流邏輯](project_final_review_buffer.md) — PhaseCode=8 時 EnsureFinalEditingPhaseAsync 批次分流；BumpReturnCount 閾值>=3，Reject 同樣計數
+- [專審分配 Bug 修復（Plan_013）](project_expert_review_assignment_fix.md) — 池空改 graceful return / PhaseCode=3 補 Status 升級 / UI 預設過濾歷史記錄

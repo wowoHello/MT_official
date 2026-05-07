@@ -56,6 +56,41 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     private readonly IQuestionService _questionSvc = questionSvc;
 
     // ====================================================================
+    //  系統自動 Audit Reason 清單（單一資料來源）
+    // ====================================================================
+    // 凡是以 UserId=NULL 由系統批次寫入 MT_AuditLogs 的事件，其 NewValue.Reason
+    // 都會落在這份清單裡。這類事件在語意上不屬於「使用者操作軌跡」，
+    // 不應出現在審題 Modal 的 timeline，也不該被當作命題老師的「最後編輯時間」候選。
+    //
+    // 為什麼要排除：
+    //  1) 階段批次升級 Status（PhaseTransitionCoordinator 觸發）會把所有題目的
+    //     Status 由 A→B 寫成一筆 audit；若顯示在歷程上會誤導為「題目被某人修改」。
+    //  2) 互審/專審/總審的自動分配（EnsureCompositionPhaseClosedAsync /
+    //     AssignExpertReviewers / AssignFinalReviewers）也會以 UserId=NULL 寫 audit；
+    //     在歷程裡顯示「ExpertReviewAssigned」對使用者沒有意義。
+    //  3) 各種 Pool 警告（ExpertReviewerPoolEmpty 等）TargetType 是 Projects，
+    //     理論上不會被 Question 歷程查詢撈到；放進清單只是雙保險。
+    //
+    // 注意：以下兩個 Reason 屬於使用者親自編輯，必須保留在歷程／最後編輯時間：
+    //  - "Revision"             —— 老師修題（QuestionService.SaveRevisionAsync）
+    //  - "FinalEditingResubmit" —— 老師修題後送出再審（UserId 為老師本人）
+    private static readonly string[] SystemAutoAuditReasons =
+    [
+        "CompositionPhaseEnded",        // 命題階段結束、自動分配互審 reviewer
+        "PeerReviewingPhaseStart",      // 進入交互審題階段、批次升級 Status（Plan_013 §3.3 新增）
+        "PeerEditingPhaseStart",        // 進入互審修題階段、批次升級 Status
+        "ExpertReviewingPhaseStart",    // 進入專家審題階段、批次升級 Status
+        "ExpertEditingPhaseStart",      // 進入專審修題階段、批次升級 Status
+        "FinalReviewingPhaseStart",     // 進入總召審題階段、批次升級 Status
+        "FinalEditingPhaseStart",       // 進入總召修題階段、批次升級 Status
+        "ExpertReviewAssigned",         // 自動分配專審 reviewer（先前遺漏）
+        "FinalReviewAssigned",          // 自動分配總審 reviewer（先前遺漏，且須迴避 stage2 已審過的人）
+        "ExpertReviewerPoolEmpty",      // 警告：專審池為空（TargetType=Projects，雙保險納入）
+        "FinalReviewerPoolEmpty",       // 警告：總審池為空（TargetType=Projects，雙保險納入）
+        "FinalReviewerPoolUnderQuota",  // 警告：總審池不足（TargetType=Projects，雙保險納入）
+    ];
+
+    // ====================================================================
     //  Phase 3.1：讀取
     // ====================================================================
 
@@ -203,8 +238,10 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         //   - UserId IS NOT NULL（排除系統批次事件，系統批次 UserId 為 NULL）
         //   - Action IN (0=Create, 1=Modify)
         //   - NewValue 的 Reason 欄位不存在（一般命題編輯），或 = 'Revision'（修題也屬老師親自編輯）
-        //   - 排除 Reason 屬於已知系統批次清單
+        //   - 排除 Reason 屬於已知系統批次清單（@SystemAutoReasons —— 與 IsSystemAutoAuditEvent 共用同一資料來源）
         // Fallback：若無任何符合記錄，保留原始 CreatedAt 作為「建立時間」顯示。
+        // 注意：此處同時也 fence 住「UserId IS NOT NULL」，理論上系統 NULL 紀錄已先被排除；
+        // 第二段 NOT IN 是雙保險，避免未來若有人不小心把帶 Reason 的紀錄寫上 UserId 而污染最後編輯時間。
         const string lastEditSql = """
             SELECT TOP 1 CreatedAt
             FROM dbo.MT_AuditLogs
@@ -219,19 +256,15 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
               )
               AND (
                   JSON_VALUE(NewValue, '$.Reason') IS NULL
-                  OR JSON_VALUE(NewValue, '$.Reason') NOT IN (
-                      'CompositionPhaseEnded',
-                      'PeerEditingPhaseStart',
-                      'ExpertReviewingPhaseStart',
-                      'ExpertEditingPhaseStart',
-                      'FinalReviewingPhaseStart',
-                      'FinalEditingPhaseStart',
-                      'FinalReviewAssigned'
-                  )
+                  OR JSON_VALUE(NewValue, '$.Reason') NOT IN @SystemAutoReasons
               )
             ORDER BY CreatedAt DESC;
             """;
-        var lastTeacherEditAt = await conn.ExecuteScalarAsync<DateTime?>(lastEditSql, new { QuestionId = questionId });
+        var lastTeacherEditAt = await conn.ExecuteScalarAsync<DateTime?>(lastEditSql, new
+        {
+            QuestionId = questionId,
+            SystemAutoReasons = SystemAutoAuditReasons
+        });
 
         // 用 AuditLogs 的真實命題老師編輯時間覆蓋 question.UpdatedAt
         // 若 AuditLogs 無紀錄（極舊資料），fallback 為 question.CreatedAt（建立時間永遠正確）
@@ -712,7 +745,9 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     /// <summary>
     /// 判斷某筆 Audit 是否為系統自動事件（如命題階段結束的自動分配、系統批次升級 Status），
     /// 這類事件不顯示於使用者歷程。
-    /// 判斷依據：NewValue JSON 含有 Reason 欄位，且其值屬於已知的系統批次 Reason 清單。
+    /// 判斷依據：NewValue JSON 含有 Reason 欄位，且其值屬於 <see cref="SystemAutoAuditReasons"/> 清單。
+    /// 此方法與 GetModalDataAsync 內的 lastEditSql 共用同一份 Reason 清單，避免兩邊各寫各的、
+    /// 漏補某一邊就出現「歷程乾淨但最後編輯時間錯誤」或反之的不一致。
     /// </summary>
     private static bool IsSystemAutoAuditEvent(string? newValueJson)
     {
@@ -723,15 +758,8 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             if (doc.RootElement.TryGetProperty("Reason", out var reasonProp))
             {
                 var reason = reasonProp.GetString();
-                // 系統行為清單：含命題階段結束、各審題/修題階段批次升級 Status 的事件
-                // EnsureCompositionPhaseClosedAsync 寫的 Reason
-                // EnsurePhaseTransitionAsync 各階段寫的 Reason
-                return reason is "CompositionPhaseEnded"
-                               or "PeerEditingPhaseStart"
-                               or "ExpertReviewingPhaseStart"
-                               or "ExpertEditingPhaseStart"
-                               or "FinalReviewingPhaseStart"
-                               or "FinalEditingPhaseStart";
+                if (string.IsNullOrEmpty(reason)) return false;
+                return Array.IndexOf(SystemAutoAuditReasons, reason) >= 0;
             }
         }
         catch

@@ -1023,6 +1023,11 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         // 各階段也接收前序「被遺漏」的題目（避免某題卡在舊狀態）
         var (fromStatuses, toStatus, reasonLabel) = phaseCode.Value switch
         {
+            // 交互審題（3）：已送審 → 互審中（Plan_013 §3.3：補上狀態升級，迴避 case 遺漏）
+            // 互審分配（ReviewStage=1）由 EnsureCompositionPhaseClosedAsync 負責，此處只升 Status
+            3 => (new byte[] { QuestionStatus.Submitted },
+                  QuestionStatus.PeerReviewing,
+                  "PeerReviewingPhaseStart"),
             // 互審修題（4）：把已送審 / 互審中 → 互審修題中
             4 => (new byte[] { QuestionStatus.Submitted,
                                QuestionStatus.PeerReviewing },
@@ -1336,7 +1341,11 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             """,
             new { ProjectId = projectId }, tx)).Distinct().ToList();
 
-        // 3. 池不足前置警告（Plan_011 §3.1.2）
+        // 3. 池不足前置警告（Plan_013 §3.1：改為 graceful return，不再阻擋 Status 升級）
+        // 改法說明：原本 throw 會讓 EnsurePhaseTransitionAsync 的 transaction rollback，
+        // Status 升級也一併回滾；PhaseTransitionCoordinator 的 catch 吞例外後設 cache，
+        // 導致 60 秒內重試無效。改為 return 讓 Status 升級正常完成，分配記錄留空，
+        // 下次 coordinator 觸發時再嘗試（需人員配置正確後才分得到題）。
         if (reviewerIds.Count == 0)
         {
             await conn.ExecuteAsync(
@@ -1358,7 +1367,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                         Message = "專家審題階段已開始，但本梯次尚未指派任何審題委員"
                     })
                 }, tx);
-            throw new InvalidOperationException("專家審題階段已開始，但本梯次尚未指派任何審題委員，請先至專案管理頁分配人員。");
+            return;  // graceful return：Status 升級已完成，分配跳過，待人員配置後重試
         }
 
         // 4. 載入既有 ReviewStage=2 負載基準（idempotent）
@@ -1388,11 +1397,18 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             .ToHashSet();
 
         // 6. 逐題分配：負載最低 + 不為 Creator + 該題尚未分給此人
+        //    — 先從 existingPairs 衍生已分配過的 QuestionId 集合，loop 頂部 skip 整題去重
+        var existingQuestionIds = existingPairs.Select(p => p.QuestionId).ToHashSet();
+
+        // NOT EXISTS 版 INSERT：雙重保護（C# 層去重 + DB 層 WHERE NOT EXISTS）
         const string insertSql = """
             INSERT INTO dbo.MT_ReviewAssignments
                 (QuestionId, ProjectId, ReviewerId, ReviewStage, ReviewStatus, CreatedAt)
-            VALUES
-                (@QuestionId, @ProjectId, @ReviewerId, 2, 0, SYSDATETIME());
+            SELECT @QuestionId, @ProjectId, @ReviewerId, 2, 0, SYSDATETIME()
+            WHERE NOT EXISTS (
+                SELECT 1 FROM dbo.MT_ReviewAssignments
+                WHERE QuestionId = @QuestionId AND ReviewStage = 2
+            );
             """;
 
         const string auditSql = """
@@ -1404,6 +1420,9 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
         foreach (var (questionId, creatorId) in candidates)
         {
+            // 此題已有 Stage=2 分配記錄 → 直接跳過（演算法主條件）
+            if (existingQuestionIds.Contains(questionId)) continue;
+
             var bestReviewer = loadCounts
                 .Where(kv => kv.Key != creatorId
                           && !existingPairs.Contains((questionId, kv.Key)))
@@ -1412,17 +1431,20 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 .Select(kv => (int?)kv.Key)
                 .FirstOrDefault();
 
-            if (bestReviewer is null) continue; // 已分配過 / 無人可分
+            if (bestReviewer is null) continue; // 無人可分（所有審題者皆為命題者）
 
-            await conn.ExecuteAsync(insertSql, new
+            var inserted = await conn.ExecuteAsync(insertSql, new
             {
                 QuestionId = questionId,
                 ProjectId  = projectId,
                 ReviewerId = bestReviewer.Value
             }, tx);
 
+            if (inserted == 0) continue; // NOT EXISTS 攔截（資料庫層去重）
+
             loadCounts[bestReviewer.Value]++;
             existingPairs.Add((questionId, bestReviewer.Value));
+            existingQuestionIds.Add(questionId); // 同步更新，防後續 loop 重複
 
             await conn.ExecuteAsync(auditSql, new
             {
@@ -1480,7 +1502,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 (NULL, @ProjectId, @Action, @TargetType, @TargetId, NULL, @NewValue, SYSDATETIME());
             """;
 
-        // 池為 0 → 阻擋
+        // 池為 0 → graceful return（Plan_013 §3.1：同 Expert 池空，不阻擋 Status 升級）
         if (reviewerIds.Count == 0)
         {
             await conn.ExecuteAsync(warnSql, new
@@ -1495,7 +1517,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                     Message = "總召審題階段已開始，但本梯次尚未指派任何總召集人"
                 })
             }, tx);
-            throw new InvalidOperationException("總召審題階段已開始，但本梯次尚未指派任何總召集人，請先至專案管理頁分配人員。");
+            return;  // graceful return，Status 升級已完成，分配跳過，待人員補齊後重試
         }
 
         // 撈 Stage=2 已審過的 (QuestionId, ReviewerId)，作為迴避基準
@@ -1528,7 +1550,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                     Message = "總召集人兼任審題委員時，至少需設定 2 名總召集人"
                 })
             }, tx);
-            throw new InvalidOperationException("總召集人兼任審題委員時，至少需設定 2 名總召集人以分攤迴避題目，請至專案管理頁補齊人員。");
+            return;  // graceful return（Plan_013：不阻擋 Status 升級，分配跳過，待人員補齊後重試）
         }
 
         // 載入既有 Stage=3 負載
@@ -1557,17 +1579,35 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             .Select(x => (x.QuestionId, x.ReviewerId))
             .ToHashSet();
 
-        // 把 Stage=2 的 (Q, R) 也納入 existingPairs，自動迴避
+        // 把 Stage=2 的 (Q, R) 也納入 existingPairs，自動迴避（總召不審自己在專審審過的題）
         foreach (var pair in stage2Pairs)
         {
             existingPairs.Add(pair);
         }
 
+        // 已分配過 Stage=3 的 QuestionId — loop 頂部 skip 整題去重
+        var existingQuestionIds = existingPairs
+            .Where(p => stage2Pairs.Contains(p) == false || existingPairs.Contains(p))
+            .Select(p => p.QuestionId)
+            .ToHashSet();
+        // 重新取 Stage=3 既有 QuestionId（不含 Stage=2 迴避集合）
+        existingQuestionIds = (await conn.QueryAsync<int>(
+            """
+            SELECT QuestionId
+            FROM dbo.MT_ReviewAssignments
+            WHERE ProjectId = @ProjectId AND ReviewStage = 3;
+            """,
+            new { ProjectId = projectId }, tx)).ToHashSet();
+
+        // NOT EXISTS 版 INSERT：雙重保護（C# 層去重 + DB 層 WHERE NOT EXISTS）
         const string insertSql = """
             INSERT INTO dbo.MT_ReviewAssignments
                 (QuestionId, ProjectId, ReviewerId, ReviewStage, ReviewStatus, CreatedAt)
-            VALUES
-                (@QuestionId, @ProjectId, @ReviewerId, 3, 0, SYSDATETIME());
+            SELECT @QuestionId, @ProjectId, @ReviewerId, 3, 0, SYSDATETIME()
+            WHERE NOT EXISTS (
+                SELECT 1 FROM dbo.MT_ReviewAssignments
+                WHERE QuestionId = @QuestionId AND ReviewStage = 3
+            );
             """;
 
         const string auditSql = """
@@ -1579,6 +1619,9 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
         foreach (var (questionId, creatorId) in candidates)
         {
+            // 此題已有 Stage=3 分配記錄 → 直接跳過（演算法主條件）
+            if (existingQuestionIds.Contains(questionId)) continue;
+
             var bestReviewer = loadCounts
                 .Where(kv => kv.Key != creatorId
                           && !existingPairs.Contains((questionId, kv.Key)))
@@ -1589,15 +1632,18 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
             if (bestReviewer is null) continue;
 
-            await conn.ExecuteAsync(insertSql, new
+            var inserted = await conn.ExecuteAsync(insertSql, new
             {
                 QuestionId = questionId,
                 ProjectId  = projectId,
                 ReviewerId = bestReviewer.Value
             }, tx);
 
+            if (inserted == 0) continue; // NOT EXISTS 攔截（資料庫層去重）
+
             loadCounts[bestReviewer.Value]++;
             existingPairs.Add((questionId, bestReviewer.Value));
+            existingQuestionIds.Add(questionId); // 同步更新，防後續 loop 重複
 
             await conn.ExecuteAsync(auditSql, new
             {

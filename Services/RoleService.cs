@@ -1053,7 +1053,7 @@ public class RoleService : IRoleService
         var profile = await conn.QuerySingleOrDefaultAsync<UserProfileDto>(sql, new { UserId = userId });
         if (profile is null) return null;
 
-        // 查詢當前梯次下的所有身分標籤（可能多個：命題教師 + 審題專家）
+        // 查詢當前梯次下的所有身分標籤（可能多個：命題教師 + 審題委員）
         if (projectId.HasValue)
         {
             const string projectRolesSql = """

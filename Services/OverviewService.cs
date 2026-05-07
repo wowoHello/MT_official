@@ -51,38 +51,221 @@ public class OverviewService(
         // 階段轉換統一委派 PhaseTransitionCoordinator（60 秒去重 + 統一 logging）
         await _phaseCoordinator.EnsureAsync(projectId);
 
-        // countsTask、listTask、phaseTask 三者彼此獨立，並行執行
-        var countsTask = _questionService.GetStatusCountsAsync(projectId, creatorId: null);
-        var listTask   = _questionService.ListAsync(listFilter);
-        var phaseTask  = _questionService.GetCurrentPhaseAsync(projectId);
-
-        // pendingTask 需要 phaseTask 的結果（PhaseCode 由 MT_ProjectPhases 動態計算，
-        // MT_Projects 沒有 PhaseCode 欄位），所以單獨先 await phaseTask 取得 PhaseCode 後再查詢
-        var phase = await phaseTask;
+        // 先取 PhaseCode：用來決定狀態識別碼如何翻譯（以及 pending 計算）
+        var phase = await _questionService.GetCurrentPhaseAsync(projectId);
         var phaseCode = phase is { PhaseCode: var pc } ? (byte?)pc : null;
-        var pendingTask = GetPendingRevisionCountAsync(projectId, phaseCode);
 
-        await Task.WhenAll(countsTask, listTask, pendingTask);
+        // 翻譯 StatusKey → 後端粗篩條件 + 前端精篩策略
+        // 後端粗篩：StatusesOverride / HasReplied / IsDeleted（決定 SQL 範圍）
+        // 前端精篩：篩完整批回來後再依 ResolveDisplayStatus 同邏輯做 in-memory 過濾（針對需查 AllReviewersResponded 等 4 維度的識別碼）
+        var (overrideStatuses, hasReplied, deletedOnly, postFilter) = TranslateStatusKey(filter.StatusKey, phaseCode);
+
+        // 「命題刪除」走特殊路徑：只看 IsDeleted=1
+        if (deletedOnly)
+        {
+            listFilter.StatusesOverride = null;
+            listFilter.HasReplied = null;
+        }
+        else
+        {
+            listFilter.StatusesOverride = overrideStatuses;
+            listFilter.HasReplied = hasReplied;
+        }
+
+        // 需前端精篩時關掉分頁拉大 PageSize：避免後端粗篩切片造成精篩後筆數不足
+        // postFilter != null 表示需要 in-memory 過濾，這時改一次抓回專案內符合粗篩條件的全部題目
+        var needInMemoryFilter = postFilter is not null || deletedOnly;
+        if (needInMemoryFilter)
+        {
+            listFilter.Page = 1;
+            listFilter.PageSize = 10000;   // 單梯次題目上限保護值，足以覆蓋實務題量
+        }
+
+        // countsTask、listTask 兩者並行；StatusCounts 永遠不受下拉影響（給統計卡片用，符合既有契約）
+        // statusKeyCountsTask：忽略所有篩選，計算梯次內每個 OverviewStatusKey 的題數，給狀態下拉動態渲染用
+        var countsTask          = _questionService.GetStatusCountsAsync(projectId, creatorId: null);
+        var listTask            = _questionService.ListAsync(listFilter);
+        var pendingTask         = GetPendingRevisionCountAsync(projectId, phaseCode);
+        var statusKeyCountsTask = BuildStatusKeyCountsAsync(projectId, phaseCode);
+
+        await Task.WhenAll(countsTask, listTask, pendingTask, statusKeyCountsTask);
 
         var list = listTask.Result;
+        var items = list.Items;
+
+        // 「命題刪除」過濾：後端 IncludeDeleted=true 把已刪題目混在一起回來，這裡挑 IsDeleted=1
+        if (deletedOnly)
+            items = items.Where(i => i.IsDeleted).ToList();
 
         // 「該題此審題階段所有被指派審題者皆已給意見」—— 只查當前頁列表，避免全表掃描
         var responded = await GetAllReviewersRespondedAsync(
-            projectId, phaseCode, list.Items.Select(i => i.Id));
+            projectId, phaseCode, items.Select(i => i.Id));
+
+        // 前端精篩：依 razor 端 ResolveDisplayStatus 同邏輯重新過濾與分頁
+        int totalCount;
+        if (needInMemoryFilter)
+        {
+            // 精篩 + 重新分頁（取代 server-side 分頁）
+            var filtered = postFilter is null
+                ? items
+                : items.Where(i => postFilter(i, phaseCode, responded)).ToList();
+            totalCount = filtered.Count;
+
+            var page     = Math.Max(1, filter.Page);
+            var pageSize = Math.Max(1, filter.PageSize);
+            items = filtered
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToList();
+
+            // responded 字典需重算為當前頁範圍（後續 razor 端 ResolveDisplayStatus 會再用）
+            responded = await GetAllReviewersRespondedAsync(
+                projectId, phaseCode, items.Select(i => i.Id));
+        }
+        else
+        {
+            totalCount = list.TotalCount;
+        }
 
         return new OverviewListResult
         {
-            Items                = list.Items,
+            Items                = items,
             StatusCounts         = countsTask.Result,
-            TotalCount           = list.TotalCount,
-            Page                 = list.Page,
-            PageSize             = list.PageSize,
+            TotalCount           = totalCount,
+            Page                 = needInMemoryFilter ? Math.Max(1, filter.Page) : list.Page,
+            PageSize             = filter.PageSize,
             PendingRevisionCount = pendingTask.Result,
             // 梯次當前 PhaseCode（null = 不在任何進行中階段）；轉 byte? 讓 UI 端易於比對 QuestionStatus 常數
             CurrentPhaseCode     = phaseCode,
-            AllReviewersResponded = responded
+            AllReviewersResponded = responded,
+            StatusKeyCounts      = statusKeyCountsTask.Result
         };
     }
+
+    /// <summary>
+    /// 把 StatusKey 識別碼翻譯為後端粗篩條件 + 前端精篩策略。
+    ///   overrideStatuses：QuestionListFilter.StatusesOverride（IN 條件）
+    ///   hasReplied      ：QuestionListFilter.HasReplied（修題已/未送出）
+    ///   deletedOnly     ：是否走「命題刪除」特殊路徑（後端不限 status，前端篩 IsDeleted=1）
+    ///   postFilter      ：前端 in-memory 精篩函式；若 null 則直接以後端結果為準
+    /// 與 razor 端 ResolveDisplayStatus 的判定條件 100% 對齊。
+    /// </summary>
+    private static (byte[]? overrideStatuses, bool? hasReplied, bool deletedOnly, Func<QuestionListItem, byte?, Dictionary<int, bool>, bool>? postFilter)
+        TranslateStatusKey(string? key, byte? phaseCode)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+            return (null, null, false, null);
+
+        switch (key)
+        {
+            // ─── 命題 ───
+            case OverviewStatusKey.Draft:
+                // 命題草稿：Status=0 且 PhaseCode < 3（避免抓到 R1「未完成命題」）
+                // PhaseCode ≥ 3 時直接回空：後端 SQL 粗篩 Status=0，前端再用 PhaseCode < 3 守門
+                return ([QuestionStatus.Draft], null, false,
+                    (i, pc, _) => MatchDraft(i, pc));
+
+            case OverviewStatusKey.Completed:
+                return ([QuestionStatus.Completed], null, false, null);
+
+            case OverviewStatusKey.FailedComposition:
+                // 未完成命題：Status=0 且 PhaseCode ≥ 3
+                return ([QuestionStatus.Draft], null, false,
+                    (i, pc, _) => MatchFailedComposition(i, pc));
+
+            // ─── 審題（R2）───
+            case OverviewStatusKey.AwaitingReview:
+                // 待審：PhaseCode∈{3,5,7} + Status∈{2,3,5,7} + 未全給意見
+                return ([QuestionStatus.Submitted,
+                         QuestionStatus.PeerReviewing,
+                         QuestionStatus.ExpertReviewing,
+                         QuestionStatus.FinalReviewing], null, false,
+                    MatchAwaitingReview);
+
+            case OverviewStatusKey.Reviewed:
+                // 已給意見：PhaseCode∈{3,5,7} + Status∈{2,3,5,7} + 全給意見
+                return ([QuestionStatus.Submitted,
+                         QuestionStatus.PeerReviewing,
+                         QuestionStatus.ExpertReviewing,
+                         QuestionStatus.FinalReviewing], null, false,
+                    MatchReviewed);
+
+            // ─── 修題 ───
+            case OverviewStatusKey.InRevision:
+                // 修題中：Status∈{4,6,8} + 未送出 + PhaseCode ≥ Status（避開 A 的「OO 完成」）
+                return ([QuestionStatus.PeerEditing,
+                         QuestionStatus.ExpertEditing,
+                         QuestionStatus.FinalEditing], false, false,
+                    (i, pc, _) => MatchInRevision(i, pc));
+
+            case OverviewStatusKey.RevisionSubmitted:
+                // 修題已送出：Status∈{4,6,8} + 已送出
+                return ([QuestionStatus.PeerEditing,
+                         QuestionStatus.ExpertEditing,
+                         QuestionStatus.FinalEditing], true, false, null);
+
+            case OverviewStatusKey.AwaitingNext:
+                // OO 完成：Status∈{4,6,8} + PhaseCode 落後（PhaseCode < Status）
+                return ([QuestionStatus.PeerEditing,
+                         QuestionStatus.ExpertEditing,
+                         QuestionStatus.FinalEditing], null, false,
+                    (i, pc, _) => MatchAwaitingNext(i, pc));
+
+            // ─── 結果 ───
+            case OverviewStatusKey.Adopted:
+                return ([QuestionStatus.Adopted, QuestionStatus.Archived], null, false, null);
+
+            case OverviewStatusKey.NotAdopted:
+                return ([QuestionStatus.Rejected, QuestionStatus.ClosedNotAdopted], null, false, null);
+
+            // ─── 其他 ───
+            case OverviewStatusKey.Deleted:
+                return (null, null, true, null);   // deletedOnly=true：後端不限 status，前端只留 IsDeleted=1
+
+            default:
+                return (null, null, false, null);
+        }
+    }
+
+    /// <summary>審題鎖定中（Submitted/PeerReviewing/ExpertReviewing/FinalReviewing）。</summary>
+    private static bool IsReviewLocked(byte status) =>
+        status is QuestionStatus.Submitted
+               or QuestionStatus.PeerReviewing
+               or QuestionStatus.ExpertReviewing
+               or QuestionStatus.FinalReviewing;
+
+    /// <summary>修題狀態（PeerEditing/ExpertEditing/FinalEditing）。</summary>
+    private static bool IsEditing(byte status) =>
+        status is QuestionStatus.PeerEditing
+               or QuestionStatus.ExpertEditing
+               or QuestionStatus.FinalEditing;
+
+    // ─── 分桶條件（與 razor 端 ResolveDisplayStatus 同源） ─────────────────
+    // 此處集中三方共用的條件函式：TranslateStatusKey 的 postFilter 與
+    // BuildStatusKeyCountsAsync 都呼叫這些，避免雙寫造成偏移。
+    private static bool MatchDraft(QuestionListItem i, byte? pc) =>
+        i.Status == QuestionStatus.Draft && (pc is null || pc < 3) && !i.IsDeleted;
+
+    private static bool MatchFailedComposition(QuestionListItem i, byte? pc) =>
+        i.Status == QuestionStatus.Draft && pc is byte p && p >= 3 && !i.IsDeleted;
+
+    private static bool MatchAwaitingReview(QuestionListItem i, byte? pc, Dictionary<int, bool> resp) =>
+        pc is byte p && (p == 3 || p == 5 || p == 7)
+        && IsReviewLocked(i.Status)
+        && !resp.GetValueOrDefault(i.Id, false)
+        && !i.IsDeleted;
+
+    private static bool MatchReviewed(QuestionListItem i, byte? pc, Dictionary<int, bool> resp) =>
+        pc is byte p && (p == 3 || p == 5 || p == 7)
+        && IsReviewLocked(i.Status)
+        && resp.GetValueOrDefault(i.Id, false)
+        && !i.IsDeleted;
+
+    private static bool MatchInRevision(QuestionListItem i, byte? pc) =>
+        IsEditing(i.Status) && !i.IsDeleted && (pc is null || pc >= i.Status);
+
+    private static bool MatchAwaitingNext(QuestionListItem i, byte? pc) =>
+        IsEditing(i.Status) && !i.IsDeleted && (pc is null || pc < i.Status);
 
     /// <summary>
     /// 計算當前頁列表中，每筆題目「在當前審題階段是否全體被指派審題者皆已給意見」。
@@ -160,6 +343,85 @@ public class OverviewService(
         using var conn = _db.CreateConnection();
         return await conn.ExecuteScalarAsync<int>(sql, new { ProjectId = projectId, PhaseCode = phaseCode.Value });
     }
+
+    /// <summary>
+    /// 計算梯次內每個 OverviewStatusKey 對應的題數（用於下拉動態渲染：忽略所有 filter）。
+    /// 規則表與 razor 端 ResolveDisplayStatus + TranslateStatusKey 同源——三方共用 Match*Async 條件函式。
+    /// 一筆題目可能同時落在多個 key（例：修題中 + 修題已送出 → 正常；修題已送出單獨計於 RevisionSubmitted）。
+    /// 若梯次無題目直接回空 dict，下拉只會剩「所有狀態」一個選項。
+    /// </summary>
+    private async Task<Dictionary<string, int>> BuildStatusKeyCountsAsync(int projectId, byte? phaseCode)
+    {
+        // 輕量 SQL：只 SELECT 分桶必要欄位（不 join 顯示資料表）
+        // HasRepliedThisStage 邏輯與 QuestionService.ListAsync 同步：EXISTS RevisionReplies 同 Stage + UserId=CreatorId
+        const string sql = """
+            SELECT
+                q.Id,
+                q.Status,
+                q.IsDeleted,
+                CAST(CASE WHEN EXISTS (
+                    SELECT 1 FROM dbo.MT_RevisionReplies rr
+                    WHERE rr.QuestionId = q.Id
+                      AND rr.UserId     = q.CreatorId
+                      AND rr.Stage      = q.Status
+                      AND q.Status IN (4, 6, 8)
+                ) THEN 1 ELSE 0 END AS BIT) AS HasRepliedThisStage
+            FROM dbo.MT_Questions q
+            WHERE q.ProjectId = @ProjectId;
+            """;
+
+        using var conn = _db.CreateConnection();
+        var rows = (await conn.QueryAsync<StatusBucketRow>(sql, new { ProjectId = projectId })).AsList();
+        if (rows.Count == 0) return new();
+
+        // 全體審題者已給意見字典：只 query 仍在審題鎖定狀態且未刪的題目（其他狀態查了沒意義）
+        var responded = await GetAllReviewersRespondedAsync(
+            projectId, phaseCode,
+            rows.Where(r => !r.IsDeleted && IsReviewLocked(r.Status)).Select(r => r.Id));
+
+        var counts = new Dictionary<string, int>();
+        void Bump(string key) => counts[key] = counts.GetValueOrDefault(key, 0) + 1;
+
+        foreach (var r in rows)
+        {
+            // 命題刪除：獨立桶且優先（與其他狀態互斥）
+            if (r.IsDeleted) { Bump(OverviewStatusKey.Deleted); continue; }
+
+            // 用 QuestionListItem 走 Match* 條件——欄位夠用即可
+            var item = new QuestionListItem
+            {
+                Id        = r.Id,
+                Status    = r.Status,
+                IsDeleted = false,
+                HasRepliedThisStage = r.HasRepliedThisStage
+            };
+
+            // 命題
+            if (MatchDraft(item, phaseCode))             Bump(OverviewStatusKey.Draft);
+            if (MatchFailedComposition(item, phaseCode)) Bump(OverviewStatusKey.FailedComposition);
+            if (r.Status == QuestionStatus.Completed)    Bump(OverviewStatusKey.Completed);
+
+            // 審題
+            if (MatchAwaitingReview(item, phaseCode, responded)) Bump(OverviewStatusKey.AwaitingReview);
+            if (MatchReviewed(item, phaseCode, responded))       Bump(OverviewStatusKey.Reviewed);
+
+            // 修題
+            if (MatchInRevision(item, phaseCode))                  Bump(OverviewStatusKey.InRevision);
+            if (MatchAwaitingNext(item, phaseCode))                Bump(OverviewStatusKey.AwaitingNext);
+            if (IsEditing(r.Status) && r.HasRepliedThisStage)      Bump(OverviewStatusKey.RevisionSubmitted);
+
+            // 結果
+            if (r.Status is QuestionStatus.Adopted or QuestionStatus.Archived)
+                Bump(OverviewStatusKey.Adopted);
+            if (r.Status is QuestionStatus.Rejected or QuestionStatus.ClosedNotAdopted)
+                Bump(OverviewStatusKey.NotAdopted);
+        }
+
+        return counts;
+    }
+
+    /// <summary>BuildStatusKeyCountsAsync 用的輕量資料列。</summary>
+    private record StatusBucketRow(int Id, byte Status, bool IsDeleted, bool HasRepliedThisStage);
 
     public async Task<List<OverviewCreatorOption>> GetCreatorOptionsAsync(int projectId)
     {

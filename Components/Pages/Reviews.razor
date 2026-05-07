@@ -742,7 +742,10 @@
             "pending"    => !a.IsHistorical && !a.IsCompleted,
             "completed"  => !a.IsHistorical &&  a.IsCompleted,
             "historical" =>  a.IsHistorical,
-            _            =>  true
+            // Plan_013 §3.4：預設「所有狀態」只顯示當前階段（不含歷史紀錄），
+            // 避免使用者進頁面就同時看到不同階段的分配而誤以為分配未生效。
+            // 歷史紀錄可透過狀態篩選「歷史紀錄」選項單獨查看。
+            _ => CurrentReviewStage is null || !a.IsHistorical
         })
         .ToList();
 

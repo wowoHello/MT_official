@@ -48,12 +48,30 @@
             @StatCard("命題進行中", SumCounts([QuestionStatus.Draft, QuestionStatus.Completed]), "fa-pen", "text-sage", "text-slate-main")
             @StatCard("已採用", SumCounts([QuestionStatus.Adopted, QuestionStatus.Archived]), "fa-circle-check", "text-sage", "text-sage")
             @StatCard("待修編", result.PendingRevisionCount, "fa-rotate-left", "text-terracotta", "text-terracotta")
+            @* 各審查環節：依當前梯次 PhaseCode 動態計算對應審題階段「待審 + 已給意見」總和。
+               後端事實 — 互審期間題目實際停在 Status=2 (Submitted) 不會升到 PeerReviewing(3)；
+               專審/總審涵蓋 EnsurePhaseTransitionAsync 各 case 的所有 fromStatuses（避免邊界殘留漏算）。
+               非當前階段的格子灰掉並顯示 0，提示使用者「現在不在這個審題階段」。 *@
+            @{
+                var peerBucket = ReviewBucket(3);
+                var expBucket  = ReviewBucket(5);
+                var finBucket  = ReviewBucket(7);
+            }
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 col-span-2 md:col-span-4 lg:col-span-1 border-l-4 border-l-morandi">
                 <div class="text-gray-500 text-xs font-bold mb-1">各審查環節</div>
                 <div class="text-sm font-bold text-slate-main flex gap-2 w-full justify-between items-end mt-2">
-                    <div class="text-center w-1/3"><span class="block text-gray-400 text-xs">互審</span><span class="text-lg text-morandi">@CountOf(QuestionStatus.PeerReviewing)</span></div>
-                    <div class="text-center w-1/3"><span class="block text-gray-400 text-xs">專審</span><span class="text-lg text-morandi">@CountOf(QuestionStatus.ExpertReviewing)</span></div>
-                    <div class="text-center w-1/3"><span class="block text-gray-400 text-xs">總審</span><span class="text-lg text-morandi">@CountOf(QuestionStatus.FinalReviewing)</span></div>
+                    <div class="text-center w-1/3">
+                        <span class="block text-gray-400 text-xs">互審</span>
+                        <span class="text-lg @(peerBucket < 0 ? "text-gray-300" : "text-morandi font-bold")">@(peerBucket < 0 ? 0 : peerBucket)</span>
+                    </div>
+                    <div class="text-center w-1/3">
+                        <span class="block text-gray-400 text-xs">專審</span>
+                        <span class="text-lg @(expBucket < 0 ? "text-gray-300" : "text-morandi font-bold")">@(expBucket < 0 ? 0 : expBucket)</span>
+                    </div>
+                    <div class="text-center w-1/3">
+                        <span class="block text-gray-400 text-xs">總審</span>
+                        <span class="text-lg @(finBucket < 0 ? "text-gray-300" : "text-morandi font-bold")">@(finBucket < 0 ? 0 : finBucket)</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -76,12 +94,24 @@
                             <option value="@id">@QuestionConstants.TypeLabels.GetValueOrDefault(key, key)</option>
                         }
                     </select>
+                    @* 狀態篩選：選項與列表「當前狀態」Badge 文字 100% 對齊（見 OverviewStatusKey + ResolveDisplayStatus）。
+                       不直接拿 QuestionStatus.Labels：原 13 個 byte label 多數會被 ResolveDisplayStatus 重寫成「待審 / 已給意見 / OO 完成 / 修題已送出 / 未完成命題」等 Overview 專用 Badge，
+                       直接列出來會出現「使用者選了某 label 但列表沒有對應 Badge」的對不齊。
+                       動態渲染：只列梯次實際存在的 key（result.StatusKeyCounts 由 OverviewService 忽略所有 filter 後計算），
+                       整個 optgroup 內全空時整組省略，避免使用者選了卻篩到 0 筆。 *@
                     <select value="@queryStatus" @onchange="OnStatusFilterChanged"
                         class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                         <option value="">所有狀態</option>
-                        @foreach (var kv in QuestionStatus.Labels)
+                        @foreach (var (groupLabel, options) in OverviewStatusKey.Groups)
                         {
-                            <option value="@kv.Key">@kv.Value</option>
+                            var visibleOptions = options.Where(o => result.StatusKeyCounts.ContainsKey(o.Key)).ToArray();
+                            if (visibleOptions.Length == 0) continue;
+                            <optgroup label="@groupLabel">
+                                @foreach (var (key, label) in visibleOptions)
+                                {
+                                    <option value="@key">@label</option>
+                                }
+                            </optgroup>
                         }
                     </select>
                     @* 命題教師篩選：下拉只列此專案有命題紀錄的老師（含已刪題目者） *@
@@ -335,6 +365,16 @@
         try
         {
             result = await OverviewService.LoadAsync(CurrentProject.Id, filter);
+
+            // 守門：當前選中的 StatusKey 已不在動態下拉選項中（例如資料變動或切到無此狀態的梯次），
+            // 自動清空為「所有狀態」並重新載入；避免 UI 顯示「所有狀態」但底層仍持有失效篩選。
+            if (!string.IsNullOrEmpty(queryStatus) && !result.StatusKeyCounts.ContainsKey(queryStatus))
+            {
+                queryStatus      = "";
+                filter.StatusKey = null;
+                filter.Page      = 1;
+                result = await OverviewService.LoadAsync(CurrentProject.Id, filter);
+            }
         }
         finally
         {
@@ -361,7 +401,7 @@
     private async Task OnStatusFilterChanged(ChangeEventArgs e)
     {
         queryStatus = e.Value?.ToString() ?? "";
-        filter.StatusFilter = byte.TryParse(queryStatus, out var s) ? s : null;
+        filter.StatusKey = string.IsNullOrWhiteSpace(queryStatus) ? null : queryStatus;
         filter.Page = 1;
         await LoadAsync();
     }
@@ -456,6 +496,36 @@
     private int CountOf(byte status) => result.StatusCounts.GetValueOrDefault(status, 0);
     private int SumCounts(byte[] statuses) => statuses.Sum(s => result.StatusCounts.GetValueOrDefault(s, 0));
     private int TotalQuestions() => result.StatusCounts.Values.Sum();
+
+    /// <summary>
+    /// 「各審查環節」三格的階段感知計數：當前梯次 PhaseCode 對應該格時才計算總和，否則回 -1（UI 灰掉顯示 0）。
+    /// 涵蓋的 status 範圍與 EnsurePhaseTransitionAsync 各 case 的 fromStatuses 對齊，
+    /// 確保「coordinator 60 秒去重期內未跑」「邊界殘留」等情境不會少算。
+    ///   3 互審：Submitted(2) + PeerReviewing(3) — 後端實際事實是題目仍停在 2，不會升到 3
+    ///   5 專審：Submitted(2) + PeerReviewing(3) + PeerEditing(4) + ExpertReviewing(5)
+    ///   7 總審：上述 + ExpertEditing(6) + FinalReviewing(7)
+    /// 與 ResolveDisplayStatus R2 規則的「待審 / 已給意見」範圍一致，避免列表與卡片數字不對盤。
+    /// </summary>
+    private int ReviewBucket(byte targetPhase)
+    {
+        if (result.CurrentPhaseCode != targetPhase) return -1;
+        return targetPhase switch
+        {
+            3 => SumCounts([QuestionStatus.Submitted,
+                            QuestionStatus.PeerReviewing]),
+            5 => SumCounts([QuestionStatus.Submitted,
+                            QuestionStatus.PeerReviewing,
+                            QuestionStatus.PeerEditing,
+                            QuestionStatus.ExpertReviewing]),
+            7 => SumCounts([QuestionStatus.Submitted,
+                            QuestionStatus.PeerReviewing,
+                            QuestionStatus.PeerEditing,
+                            QuestionStatus.ExpertReviewing,
+                            QuestionStatus.ExpertEditing,
+                            QuestionStatus.FinalReviewing]),
+            _ => 0
+        };
+    }
 
     /// <summary>
     /// 解析「當前狀態」Badge 的顯示內容：依「題目 Status × 梯次 PhaseCode × 本人是否送出修題 × 全體審題者是否已給意見」四維度判定。

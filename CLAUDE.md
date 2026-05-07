@@ -180,6 +180,7 @@ JS interop 檔位於 `wwwroot/js/`：`login-interop.js`、`quill-interop.js`、`
 - **建置**：每次修改後 `dotnet build`，編譯通過才提案完成。
 - **瀏覽器**：UI 改動需用 dev-browser 工具開頁面實測，驗證 Tailwind 排版、Modal、表單流程、響應式佈局。
 - **資料庫**：本機需有 SQL Server 並設定 `MT_SQL_*` 環境變數或 `appsettings.Development.json` 的 `ConnectionStrings:DefaultConnection`。
+> 若需要查看資料庫資料表內容，將查詢語法提供給我，由我負責查詢後提供截圖。
 - 沒有獨立測試專案；以建置 + 手動驗證為最低門檻。
 
 ---
