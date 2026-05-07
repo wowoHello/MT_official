@@ -63,4 +63,12 @@ public class OverviewListResult
     /// 表示該題「已被審題人按下改後採用」但梯次尚未推進到專修，畫面應顯示「專審完成」而非「專審修題中」。
     /// </summary>
     public byte? CurrentPhaseCode { get; set; }
+
+    /// <summary>
+    /// 「該題在當前審題階段是否所有被指派的審題者皆已給意見」。
+    /// 僅在 PhaseCode ∈ {3,5,7}（互審 / 專審 / 總審） 時有意義；其他階段為空 dict。
+    /// 判定條件：MT_ReviewAssignments 對應 ReviewStage 的全部分配筆數 = 已填 Comment 的筆數（且筆數 > 0）。
+    /// 用途：當前狀態 Badge 在「待審」與「已給意見」之間切換，與儀表板 Reviewed 計算邏輯一致。
+    /// </summary>
+    public Dictionary<int, bool> AllReviewersResponded { get; set; } = new();
 }

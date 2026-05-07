@@ -65,6 +65,11 @@ public class OverviewService(
         await Task.WhenAll(countsTask, listTask, pendingTask);
 
         var list = listTask.Result;
+
+        // 「該題此審題階段所有被指派審題者皆已給意見」—— 只查當前頁列表，避免全表掃描
+        var responded = await GetAllReviewersRespondedAsync(
+            projectId, phaseCode, list.Items.Select(i => i.Id));
+
         return new OverviewListResult
         {
             Items                = list.Items,
@@ -74,8 +79,55 @@ public class OverviewService(
             PageSize             = list.PageSize,
             PendingRevisionCount = pendingTask.Result,
             // 梯次當前 PhaseCode（null = 不在任何進行中階段）；轉 byte? 讓 UI 端易於比對 QuestionStatus 常數
-            CurrentPhaseCode     = phaseCode
+            CurrentPhaseCode     = phaseCode,
+            AllReviewersResponded = responded
         };
+    }
+
+    /// <summary>
+    /// 計算當前頁列表中，每筆題目「在當前審題階段是否全體被指派審題者皆已給意見」。
+    /// PhaseCode 對應 ReviewStage：3→1（互審） / 5→2（專審） / 7→3（總審）。
+    /// 判定：該題該階段被指派筆數 > 0，且所有筆數的 Comment 皆非空。
+    /// 非審題階段（PhaseCode 不在 {3,5,7}）或列表為空 → 直接回空 dict，不打 DB。
+    /// </summary>
+    private async Task<Dictionary<int, bool>> GetAllReviewersRespondedAsync(
+        int projectId, byte? phaseCode, IEnumerable<int> questionIds)
+    {
+        var ids = questionIds as IList<int> ?? questionIds.ToList();
+        if (ids.Count == 0) return new();
+
+        var stage = phaseCode switch
+        {
+            3 => (byte)1,   // 互審
+            5 => (byte)2,   // 專審
+            7 => (byte)3,   // 總審
+            _ => (byte)0
+        };
+        if (stage == 0) return new();
+
+        // GROUP BY QuestionId：當分配筆數 = 有效 Comment 筆數時，回傳該 QuestionId
+        const string sql = """
+            SELECT QuestionId
+            FROM   dbo.MT_ReviewAssignments
+            WHERE  ProjectId   = @ProjectId
+              AND  ReviewStage = @Stage
+              AND  QuestionId IN @Ids
+            GROUP BY QuestionId
+            HAVING COUNT(*) > 0
+               AND COUNT(*) = SUM(CASE WHEN Comment IS NOT NULL
+                                         AND LEN(LTRIM(RTRIM(Comment))) > 0
+                                       THEN 1 ELSE 0 END);
+            """;
+
+        using var conn = _db.CreateConnection();
+        var responded = (await conn.QueryAsync<int>(sql, new
+        {
+            ProjectId = projectId,
+            Stage     = stage,
+            Ids       = ids
+        })).ToHashSet();
+
+        return ids.ToDictionary(id => id, id => responded.Contains(id));
     }
 
     /// <summary>

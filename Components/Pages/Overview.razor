@@ -185,8 +185,9 @@
                                 }
                                 else
                                 {
-                                    @* 當前狀態 Badge：依「題目 Status × 梯次 PhaseCode × 本人是否送出修題」三維度判定 *@
-                                    var display = ResolveDisplayStatus(item.Status, result.CurrentPhaseCode, item.HasRepliedThisStage);
+                                    @* 當前狀態 Badge：依「題目 Status × 梯次 PhaseCode × 本人是否送出修題 × 全體審題者是否已給意見」四維度判定 *@
+                                    var allResponded = result.AllReviewersResponded.GetValueOrDefault(item.Id);
+                                    var display = ResolveDisplayStatus(item.Status, result.CurrentPhaseCode, item.HasRepliedThisStage, allResponded);
                                     @if (display.IsAwaitingNext)
                                     {
                                         @* 「OO 完成」等待下一階段：用莫蘭迪藍 inline badge，與綠色「修題已送出 / 完成」做語意區隔 *@
@@ -457,15 +458,24 @@
     private int TotalQuestions() => result.StatusCounts.Values.Sum();
 
     /// <summary>
-    /// 解析「當前狀態」Badge 的顯示內容：依「題目 Status × 梯次 PhaseCode × 本人是否送出修題」三維度判定。
-    /// 三種情境對應規則：
-    ///  A. 題目 Status ∈ {4,6,8} 但梯次 PhaseCode 尚未推進到對應修題階段 → 「OO 完成」（莫蘭迪藍）。
-    ///  B. 梯次已到修題階段，且本人已於本階段送出修題說明 → 「修題已送出」（綠）。
-    ///  C. 其他狀態（含修題進行中尚未送出）→ 沿用 QuestionStatus.Labels 對應文字。
+    /// 解析「當前狀態」Badge 的顯示內容：依「題目 Status × 梯次 PhaseCode × 本人是否送出修題 × 全體審題者是否已給意見」四維度判定。
+    /// 規則優先順序（命中即回）：
+    ///  R1. 草稿落隊：題目 Status=Draft 且梯次已進入交互審題（PhaseCode ≥ 3） → 「未完成命題」（danger 紅）。
+    ///  A.  題目 Status ∈ {4,6,8} 但梯次 PhaseCode 尚未推進到對應修題階段 → 「OO 完成」（莫蘭迪藍）。
+    ///  B.  梯次已到修題階段，且本人已於本階段送出修題說明 → 「修題已送出」（綠）。
+    ///  R2. 審題階段語意修正：梯次 PhaseCode ∈ {3,5,7} 且 Status ∈ {2,3,5,7}（待審/審題鎖定中），
+    ///        依「全體審題者是否皆已給意見」切換成「已給意見」（success 綠）或「待審」（warning 橘）。
+    ///        取代命題視角的「已送審」「互審中」「專審中」「總審中」label，避免管理員誤讀。
+    ///  C.  其他狀態（含修題進行中尚未送出）→ 沿用 QuestionStatus.Labels 對應文字。
     /// </summary>
     private static (string Text, string BadgeType, bool IsAwaitingNext) ResolveDisplayStatus(
-        byte status, byte? currentPhaseCode, bool hasRepliedThisStage)
+        byte status, byte? currentPhaseCode, bool hasRepliedThisStage, bool allReviewersResponded)
     {
+        // 規則 R1：草稿題目 + 梯次已進入交互審題後 → 已永久落隊（命題教師沒命完）
+        // PhaseCode 3 = 交互審題；PhaseCode ≥ 3 涵蓋之後所有階段（互修/專審/專修/總審/總修）
+        if (status == QuestionStatus.Draft && currentPhaseCode is byte pcDraft && pcDraft >= 3)
+            return ("未完成命題", "danger", false);
+
         // 規則 A：「該審完成等待中」——題目已被審題人決策進入修題狀態，但梯次仍在前一審階段
         if (status == QuestionStatus.PeerEditing   && (currentPhaseCode is null || currentPhaseCode < QuestionStatus.PeerEditing))
             return ("互審完成", "info", true);
@@ -480,6 +490,20 @@
                                 or QuestionStatus.FinalEditing;
         if (inEditing && hasRepliedThisStage)
             return ("修題已送出", "success", false);
+
+        // 規則 R2：梯次處於審題階段（互審/專審/總審），改以「待審 / 已給意見」呈現審題進度
+        // 不管題目 Status 是 Submitted(2)、PeerReviewing(3)、ExpertReviewing(5) 或 FinalReviewing(7)，
+        // 從 Overview 視角都是「待審」（鎖定等待審題人決策），與命題端的「已送審」用詞區隔
+        if (currentPhaseCode is byte pcReview && (pcReview == 3 || pcReview == 5 || pcReview == 7)
+            && status is QuestionStatus.Submitted
+                       or QuestionStatus.PeerReviewing
+                       or QuestionStatus.ExpertReviewing
+                       or QuestionStatus.FinalReviewing)
+        {
+            return allReviewersResponded
+                ? ("已給意見", "success", false)
+                : ("待審",     "warning", false);
+        }
 
         // 規則 C：其餘狀態沿用 QuestionStatus.Labels（StatusBadge 內部會推斷色系）
         return (QuestionStatus.Labels.GetValueOrDefault(status, "未知"), "default", false);

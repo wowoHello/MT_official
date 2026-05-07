@@ -93,6 +93,12 @@
     /// </summary>
     private static (int Stage, string Tone) ResolveStage(byte status, byte? currentPhaseCode, bool hasRepliedThisStage)
     {
+        // 規則 D：草稿落隊 —— 題目 Status=Draft，但梯次已進入交互審題（PhaseCode ≥ 3）
+        // 命題教師沒命完，題目永久不參與後續審題流程，第 1 顆球顯示莫蘭迪紅 X、後續灰
+        // 僅 Overview 會傳 currentPhaseCode；其他頁面不傳 → 此規則不觸發
+        if (status == QuestionStatus.Draft && currentPhaseCode is byte pcDraft && pcDraft >= 3)
+            return (1, "draftFailed");
+
         // 規則 A：題目已進入修題狀態，但梯次尚未推進到對應修題階段 → 「該審完成等待中」
         // 例：ExpertEditing(6) 但梯次 PhaseCode < 6（仍在專審 5 或更早）→ 視為專審完成等待專修開始
         if (status == QuestionStatus.PeerEditing   && (currentPhaseCode is null || currentPhaseCode < QuestionStatus.PeerEditing))
@@ -160,6 +166,13 @@
             if (i == stage) return "green";
             return "gray";
         }
+        if (tone == "draftFailed")
+        {
+            // 草稿落隊：第 1 顆命題球轉為 rejectedRed（莫蘭迪紅 X），後續所有階段灰
+            // 語意：命題教師沒命完，題目於梯次進入交互審題後永久落隊
+            if (i == stage) return "rejectedRed";
+            return "gray";
+        }
         if (i < stage) return "green";
         if (i > stage) return "gray";
         return tone;
@@ -171,8 +184,9 @@
         "green"       => "bg-sage border-sage text-white shadow-sm ring-2 ring-sage/20",
         // 該審完成等待中：莫蘭迪藍半填 + 同色描邊與 ✓，視覺上明顯有別於 sage 綠（強調「等下一階段推進」）
         "awaitNext"   => "bg-morandi/15 border-morandi text-morandi shadow-sm ring-2 ring-morandi/20",
-        // 進行中：morandi 實心 + 呼吸動畫
-        "blue"        => "bg-morandi border-morandi text-white animate-pulse shadow-sm",
+        // 進行中：morandi 實心，與「修題中」terracotta 實心對稱，皆為純實心無外暈動畫，
+        // 視覺重量一致，避免命題第 1 顆球的進行中樣式與後段修題（紅筆）格格不入
+        "blue"        => "bg-morandi border-morandi text-white shadow-sm",
         // 修題中：terracotta 實心
         "red"         => "bg-terracotta border-terracotta text-white shadow-sm",
         // 不採用：莫蘭迪紅實心，與 terracotta（修題中）視覺區隔，搭配 X 圖示更貼合「終止」語意
@@ -185,7 +199,7 @@
     {
         "green"       => "fa-check",
         "awaitNext"   => "fa-check",       // 同樣是 ✓，但顏色不同（莫蘭迪藍）以表達等待語意
-        "blue"        => "fa-spinner fa-spin",
+        "blue"        => "fa-pen-to-square",   // 進行中（命題/互審/專審/總審）：靜態筆墨圖示，與修題的 fa-pen 同字根但有方框，明顯為「正在處理」而非旋轉等待
         "red"         => "fa-pen",
         "rejectedRed" => "fa-xmark",       // 不採用：用 X 替代鉛筆，明確表達「最終駁回」而非「修題中」
         _             => "fa-circle"

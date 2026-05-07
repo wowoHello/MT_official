@@ -250,7 +250,7 @@
             var ok = await ReviewService.SaveCommentDraftAsync(new SaveReviewCommentRequest
             {
                 AssignmentId = data.MyAssignment.Id,
-                Comment      = commentDraft
+                Comment      = commentDraft ?? string.Empty
             }, CurrentUserId);
 
             if (!ok)
@@ -310,7 +310,7 @@
             var ok = await ReviewService.SubmitDecisionAsync(new SubmitReviewDecisionRequest
             {
                 AssignmentId = data.MyAssignment.Id,
-                Comment      = commentDraft,
+                Comment      = commentDraft ?? string.Empty,
                 Decision     = decision
             }, CurrentUserId);
 
