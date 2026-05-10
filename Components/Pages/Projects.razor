@@ -172,6 +172,20 @@
                                 </button>
                             </div>
                         </div>
+
+                        @* 過期未結案提示：產學區間 EndDate 已過但 ClosedAt 仍是 null —— 引導管理員手動點擊結案入庫 *@
+                        @if (selectedDetail.IsExpired)
+                        {
+                            <div class="mt-4 rounded-lg border border-terracotta/40 bg-terracotta/10 px-4 py-3 flex items-start gap-3 text-sm">
+                                <i class="fa-solid fa-triangle-exclamation text-terracotta text-base mt-0.5 shrink-0"></i>
+                                <div class="flex-1 min-w-0">
+                                    <p class="font-semibold text-terracotta">此梯次已超過產學計畫結束日</p>
+                                    <p class="text-xs text-gray-600 mt-0.5">
+                                        請點擊右側「結案入庫」按鈕完成結案：採用題目入庫、其餘非採用題目歸檔。
+                                    </p>
+                                </div>
+                            </div>
+                        }
                     </div>
 
                     <!-- 主要內容：時程 + 題型 + 成員 -->

@@ -20,8 +20,13 @@ namespace MT.Services;
 //    層二（並發鎖）：per-projectId SemaphoreSlim(1,1)，防同一瞬間多個 caller 同時通過 cache
 //    層三（最慢）：cache double-check after 拿到 sem，確保 sem 等待期間另一 caller 已更新 cache
 //
-//  注意：去重視窗很短（60 秒）— 結案、階段切換等業務時點仍會被下次呼叫
-//        正確觸發；目的只是擋掉「同一頁面在 60 秒內被反覆 render 觸發」的雜訊。
+//  cache key 帶 PhaseCode：`phase-tx:{projectId}:{phaseCode}`
+//    階段邊界一跨過 → phaseCode 變動 → key 不同 → cache 自動 miss → 立即跑升級。
+//    避免「60 秒去重視窗 vs GetCurrentPhaseAsync 即時 GETDATE() 查詢」的時序不對稱
+//    （否則可能出現「PhaseCode 已新、Status 仍舊」的不一致快照，最壞延遲 60 秒）。
+//
+//  注意：去重視窗很短（60 秒）— 同階段內反覆 render 仍會被擋；
+//        階段切換、結案等業務時點則因 key 變動會立即重跑。
 // ============================================================
 
 public interface IPhaseTransitionCoordinator
@@ -46,7 +51,17 @@ public class PhaseTransitionCoordinator(
 
     public async Task EnsureAsync(int projectId)
     {
-        var key = $"phase-tx:{projectId}";
+        // 用 IServiceProvider 取 scoped 服務 — 此 coordinator 為 Singleton，
+        // 不能直接注入 IQuestionService（Scoped），會 lifetime mismatch
+        using var scope = serviceProvider.CreateScope();
+        var questionService = scope.ServiceProvider.GetRequiredService<IQuestionService>();
+
+        // 先即時讀當前 PhaseCode 組進 cache key（單 row SQL，~3ms）。
+        // 階段邊界一跨過 → phaseCode 變動 → key 不同 → cache 自動 miss
+        // → 立即跑升級。解掉「60 秒去重視窗 vs 即時 GETDATE() 階段查詢」的時序不對稱。
+        var phase = await questionService.GetCurrentPhaseAsync(projectId);
+        var phaseCode = phase?.PhaseCode ?? 0;
+        var key = $"phase-tx:{projectId}:{phaseCode}";
 
         // 層一：cache 快速短路（lock-free）
         if (cache.TryGetValue(key, out _)) return;
@@ -58,11 +73,6 @@ public class PhaseTransitionCoordinator(
         {
             // 層三：double-check — 等 sem 期間，前一個 caller 已寫好 cache
             if (cache.TryGetValue(key, out _)) return;
-
-            // 用 IServiceProvider 取 scoped 服務 — 此 coordinator 為 Singleton，
-            // 不能直接注入 IQuestionService（Scoped），會 lifetime mismatch
-            using var scope = serviceProvider.CreateScope();
-            var questionService = scope.ServiceProvider.GetRequiredService<IQuestionService>();
 
             try
             {

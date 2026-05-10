@@ -27,25 +27,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 5. **EditForm 與資料庫對齊** — 所有表單一律用 Blazor `EditForm`；欄位必須對齊 `D:\MTrefer\db.md` 的資料表設計。能存數字（enum/tinyint）絕對不存文字（例：等級 0=初級、1=中級…）。
 6. **誠實 (No Hallucination)** — 查不到、缺上下文、沒權限就直說「我不知道」。禁止猜 API 參數或捏造模糊答案。
 7. **不要隨意新增功能** — 優化要往簡化方向走，不要越優化越龐大。除非明確要求，否則不要新增功能。
-8. **每一個改動都要先寫計畫書** — 計畫書放 `D:\MTrefer\Task\{對應頁面}\`，繁體中文 Markdown，包含：計畫日期、改動內容、預期效果、可能影響、替代方案。**等使用者同意才能動工。**
 9. **Blazor 設計準則** — 常用 using 寫在 `Components/_Imports.razor`，元件能組件化就拆到 `Components/Shared/`，不要全部塞進單一 razor。
 10. **`<h1>` 必須加 `focus:outline-none`**（避免 `FocusOnNavigate` 預設藍框）。
+11. 不常改動的文字可以使用 Model 管理，不需要特地建立資料表。
 
 ---
-
-## 常用開發指令
-
-```powershell
-# .NET
-dotnet restore                  # 還原 NuGet
-dotnet build                    # 提交前必跑
-dotnet run                      # 本機啟動（從 Properties/launchSettings.json 取設定）
-
-# Tailwind v4 CLI（使用 @tailwindcss/cli，編譯 input.css → tailwind.css）
-npm install                     # 第一次或更新 deps
-npm run build:css               # 一次性 minify 編譯
-npm run watch:css               # 開發時持續監看
-```
 
 > **注意**：`wwwroot/css/tailwind.css` 是編譯產物，不要手改；改 `wwwroot/css/input.css`。
 

@@ -42,9 +42,94 @@
             關閉
         </button>
     }
+    else if (Assignment.IsCompleted && !CanFinalReviewerEdit)
+    {
+        @* Completed 且尚未解鎖總召自編（ReturnCount < 3）：
+           已退回、等命題老師修題 — 意見唯讀、決策按鈕不亮，僅顯示唯讀提示列 *@
+        var (completedLabel, completedColor) = Assignment.Decision switch
+        {
+            ReviewDecision.Approve => ("採用",     "text-sage"),
+            ReviewDecision.Revise  => ("已退回，等命題老師修題", "text-terracotta"),
+            ReviewDecision.Reject  => ("已退回（不採用），等命題老師修題", "text-red-700"),
+            _                      => ("已完成",   "text-gray-500")
+        };
+        <div class="flex items-center gap-2 text-sm text-slate-main font-medium">
+            <i class="fa-solid fa-hourglass-half text-terracotta text-xl"></i>
+            <span>
+                審題決策已記錄：<strong class="@completedColor">@completedLabel</strong>
+                @if (Assignment.DecidedAt.HasValue)
+                {
+                    <span class="text-xs text-gray-400 ml-1">（@Assignment.DecidedAt.Value.ToString("MM/dd HH:mm")）</span>
+                }
+            </span>
+        </div>
+        <button type="button" @onclick="OnRequestClose"
+                class="px-5 py-2 text-sm bg-morandi hover:bg-[#5a7a99] text-white rounded-lg font-bold transition cursor-pointer">
+            關閉
+        </button>
+    }
+    else if (Assignment.IsCompleted && CanFinalReviewerEdit)
+    {
+        @* Completed + 解鎖（ReturnCount >= 3）：
+           「編輯題目」解鎖按鈕 + 採用 / 不採用最終決策
+           意見區已唯讀（ReviewActionPanel 由 ReviewModal 控制），此處不顯示儲存草稿 *@
+        <div class="flex items-center gap-2 text-xs text-gray-500 mr-4 shrink-0">
+            <i class="fa-solid fa-unlock text-terracotta"></i>
+            <span class="text-terracotta font-bold">已退回 3 次，請直接修改題目並下最終裁決</span>
+        </div>
+        <div class="flex items-center gap-3">
+            <button type="button"
+                    disabled="@IsSubmitting"
+                    @onclick="() => OnRequestEdit.InvokeAsync()"
+                    class="px-5 py-2.5 bg-terracotta hover:bg-[#c87a5d] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+                @if (IsBusy("edit"))
+                {
+                    <i class="fa-solid fa-spinner fa-spin mr-1.5"></i>
+                    <span>開啟中…</span>
+                }
+                else
+                {
+                    <i class="fa-solid fa-pen-to-square mr-1.5"></i>
+                    <span>編輯題目</span>
+                }
+            </button>
+            <span class="w-px h-8 bg-gray-300 mx-1"></span>
+            <button type="button"
+                    disabled="@IsSubmitting"
+                    @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Reject)"
+                    class="px-5 py-2.5 bg-red-700 hover:bg-red-800 text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+                @if (IsBusy("reject"))
+                {
+                    <i class="fa-solid fa-spinner fa-spin mr-1.5"></i>
+                    <span>送出中…</span>
+                }
+                else
+                {
+                    <i class="fa-solid fa-ban mr-1.5"></i>
+                    <span>不採用</span>
+                }
+            </button>
+            <button type="button"
+                    disabled="@IsSubmitting"
+                    @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Approve)"
+                    class="px-6 py-2.5 bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+                @if (IsBusy("approve"))
+                {
+                    <i class="fa-solid fa-spinner fa-spin mr-1.5"></i>
+                    <span>送出中…</span>
+                }
+                else
+                {
+                    <i class="fa-solid fa-check mr-1.5"></i>
+                    <span>採用</span>
+                }
+            </button>
+        </div>
+    }
     else
     {
-        @* 已決策時顯示先前決定的提示（不鎖定 — 階段未結束前皆可重新決策） *@
+        @* Pending（IsCompleted=false）— 正常審題流程：可輸入意見、下決策 *@
+        @* IsDecided 記錄先前評定（理論上 Pending 行應無 IsDecided，但防禦性顯示） *@
         @if (Assignment.IsDecided)
         {
             var (decLabel, decColor) = Assignment.Decision switch

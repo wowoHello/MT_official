@@ -1,2 +1,2 @@
-- [Teachers.razor 完成度狀態](project_teachers_status.md) — 頁面已完成，2026-04-27 評估歸檔，核心功能與規範全部符合
+- [Teachers.razor 完成度狀態](project_teachers_status.md) — 2026-05-08 全面重讀，記錄架構/技術債/密碼常數/狀態碼等精確細節
 - [教師管理頁參考文件路徑](reference_teachers_doc.md) — 主文件改為 D:\MTrefer\pageFinal_doc\Teachers.md，舊原型 html/js 路徑已棄用

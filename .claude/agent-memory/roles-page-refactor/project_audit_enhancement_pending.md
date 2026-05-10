@@ -1,14 +1,13 @@
 ---
-name: 稽核強化未提交狀態
-description: RoleService.cs 有未提交的稽核品質強化修改，依賴未追蹤的 AuditLogJsonHelper.cs，兩者必須一起提交，且提交前需確認 DB 欄位
+name: 稽核強化已實作（AuditLogJsonHelper 已追蹤）
+description: RoleService.cs 使用 AuditLogJsonHelper.cs 進行稽核序列化，兩個檔案均已存在於專案中
 type: project
 ---
 
-RoleService.cs 有大量未提交的稽核強化改動，同時新增了 Services/AuditLogJsonHelper.cs（untracked）。
+`Services/AuditLogJsonHelper.cs` 已確認存在（2026-05-08 驗證）。RoleService.cs 的所有 CRUD 操作（CreateAccount、UpdateAccount、ToggleStatus、ResetPassword、CreateRole、UpdateRole、DeleteRole）均已整合 `AuditLogJsonHelper.Serialize()` 寫入 before/after 快照至 `MT_AuditLogs`。
 
-**Why:** 原本稽核寫入只有 3 欄且用 JsonSerializer 直接序列化，缺少 OldValue 對照；此次強化補齊了所有 CRUD 操作的 before/after 快照，並統一序列化格式（camelCase + 中文不 escape）。
+**Why:** 稽核品質強化需要 OldValue 對照，原本只有 NewValue；AuditLogJsonHelper 統一了 camelCase + 中文不 escape 的序列化格式。
 
 **How to apply:**
-- 提交前必須確認 `MT_AuditLogs` 資料表有 `ProjectId INT NULL` 與 `OldValue NVARCHAR(MAX) NULL` 欄位
-- `git add Services/AuditLogJsonHelper.cs Services/RoleService.cs` 必須一起提交
-- 若先提交 RoleService.cs 而遺漏 AuditLogJsonHelper.cs，其他人 clone 後 `dotnet build` 會失敗
+- 修改 RoleService.cs 的稽核相關程式碼時，需同步確認 AuditLogJsonHelper.cs 中的 Serialize 方法簽名沒有破壞性變更
+- 若未來需擴充稽核欄位，確認 `MT_AuditLogs` 資料表有 `ProjectId INT NULL` 與 `OldValue NVARCHAR(MAX) NULL` 欄位

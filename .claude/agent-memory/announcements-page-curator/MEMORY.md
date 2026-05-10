@@ -1,2 +1,3 @@
-- [Announcements 頁面未完成缺口](project_status_gaps.md) — 2026-05-04 Re-review：5 項缺口均未解決，P0 為 AnnouncementPerm 未實作
+- [Announcements 頁面未完成缺口](project_status_gaps.md) — 2026-05-08：P0 已修復；P1×2（自動下架未持久化、手冊假資料）+ P2×2（無狀態下拉、無標點插入列）仍未解決
 - [Announcements 頁面參考素材位置](reference_announcements_prototype.md) — 原型已整合至 D:\MTrefer\pageFinal_doc\Announcements.md，舊 HTML/JS 棄用
+- [Announcements 頁面架構現況](project_page_architecture.md) — 2026-05-08 實際讀碼整理：DB 僅 2 狀態、顯示狀態前端推導、排序規則、Service 方法清單

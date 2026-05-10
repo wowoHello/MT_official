@@ -529,8 +529,9 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         // count 查詢需要 JOIN MT_Users 才能比對姓名；CwtList/Reviews 不需要 JOIN（效能最佳）
         var countJoin = filter.SearchCreatorName ? "LEFT JOIN dbo.MT_Users u ON u.Id = q.CreatorId" : "";
 
-        // Plan_012：HasReplied 條件 — 僅在 @HasReplied 非 null 時生效；
-        // 條件意義：題目 Status∈{4,6,8} 且本人在當前 Stage 是否已寫過 MT_RevisionReplies
+        // Plan_012 + Plan_013：HasReplied 條件 — 僅在 @HasReplied 非 null 時生效；
+        // 條件意義：題目 Status∈{4,6,8} 且本人在「本輪」當前 Stage 是否已寫過 MT_RevisionReplies
+        // Plan_013：只看本輪（CreatedAt > 上次總審退回時間 MAX DecidedAt），舊輪 reply 不算
         const string repliedClause = """
               AND (@HasReplied IS NULL OR
                    (q.Status IN (4, 6, 8) AND
@@ -539,6 +540,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                         WHERE rr.QuestionId = q.Id
                           AND rr.UserId     = q.CreatorId
                           AND rr.Stage      = q.Status
+                          AND rr.CreatedAt > ISNULL((SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)), '1900-01-01')
                     ) THEN 1 ELSE 0 END AS BIT)))
             """;
 
@@ -556,8 +558,9 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
               {repliedClause};
             """;
 
-        // Plan_010：HasRepliedThisStage —— 同題 + 同 UserId（= q.CreatorId）+ Stage 對齊 q.Status
+        // Plan_010 + Plan_013：HasRepliedThisStage —— 同題 + 同 UserId（= q.CreatorId）+ Stage 對齊 q.Status
         // 4=互修 / 6=專修 / 8=總修；其它狀態 q.Status≠4/6/8，子查詢自然 0 筆，HasReplied=0
+        // Plan_013：只看本輪（CreatedAt > 上次總審退回時間 MAX DecidedAt），舊輪 reply 不算
         var listSql = $"""
             SELECT
                 q.Id, q.QuestionCode,
@@ -575,6 +578,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                       AND rr.UserId     = q.CreatorId
                       AND rr.Stage      = q.Status
                       AND q.Status IN (4, 6, 8)
+                      AND rr.CreatedAt > ISNULL((SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)), '1900-01-01')
                 ) THEN 1 ELSE 0 END AS BIT) AS HasRepliedThisStage
             FROM dbo.MT_Questions q
             LEFT JOIN dbo.MT_Users u ON u.Id = q.CreatorId
@@ -644,8 +648,9 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
     }
 
     /// <summary>
-    /// Plan_012：CwtList 審修作業區「已修題」卡片計數（本人視角）。
-    /// 計算 Status∈{4,6,8} 且本人在當前 Stage 已寫過 MT_RevisionReplies 的題目數。
+    /// Plan_012 + Plan_013：CwtList 審修作業區「已修題」卡片計數（本人視角）。
+    /// 計算 Status∈{4,6,8} 且本人在「本輪」當前 Stage 已寫過 MT_RevisionReplies 的題目數。
+    /// Plan_013：只看本輪（CreatedAt > 上次總審退回時間 MAX DecidedAt），舊輪 reply 不算。
     /// 條件鍵 (ProjectId, CreatorId, Status, IsDeleted) 與 (QuestionId, UserId, Stage)
     /// 皆為 ListAsync 既有索引服務範圍，不額外造成負擔。
     /// </summary>
@@ -663,6 +668,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                   WHERE rr.QuestionId = q.Id
                     AND rr.UserId     = q.CreatorId
                     AND rr.Stage      = q.Status
+                    AND rr.CreatedAt > ISNULL((SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)), '1900-01-01')
               );
             """;
         using var conn = _db.CreateConnection();
@@ -1712,12 +1718,12 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             DecidedAt = r.DecidedAt
         }).ToList();
 
-        // 4. 自己歷次修題說明
+        // 4. 自己歷次修題說明（Plan_014：列表最新在最上）
         const string mySql = """
             SELECT Stage, Content, CreatedAt
             FROM dbo.MT_RevisionReplies
             WHERE QuestionId = @Id AND UserId = @UserId
-            ORDER BY Stage, CreatedAt;
+            ORDER BY CreatedAt DESC;
             """;
         var myReplies = (await conn.QueryAsync<RevisionReplyEntry>(
             mySql, new { Id = questionId, UserId = currentUserId })).AsList();
@@ -1738,9 +1744,20 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             "SELECT TOP 1 ReturnCount FROM dbo.MT_ReviewReturnCounts WHERE QuestionId = @Id",
             new { Id = questionId }) ?? 0;
 
-        // 7. 當前階段最新一筆 reply（若已修題，作為「本次修題說明」初值）
+        // Plan_013：本輪起點時間 — 上次總審退回時間（MAX DecidedAt for ReviewStage=3 且 Decision IN (2,3)）
+        // 沒有任何總審退回紀錄時 fallback 為 1900-01-01（等同於不過濾，全部 reply 視為本輪）
+        var roundStartedAt = await conn.ExecuteScalarAsync<DateTime?>(
+            """
+            SELECT MAX(DecidedAt)
+            FROM dbo.MT_ReviewAssignments
+            WHERE QuestionId = @Id
+              AND ReviewStage = 3
+              AND Decision IN (2, 3);
+            """, new { Id = questionId }) ?? new DateTime(1900, 1, 1);
+
+        // 7. 當前階段最新一筆「本輪」reply（CreatedAt > roundStartedAt 才算本輪；舊輪不取）
         var draft = myReplies
-            .Where(r => r.Stage == phaseRow.PhaseCode)
+            .Where(r => r.Stage == phaseRow.PhaseCode && r.CreatedAt > roundStartedAt)
             .OrderByDescending(r => r.CreatedAt)
             .FirstOrDefault()?.Content ?? "";
 
@@ -1752,7 +1769,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             CurrentPhaseCode    = phaseRow.PhaseCode,
             PhaseEndDate        = phaseRow.PhaseCode == 0 ? null : phaseRow.EndDate,
             CurrentDraftContent = draft,
-            HasReplied          = myReplies.Any(r => r.Stage == phaseRow.PhaseCode),
+            // Plan_013：HasReplied 只看本輪（CreatedAt > roundStartedAt）
+            HasReplied          = myReplies.Any(r => r.Stage == phaseRow.PhaseCode && r.CreatedAt > roundStartedAt),
             FinalReturnCount    = returnCount,
             QStatus             = meta.Status
         };
@@ -1763,7 +1781,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
     /// 1. 階段對齊驗證（沿用 Plan_009 的 GetCurrentPhaseCodeInTxAsync）
     /// 2. UPDATE MT_Questions（Status 不變，僅內容）
     /// 3. UPSERT MT_SubQuestions
-    /// 4. UPSERT MT_RevisionReplies（同 QuestionId+UserId+Stage 已存在 → UPDATE Content；否則 INSERT）
+    /// 4. INSERT MT_RevisionReplies（每輪一筆 append-only；跨輪以 CreatedAt 區辨本輪／歷史）
     /// 5. 寫 AuditLog（Action=Modify、Reason=Revision）
     /// 不變更 Question.Status；總審「送出再審」由另一支 SubmitFinalRevisionAsync 處理（Plan_011）。
     /// </summary>
@@ -1854,20 +1872,15 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             // 4. UPSERT 子題
             await UpsertSubQuestionsAsync(conn, tx, req.QuestionId, req.FormData, operatorUserId, meta.ProjectId);
 
-            // 5. UPSERT MT_RevisionReplies — 同 QuestionId+UserId+Stage 已存在 → UPDATE，否則 INSERT
-            const string upsertReplySql = """
-                MERGE dbo.MT_RevisionReplies WITH (HOLDLOCK) AS target
-                USING (VALUES (@Qid, @Uid, @Stage)) AS src(QuestionId, UserId, Stage)
-                ON  target.QuestionId = src.QuestionId
-                AND target.UserId     = src.UserId
-                AND target.Stage      = src.Stage
-                WHEN MATCHED THEN
-                    UPDATE SET Content = @Content
-                WHEN NOT MATCHED THEN
-                    INSERT (QuestionId, UserId, Stage, Content, CreatedAt)
-                    VALUES (@Qid, @Uid, @Stage, @Content, SYSDATETIME());
+            // 5. INSERT MT_RevisionReplies — 純 append-only（每輪一筆獨立 row）
+            //    Plan_014：總修階段（Stage=8）允許跨輪多次回覆，每輪退回後重新送出都產生新 row
+            //    判別「本輪 reply」靠 CreatedAt > 上次總審退回 DecidedAt（見 ListAsync / GetRevisionDataAsync 等處）
+            //    Stage=4/6 線性單輪，append-only 等同每題每階段最多一筆，行為不變
+            const string insertReplySql = """
+                INSERT INTO dbo.MT_RevisionReplies (QuestionId, UserId, Stage, Content, CreatedAt)
+                VALUES (@Qid, @Uid, @Stage, @Content, SYSDATETIME());
                 """;
-            await conn.ExecuteAsync(upsertReplySql, new
+            await conn.ExecuteAsync(insertReplySql, new
             {
                 Qid     = req.QuestionId,
                 Uid     = operatorUserId,

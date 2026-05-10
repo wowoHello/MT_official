@@ -1,5 +1,8 @@
 - [審題任務參考文件路徑](reference_reviews_doc.md) — Reviews.md 為主要規格文件，舊原型 html/js 已棄用
 - [審題 Modal 考卷預覽風格決策](feedback_preview_style_in_review.md) — 隱藏 PreviewHeader 標題用 CSS，解析用 details open，BuildTags 自包不 DI
 - [Status Renumbering v3.0](project_status_renumbering.md) — SentBack 完全移除，ClosedNotAdopted=11(原12)，Archived=12(原13)，HistoryTabStatuses=[9,10,11,12]
-- [總審 Buffer 化分流邏輯](project_final_review_buffer.md) — PhaseCode=8 時 EnsureFinalEditingPhaseAsync 批次分流；BumpReturnCount 閾值>=3，Reject 同樣計數
+- [總審 Buffer 化分流邏輯](project_final_review_buffer.md) — PhaseCode=8 時 EnsureFinalEditingPhaseAsync 批次分流；BumpReturnCount MERGE SQL，ReturnCount+1>=3 解鎖
+- [ReturnCount 決策矩陣（Plan_019）](project_return_count_matrix.md) — CanFinalReviewerEdit 三條件判斷；Modal 預警徽章 FinalReturnCount>=2
 - [專審分配 Bug 修復（Plan_013）](project_expert_review_assignment_fix.md) — 池空改 graceful return / PhaseCode=3 補 Status 升級 / UI 預設過濾歷史記錄
+- [總召代修題最終裁決（Plan_021）](project_final_reviewer_edit_plan021.md) — FinalReviewerEditAndDecideAsync 單 tx；IsHistoricalFromService 取代舊 CurrentProjectStage 比對
+- [ReviewModal 內部元件 UI 細節](project_review_modal_ui_details.md) — 8 罐頭訊息/MinCommentLength=10/5種DecisionBar配置/Timeline匿名/相似題雙模式

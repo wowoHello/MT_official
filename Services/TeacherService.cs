@@ -304,7 +304,9 @@ public class TeacherService : ITeacherService
                 ra.ReviewStage,
                 ra.Decision,
                 ra.DecidedAt,
-                ra.CreatedAt
+                ra.CreatedAt,
+                p.ClosedAt AS ProjectClosedAt,
+                q.Status   AS FinalQuestionStatus
             FROM dbo.MT_ReviewAssignments ra
             INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
             INNER JOIN dbo.MT_QuestionTypes qt ON qt.Id = q.QuestionTypeId

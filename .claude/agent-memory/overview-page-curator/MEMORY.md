@@ -1,2 +1,4 @@
 - [Overview 參考素材路徑](reference_overview_source.md) — 改用 D:\MTrefer\pageFinal_doc\Overview.md，舊原型 html/js 已棄用
-- [Overview 狀態篩選下拉設計](project_overview_status_filter_design.md) — 用 OverviewStatusKey 識別碼而非 QuestionStatus.Labels，混合後端粗篩+前端精篩
+- [Overview 狀態篩選下拉設計](project_overview_status_filter_design.md) — OverviewStatusKey 11 個識別碼 / TranslateStatusKey + Match* 三方共用 / 後端粗篩+前端精篩
+- [Overview 頁面版面與資料錨點](project_overview_layout_anchors.md) — 5 張統計卡 / 12 欄表格 / 詳情 SlideOver 上題目內容下審題歷程 / ResolveDisplayStatus 五條規則
+- [修題階段燈號雙態呈現](feedback_revision_phase_display.md) — 已送出藍勾+綠 Badge / 未送出紅筆+橘 Badge，由 PhaseProgressStepper 統一處理

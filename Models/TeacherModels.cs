@@ -140,6 +140,12 @@ public class TeacherReviewItem
     public DateTime? DecidedAt { get; set; }
     public DateTime CreatedAt { get; set; }
 
+    /// <summary>梯次結案時間；NULL 表示尚未結案。</summary>
+    public DateTime? ProjectClosedAt { get; set; }
+
+    /// <summary>結案後對應 MT_Questions.Status（12=採用、11=不採用）。</summary>
+    public int FinalQuestionStatus { get; set; }
+
     public string LevelText => Level switch
     {
         0 => "初級",
@@ -150,7 +156,8 @@ public class TeacherReviewItem
         _ => "—"
     };
 
-    public string StageText => ReviewStage switch
+    /// <summary>結案後顯示「已結案」，否則顯示審題階段名稱。</summary>
+    public string StageText => ProjectClosedAt != null ? "已結案" : ReviewStage switch
     {
         1 => "互審",
         2 => "專審",
@@ -158,13 +165,19 @@ public class TeacherReviewItem
         _ => "—"
     };
 
-    public string DecisionText => Decision switch
-    {
-        1 => "通過",
-        2 => "修正",
-        3 => "退回",
-        _ => "未決"
-    };
+    /// <summary>
+    /// 結案後依 FinalQuestionStatus 顯示最終結果（12=採用、其他=不採用）；
+    /// 未結案則顯示審題中間決策。
+    /// </summary>
+    public string DecisionText => ProjectClosedAt != null
+        ? (FinalQuestionStatus == 12 ? "採用" : "不採用")
+        : Decision switch
+        {
+            1 => "通過",
+            2 => "修正",
+            3 => "退回",
+            _ => "未決"
+        };
 }
 
 // ─── 參與專案列表項目 ───

@@ -441,8 +441,8 @@
                 else if (teacherItems.Count == 0)
                 {
                     <div class="p-4 h-full">
-                        <EmptyState CssClass="py-8 h-full" IconClass="fa-circle-check" Message="目前沒有教師進度落後"
-                                    SubMessage="所有教師命題進度皆在正常範圍" Compact="true" />
+                        <EmptyState CssClass="py-8 h-full" IconClass="fa-circle-check" Message="目前沒有人員進度落後"
+                                    SubMessage="@EmptyShortageSubMessage()" Compact="true" />
                     </div>
                 }
                 else
@@ -1122,6 +1122,29 @@
         if (diff.TotalHours   < 24) return $"{(int)diff.TotalHours} 小時前";
         if (diff.TotalDays    <  7) return $"{(int)diff.TotalDays} 天前";
         return time.ToString("MM/dd HH:mm");
+    }
+
+    /// <summary>
+    /// 依當前階段回傳「沒有人員落後」空狀態的副標。
+    ///   命題階段 (PC=2)         → 命題進度
+    ///   審題階段 (PC=3/5/7)     → 審題進度（依 CurrentReviewPhase 判斷）
+    ///   修題階段 (PC=4/6/8)     → 修題進度（依 CurrentRevisionPhase 判斷）
+    ///   其他（產學區外、結案等）→ 通用文案
+    /// </summary>
+    private string EmptyShortageSubMessage()
+    {
+        if (kpi.CurrentReviewPhase is MT.Models.ReviewPhaseLabel.Peer
+                                    or MT.Models.ReviewPhaseLabel.Expert
+                                    or MT.Models.ReviewPhaseLabel.Final)
+            return "所有審題委員皆已給意見";
+
+        if (kpi.CurrentRevisionPhase is MT.Models.RevisionPhaseLabel.Peer
+                                      or MT.Models.RevisionPhaseLabel.Expert
+                                      or MT.Models.RevisionPhaseLabel.Final)
+            return "所有教師修題進度皆在正常範圍";
+
+        // 命題階段或其他階段都沿用既有命題文案（命題階段為主要常見情境）
+        return "所有教師命題進度皆在正常範圍";
     }
 
     // ─── 卡片 3 Pill Badge Helper ────────────────────────────────────

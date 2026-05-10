@@ -160,6 +160,18 @@ public class ReviewListItem
     /// Service 在組裝列表時依 currentStage 設值；UI 端直接讀取，不再做 stage 比對。
     /// </summary>
     public bool IsHistorical { get; set; }
+
+    /// <summary>
+    /// 總召退回次數（來自 MT_ReviewReturnCounts.ReturnCount）。
+    /// 非 Final Stage 時為 0；列表用來決定按鈕樣式（>=3 顯示「編輯題目」）。
+    /// </summary>
+    public int FinalReturnCount { get; set; }
+
+    /// <summary>
+    /// 是否已解鎖總召自行修題（MT_ReviewReturnCounts.CanEditByReviewer=1）。
+    /// 對應 ReturnCount >= 3 的情境；列表「編輯題目」按鈕依此判斷。
+    /// </summary>
+    public bool CanFinalReviewerEdit { get; set; }
 }
 
 /// <summary>
@@ -200,5 +212,24 @@ public class SubmitReviewDecisionRequest
 {
     public int AssignmentId { get; set; }
     public string Comment { get; set; } = string.Empty;
+    public ReviewDecision Decision { get; set; }
+}
+
+/// <summary>
+/// 總召代修題並做最終決策（ReturnCount >= 3 解鎖後使用）。
+/// 單一 transaction 內完成：UPDATE 題目內容 + UPDATE Status(9/10) + UPDATE Assignment + 2 筆 AuditLog。
+/// </summary>
+public class FinalReviewerEditRequest
+{
+    /// <summary>MT_ReviewAssignments.Id（用於更新 Decision / ReviewStatus）</summary>
+    public int AssignmentId { get; set; }
+
+    /// <summary>MT_Questions.Id（與 Assignment 雙重確認，防禦性）</summary>
+    public int QuestionId { get; set; }
+
+    /// <summary>編輯後的題目表單資料（所有欄位皆會被覆寫）</summary>
+    public QuestionFormData FormData { get; set; } = new();
+
+    /// <summary>最終裁決：Approve(1)=採用 / Reject(3)=不採用</summary>
     public ReviewDecision Decision { get; set; }
 }

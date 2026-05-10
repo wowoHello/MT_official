@@ -199,6 +199,8 @@ public class DashboardService : IDashboardService
         {
             // 修題階段：依 MT_RevisionReplies.Content 區分（與卡片 4 同口徑）
             //   Stage 欄位為 PhaseCode（4/6/8）
+            // Plan_014：本輪過濾 — PC=8 跨輪退回後舊 reply 不算本輪已修
+            //           PC=4/6 線性單輪，filter 等同 NULL fallback 不影響
             byte revisionStage = (byte)currentPhaseForChart.Value;
 
             const string sqlRevisionBased = """
@@ -208,6 +210,10 @@ public class DashboardService : IDashboardService
                     WHERE  rr.Stage = @revisionStage
                       AND  rr.Content IS NOT NULL
                       AND  LEN(LTRIM(RTRIM(rr.Content))) > 0
+                      AND  rr.CreatedAt > ISNULL(
+                          (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
+                           WHERE QuestionId = rr.QuestionId AND ReviewStage = 3 AND Decision IN (2, 3)),
+                          '1900-01-01')
                 )
                 SELECT
                     qt.Name AS TypeName,
@@ -470,6 +476,10 @@ public class DashboardService : IDashboardService
                        AND rr.Stage      = @revisionStage
                        AND rr.Content IS NOT NULL
                        AND LEN(LTRIM(RTRIM(rr.Content))) > 0
+                       AND rr.CreatedAt > ISNULL(
+                           (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
+                            WHERE QuestionId = a.QuestionId AND ReviewStage = 3 AND Decision IN (2, 3)),
+                           '1900-01-01')
                  )
                 ) AS Revised
             """;
@@ -492,6 +502,7 @@ public class DashboardService : IDashboardService
                 """;
             total = await conn.ExecuteScalarAsync<int>(fallbackTotalSql, new { pid = projectId });
 
+            // Plan_014：本輪過濾 — PC=8 跨輪退回後舊 reply 不算本輪已修
             const string fallbackRevisedSql = """
                 SELECT COUNT(DISTINCT rr.QuestionId)
                 FROM   dbo.MT_RevisionReplies rr
@@ -500,6 +511,10 @@ public class DashboardService : IDashboardService
                   AND  rr.Stage    = @revisionStage
                   AND  rr.Content IS NOT NULL
                   AND  LEN(LTRIM(RTRIM(rr.Content))) > 0
+                  AND  rr.CreatedAt > ISNULL(
+                      (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
+                       WHERE QuestionId = rr.QuestionId AND ReviewStage = 3 AND Decision IN (2, 3)),
+                      '1900-01-01')
                 """;
             revised = await conn.ExecuteScalarAsync<int>(
                 fallbackRevisedSql, new { pid = projectId, revisionStage });
@@ -729,6 +744,7 @@ public class DashboardService : IDashboardService
             };
             byte revisionStageCode = (byte)revisionPhase.PhaseCode;
 
+            // Plan_014：本輪過濾 — PC=8 跨輪退回後舊 reply 不算本輪已修
             const string sqlRevisionShortage = """
                 WITH RevisionScope AS (
                     SELECT ra.QuestionId, q.CreatorId,
@@ -738,6 +754,10 @@ public class DashboardService : IDashboardService
                                  AND rr.Stage      = @revisionStage
                                  AND rr.Content IS NOT NULL
                                  AND LEN(LTRIM(RTRIM(rr.Content))) > 0
+                                 AND rr.CreatedAt > ISNULL(
+                                     (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
+                                      WHERE QuestionId = ra.QuestionId AND ReviewStage = 3 AND Decision IN (2, 3)),
+                                     '1900-01-01')
                            ) THEN 1 ELSE 0 END AS IsRevised
                     FROM   dbo.MT_ReviewAssignments ra
                     JOIN   dbo.MT_Questions q ON q.Id = ra.QuestionId
@@ -786,6 +806,67 @@ public class DashboardService : IDashboardService
             }
         }
 
+        // ── 4-c. 審題階段審題委員落後（PhaseCode 3/5/7 倒數 ≤ 5 天）─────────
+        // 該階段被指派但 Comment 仍空白即視為「尚未給意見」
+        // 與 OverviewService.GetAllReviewersRespondedAsync 同口徑（Comment 非空 = 已審）
+        var reviewerPhase = phaseRows.FirstOrDefault(p =>
+                p.PhaseCode is 3 or 5 or 7
+             && p.StartDate    <= today
+             && p.DaysRemaining >= 0
+             && p.DaysRemaining <= 5);
+
+        if (reviewerPhase is not null)
+        {
+            byte reviewStage = reviewerPhase.PhaseCode switch
+            {
+                3 => 1, 5 => 2, 7 => 3, _ => 0
+            };
+
+            const string sqlReviewerShortage = """
+                SELECT  ra.ReviewerId AS UserId,
+                        u.DisplayName AS TeacherName,
+                        COUNT(*)      AS TotalAssigned,
+                        SUM(CASE WHEN ra.Comment IS NOT NULL
+                                  AND LEN(LTRIM(RTRIM(ra.Comment))) > 0
+                                 THEN 1 ELSE 0 END) AS TotalProduced
+                FROM    dbo.MT_ReviewAssignments ra
+                JOIN    dbo.MT_Questions q ON q.Id = ra.QuestionId
+                JOIN    dbo.MT_Users     u ON u.Id = ra.ReviewerId
+                WHERE   ra.ProjectId   = @pid
+                  AND   ra.ReviewStage = @reviewStage
+                  AND   q.IsDeleted    = 0
+                GROUP BY ra.ReviewerId, u.DisplayName
+                HAVING  COUNT(*) > SUM(CASE WHEN ra.Comment IS NOT NULL
+                                              AND LEN(LTRIM(RTRIM(ra.Comment))) > 0
+                                             THEN 1 ELSE 0 END)
+                ORDER BY (1.0 * SUM(CASE WHEN ra.Comment IS NOT NULL
+                                           AND LEN(LTRIM(RTRIM(ra.Comment))) > 0
+                                          THEN 1 ELSE 0 END)
+                         / NULLIF(COUNT(*), 0)) ASC
+                """;
+
+            var reviewerRows = (await conn.QueryAsync<TeacherShortageRow>(
+                sqlReviewerShortage, new { pid = projectId, reviewStage })).ToList();
+
+            foreach (var t in reviewerRows)
+            {
+                var rate     = t.TotalAssigned > 0 ? (decimal)t.TotalProduced / t.TotalAssigned : 0m;
+                var severity = rate < 0.3m  ? UrgentSeverity.Critical
+                             : rate < 0.7m  ? UrgentSeverity.Warning
+                             :                UrgentSeverity.Notice;
+
+                items.Add(new DashboardUrgentItem
+                {
+                    Severity  = severity,
+                    Source    = UrgentSourceType.TeacherShortage,
+                    Title     = $"{t.TeacherName} 審題進度落後",
+                    Subtitle  = $"目前 {t.TotalProduced}/{t.TotalAssigned}（{rate:P0}）",
+                    UserId    = t.UserId,
+                    TargetUrl = "/reviews"
+                });
+            }
+        }
+
         // ── 5. 排序：Severity DESC → DaysRemaining ASC（不截斷）──────
         // 警示窗內所有未完成項目都得顯示，不應因清單上限漏掉任何提醒
         // 卡片以 max-height + scroll 控制視覺空間
@@ -805,6 +886,7 @@ public class DashboardService : IDashboardService
         {
             // 依當前進行中階段選用對應的 Modal 明細查詢
             //   命題階段 (PC=2)：MT_ProjectMembers + MT_MemberQuotas（配額制）
+            //   審題階段 (PC=3/5/7)：MT_ReviewAssignments per-Reviewer × 題型（指派 vs Comment 非空）
             //   修題階段 (PC=4/6/8)：MT_ReviewAssignments + MT_RevisionReplies（待修題目制）
             string sqlTypeDetails;
             object sqlParams;
@@ -817,6 +899,7 @@ public class DashboardService : IDashboardService
                 };
                 byte revisionStageCode = (byte)revisionPhase.PhaseCode;
 
+                // Plan_014：本輪過濾 — 與卡片 4／教師落後排行同口徑
                 sqlTypeDetails = """
                     WITH RevisionScope AS (
                         SELECT ra.QuestionId, q.CreatorId, q.QuestionTypeId,
@@ -826,6 +909,10 @@ public class DashboardService : IDashboardService
                                      AND rr.Stage      = @revisionStage
                                      AND rr.Content IS NOT NULL
                                      AND LEN(LTRIM(RTRIM(rr.Content))) > 0
+                                     AND rr.CreatedAt > ISNULL(
+                                         (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
+                                          WHERE QuestionId = ra.QuestionId AND ReviewStage = 3 AND Decision IN (2, 3)),
+                                         '1900-01-01')
                                ) THEN 1 ELSE 0 END AS IsRevised
                         FROM   dbo.MT_ReviewAssignments ra
                         JOIN   dbo.MT_Questions q ON q.Id = ra.QuestionId
@@ -855,6 +942,38 @@ public class DashboardService : IDashboardService
                     reviewStage   = revisionReviewStage,
                     revisionStage = revisionStageCode
                 };
+            }
+            else if (reviewerPhase is not null)
+            {
+                byte reviewStage = reviewerPhase.PhaseCode switch
+                {
+                    3 => 1, 5 => 2, 7 => 3, _ => 0
+                };
+
+                // 審題階段 Modal 明細：每位委員 × 題型 → (Comment 非空 / 被指派) 數
+                sqlTypeDetails = """
+                    SELECT  ra.ReviewerId AS UserId,
+                            q.QuestionTypeId,
+                            qt.Name      AS TypeName,
+                            COUNT(*)     AS Assigned,
+                            SUM(CASE WHEN ra.Comment IS NOT NULL
+                                      AND LEN(LTRIM(RTRIM(ra.Comment))) > 0
+                                     THEN 1 ELSE 0 END) AS Produced
+                    FROM    dbo.MT_ReviewAssignments ra
+                    JOIN    dbo.MT_Questions      q  ON q.Id = ra.QuestionId
+                    JOIN    dbo.MT_QuestionTypes  qt ON qt.Id = q.QuestionTypeId
+                    WHERE   ra.ProjectId   = @pid
+                      AND   ra.ReviewStage = @reviewStage
+                      AND   ra.ReviewerId IN @userIds
+                      AND   q.IsDeleted    = 0
+                    GROUP BY ra.ReviewerId, q.QuestionTypeId, qt.Name
+                    ORDER BY ra.ReviewerId,
+                             (1.0 * SUM(CASE WHEN ra.Comment IS NOT NULL
+                                               AND LEN(LTRIM(RTRIM(ra.Comment))) > 0
+                                              THEN 1 ELSE 0 END)
+                             / NULLIF(COUNT(*), 0)) ASC
+                    """;
+                sqlParams = new { pid = projectId, userIds, reviewStage };
             }
             else
             {

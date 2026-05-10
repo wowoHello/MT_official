@@ -94,16 +94,34 @@
                 }
                 else
                 {
-                    @foreach (var r in MyReplies)
+                    @* Plan_014：同 Stage 內依 CreatedAt 升冪計算「第 N 次」索引（先寫的為第 1 次）
+                       顯示順序仍維持 SQL 端的 CreatedAt DESC（最新在上）。
+                       同一 Stage 只有 1 筆時不顯示輪次（避免訊息冗餘）。 *@
+                    var stageOrderMap = MyReplies
+                        .Select((r, originalIdx) => (r, originalIdx))
+                        .GroupBy(x => x.r.Stage)
+                        .SelectMany(g =>
+                        {
+                            var ordered = g.OrderBy(x => x.r.CreatedAt).ToList();
+                            var total   = ordered.Count;
+                            return ordered.Select((x, i) => (x.originalIdx, round: i + 1, total));
+                        })
+                        .ToDictionary(t => t.originalIdx, t => (t.round, t.total));
+
+                    for (int i = 0; i < MyReplies.Count; i++)
                     {
+                        var r         = MyReplies[i];
                         var stageName = GetEditingStageName(r.Stage);
+                        var (round, total) = stageOrderMap[i];
+
                         @* Tier 2 內部小卡：sage 色系 *@
                         <div class="relative bg-sage/5 rounded-lg border border-sage/15 hover:border-sage/30 pl-3 pr-4 py-3 transition-colors">
                             <span class="absolute left-0 top-3 bottom-3 w-1 rounded-full bg-sage"></span>
 
                             <div class="flex items-center justify-between mb-2">
                                 <span class="px-2 py-0.5 bg-sage text-white text-xs font-bold rounded-md flex items-center gap-1">
-                                    <i class="fa-solid fa-pen text-[10px]"></i> @stageName
+                                    <i class="fa-solid fa-pen text-[10px]"></i>
+                                    @stageName@(total > 1 ? $" 第 {round} 次" : "")
                                 </span>
                                 <span class="text-xs text-gray-400 tabular-nums">@r.CreatedAt.ToString("MM/dd HH:mm")</span>
                             </div>

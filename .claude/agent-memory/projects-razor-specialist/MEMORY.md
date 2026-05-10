@@ -1,1 +1,6 @@
 - [Projects 頁面參考文件路徑](reference_projects_doc_path.md) — 唯一參考文件為 D:\MTrefer\pageFinal_doc\Projects.md，舊原型 html/js 已棄用
+- [Projects 真實版面結構](project_ui_layout.md) — 左右分割佈局，無統計卡片；右側含時間軸/題型/成員三子區塊
+- [SlideOver 表單四大區塊](project_slideover_form.md) — 基本設定/8階段時程/題數人員/配額配置，含連動規則與防呆
+- [Projects 狀態判斷邏輯](project_status_logic.md) — Preparing/Active/Closed 判斷規則，IsExpired 不等於自動結案
+- [SignalR 與 PhaseTransitionCoordinator](project_signalr_coordinator.md) — ProjectsHub 為純殼；協調器由 CwtList/Reviews/Overview 呼叫，非 Projects 頁自身
+- [命題階段結束鎖定機制](project_composition_lock.md) — 編輯模式命題階段結束後題數/配額/人員指派全鎖

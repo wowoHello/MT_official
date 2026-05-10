@@ -5,6 +5,7 @@
 @* ====================================================================== *@
 @page "/reviews"
 @using MT.Components.Shared.ReviewForms
+@using MT.Components.Shared.QuestionForms
 @inject IQuestionService QuestionService
 @inject IProjectService ProjectService
 @inject IReviewService ReviewService
@@ -338,7 +339,7 @@
                                 <tbody>
                                     @foreach (var item in Page(FilteredAssignments))
                                     {
-                                        <tr @onclick="() => OpenReviewModal(item.QuestionId)"
+                                        <tr @onclick="() => OpenReviewModal(item.QuestionId, item.IsHistorical)"
                                             class="border-b border-gray-100 relative hover:z-10 hover:bg-blue-50/40 hover:shadow-[inset_4px_0_0_var(--color-morandi),0_6px_16px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer group">
                                             <td class="px-4 py-3 font-bold text-slate-main group-hover:text-morandi whitespace-nowrap transition-colors">@item.QuestionCode</td>
                                             <td class="px-4 py-3 whitespace-nowrap">
@@ -393,15 +394,28 @@
                                                 else if (item.IsCompleted)
                                                 {
                                                     @* 互審無決策只給意見；專/總審依 Decision 顯示判決，色彩 token 對齊 ReviewDecisionBar 的「先前評定」 *@
-                                                    var (doneLabel, doneCss) = item.Stage == ReviewStage.Mutual
-                                                        ? ("已給意見", "bg-morandi/15 text-morandi border-morandi/30")
-                                                        : item.Decision switch
+                                                    @* PhaseCode=8（總修）時 Revise/Reject → 顯示「已退回」，語意更精確 *@
+                                                    var (doneLabel, doneCss) = item.Stage switch
+                                                    {
+                                                        // 互審：只給意見，無決策
+                                                        ReviewStage.Mutual => ("已給意見", "bg-morandi/15 text-morandi border-morandi/30"),
+
+                                                        // 專審 / 總審：依 Decision 顯示
+                                                        _ => item.Decision switch
                                                         {
-                                                            ReviewDecision.Approve => ("已審：採用",     "bg-sage/15 text-sage border-sage/30"),
-                                                            ReviewDecision.Revise  => ("已審：改後採用", "bg-terracotta/15 text-terracotta border-terracotta/30"),
-                                                            ReviewDecision.Reject  => ("已審：不採用",   "bg-red-50 text-red-700 border-red-200"),
-                                                            _                      => ("已審題",         "bg-gray-100 text-gray-600 border-gray-300")
-                                                        };
+                                                            ReviewDecision.Approve => ("已審：採用", "bg-sage/15 text-sage border-sage/30"),
+
+                                                            // Revise / Reject 在 PhaseCode=8（總修）顯示「已退回」；其他階段維持原 label
+                                                            ReviewDecision.Revise when currentPhase?.PhaseCode == 8
+                                                                => ("已退回", "bg-terracotta/15 text-terracotta border-terracotta/30"),
+                                                            ReviewDecision.Reject when currentPhase?.PhaseCode == 8
+                                                                => ("已退回", "bg-terracotta/15 text-terracotta border-terracotta/30"),
+
+                                                            ReviewDecision.Revise => ("已審：改後採用", "bg-terracotta/15 text-terracotta border-terracotta/30"),
+                                                            ReviewDecision.Reject => ("已審：不採用",   "bg-red-50 text-red-700 border-red-200"),
+                                                            _                     => ("已審題",         "bg-gray-100 text-gray-600 border-gray-300")
+                                                        }
+                                                    };
                                                     <span class="inline-block px-2 py-0.5 rounded text-xs font-bold border @doneCss">@doneLabel</span>
                                                 }
                                                 else
@@ -412,14 +426,24 @@
                                             <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">@item.LastEditedAt.ToString("yyyy/MM/dd HH:mm")</td>
                                             <td class="px-4 py-3 text-center whitespace-nowrap" @onclick:stopPropagation="true">
                                                 @{
-                                                    var (btnIcon, btnLabel) = historical
-                                                        ? ("fa-solid fa-eye",            "檢視")
-                                                        : item.IsCompleted
-                                                            ? ("fa-solid fa-pen-to-square", "編輯")
-                                                            : ("fa-solid fa-clipboard-check","審題");
+                                                    // 決策矩陣（PhaseCode=8 / Stage=Final）：
+                                                    //   歷史 / 其他階段已結束         → 「檢視」灰
+                                                    //   Pending（待審）               → 「審題」綠
+                                                    //   Completed + CanFinalEdit=true → 「編輯題目」橘（第 3 次解鎖總召自改）
+                                                    //   Completed + 其他             → 「檢視」灰（已退回，等命題老師改）
+                                                    bool isEditUnlocked = item.CanFinalReviewerEdit
+                                                                         && item.Stage == ReviewStage.Final
+                                                                         && item.IsCompleted;
+                                                    var (btnIcon, btnLabel, btnCss) = historical
+                                                        ? ("fa-solid fa-eye",               "檢視",      "text-gray-400 hover:text-gray-600")
+                                                        : !item.IsCompleted
+                                                            ? ("fa-solid fa-clipboard-check","審題",      "text-sage hover:text-[#7a9a82]")
+                                                            : isEditUnlocked
+                                                                ? ("fa-solid fa-pen-to-square","編輯題目","text-terracotta hover:text-[#c87a5d]")
+                                                                : ("fa-solid fa-eye",          "檢視",    "text-gray-400 hover:text-gray-600");
                                                 }
-                                                <button @onclick="() => OpenReviewModal(item.QuestionId)"
-                                                        class="text-morandi hover:underline text-xs font-bold cursor-pointer focus:outline-none">
+                                                <button @onclick="() => OpenReviewModal(item.QuestionId, item.IsHistorical)"
+                                                        class="hover:underline text-xs font-bold cursor-pointer focus:outline-none @btnCss">
                                                     <i class="@btnIcon mr-0.5"></i> @btnLabel
                                                 </button>
                                             </td>
@@ -471,7 +495,7 @@
                                 <tbody>
                                     @foreach (var item in Page(FilteredHistory))
                                     {
-                                        <tr @onclick="() => OpenReviewModal(item.QuestionId)"
+                                        <tr @onclick="() => OpenReviewModal(item.QuestionId, true)"
                                             class="border-b border-gray-100 relative hover:z-10 hover:bg-blue-50/40 hover:shadow-[inset_4px_0_0_var(--color-morandi),0_6px_16px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer group">
                                             <td class="px-4 py-3 font-bold text-slate-main group-hover:text-morandi whitespace-nowrap transition-colors">@item.QuestionCode</td>
                                             <td class="px-4 py-3 whitespace-nowrap">
@@ -499,7 +523,7 @@
                                             </td>
                                             <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">@item.FinalDecidedAt.ToString("yyyy/MM/dd HH:mm")</td>
                                             <td class="px-4 py-3 text-center whitespace-nowrap" @onclick:stopPropagation="true">
-                                                <button @onclick="() => OpenReviewModal(item.QuestionId)"
+                                                <button @onclick="() => OpenReviewModal(item.QuestionId, true)"
                                                         class="text-morandi hover:underline text-xs font-bold cursor-pointer focus:outline-none">
                                                     <i class="fa-solid fa-eye mr-0.5"></i> 檢視
                                                 </button>
@@ -526,8 +550,166 @@
 <ReviewModal @bind-IsVisible="showReviewModal"
              QuestionId="@selectedQuestionId"
              CurrentUserId="@(currentUserId ?? 0)"
-             CurrentProjectStage="@CurrentReviewStage"
-             OnDecisionMade="OnDecisionMadeAsync" />
+             IsHistoricalFromService="@selectedIsHistorical"
+             OnDecisionMade="OnDecisionMadeAsync"
+             OnRequestFinalEdit="OpenFinalEditModalAsync" />
+
+@* ====== 總召代修題 Modal（Plan_021）====== *@
+@* 僅在 showFinalEditModal=true 時渲染，獨立於 ReviewModal，兩者互斥不同時出現 *@
+@if (showFinalEditModal && finalEditFormData is not null)
+{
+    <div class="fixed inset-0 z-50 bg-gray-50 flex flex-col" style="animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+
+        @* ====== Header ====== *@
+        <div class="h-16 flex-shrink-0 px-6 flex items-center justify-between border-b border-gray-200 bg-white shadow-sm">
+            <div class="flex items-center gap-3 min-w-0">
+                <button type="button" @onclick="CloseFinalEditModal"
+                        class="text-sm text-gray-500 hover:text-morandi font-bold flex items-center gap-1.5 transition shrink-0 cursor-pointer focus:outline-none">
+                    <i class="fa-solid fa-arrow-left"></i> 返回列表
+                </button>
+                <div class="h-6 w-px bg-gray-300 shrink-0"></div>
+                <span class="font-black text-slate-main text-base shrink-0">@finalEditFormData.QuestionCode</span>
+                <span class="px-2.5 py-0.5 bg-gray-100 text-gray-700 rounded-md text-xs font-bold border border-gray-200 shrink-0">
+                    @QuestionConstants.TypeLabels.GetValueOrDefault(finalEditFormData.QuestionType, "未知題型")
+                </span>
+                <span class="ml-2 inline-flex items-center px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold border border-red-200 shrink-0">
+                    <i class="fa-solid fa-crown mr-1"></i> 總召代修最終裁決
+                </span>
+            </div>
+            <button type="button" @onclick="CloseFinalEditModal"
+                    class="text-gray-400 hover:text-terracotta hover:bg-gray-100 text-2xl w-10 h-10 flex items-center justify-center rounded-lg transition cursor-pointer focus:outline-none">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        @* ====== Body：左側屬性 + 右側內容 ====== *@
+        <QuillEditorHost>
+            <CascadingValue Name="IsFormReadOnly" Value="false" IsFixed="false">
+            <div class="flex-grow flex overflow-hidden relative min-h-0 h-full">
+                @* 伸縮側欄按鈕 *@
+                <button type="button" @onclick="() => finalEditSidebarCollapsed = !finalEditSidebarCollapsed"
+                    class="absolute top-1/2 -translate-y-1/2 z-20 bg-white border border-gray-200 border-l-0 rounded-r-lg shadow-sm px-1.5 py-3 flex flex-col items-center gap-1 text-gray-400 hover:text-morandi hover:bg-gray-50 transition-all duration-300 cursor-pointer focus:outline-none @(finalEditSidebarCollapsed ? "left-0" : "left-60 lg:left-72")"
+                    title="@(finalEditSidebarCollapsed ? "展開屬性欄" : "收合屬性欄")">
+                    <i class="fa-solid @(finalEditSidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-xs"></i>
+                    <span class="text-xs font-bold writing-vertical">屬性</span>
+                    <i class="fa-solid @(finalEditSidebarCollapsed ? "fa-chevron-right" : "fa-chevron-left") text-xs"></i>
+                </button>
+
+                <fieldset disabled="@isFinalEditSaving" class="flex-grow flex overflow-hidden min-h-0 h-full m-0 p-0 border-0 disabled:opacity-95">
+                    @* 左側屬性欄 *@
+                    <div class="@(finalEditSidebarCollapsed ? "w-0" : "w-60 lg:w-72") flex-shrink-0 bg-white border-r border-gray-200 overflow-hidden flex flex-col transition-all duration-300 ease-in-out">
+                        <QuestionAttributesSidebar IsCollapsed="finalEditSidebarCollapsed"
+                            QuestionType="@finalEditFormData.QuestionType"
+                            QuestionTypeChanged="@((t) => { if (finalEditFormData is not null) finalEditFormData.QuestionType = t; })"
+                            @bind-Level="finalEditFormData.Level"
+                            @bind-Difficulty="finalEditFormData.Difficulty"
+                            @bind-Topic="finalEditFormData.Topic"
+                            @bind-Subtopic="finalEditFormData.Subtopic"
+                            @bind-WritingMode="finalEditFormData.WritingMode"
+                            @bind-Genre="finalEditFormData.Genre"
+                            @bind-AudioType="finalEditFormData.AudioType"
+                            @bind-Material="finalEditFormData.Material"
+                            @bind-CoreAbility="finalEditFormData.CoreAbility"
+                            @bind-DetailIndicator="finalEditFormData.DetailIndicator"
+                            InvalidFields="finalEditInvalidFields" />
+                    </div>
+
+                    @* 右側主要編輯區 *@
+                    <div class="flex-grow overflow-y-auto custom-scroll bg-oatmeal min-h-0">
+                        @switch (finalEditFormData.QuestionType)
+                        {
+                            case QuestionTypeCodes.Single:
+                            case QuestionTypeCodes.Select:
+                                <QuestionFormSingle @bind-Stem="finalEditFormData.Stem"
+                                    @bind-Options="finalEditFormData.Options"
+                                    @bind-Answer="finalEditFormData.Answer"
+                                    @bind-Analysis="finalEditFormData.Analysis"
+                                    InvalidFields="finalEditInvalidFields" />
+                                break;
+                            case QuestionTypeCodes.LongText:
+                                <QuestionFormLongText @bind-Stem="finalEditFormData.Stem"
+                                    @bind-Passage="finalEditFormData.ArticleContent"
+                                    @bind-GradingNote="finalEditFormData.GradingNote"
+                                    InvalidFields="finalEditInvalidFields" />
+                                break;
+                            case QuestionTypeCodes.ReadGroup:
+                                <QuestionFormReadGroup Status="@QuestionStatus.FinalReviewing"
+                                    @bind-Stem="finalEditFormData.Stem"
+                                    @bind-Passage="finalEditFormData.ArticleContent"
+                                    @bind-SubQuestions="finalEditFormData.ReadSubQuestions"
+                                    InvalidFields="finalEditInvalidFields" />
+                                break;
+                            case QuestionTypeCodes.ShortGroup:
+                                <QuestionFormShortGroup Status="@QuestionStatus.FinalReviewing"
+                                    @bind-Stem="finalEditFormData.Stem"
+                                    @bind-Passage="finalEditFormData.ArticleContent"
+                                    @bind-SubQuestions="finalEditFormData.ShortSubQuestions"
+                                    InvalidFields="finalEditInvalidFields" />
+                                break;
+                            case QuestionTypeCodes.Listen:
+                                <QuestionFormListen @bind-AudioFileName="finalEditFormData.AudioUrl"
+                                    @bind-Stem="finalEditFormData.Stem"
+                                    @bind-Options="finalEditFormData.Options"
+                                    @bind-Answer="finalEditFormData.Answer"
+                                    @bind-Analysis="finalEditFormData.Analysis"
+                                    InvalidFields="finalEditInvalidFields" />
+                                break;
+                            case QuestionTypeCodes.ListenGroup:
+                                <QuestionFormListenGroup @bind-AudioFileName="finalEditFormData.AudioUrl"
+                                    @bind-Passage="finalEditFormData.ArticleContent"
+                                    @bind-SubQuestions="finalEditFormData.ListenGroupSubQuestions"
+                                    InvalidFields="finalEditInvalidFields" />
+                                break;
+                        }
+                    </div>
+                </fieldset>
+            </div>
+            </CascadingValue>
+        </QuillEditorHost>
+
+        @* ====== Footer：僅「不採用」與「採用」兩個最終裁決按鈕 ====== *@
+        <div class="h-16 flex-shrink-0 border-t-2 border-gray-200 bg-white px-6 flex items-center justify-between">
+            <div class="flex items-center gap-2 text-xs text-gray-500 mr-4 shrink-0">
+                <i class="fa-solid fa-circle-info text-terracotta"></i>
+                <span class="text-terracotta font-bold">此為最終裁決，提交後無法再退回修改</span>
+            </div>
+            <div class="flex items-center gap-3">
+                @* 不採用按鈕 *@
+                <button type="button"
+                        disabled="@isFinalEditSaving"
+                        @onclick="() => FinalEditDecideAsync(ReviewDecision.Reject)"
+                        class="px-5 py-2.5 bg-red-700 hover:bg-red-800 text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+                    @if (isFinalEditSaving && finalEditPendingAction == "reject")
+                    {
+                        <i class="fa-solid fa-spinner fa-spin mr-1.5"></i>
+                        <span>送出中…</span>
+                    }
+                    else
+                    {
+                        <i class="fa-solid fa-ban mr-1.5"></i>
+                        <span>不採用</span>
+                    }
+                </button>
+                @* 採用按鈕 *@
+                <button type="button"
+                        disabled="@isFinalEditSaving"
+                        @onclick="() => FinalEditDecideAsync(ReviewDecision.Approve)"
+                        class="px-6 py-2.5 bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+                    @if (isFinalEditSaving && finalEditPendingAction == "approve")
+                    {
+                        <i class="fa-solid fa-spinner fa-spin mr-1.5"></i>
+                        <span>送出中…</span>
+                    }
+                    else
+                    {
+                        <i class="fa-solid fa-check mr-1.5"></i>
+                        <span>採用</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
 
 @code {
     [CascadingParameter(Name = "CurrentProject")]
@@ -574,6 +756,20 @@
     // ReviewModal 開關
     private bool showReviewModal;
     private int? selectedQuestionId;
+    // 開啟 Modal 時一併記下該行的 IsHistorical（Service 端已算好），傳給 ReviewModal 取代舊的 CurrentProjectStage 比對
+    private bool selectedIsHistorical;
+
+    // =====================================================================
+    //  Plan_021：總召代修題 Modal 狀態（FinalEdit Modal）
+    //  與 ReviewModal 互斥：ReviewModal 關閉後才開啟 FinalEdit Modal
+    // =====================================================================
+    private bool showFinalEditModal;
+    private QuestionFormData? finalEditFormData;
+    private int finalEditAssignmentId;           // 對應的 ReviewAssignment.Id
+    private bool finalEditSidebarCollapsed;
+    private bool isFinalEditSaving;
+    private string? finalEditPendingAction;      // "approve" / "reject"
+    private HashSet<string> finalEditInvalidFields = new();
 
     /// <summary>當前階段對應的審題 stage（命題/修題階段時為 null，列表為空）</summary>
     private ReviewStage? CurrentReviewStage => currentPhase?.PhaseCode switch
@@ -671,16 +867,158 @@
         }
     }
 
-    private void OpenReviewModal(int questionId)
+    private void OpenReviewModal(int questionId, bool isHistorical = false)
     {
-        selectedQuestionId = questionId;
-        showReviewModal = true;
+        selectedQuestionId   = questionId;
+        selectedIsHistorical = isHistorical;
+        showReviewModal      = true;
     }
 
     private async Task OnDecisionMadeAsync()
     {
         // 決策完成後重新載入兩邊列表（作業區 + 歷史）
         await Task.WhenAll(LoadAssignmentsAsync(), LoadHistoryAsync());
+    }
+
+    // ============================================================
+    //  Plan_021：總召代修題 Modal 方法群
+    // ============================================================
+
+    /// <summary>
+    /// ReviewModal 觸發 OnRequestFinalEdit → 本方法開啟命題編輯 Modal。
+    /// ReviewModal.CloseAsync() 已在 OnRequestEditAsync 中被觸發，此處直接開 FinalEdit Modal。
+    /// </summary>
+    private async Task OpenFinalEditModalAsync(int questionId)
+    {
+        // 1. 從 DB 載入題目最新資料（GetByIdAsync 複用 QuestionService，確保 Quill 內容正確）
+        QuestionFormData? data = null;
+        try
+        {
+            data = await QuestionService.GetByIdAsync(questionId);
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync("error", $"載入題目失敗：{ex.Message}");
+            return;
+        }
+
+        if (data is null)
+        {
+            await ShowToastAsync("error", "找不到此題目，可能已被刪除。");
+            return;
+        }
+
+        // 2. 找該題目對應的 Final Stage Assignment Id（從 assignments 緩存中找）
+        var matchedItem = assignments.FirstOrDefault(a =>
+            a.QuestionId == questionId &&
+            a.Stage      == ReviewStage.Final &&
+            a.CanFinalReviewerEdit);
+
+        if (matchedItem is null)
+        {
+            await ShowToastAsync("warning", "無法取得對應的審題分配資訊，請重新整理頁面。");
+            return;
+        }
+
+        // 3. 開啟 FinalEdit Modal
+        finalEditFormData          = data;
+        finalEditAssignmentId      = matchedItem.AssignmentId;
+        finalEditSidebarCollapsed  = false;
+        finalEditInvalidFields     = new();
+        showFinalEditModal         = true;
+    }
+
+    private void CloseFinalEditModal()
+    {
+        showFinalEditModal    = false;
+        finalEditFormData     = null;
+        finalEditAssignmentId = 0;
+        finalEditInvalidFields = new();
+    }
+
+    /// <summary>
+    /// 總召按下「採用」或「不採用」— 先驗證表單，再呼叫 FinalReviewerEditAndDecideAsync。
+    /// 成功後關閉 Modal、reload 列表（題目進入「審核結果與歷史」）。
+    /// </summary>
+    private async Task FinalEditDecideAsync(ReviewDecision decision)
+    {
+        if (finalEditFormData is null || currentUserId is null || isFinalEditSaving) return;
+
+        // 表單驗證（與 CwtList 命題完成驗證規則相同）
+        var errors = QuestionFormValidator.ValidateForCompletion(finalEditFormData);
+        if (errors.Count > 0)
+        {
+            // 標示紅框欄位
+            finalEditInvalidFields = errors.Select(e => e.FieldKey).ToHashSet();
+            var errorList = string.Join("\n", errors.Select(e => $"• {e.Message}"));
+            await JS.InvokeVoidAsync("Swal.fire", new
+            {
+                icon              = "warning",
+                title             = "請先填寫完整",
+                text              = errorList,
+                confirmButtonColor = "#6B8EAD"
+            });
+            return;
+        }
+
+        finalEditInvalidFields = new();
+
+        // 決策標籤（用於 toast）
+        var label = decision == ReviewDecision.Approve ? "採用" : "不採用";
+
+        // SweetAlert 確認對話框（最終裁決不可復原）
+        var swalResult = await JS.InvokeAsync<SwalResult>("Swal.fire", new
+        {
+            icon              = "question",
+            title             = $"確認最終裁決：{label}？",
+            text              = "此操作送出後無法撤銷，題目將進入審核結果歷史區。",
+            showCancelButton  = true,
+            confirmButtonText = $"確認{label}",
+            cancelButtonText  = "取消",
+            confirmButtonColor = decision == ReviewDecision.Approve ? "#8EAB94" : "#B91C1C"
+        });
+
+        if (!swalResult.IsConfirmed) return;
+
+        isFinalEditSaving      = true;
+        finalEditPendingAction = decision == ReviewDecision.Approve ? "approve" : "reject";
+        try
+        {
+            var ok = await ReviewService.FinalReviewerEditAndDecideAsync(
+                new FinalReviewerEditRequest
+                {
+                    AssignmentId = finalEditAssignmentId,
+                    QuestionId   = finalEditFormData.Id,
+                    FormData     = finalEditFormData,
+                    Decision     = decision
+                },
+                currentUserId.Value);
+
+            if (ok)
+            {
+                CloseFinalEditModal();
+                // 列表 reload：題目從「審題作業區」消失，出現在「審核結果與歷史」Tab
+                await Task.WhenAll(LoadAssignmentsAsync(), LoadHistoryAsync());
+                await ShowToastAsync("success", $"最終裁決已送出：{label}");
+            }
+            else
+            {
+                await ShowToastAsync("error", "送出失敗（題目可能已被決策，請重新整理頁面）");
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            await ShowToastAsync("warning", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync("error", $"送出失敗：{ex.Message}");
+        }
+        finally
+        {
+            isFinalEditSaving      = false;
+            finalEditPendingAction = null;
+        }
     }
 
     // ============================================================
@@ -818,4 +1156,7 @@
             <div class="text-2xl font-bold @valueColor">@value</div>
         </div>
     };
+
+    /// <summary>SweetAlert2 confirm dialog 回傳結構（與 CwtList.razor 相同定義）。</summary>
+    private record SwalResult(bool IsConfirmed, bool IsDenied, bool IsDismissed);
 }

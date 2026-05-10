@@ -48,6 +48,13 @@ public interface IReviewService
     /// Phase 3.5：僅寫入 Assignment 與 AuditLog；題目狀態流轉與總召退回計數由 Plan_006 處理。
     /// </summary>
     Task<bool> SubmitDecisionAsync(SubmitReviewDecisionRequest req, int operatorUserId);
+
+    /// <summary>
+    /// 總召代修題並做最終決策（ReturnCount >= 3 解鎖後，Plan_021 實作）。
+    /// 單一 transaction：UPDATE 題目所有欄位 → UPDATE Status(9/10) → UPDATE Assignment → 2 筆 AuditLog。
+    /// 只允許 Decision = Approve(採用) 或 Reject(不採用)；禁止 Revise（改後採用）。
+    /// </summary>
+    Task<bool> FinalReviewerEditAndDecideAsync(FinalReviewerEditRequest req, int operatorUserId);
 }
 
 public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : IReviewService
@@ -98,28 +105,53 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     {
         // 不再依 ReviewStage 篩選 — 顯示該使用者於本專案的全部分配
         // 同 query 撈當前 phase；前端 IsHistorical 由本 service 計算後填入，避免 UI 重做判斷
+        // ROW_NUMBER CTE：同一題同 Stage 可能有多筆（如 PhaseCode=8 退回重審後又新增 Pending）
+        // PARTITION BY (QuestionId, ReviewStage) ORDER BY Id DESC → 取最新一筆去重
         const string sql = """
+            WITH ranked AS (
+                SELECT
+                    ra.Id              AS AssignmentId,
+                    ra.QuestionId,
+                    ra.ReviewStage     AS Stage,
+                    ra.Decision,
+                    ra.ReviewStatus    AS Status,
+                    ISNULL(ra.DecidedAt, ra.CreatedAt) AS LastEditedAt,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY ra.QuestionId, ra.ReviewStage
+                        ORDER BY ra.Id DESC
+                    ) AS rn
+                FROM dbo.MT_ReviewAssignments ra
+                INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
+                WHERE ra.ProjectId  = @ProjectId
+                  AND ra.ReviewerId = @ReviewerId
+                  AND q.IsDeleted   = 0
+                  AND q.Status NOT IN (9, 10, 11, 12)   -- 排除最終態（Adopted/Rejected/ClosedNotAdopted/Archived），歷史 Tab 已由 GetHistoryAsync 負責
+            )
             SELECT
-                ra.Id              AS AssignmentId,
-                ra.QuestionId,
+                r.AssignmentId,
+                r.QuestionId,
                 q.QuestionCode,
-                q.QuestionTypeId   AS TypeId,
+                q.QuestionTypeId      AS TypeId,
                 q.Level,
                 q.Difficulty,
-                q.Stem             AS SummaryHtml,
-                ra.ReviewStage     AS Stage,
-                ra.Decision,
-                ra.ReviewStatus    AS Status,
-                ISNULL(ra.DecidedAt, ra.CreatedAt) AS LastEditedAt
-            FROM dbo.MT_ReviewAssignments ra
-            INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
-            WHERE ra.ProjectId   = @ProjectId
-              AND ra.ReviewerId  = @ReviewerId
-              AND q.IsDeleted    = 0
+                q.Stem                AS SummaryHtml,
+                r.Stage,
+                r.Decision,
+                r.Status,
+                r.LastEditedAt,
+                ISNULL(rc.ReturnCount, 0)      AS ReturnCount,
+                ISNULL(rc.CanEditByReviewer, 0) AS CanEditByReviewer
+            FROM ranked r
+            INNER JOIN dbo.MT_Questions q ON q.Id = r.QuestionId
+            -- 僅 Final Stage(3) 才有退回計數紀錄，其他 Stage 為 NULL → ISNULL 填 0
+            LEFT JOIN dbo.MT_ReviewReturnCounts rc
+                ON rc.QuestionId = r.QuestionId
+               AND r.Stage = 3   -- Final Stage only
+            WHERE r.rn = 1
             ORDER BY
-                CASE WHEN ra.ReviewStatus = 2 THEN 1 ELSE 0 END,  -- 待處理(0/1) 優先
-                ra.ReviewStage DESC,                              -- 較新階段在上方
-                q.Id ASC;                                          -- 同階段依題目 ID 升冪（與 CwtList 統一）
+                CASE WHEN r.Status = 2 THEN 1 ELSE 0 END,  -- 待處理(0/1) 優先
+                r.Stage DESC,                               -- 較新階段在上方
+                q.Id ASC;                                   -- 同階段依題目 ID 升冪（與 CwtList 統一）
             """;
 
         // 當前進行中的審題階段（僅 PhaseCode 3/5/7 對應 Mutual/Expert/Final；其餘為 null）
@@ -150,18 +182,31 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             var stage = (ReviewStage)r.Stage;
             return new ReviewListItem
             {
-                AssignmentId = r.AssignmentId,
-                QuestionId   = r.QuestionId,
-                QuestionCode = r.QuestionCode,
-                TypeKey      = QuestionConstants.TypeIdToKey.GetValueOrDefault(r.TypeId, ""),
-                Level        = r.Level,
-                Difficulty   = r.Difficulty,
-                SummaryText  = StripHtml(r.SummaryHtml),
-                Stage        = stage,
-                Decision     = r.Decision is null ? null : (ReviewDecision)r.Decision.Value,
-                Status       = (ReviewTaskStatus)r.Status,
-                LastEditedAt = r.LastEditedAt,
-                IsHistorical = currentStage is null || stage != currentStage
+                AssignmentId         = r.AssignmentId,
+                QuestionId           = r.QuestionId,
+                QuestionCode         = r.QuestionCode,
+                TypeKey              = QuestionConstants.TypeIdToKey.GetValueOrDefault(r.TypeId, ""),
+                Level                = r.Level,
+                Difficulty           = r.Difficulty,
+                SummaryText          = StripHtml(r.SummaryHtml),
+                Stage                = stage,
+                Decision             = r.Decision is null ? null : (ReviewDecision)r.Decision.Value,
+                Status               = (ReviewTaskStatus)r.Status,
+                LastEditedAt         = r.LastEditedAt,
+                FinalReturnCount     = r.ReturnCount,
+                CanFinalReviewerEdit = r.CanEditByReviewer,
+                // PhaseCode-based IsHistorical：phaseCode=8（總修）時 Stage=Final 應視為 active（非 historical）
+                // 舊邏輯 currentStage=null 強制 true，導致 PhaseCode=8 的新 Pending 行被誤標為歷史
+                IsHistorical = phaseCode switch
+                {
+                    3 => stage != ReviewStage.Mutual,   // 互審：Mutual 是 active，其餘為歷史
+                    4 => stage != ReviewStage.Mutual,   // 互修：Mutual 行是 active（命題老師查看意見）
+                    5 => stage != ReviewStage.Expert,   // 專審：Expert 是 active
+                    6 => stage != ReviewStage.Expert,   // 專修：Expert 行是 active
+                    7 => stage != ReviewStage.Final,    // 總審：Final 是 active
+                    8 => stage != ReviewStage.Final,    // 總修：Final 行是 active（總召看 Pending / 命題老師看意見）
+                    _ => false                          // 其他（命題階段等）：保守顯示全部
+                }
             };
         }).ToList();
 
@@ -285,7 +330,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 Decision, ISNULL(Comment, '') AS Comment, DecidedAt, CreatedAt
             FROM dbo.MT_ReviewAssignments
             WHERE QuestionId = @QuestionId AND ReviewerId = @ReviewerId
-            ORDER BY ReviewStage DESC;
+            ORDER BY ReviewStage DESC, Id DESC;
             """;
         var myAssignment = await conn.QueryFirstOrDefaultAsync<AssignmentDto>(assignSql, new
         {
@@ -596,7 +641,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     ///     Approve → Adopted(9) 立即鎖定（題目本梯次無需再走 PhaseCode=8 修題）
     ///     Revise/Reject → Buffer，PhaseCode=8 開始時由 EnsureFinalEditingPhaseAsync 批次降為 FinalEditing(8)
     ///   PhaseCode=8 次輪以後總審 (老師 [完成送審] 後 Status=7、由總審再決策)：
-    ///     Approve → Archived(12) 直接入庫（兩輪通過視同結案採用）
+    ///     Approve → Adopted(9)（已採用，等待 CloseProjectAsync 結案才升為 Archived(12)）
     ///     Revise  → FinalEditing(8) 立即退回老師再修
     ///     Reject  → null（caller 依 ReturnCount 判定：第 3 輪 Reject = Rejected(10)；否則維持 buffer 等於 8）
     ///
@@ -613,9 +658,9 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             (7, ReviewDecision.Approve) => QuestionStatus.Adopted,        // 9
             (7, _)                      => null,
 
-            // 次輪以後 (PhaseCode=8)：Approve→12（兩輪通過直接入庫）；Revise→8（退回老師）
+            // 次輪以後 (PhaseCode=8)：Approve→9（採用，結案後由 CloseProjectAsync 升至 12）；Revise→8（退回老師）
             // Reject 由 caller 依 ReturnCount 決定 8（buffer）或 10（第 3 輪終結）
-            (8, ReviewDecision.Approve) => QuestionStatus.Archived,       // 12
+            (8, ReviewDecision.Approve) => QuestionStatus.Adopted,        // 9（不寫 Archived，決策層最多到 9）
             (8, ReviewDecision.Revise)  => QuestionStatus.FinalEditing,   // 8
             (8, ReviewDecision.Reject)  => null,
 
@@ -625,10 +670,10 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
 
     /// <summary>
     /// 總召退回計數 +1。第 1 次 INSERT，後續 UPDATE。
-    /// ReturnCount 達 2 後自動設 CanEditByReviewer=true：
+    /// ReturnCount 達 3 後自動設 CanEditByReviewer=true：
     ///   第 1 次退回：老師可修，再送審；ReturnCount=1
-    ///   第 2 次退回：老師可修，再送審；ReturnCount=2 → 解鎖總召自編（第 3 輪由總召親自定奪）
-    ///   第 3 輪：總召不再退回老師，直接 Approve→Archived(12) 或 Reject→Rejected(10)
+    ///   第 2 次退回：老師可修，再送審；ReturnCount=2（UI 顯示「下次解鎖」警示）
+    ///   第 3 次退回：ReturnCount=3 → 解鎖總召自編（第 3 次由總召親自定奪，不再退回老師）
     /// MERGE + HOLDLOCK 確保並發安全。
     /// </summary>
     private static async Task BumpReturnCountAsync(
@@ -640,13 +685,315 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 ON target.QuestionId = src.QuestionId
             WHEN MATCHED THEN
                 UPDATE SET ReturnCount = target.ReturnCount + 1,
-                           CanEditByReviewer = CASE WHEN target.ReturnCount + 1 >= 2 THEN 1 ELSE 0 END
+                           CanEditByReviewer = CASE WHEN target.ReturnCount + 1 >= 3 THEN 1 ELSE 0 END
             WHEN NOT MATCHED THEN
                 INSERT (QuestionId, FinalReviewerId, ReturnCount, CanEditByReviewer)
                 VALUES (@QuestionId, @FinalReviewerId, 1, 0);
             """;
 
         await conn.ExecuteAsync(sql, new { QuestionId = questionId, FinalReviewerId = finalReviewerId }, tx);
+    }
+
+    // ====================================================================
+    //  Plan_021：總召代修題並最終裁決
+    // ====================================================================
+
+    public async Task<bool> FinalReviewerEditAndDecideAsync(FinalReviewerEditRequest req, int operatorUserId)
+    {
+        // 只允許採用或不採用；改後採用不應走此路徑
+        if (req.Decision == ReviewDecision.Revise)
+            throw new InvalidOperationException("代修題後只可「採用」或「不採用」，不可「改後採用」。");
+
+        var typeId = QuestionConstants.TypeKeyToId[req.FormData.QuestionType];
+
+        using var conn = _db.CreateConnection();
+        conn.Open();
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            // 1. 驗證 Assignment 屬於此使用者、Stage=Final、題目 Id 一致（防禦性雙重確認）
+            const string fetchAssignSql = """
+                SELECT ra.Id, ra.ProjectId, ra.QuestionId, ra.ReviewStage AS Stage, rc.CanEditByReviewer
+                FROM dbo.MT_ReviewAssignments ra
+                LEFT JOIN dbo.MT_ReviewReturnCounts rc ON rc.QuestionId = ra.QuestionId
+                WHERE ra.Id       = @AssignmentId
+                  AND ra.ReviewerId  = @ReviewerId
+                  AND ra.QuestionId  = @QuestionId
+                ORDER BY rc.Id DESC;
+                """;
+            var assign = await conn.QueryFirstOrDefaultAsync<FinalEditAssignMeta>(fetchAssignSql, new
+            {
+                AssignmentId = req.AssignmentId,
+                ReviewerId   = operatorUserId,
+                QuestionId   = req.QuestionId
+            }, tx);
+
+            if (assign is null)
+            {
+                tx.Rollback();
+                return false;   // 無效 Assignment 或權限不符
+            }
+
+            if (assign.Stage != (byte)ReviewStage.Final)
+                throw new InvalidOperationException("只有總審階段可執行代修題操作。");
+
+            if (!assign.CanEditByReviewer)
+                throw new InvalidOperationException("此題目尚未達到總召代修解鎖條件（需退回 3 次）。");
+
+            // 2. 讀取題目舊狀態
+            var oldStatus = await conn.ExecuteScalarAsync<byte?>(
+                "SELECT Status FROM dbo.MT_Questions WHERE Id = @Id AND IsDeleted = 0;",
+                new { Id = req.QuestionId }, tx);
+            if (oldStatus is null)
+            {
+                tx.Rollback();
+                return false;
+            }
+
+            // 3. 決策對應的新題目狀態
+            var newQuestionStatus = req.Decision == ReviewDecision.Approve
+                ? QuestionStatus.Adopted    // 9
+                : QuestionStatus.Rejected;  // 10
+
+            // 4. UPDATE 題目所有欄位 + Status + UpdatedAt（同 QuestionService.UpdateAsync 的 updateSql）
+            const string updateSql = """
+                UPDATE dbo.MT_Questions SET
+                    QuestionTypeId  = @TypeId,
+                    Status          = @Status,
+                    Level           = @Level,
+                    Difficulty      = @Difficulty,
+                    Stem            = @Stem,
+                    Analysis        = @Analysis,
+                    CorrectAnswer   = @Answer,
+                    OptionA         = @OptA,
+                    OptionB         = @OptB,
+                    OptionC         = @OptC,
+                    OptionD         = @OptD,
+                    ArticleTitle    = @ArticleTitle,
+                    ArticleContent  = @ArticleContent,
+                    AudioUrl        = @AudioUrl,
+                    GradingNote     = @GradingNote,
+                    Topic           = @Topic,
+                    Subtopic        = @Subtopic,
+                    Genre           = @Genre,
+                    Material        = @Material,
+                    WritingMode     = @WritingMode,
+                    AudioType       = @AudioType,
+                    CoreAbility     = @CoreAbility,
+                    DetailIndicator = @DetailIndicator,
+                    UpdatedAt       = SYSDATETIME()
+                WHERE Id = @Id AND IsDeleted = 0;
+                """;
+
+            var f = req.FormData;
+            var affected = await conn.ExecuteAsync(updateSql, new
+            {
+                Id             = req.QuestionId,
+                TypeId         = typeId,
+                Status         = newQuestionStatus,
+                f.Level,
+                f.Difficulty,
+                Stem           = NullIfEmpty(f.Stem),
+                Analysis       = NullIfEmpty(f.Analysis),
+                Answer         = NullIfEmpty(f.Answer),
+                OptA           = SafeOption(f.Options, 0),
+                OptB           = SafeOption(f.Options, 1),
+                OptC           = SafeOption(f.Options, 2),
+                OptD           = SafeOption(f.Options, 3),
+                ArticleTitle   = NullIfEmpty(f.ArticleTitle),
+                ArticleContent = NullIfEmpty(f.ArticleContent),
+                AudioUrl       = NullIfEmpty(f.AudioUrl),
+                GradingNote    = NullIfEmpty(f.GradingNote),
+                f.Topic,
+                f.Subtopic,
+                f.Genre,
+                f.Material,
+                f.WritingMode,
+                f.AudioType,
+                f.CoreAbility,
+                f.DetailIndicator
+            }, tx);
+
+            if (affected == 0) { tx.Rollback(); return false; }
+
+            // 5. 子題 UPSERT（使用 QuestionService 的靜態 helper 複製不到，此處內聯子題處理）
+            //    總召代修非題組題型較多（Single/Listen），子題邏輯保守：若 formData 含子題清單則 UPSERT
+            await UpsertFinalSubQuestionsAsync(conn, tx, req.QuestionId, req.FormData);
+
+            // 6. UPDATE ReviewAssignment → Completed, Decision, DecidedAt
+            const string updateAssignSql = """
+                UPDATE dbo.MT_ReviewAssignments
+                SET Decision     = @Decision,
+                    ReviewStatus = @Completed,
+                    DecidedAt    = SYSDATETIME()
+                WHERE Id = @AssignmentId;
+                """;
+            await conn.ExecuteAsync(updateAssignSql, new
+            {
+                AssignmentId = req.AssignmentId,
+                Decision     = (byte)req.Decision,
+                Completed    = (byte)ReviewTaskStatus.Completed
+            }, tx);
+
+            // 7. AuditLog：FinalReviewerEdit（題目層級）
+            const string auditSql = """
+                INSERT INTO dbo.MT_AuditLogs
+                    (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
+                VALUES
+                    (@UserId, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
+                """;
+            await conn.ExecuteAsync(auditSql, new
+            {
+                UserId     = operatorUserId,
+                ProjectId  = assign.ProjectId,
+                Action     = AuditLogAction.Modify,
+                TargetType = AuditLogTargetType.Questions,
+                TargetId   = req.QuestionId,
+                OldValue   = System.Text.Json.JsonSerializer.Serialize(new { Status = oldStatus.Value }),
+                NewValue   = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    Reason        = "FinalReviewerEdit",
+                    Status        = (byte)newQuestionStatus,
+                    QuestionType  = f.QuestionType
+                })
+            }, tx);
+
+            // 8. AuditLog：FinalDecision（審題層級）
+            await conn.ExecuteAsync(auditSql, new
+            {
+                UserId     = operatorUserId,
+                ProjectId  = assign.ProjectId,
+                Action     = AuditLogAction.Modify,
+                TargetType = AuditLogTargetType.Reviews,
+                TargetId   = req.QuestionId,
+                OldValue   = (string?)null,
+                NewValue   = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    Reason         = "FinalDecision",
+                    Stage          = (byte)ReviewStage.Final,
+                    Decision       = (byte)req.Decision,
+                    QuestionStatus = (byte)newQuestionStatus
+                })
+            }, tx);
+
+            tx.Commit();
+            return true;
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 總召代修題的子題 UPSERT（精簡版，只對現有子題做 Stem/Options/Answer 更新，不新增/刪除子題）。
+    /// 閱讀題組（ReadGroup）：含 Options + Answer；
+    /// 短文題組（ShortGroup）：開放式問答，無 CorrectAnswer；
+    /// 聽力題組（ListenGroup）：含 Options + Answer，DetailIndicator 欄位名與閱讀題組不同。
+    /// </summary>
+    private static async Task UpsertFinalSubQuestionsAsync(
+        System.Data.IDbConnection conn, IDbTransaction tx, int questionId, QuestionFormData f)
+    {
+        // 取出現有子題 Id 清單（依 SortOrder）
+        var existingIds = (await conn.QueryAsync<int>(
+            "SELECT Id FROM dbo.MT_SubQuestions WHERE ParentQuestionId = @QId AND IsDeleted = 0 ORDER BY SortOrder;",
+            new { QId = questionId }, tx)).ToList();
+
+        if (existingIds.Count == 0) return;
+
+        switch (f.QuestionType)
+        {
+            case QuestionTypeCodes.ReadGroup:
+            {
+                if (f.ReadSubQuestions is null) break;
+                const string sql = """
+                    UPDATE dbo.MT_SubQuestions SET
+                        Stem          = @Stem,
+                        CorrectAnswer = @Answer,
+                        OptionA       = @OptA,
+                        OptionB       = @OptB,
+                        OptionC       = @OptC,
+                        OptionD       = @OptD,
+                        Analysis      = @Analysis
+                    WHERE Id = @Id AND ParentQuestionId = @QId AND IsDeleted = 0;
+                    """;
+                for (var i = 0; i < f.ReadSubQuestions.Count && i < existingIds.Count; i++)
+                {
+                    var sq = f.ReadSubQuestions[i];
+                    await conn.ExecuteAsync(sql, new
+                    {
+                        Id       = existingIds[i],
+                        QId      = questionId,
+                        Stem     = NullIfEmpty(sq.Stem),
+                        Answer   = NullIfEmpty(sq.Answer),
+                        OptA     = sq.Options?.Length > 0 ? sq.Options[0] : null,
+                        OptB     = sq.Options?.Length > 1 ? sq.Options[1] : null,
+                        OptC     = sq.Options?.Length > 2 ? sq.Options[2] : null,
+                        OptD     = sq.Options?.Length > 3 ? sq.Options[3] : null,
+                        Analysis = NullIfEmpty(sq.Analysis)
+                    }, tx);
+                }
+                break;
+            }
+
+            case QuestionTypeCodes.ShortGroup:
+            {
+                // 短文題組子題為開放式問答，無 CorrectAnswer 欄位
+                if (f.ShortSubQuestions is null) break;
+                const string sql = """
+                    UPDATE dbo.MT_SubQuestions SET
+                        Stem     = @Stem,
+                        Analysis = @Analysis
+                    WHERE Id = @Id AND ParentQuestionId = @QId AND IsDeleted = 0;
+                    """;
+                for (var i = 0; i < f.ShortSubQuestions.Count && i < existingIds.Count; i++)
+                {
+                    var sq = f.ShortSubQuestions[i];
+                    await conn.ExecuteAsync(sql, new
+                    {
+                        Id       = existingIds[i],
+                        QId      = questionId,
+                        Stem     = NullIfEmpty(sq.Stem),
+                        Analysis = NullIfEmpty(sq.Analysis)
+                    }, tx);
+                }
+                break;
+            }
+
+            case QuestionTypeCodes.ListenGroup:
+            {
+                if (f.ListenGroupSubQuestions is null) break;
+                const string sql = """
+                    UPDATE dbo.MT_SubQuestions SET
+                        Stem          = @Stem,
+                        CorrectAnswer = @Answer,
+                        OptionA       = @OptA,
+                        OptionB       = @OptB,
+                        OptionC       = @OptC,
+                        OptionD       = @OptD,
+                        Analysis      = @Analysis
+                    WHERE Id = @Id AND ParentQuestionId = @QId AND IsDeleted = 0;
+                    """;
+                for (var i = 0; i < f.ListenGroupSubQuestions.Count && i < existingIds.Count; i++)
+                {
+                    var sq = f.ListenGroupSubQuestions[i];
+                    await conn.ExecuteAsync(sql, new
+                    {
+                        Id       = existingIds[i],
+                        QId      = questionId,
+                        Stem     = NullIfEmpty(sq.Stem),
+                        Answer   = NullIfEmpty(sq.Answer),
+                        OptA     = sq.Options?.Length > 0 ? sq.Options[0] : null,
+                        OptB     = sq.Options?.Length > 1 ? sq.Options[1] : null,
+                        OptC     = sq.Options?.Length > 2 ? sq.Options[2] : null,
+                        OptD     = sq.Options?.Length > 3 ? sq.Options[3] : null,
+                        Analysis = NullIfEmpty(sq.Analysis)
+                    }, tx);
+                }
+                break;
+            }
+        }
     }
 
     // ====================================================================
@@ -884,8 +1231,28 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     }
 
     // ====================================================================
+    //  Plan_021 私有 helper（複用 QuestionService 的字串安全轉換邏輯）
+    // ====================================================================
+
+    private static string? NullIfEmpty(string? s)
+        => string.IsNullOrWhiteSpace(s) ? null : s;
+
+    private static string? SafeOption(string[] options, int index)
+        => options.Length > index ? NullIfEmpty(options[index]) : null;
+
+    // ====================================================================
     //  私有 DTO（僅 Service 內部用）
     // ====================================================================
+
+    /// <summary>Plan_021 代修題時取出 Assignment 元資料的 DTO。</summary>
+    private sealed class FinalEditAssignMeta
+    {
+        public int Id { get; set; }
+        public int ProjectId { get; set; }
+        public int QuestionId { get; set; }
+        public byte Stage { get; set; }
+        public bool CanEditByReviewer { get; set; }
+    }
 
     private sealed class AssignmentListRow
     {
@@ -900,6 +1267,10 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         public byte? Decision { get; set; }
         public byte Status { get; set; }
         public DateTime LastEditedAt { get; set; }
+        /// <summary>總召退回次數（LEFT JOIN MT_ReviewReturnCounts；非 Final 行為 0）</summary>
+        public int ReturnCount { get; set; }
+        /// <summary>是否已解鎖總召自行修題（ReturnCount >= 3 時為 1）</summary>
+        public bool CanEditByReviewer { get; set; }
     }
 
     private sealed class HistoryListRow

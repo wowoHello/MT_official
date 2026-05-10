@@ -326,6 +326,9 @@ public class OverviewService(
         // 邊界守門：非修題階段直接回 0
         if (phaseCode is not (4 or 6 or 8)) return 0;
 
+        // Plan_014：本輪過濾 — 只認「上次總審退回後」寫的 reply 為本輪已修
+        // PhaseCode 4/6 為線性單輪，MAX(DecidedAt for ReviewStage=3) 永遠為 NULL（fallback 1900-01-01），
+        // 等同未過濾，行為不變；只對 PhaseCode=8 真正生效。
         const string sql = """
             SELECT COUNT(1)
             FROM dbo.MT_Questions q
@@ -337,6 +340,10 @@ public class OverviewService(
                     WHERE rr.QuestionId = q.Id
                       AND rr.UserId     = q.CreatorId
                       AND rr.Stage      = q.Status
+                      AND rr.CreatedAt > ISNULL(
+                          (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
+                           WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)),
+                          '1900-01-01')
               );
             """;
 
@@ -354,6 +361,7 @@ public class OverviewService(
     {
         // 輕量 SQL：只 SELECT 分桶必要欄位（不 join 顯示資料表）
         // HasRepliedThisStage 邏輯與 QuestionService.ListAsync 同步：EXISTS RevisionReplies 同 Stage + UserId=CreatorId
+        // Plan_014：與 ListAsync 同步加上「本輪過濾」— PC=8 跨輪退回後舊 reply 不算本輪已修
         const string sql = """
             SELECT
                 q.Id,
@@ -365,6 +373,10 @@ public class OverviewService(
                       AND rr.UserId     = q.CreatorId
                       AND rr.Stage      = q.Status
                       AND q.Status IN (4, 6, 8)
+                      AND rr.CreatedAt > ISNULL(
+                          (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
+                           WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)),
+                          '1900-01-01')
                 ) THEN 1 ELSE 0 END AS BIT) AS HasRepliedThisStage
             FROM dbo.MT_Questions q
             WHERE q.ProjectId = @ProjectId;

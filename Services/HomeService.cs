@@ -100,6 +100,7 @@ public class HomeService : IHomeService
 
                 -- 4) 各修題階段中、尚未送出修題說明的題數（依 Status 分組）
                 --    排除：MT_RevisionReplies 已有該使用者於相同修題階段送出回覆的題目
+                --    Plan_014：本輪過濾 — PC=8 跨輪退回後舊 reply 不算本輪已修，題目須回到「未修」待辦
                 SELECT q.Status, COUNT(*) AS Cnt
                 FROM dbo.MT_Questions q
                 WHERE q.ProjectId = @ProjectId
@@ -112,6 +113,10 @@ public class HomeService : IHomeService
                       WHERE rr.QuestionId = q.Id
                         AND rr.UserId     = q.CreatorId
                         AND rr.Stage      = q.Status
+                        AND rr.CreatedAt > ISNULL(
+                            (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
+                             WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)),
+                            '1900-01-01')
                   )
                 GROUP BY q.Status;
 
@@ -155,6 +160,7 @@ public class HomeService : IHomeService
                 GROUP BY ReviewStage;
 
                 -- 10) 管理員視角：全梯次待修題彙整（Status 4/6/8，無對應 RevisionReplies）
+                --     Plan_014：本輪過濾 — PC=8 跨輪退回後舊 reply 不算本輪已修
                 SELECT q.Status, COUNT(*) AS Cnt
                 FROM dbo.MT_Questions q
                 WHERE q.ProjectId = @ProjectId
@@ -166,6 +172,10 @@ public class HomeService : IHomeService
                       WHERE rr.QuestionId = q.Id
                         AND rr.UserId     = q.CreatorId
                         AND rr.Stage      = q.Status
+                        AND rr.CreatedAt > ISNULL(
+                            (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
+                             WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)),
+                            '1900-01-01')
                   )
                 GROUP BY q.Status;
                 """;

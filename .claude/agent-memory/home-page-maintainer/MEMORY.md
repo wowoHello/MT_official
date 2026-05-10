@@ -1,1 +1,5 @@
 - [首頁參考素材路徑](reference_home_prototype.md) — 首頁規格文件改為 D:\MTrefer\pageFinal_doc\Home.md，舊原型 html/js 已棄用
+- [首頁三檔案架構現況](project_home_architecture.md) — Home.razor 注入、CascadingParameter、生命週期、導航防護邏輯
+- [急件警示產生邏輯](project_urgent_alert_logic.md) — 10 個結果集、5 種 AlertType、雙視角（個人/管理員）、角色常數
+- [首頁公告看板實作](project_home_announcements.md) — 分類標籤配色、NEW 標籤判斷、相對日期格式、Modal 顯示
+- [功能模組卡片機制](project_home_module_cards.md) — ModuleCards 由 MainLayout CascadingValue 傳入，Home 不查 DB

@@ -390,8 +390,8 @@
                                             </div>
                                             <div class="flex items-center gap-3">
                                                 <span class="text-xs text-gray-500">@item.ProjectName</span>
-                                                <span class="px-2 py-0.5 text-xs font-bold rounded @GetStageBadgeClass(item.ReviewStage)">@item.StageText</span>
-                                                <span class="px-2 py-0.5 text-xs font-bold rounded @GetDecisionBadgeClass(item.Decision)">@item.DecisionText</span>
+                                                <span class="px-2 py-0.5 text-xs font-bold rounded @GetStageBadgeClass(item)">@item.StageText</span>
+                                                <span class="px-2 py-0.5 text-xs font-bold rounded @GetDecisionBadgeClass(item)">@item.DecisionText</span>
                                             </div>
                                         </div>
                                     }
@@ -1209,21 +1209,29 @@
     };
 
 
-    private static string GetStageBadgeClass(int stage) => stage switch
-    {
-        1 => "bg-blue-50 text-blue-700",
-        2 => "bg-purple-50 text-purple-700",
-        3 => "bg-amber-50 text-amber-700",
-        _ => "bg-gray-100 text-gray-500"
-    };
+    /// <summary>結案後階段 Badge 改為中性灰；進行中依審題階段配色。</summary>
+    private static string GetStageBadgeClass(TeacherReviewItem item) =>
+        item.ProjectClosedAt != null
+            ? "bg-gray-100 text-gray-600"
+            : item.ReviewStage switch
+            {
+                1 => "bg-blue-50 text-blue-700",
+                2 => "bg-purple-50 text-purple-700",
+                3 => "bg-amber-50 text-amber-700",
+                _ => "bg-gray-100 text-gray-500"
+            };
 
-    private static string GetDecisionBadgeClass(int? decision) => decision switch
-    {
-        1 => "bg-sage/15 text-sage",
-        2 => "bg-yellow-50 text-yellow-700",
-        3 => "bg-terracotta/15 text-terracotta",
-        _ => "bg-gray-100 text-gray-500"
-    };
+    /// <summary>結案後決策 Badge 依最終題目狀態配色（採用=鼠尾草綠、不採用=赤陶橘）；進行中依中間決策配色。</summary>
+    private static string GetDecisionBadgeClass(TeacherReviewItem item) =>
+        item.ProjectClosedAt != null
+            ? (item.FinalQuestionStatus == 12 ? "bg-sage/15 text-sage" : "bg-terracotta/15 text-terracotta")
+            : item.Decision switch
+            {
+                1 => "bg-sage/15 text-sage",
+                2 => "bg-yellow-50 text-yellow-700",
+                3 => "bg-terracotta/15 text-terracotta",
+                _ => "bg-gray-100 text-gray-500"
+            };
 
     private static string GetQuestionStatusBadge(int status) => status switch
     {

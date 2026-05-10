@@ -85,7 +85,7 @@
                         @if (data.FinalReturnCount >= 2 && stage == ReviewStage.Final)
                         {
                             <span class="ml-2 inline-flex items-center px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold border border-red-200 shrink-0">
-                                <i class="fa-solid fa-triangle-exclamation mr-1"></i> 已退回 2 次，第 3 次解鎖編輯
+                                <i class="fa-solid fa-triangle-exclamation mr-1"></i> 已退回 2 次，解鎖編輯與總決策
                             </span>
                         }
                     }
@@ -129,12 +129,23 @@
             <div class="w-[30%] border-l border-gray-200 bg-white flex flex-col">
                 @if (data is not null)
                 {
-                    @* 同階段內不論已否決策皆可繼續編輯（與互審行為一致）；
-                       只有「不是分配給此人」或「階段已結束」時才唯讀 *@
+                    @* 唯讀條件（三擇一）：
+                       1. 未分配給此人
+                       2. 階段已結束（IsHistorical）
+                       3. 已決策 / 已退回（IsCompleted=true）— 不允許再輸入意見；
+                          僅 Pending（IsCompleted=false）時才開放意見輸入與決策按鈕 *@
+                    var isActionReadOnly = data.MyAssignment is null
+                                       || IsHistoricalAssignment
+                                       || (data.MyAssignment?.IsCompleted ?? false);
+                    var lockReason = IsHistoricalAssignment
+                        ? "階段已結束"
+                        : (data.MyAssignment?.IsCompleted ?? false)
+                            ? "已退回，等命題老師修題"
+                            : (string?)null;
                     <ReviewActionPanel @ref="actionPanel"
                                        @bind-Comment="commentDraft"
-                                       IsReadOnly="@(data.MyAssignment is null || IsHistoricalAssignment)"
-                                       LockReason="@(IsHistoricalAssignment ? "階段已結束" : null)"
+                                       IsReadOnly="@isActionReadOnly"
+                                       LockReason="@lockReason"
                                        History="@data.History"
                                        SimilarQuestions="@data.SimilarQuestions" />
                 }
@@ -185,17 +196,28 @@
     [Parameter, EditorRequired] public int CurrentUserId { get; set; }
 
     /// <summary>
-    /// 專案目前進行中的審題階段（命題/修題/結案時為 null）。
-    /// 若 MyAssignment.Stage != CurrentProjectStage → 該分配為歷史唯讀，僅供追蹤後續修題與評論。
+    /// 由父層（Reviews.razor）傳入 Service 端已計算好的 IsHistorical 旗標。
+    /// 取代舊的 CurrentProjectStage 自行比對邏輯，避免 PhaseCode=8（總修）時
+    /// currentStage=null 導致所有 Final Stage 分配被誤標為歷史唯讀。
     /// </summary>
-    [Parameter] public ReviewStage? CurrentProjectStage { get; set; }
+    [Parameter] public bool IsHistoricalFromService { get; set; }
 
     /// <summary>關閉後若有發生決策變動，通知父層 reload 列表</summary>
     [Parameter] public EventCallback OnDecisionMade { get; set; }
 
-    /// <summary>歷史唯讀判斷：階段已結束或專案已不在審題期 → 不可編輯</summary>
-    private bool IsHistoricalAssignment => data?.MyAssignment is not null
-        && (CurrentProjectStage is null || data.MyAssignment.Stage != CurrentProjectStage);
+    /// <summary>
+    /// 總召點擊「編輯題目」→ 通知父層（Reviews.razor）開啟命題編輯 Modal。
+    /// 傳出題目 Id，讓父層去 GetByIdAsync 並關閉 ReviewModal、開啟 FinalEditModal。
+    /// Plan_021：由父層統一管理兩個 Modal 的開關，ReviewModal 自身不做跨 Modal 操作。
+    /// </summary>
+    [Parameter] public EventCallback<int> OnRequestFinalEdit { get; set; }
+
+    /// <summary>
+    /// 歷史唯讀判斷：完全信任 Service 端算好的 IsHistorical 旗標。
+    /// - MyAssignment is null → 此題未分配給當前使用者，唯讀
+    /// - IsHistoricalFromService → Service 端判定此行為歷史行（stage != active stage），唯讀
+    /// </summary>
+    private bool IsHistoricalAssignment => data?.MyAssignment is null || IsHistoricalFromService;
 
     private ReviewModalData? data;
     private bool isLoading;
@@ -348,12 +370,17 @@
     }
 
     /// <summary>
-    /// 總審第 3 次「編輯題目」按鈕：依 Plan_003 Q3 — 跳出去用命題 Modal 編輯。
-    /// 完整流程屬 Plan_006 範圍；本階段先顯示提示，避免用戶以為按了沒反應。
+    /// 總審第 3 次「編輯題目」按鈕（Plan_021 正式實作）。
+    /// 觸發父層 OnRequestFinalEdit EventCallback → 父層關閉 ReviewModal 並開啟命題編輯 Modal。
+    /// Reviews.razor 統一管理兩個 Modal 的開關，ReviewModal 自身不做跨 Modal 操作。
     /// </summary>
     private async Task OnRequestEditAsync()
     {
-        await ShowToastAsync("info", "「編輯題目」流程將於 Plan_006 開放（跳出 Modal 開啟命題編輯）");
+        if (data?.Question?.Id is null or 0) return;
+        // 先抓 id 再關閉：CloseAsync() 會把 data 清掉，先拷貝出來避免 NRE
+        var questionId = data.Question.Id;
+        await CloseAsync();
+        await OnRequestFinalEdit.InvokeAsync(questionId);
     }
 
     private ValueTask ShowToastAsync(string icon, string title) =>
