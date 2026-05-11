@@ -68,7 +68,7 @@
 | `MT_Teachers` | 型別變更 | `TeacherCode` NVARCHAR→VARCHAR；`IdNumber` NVARCHAR(200)→VARBINARY(256)（強制加密） |
 | `MT_PasswordResetTokens` | 型別微調 | `Token` NVARCHAR(500)→VARCHAR(64) |
 | `MT_LoginLogs` | 型別+列舉 | `Id` INT→BIGINT；`EventType` 新增 `3=PasswordReset` |
-| `MT_AuditLogs` | 型別+列舉 | `Id` INT→BIGINT；`Action` 新增 `3=Restore`；`TargetType` TINYINT enum→`VARCHAR(40)` 字串 |
+| `MT_AuditLogs` | 型別+列舉 | `Id` INT→BIGINT；`Action` 新增 `3=Restore`；`TargetType` 維持 `TINYINT`（對應字串名稱由 `AuditTargetType` enum 管理） |
 | `MT_Projects` | 型別微調 | `ProjectCode` NVARCHAR(20)→VARCHAR(20) |
 | `MT_ProjectPhases` | 型別微調 | `SortOrder` INT→TINYINT |
 | `MT_ProjectTargets` | **保留欄位** | `Level TINYINT NULL`（保留供未來「題型 × 等級」交叉設定使用）；新增 `(ProjectId, QuestionTypeId, Level)` 唯一約束 |
@@ -77,14 +77,15 @@
 | `MT_MemberQuotas` | **保留欄位** | `Level TINYINT NULL`（同上）；新增 `(ProjectMemberId, QuestionTypeId, Level)` 唯一約束 |
 | `MT_Announcements` | 重大變更 | `Status (0/1)` 拆為 `IsDraft BIT`；DisplayStatus 改由 View 計算；新增 `IsDeleted/DeletedAt`；**移除 `ProjectId` 欄位**（綁定梯次拆到 `MT_AnnouncementTargets` 多對多） |
 | `MT_AnnouncementTargets` | **新增表** | 公告 × 梯次 多對多關聯（無 row=全站廣播；有 row=指定梯次集合） |
-| `MT_Questions` | **核心重構** | Status byte 拆成 `Lifecycle/DraftStage/CurrentReviewStage/Outcome` 四個正交欄位 + `IsHistorical/DisplayBadgeText/DisplayBadgeKind/DisplayUpdatedAt` 四個 snapshot 欄位 + `SubmittedAt/DecidedAt/DeletedBy` |
+| `MT_Questions` | **核心重構** | Status byte 拆成 `Lifecycle/DraftStage/CurrentReviewStage/Outcome` 四個正交欄位 + `DisplayBadgeText/DisplayBadgeKind/DisplayUpdatedAt` 三個 snapshot 欄位（反正規化警示見 §5.1） + `SubmittedAt/DecidedAt/DeletedBy`；歷史題目改由 `Outcome != 0` 推導，不存 `IsHistorical`；**移除 `GradingNote`**（合併進 `Analysis`） |
 | `MT_QuestionPhaseLog` | **新增表** | 七階段燈號的事件流 |
 | `MT_QuestionCodeSequence` | — | 不變 |
 | `MT_SubQuestions` | 型別微調 | `SortOrder` INT→TINYINT；新增 PK 以外的索引 |
-| `MT_ReviewAssignments` | 重大變更 | −`ReviewStatus` 改用 `RespondedAt IS NULL`；`Decision/Comment/DecidedAt` 改名為 `LatestDecision/LatestComment/RespondedAt`；+`Round/UpdatedAt` |
+| `MT_QuestionImages` | **新增表** | 題目／子題附圖（題幹、四選項、文章內容），每欄至多 2 張，`FieldType TINYINT` 對應 C# enum |
+| `MT_ReviewAssignments` | 重大變更 | −`ReviewStatus` 改用 `RespondedAt IS NULL`；`DecidedAt` 改名為 `RespondedAt`；移除 `Decision/Comment`（改由 `MT_ReviewDecisions` 即時 `OUTER APPLY TOP 1` 取得）；+`Round/UpdatedAt` |
 | `MT_ReviewDecisions` | **新增表** | 審題決策事件流（取代舊 `MT_ReviewReturnCounts`） |
 | `MT_ReviewReturnCounts` | **整表刪除** | 退回次數改為對 `MT_ReviewDecisions` 即時 COUNT |
-| `MT_RevisionReplies` | 新增欄位 | +`Round TINYINT`、+`IsCurrentRound BIT` |
+| `MT_RevisionReplies` | 新增欄位 | +`Round TINYINT`（本輪由 `MAX(Round)` 推導，不另存 `IsCurrentRound` flag） |
 | `MT_SimilarityChecks` | — | 不變 |
 | `MT_Notifications` | **新增表** | 站內通知（鈴鐺與留言預留） |
 | `MT_UserGuideFiles` | 新增欄位 | +`CreatedAt`（方便依時間排序） |
@@ -434,9 +435,8 @@ CREATE TABLE dbo.MT_Questions (
     -- 2 = Rejected         不採用（總審判定）
     -- 3 = ClosedNotAdopted 結案時非採用→歸為不採用入庫
 
-    -- ⑤ 是否為「歷史紀錄」（不再屬於本梯次當前作業範圍）
-    --   由服務層在梯次階段切換時批次更新
-    IsHistorical    BIT NOT NULL DEFAULT 0,
+    -- ※ 「歷史題目」由 `Outcome != 0` 推導（已決策），或 JOIN MT_Projects 看 `ClosedAt IS NOT NULL`
+    --   不存 IsHistorical flag，避免結案時的批次同步飄移風險
 
     -- ═══════════════════════════════════════════════════════════════
     -- ★ Display Snapshot：直接給列表頁與儀表板讀
@@ -476,7 +476,7 @@ CREATE TABLE dbo.MT_Questions (
     ArticleTitle        NVARCHAR(MAX),
     ArticleContent      NVARCHAR(MAX),
     AudioUrl            NVARCHAR(500),
-    GradingNote         NVARCHAR(MAX),
+    -- 註：舊版 GradingNote（批閱說明）已合併進 Analysis；長文題型 UI label 顯示「批閱說明」、其餘題型顯示「試題解析」，但讀寫同一欄位
 
     -- ═══════════════════════════════════════════════════════════════
     -- 軟刪除與時間
@@ -494,8 +494,16 @@ CREATE TABLE dbo.MT_Questions (
 CREATE INDEX IX_MT_Questions_ProjectId_Lifecycle ON dbo.MT_Questions(ProjectId, Lifecycle);
 CREATE INDEX IX_MT_Questions_CreatorId           ON dbo.MT_Questions(CreatorId);
 CREATE INDEX IX_MT_Questions_Outcome             ON dbo.MT_Questions(Outcome) WHERE Outcome > 0;
-CREATE INDEX IX_MT_Questions_Project_Snapshot    ON dbo.MT_Questions(ProjectId, IsHistorical, IsDeleted);
+CREATE INDEX IX_MT_Questions_Project_Active      ON dbo.MT_Questions(ProjectId, Lifecycle) WHERE IsDeleted = 0;
 ```
+
+> ⚠️ **反正規化警示（DisplayBadgeText / DisplayBadgeKind / DisplayUpdatedAt）**
+>
+> 這三個欄位屬於 **Precomputed Column 反正規化**：原本可由 `Lifecycle + DraftStage + CurrentReviewStage + Outcome + 本人本輪修題狀態 + 本輪審題者狀態` 在讀取時推導，但因列表頁與儀表板高頻讀取、推導邏輯複雜（涉及多表狀態），實體化儲存以換取讀取效能。為避免退化成「飄移的快取」，**必須遵守以下三條配套規範**：
+>
+> 1. **單一寫入點**：所有會改 Badge 的事件必須走同一個 Service 方法（建議 `QuestionStateService.RefreshDisplayBadgeAsync(questionId)`）。任何 `UPDATE MT_Questions SET DraftStage/Lifecycle/CurrentReviewStage/Outcome = ...` 的 SQL **不得直接寫**，一律透過該 Service。寫入時機涵蓋：命題送審 / 草稿 / 完成、梯次階段切換、審題決策寫入、修題回覆送出、結案入庫。
+> 2. **重算工具**：必須提供批次重算方法 `RecalculateAllBadgesAsync(int projectId)`，從原始狀態欄位重新計算整個梯次的 Badge。萬一某個寫入點漏寫、或邏輯升級時可一鍵刷新，作為飄移的安全網。
+> 3. **計算邏輯集中**：Badge 推導邏輯只能寫在一個地方（建議 `Models/QuestionDisplayBadgeCalculator.cs`），輸入是 Question entity + 上下文（本人 UserId、本輪修題狀態），輸出 `(text, kind)`。Service 寫入、重算工具、若有任何後台維護腳本都呼叫這個 Calculator，**禁止散在各 Service / View 重複實作**。
 
 ### 5.2 從舊 Status 對應到新欄位的對照表
 
@@ -603,13 +611,93 @@ CREATE TABLE dbo.MT_SubQuestions (
 CREATE INDEX IX_MT_SubQuestions_ParentQuestionId ON dbo.MT_SubQuestions(ParentQuestionId);
 ```
 
+### 5.6 `MT_QuestionImages` — **題目／子題附圖（新增表）**
+
+> **設計動機**：原本圖片是直接內嵌進 Quill 編輯器的 HTML 中，導致文字與圖片耦合、難以後續處理（例如題庫檢索、跨平台輸出、單獨更換素材）。新版將「文字」與「圖片」分離，文字仍存於 `Stem`/`OptionA-D`/`Analysis`/`ArticleContent` 等欄位，圖片改由本表獨立管理。
+>
+> **設計重點**：
+> - **每欄至多 2 張**：由前端表單限制，DB 不額外加 `CHECK COUNT` 約束（避免插入時觸發子查詢成本）
+> - **FieldType 用 TINYINT** 對應 C# enum `QuestionImageField`（符合 CLAUDE.md「能存數字不存文字」原則）
+> - **QuestionId / SubQuestionId 互斥**：一張圖只屬於母題或子題，由 `CK_MT_QuestionImages_OneParent` 約束擋掉同時指向兩者或都不指向
+> - **子題不允許 FieldType=6 (ArticleContent)**：因為 `ArticleContent` 是母題層級欄位，子題沒這個概念，由 `CK_MT_QuestionImages_SubNoArticle` 擋掉
+
+```sql
+CREATE TABLE dbo.MT_QuestionImages (
+    Id              INT IDENTITY(1,1) PRIMARY KEY,
+    QuestionId      INT NULL FOREIGN KEY REFERENCES dbo.MT_Questions(Id),
+    SubQuestionId   INT NULL FOREIGN KEY REFERENCES dbo.MT_SubQuestions(Id),
+    FieldType       TINYINT NOT NULL,
+    -- 1 = Stem            題幹
+    -- 2 = OptionA
+    -- 3 = OptionB
+    -- 4 = OptionC
+    -- 5 = OptionD
+    -- 6 = ArticleContent  文章內容（僅母題 MT_Questions 有效）
+    -- 對應 C# enum QuestionImageField（建議放 Models/QuestionImageField.cs）
+    ImagePath       NVARCHAR(500) NOT NULL,        -- 例：/uploads/{guid}.png（沿用既有 POST /api/upload 機制）
+    SortOrder       TINYINT NOT NULL DEFAULT 1,    -- 1 或 2（同欄位多張時的顯示順序）
+    CreatedAt       DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
+
+    -- 一張圖只能屬於母題或子題其中一者
+    CONSTRAINT CK_MT_QuestionImages_OneParent CHECK (
+        (QuestionId IS NOT NULL AND SubQuestionId IS NULL) OR
+        (QuestionId IS NULL AND SubQuestionId IS NOT NULL)
+    ),
+    -- 子題沒有 ArticleContent 欄位，禁止 FieldType=6 配 SubQuestionId
+    CONSTRAINT CK_MT_QuestionImages_SubNoArticle CHECK (
+        SubQuestionId IS NULL OR FieldType <> 6
+    )
+);
+
+CREATE INDEX IX_MT_QuestionImages_Question_Field ON dbo.MT_QuestionImages(QuestionId, FieldType) WHERE QuestionId IS NOT NULL;
+CREATE INDEX IX_MT_QuestionImages_SubQuestion_Field ON dbo.MT_QuestionImages(SubQuestionId, FieldType) WHERE SubQuestionId IS NOT NULL;
+```
+
+**典型查詢範例**：
+
+```sql
+-- 取某題（母題）的所有附圖，依欄位 + SortOrder 排序
+SELECT FieldType, ImagePath, SortOrder
+FROM dbo.MT_QuestionImages
+WHERE QuestionId = @qid
+ORDER BY FieldType, SortOrder;
+
+-- 取題組母題 + 所有子題的附圖（一次撈完，前端依 FieldType / SortOrder 分組顯示）
+SELECT 'Q' AS Source, q.Id AS OwnerId, i.FieldType, i.ImagePath, i.SortOrder
+FROM dbo.MT_QuestionImages i
+JOIN dbo.MT_Questions q ON q.Id = i.QuestionId
+WHERE q.Id = @qid
+UNION ALL
+SELECT 'S', s.Id, i.FieldType, i.ImagePath, i.SortOrder
+FROM dbo.MT_QuestionImages i
+JOIN dbo.MT_SubQuestions s ON s.Id = i.SubQuestionId
+WHERE s.ParentQuestionId = @qid
+ORDER BY Source, OwnerId, FieldType, SortOrder;
+```
+
+> **C# enum 對應建議**（放 `Models/QuestionImageField.cs`）：
+>
+> ```csharp
+> public enum QuestionImageField : byte
+> {
+>     Stem           = 1,
+>     OptionA        = 2,
+>     OptionB        = 3,
+>     OptionC        = 4,
+>     OptionD        = 5,
+>     ArticleContent = 6,    // 僅 MT_Questions 有效
+> }
+> ```
+
 ---
 
 ## 第六章 — 審題與決策（核心改善區）
 
 ### 6.1 `MT_ReviewAssignments` — 審題指派
 
-> **改動**：移除 `ReviewStatus` 欄位（待審 / 審核中 / 已完成），改為由 `RespondedAt` 欄位的 NULL/有值判斷。`LatestDecision` 仍保留作快取，最新的決策事件詳細內容查 `MT_ReviewDecisions`。
+> **改動**：
+> - 移除 `ReviewStatus` 欄位（待審 / 審核中 / 已完成），改為由 `RespondedAt` 欄位的 NULL/有值判斷
+> - **不存 `LatestDecision / LatestComment` 快取欄位**：最新決策一律由 `MT_ReviewDecisions` 即時 `OUTER APPLY TOP 1 ORDER BY DecidedAt DESC` 取得，避免 Assignments 與 Decisions 兩處同步飄移
 
 ```sql
 CREATE TABLE dbo.MT_ReviewAssignments (
@@ -621,13 +709,8 @@ CREATE TABLE dbo.MT_ReviewAssignments (
     Round           TINYINT NOT NULL DEFAULT 1,  -- 第幾輪（總審支援 1~3 輪）
 
     -- 完成狀態（取代舊 ReviewStatus）：RespondedAt 為 NULL = 待審；有值 = 已決策
+    -- 最新決策內容（Decision / Comment）改由 OUTER APPLY MT_ReviewDecisions 取得，本表不存
     RespondedAt     DATETIME2,
-    LatestDecision  TINYINT,
-    -- 0 = Comment（互審用：給意見不決策）
-    -- 1 = Approve（採用 / 改後採用）
-    -- 2 = Revise（改後再審）
-    -- 3 = Reject（不採用，僅總審可用）
-    LatestComment   NVARCHAR(MAX),
 
     CreatedAt       DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
     UpdatedAt       DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
@@ -636,6 +719,22 @@ CREATE TABLE dbo.MT_ReviewAssignments (
 
 CREATE INDEX IX_MT_ReviewAssignments_Reviewer_Stage ON dbo.MT_ReviewAssignments(ReviewerId, ReviewStage, RespondedAt);
 CREATE INDEX IX_MT_ReviewAssignments_Question_Stage ON dbo.MT_ReviewAssignments(QuestionId, ReviewStage);
+```
+
+**列表頁取得「指派 + 最新決策」**（取代舊 `LatestDecision / LatestComment` 欄位）：
+
+```sql
+SELECT a.Id, a.QuestionId, a.ReviewerId, a.ReviewStage, a.Round, a.RespondedAt,
+       d.Decision, d.Comment, d.DecidedAt
+FROM dbo.MT_ReviewAssignments a
+OUTER APPLY (
+    SELECT TOP 1 Decision, Comment, DecidedAt
+    FROM dbo.MT_ReviewDecisions
+    WHERE AssignmentId = a.Id
+    ORDER BY DecidedAt DESC
+) d
+WHERE a.ReviewerId = @me;
+-- 配合 IX_MT_ReviewDecisions_QuestionId_DecidedAt（§6.2）為單筆 lookup
 ```
 
 ### 6.2 `MT_ReviewDecisions` — **審題決策事件流（新增）**
@@ -684,7 +783,7 @@ WHERE QuestionId = @qid AND ReviewStage = 3 AND Decision IN (2, 3);
 
 ### 6.3 `MT_RevisionReplies` — 命題教師的修題回覆
 
-> **改動**：補上 `Round` 欄位區分本輪與歷史；補上 `IsCurrentRound` BIT 加速查詢。
+> **改動**：補上 `Round` 欄位區分本輪與歷史。**「本輪」由 `MAX(Round)` 即時推導，不另存 `IsCurrentRound` flag**，避免進入新一輪時必須清除舊筆 flag 的同步點與飄移風險。
 
 ```sql
 CREATE TABLE dbo.MT_RevisionReplies (
@@ -693,21 +792,21 @@ CREATE TABLE dbo.MT_RevisionReplies (
     UserId          INT NOT NULL FOREIGN KEY REFERENCES dbo.MT_Users(Id),
     Stage           TINYINT NOT NULL,    -- 對應 PhaseCode：4=互修, 6=專修, 8=總修
     Round           TINYINT NOT NULL DEFAULT 1,  -- 同一階段第幾次修題
-    IsCurrentRound  BIT NOT NULL DEFAULT 1,      -- 進入新一輪時舊筆改 0
     Content         NVARCHAR(MAX) NOT NULL,
     CreatedAt       DATETIME2 NOT NULL DEFAULT SYSDATETIME()
 );
 
-CREATE INDEX IX_MT_RevisionReplies_QuestionId_Stage ON dbo.MT_RevisionReplies(QuestionId, Stage);
-CREATE INDEX IX_MT_RevisionReplies_Question_Current ON dbo.MT_RevisionReplies(QuestionId, IsCurrentRound) WHERE IsCurrentRound = 1;
+CREATE INDEX IX_MT_RevisionReplies_QuestionId_Stage_Round ON dbo.MT_RevisionReplies(QuestionId, Stage, Round DESC);
 ```
 
-**「本人是否已送出本輪修題」一欄取出**（取代舊版多 join）：
+**「本人是否已送出本輪修題」**（取 Round 最大值即可）：
 
 ```sql
 SELECT TOP 1 1
 FROM dbo.MT_RevisionReplies
-WHERE QuestionId = @qid AND UserId = @me AND IsCurrentRound = 1;
+WHERE QuestionId = @qid AND UserId = @me
+ORDER BY Round DESC;
+-- 配合 IX_MT_RevisionReplies_QuestionId_Stage_Round 為單筆 lookup
 ```
 
 ### 6.4 `MT_SimilarityChecks` — 試題相似度查重（不變）
@@ -893,8 +992,8 @@ CREATE INDEX IX_MT_LoginLogs_UserId_CreatedAt ON dbo.MT_LoginLogs(UserId, Create
 > **本次改動**：
 > - `Id` 由 `INT` 改為 `BIGINT`（log 類資料表持續累積）
 > - `Action` 新增 `3 = Restore`（軟刪除復原；舊版只有 0=Create, 1=Update, 2=Delete）
-> - `TargetType` 由 `TINYINT` 列舉改為 `VARCHAR(40)` 字串（如 `'Question'`, `'Project'`, `'Role'`）。
->   舊版用 0~6 編碼新增 TargetType 要改 enum 與遷移；改用字串可動態擴充，且讀 log 時直觀。
+> - `TargetType` **維持 `TINYINT`**（高頻寫入表，整數比較、索引大小都優於字串）。
+>   字串對照名稱（`Users`/`Roles`/⋯/`Reviews`）由 C# `AuditTargetType` enum（`Models/AuditLogEnums.cs`）與 `Dashboard.razor` 的 `TargetTypeLabel(byte)` switch 管理，符合 CLAUDE.md「不常改動的文字以 Model 管理，不另建資料表」原則。
 
 ```sql
 CREATE TABLE dbo.MT_AuditLogs (
@@ -902,7 +1001,7 @@ CREATE TABLE dbo.MT_AuditLogs (
     UserId       INT FOREIGN KEY REFERENCES dbo.MT_Users(Id),
     ProjectId    INT FOREIGN KEY REFERENCES dbo.MT_Projects(Id),
     Action       TINYINT NOT NULL,            -- ★ 新增 3=Restore；0=Create, 1=Update, 2=Delete
-    TargetType   VARCHAR(40) NOT NULL,        -- ★ 由 TINYINT enum 改為字串：'Question', 'Project', 'Role' ⋯
+    TargetType   TINYINT NOT NULL,            -- 0=Users, 1=Roles, 2=Projects, 3=Questions, 4=Announcements, 5=Teachers, 6=Reviews（對應 AuditTargetType enum）
     TargetId     INT,
     OldValue     NVARCHAR(MAX),               -- JSON
     NewValue     NVARCHAR(MAX),               -- JSON
@@ -1034,7 +1133,8 @@ SELECT
     q.Id, q.QuestionCode, q.UpdatedAt,
     q.QuestionTypeId, q.Level, q.Difficulty,
     q.CreatorId,
-    q.Lifecycle, q.CurrentReviewStage, q.Outcome, q.IsHistorical,
+    q.Lifecycle, q.CurrentReviewStage, q.Outcome,
+    -- 「歷史題目」由 q.Outcome != 0 推導，不另存欄位
     q.DisplayBadgeText, q.DisplayBadgeKind,
     -- 七階段燈號從 PhaseLog 一次帶回
     (
@@ -1080,6 +1180,9 @@ CREATE INDEX IX_MT_Questions_Submitted
 | `MT_ReviewReturnCounts.ReturnCount` | 由 `MT_ReviewDecisions` 即時 COUNT(*) | 廢棄該表 |
 | `MT_ReviewReturnCounts.CanEditByReviewer` | 即時 SQL 計算（COUNT >= 2） | 廢棄 |
 | `MT_ReviewAssignments.ReviewStatus` | 由 `RespondedAt IS NULL` 推導 | 廢棄該欄位 |
+| `MT_ReviewAssignments.Decision/Comment` | 由 `MT_ReviewDecisions` `OUTER APPLY TOP 1 ORDER BY DecidedAt DESC` 取得 | 廢棄該欄位（避免兩處同步飄移） |
+| `MT_RevisionReplies.IsCurrentRound` | 由 `Round = MAX(Round) GROUP BY QuestionId, UserId` 推導 | 不新增此欄位 |
+| `MT_Questions.IsHistorical`（規劃中曾打算新增） | 由 `Outcome != 0` 或 `Project.ClosedAt IS NOT NULL` 推導 | 不新增此欄位 |
 | `MT_RolePermissions.Permissions (TINYINT 兩級)` | 廢棄；只留 `IsEnabled BIT` | 全部視為 IsEnabled=1 |
 | `MT_Announcements.Status (0/1)` | `IsDraft BIT` + View `V_Announcements.DisplayStatus` | Status=0→IsDraft=1，Status=1→IsDraft=0 |
 | `MT_Announcements.ProjectId` | 移到 `MT_AnnouncementTargets(AnnouncementId, ProjectId)` | 舊 ProjectId IS NULL → 不寫入任何 row（廣播）；舊 ProjectId 有值 → INSERT 一筆 row |
@@ -1097,7 +1200,9 @@ CREATE INDEX IX_MT_Questions_Submitted
 | 退回次數 | 另開 `MT_ReviewReturnCounts` 維護 | `COUNT(*) FROM MT_ReviewDecisions` | 沒有同步問題 |
 | 第 3 次解鎖總召自改 | `CanEditByReviewer` flag | 同上即時計算 | 無資料漂移風險 |
 | 公告 DisplayStatus | 前端推導 | SQL View | 前後端排序一致 |
-| 命題教師「本人是否送出本輪修題」 | 多 join 算 | `IsCurrentRound = 1 AND UserId = @me` | 簡化列表頁邏輯 |
+| 命題教師「本人是否送出本輪修題」 | 多 join 算 | `WHERE UserId = @me ORDER BY Round DESC LIMIT 1` | 配 `IX_RevisionReplies_QuestionId_Stage_Round` 單筆 lookup |
+| 審題最新決策 | `MT_ReviewAssignments.LatestDecision/Comment` 快取 | `OUTER APPLY TOP 1 FROM MT_ReviewDecisions` | 不需同步快取，無飄移風險 |
+| 歷史題目判斷 | `IsHistorical` snapshot 欄位 | `Outcome != 0` 單欄條件 | 不需批次更新，配 filtered index 命中率高 |
 
 ---
 
@@ -1108,8 +1213,8 @@ CREATE INDEX IX_MT_Questions_Submitted
 | 命題儀表板 | `MT_Questions` (Lifecycle/Outcome 統計) + `MT_AuditLogs` |
 | 命題專案管理 | `MT_Projects` + `MT_ProjectPhases` + `MT_ProjectMembers` + `MT_MemberQuotas` |
 | 命題總覽 | `MT_Questions` + `MT_QuestionPhaseLog` (七階段燈號) + `MT_ReviewDecisions` (歷程) |
-| 命題任務 - 命題作業區 | `MT_Questions` (Lifecycle=0) + `MT_MemberQuotas` |
-| 命題任務 - 審修作業區 | `MT_Questions` (Lifecycle=1 鎖定 / 2 修題) + `MT_RevisionReplies` (本輪) |
+| 命題任務 - 命題作業區 | `MT_Questions` (Lifecycle=0) + `MT_MemberQuotas` + `MT_QuestionImages`（編輯題目時附圖） |
+| 命題任務 - 審修作業區 | `MT_Questions` (Lifecycle=1 鎖定 / 2 修題) + `MT_RevisionReplies` (本輪) + `MT_QuestionImages` |
 | 命題任務 - 審核結果歷史 | `MT_Questions` (Lifecycle=3) |
 | 審題任務 - 審題作業區 | `MT_ReviewAssignments` + `MT_ReviewDecisions`（歷程） |
 | 審題任務 - 審核結果歷史 | `MT_Questions` (Lifecycle=3) |
@@ -1126,7 +1231,7 @@ CREATE INDEX IX_MT_Questions_Submitted
 1. 字典表：`MT_QuestionTypes` → `MT_Modules` → `MT_Roles` → `MT_RolePermissions`
 2. 使用者：`MT_Users` → `MT_Teachers` → `MT_PasswordResetTokens`
 3. 專案：`MT_Projects` → `MT_ProjectPhases` → `MT_ProjectTargets` → `MT_ProjectMembers` → `MT_ProjectMemberRoles` → `MT_MemberQuotas`
-4. 題目：`MT_Questions` → `MT_QuestionPhaseLog` → `MT_QuestionCodeSequence` → `MT_SubQuestions`
+4. 題目：`MT_Questions` → `MT_QuestionPhaseLog` → `MT_QuestionCodeSequence` → `MT_SubQuestions` → `MT_QuestionImages`
 5. 審題：`MT_ReviewAssignments` → `MT_ReviewDecisions` → `MT_RevisionReplies` → `MT_SimilarityChecks`
 6. 公告：`MT_Announcements` → `MT_AnnouncementTargets` → 視圖 `V_Announcements`
 7. 紀錄：`MT_LoginLogs` → `MT_AuditLogs` → `MT_Notifications` → `MT_UserGuideFiles`

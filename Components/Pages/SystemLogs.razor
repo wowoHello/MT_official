@@ -1,0 +1,643 @@
+@* ====================================================================== *@
+@*  SystemLogs — 系統活動記錄（全站，不分梯次）                              *@
+@*  路由：/system-logs                                                      *@
+@*  Tab：登入活動 / 人員變動 / 專案變動 / 公告變動                            *@
+@*  資料源：MT_LoginLogs（Login Tab） + MT_AuditLogs ProjectId IS NULL      *@
+@*  權限：由 MT_RolePermissions 判定（預設僅系統管理員）                     *@
+@* ====================================================================== *@
+@page "/system-logs"
+@inject ISystemLogService SystemLogService
+@inject ILogger<SystemLogs> Logger
+
+<div class="flex-grow w-full mx-auto flex flex-col">
+
+    @* ── 頁首 ────────────────────────────────────────────────────── *@
+    <div class="px-4 sm:px-6 lg:px-8 py-4 bg-white/50 backdrop-blur border-b border-gray-200 flex-shrink-0">
+        <nav class="flex text-sm text-gray-500 mb-2 font-medium" aria-label="Breadcrumb">
+            <ol class="inline-flex items-center space-x-1 md:space-x-2">
+                <li class="inline-flex items-center">
+                    <NavLink href="" Match="NavLinkMatch.All" class="inline-flex items-center hover:text-[var(--color-morandi)] transition-colors focus:outline-none">
+                        <i class="fa-solid fa-house mr-1"></i> 首頁
+                    </NavLink>
+                </li>
+                <li>
+                    <div class="flex items-center">
+                        <i class="fa-solid fa-chevron-right text-xs mx-1"></i>
+                        <span class="text-[var(--color-slate-main)]">系統活動記錄</span>
+                    </div>
+                </li>
+            </ol>
+        </nav>
+        <h1 tabindex="-1" class="text-2xl font-bold flex items-center gap-2 focus:outline-none">
+            <i class="fa-solid fa-clipboard-list text-indigo-600"></i> 系統活動記錄
+        </h1>
+        <p class="text-sm text-gray-500 mt-1">檢視全站登入、人員變動、專案管理與公告活動的歷程紀錄（不含特定梯次的命題／審題操作）。</p>
+    </div>
+
+    <div class="flex-grow p-4 sm:p-6 lg:p-8">
+
+        @* ── Tab 列 ────────────────────────────────────────────────── *@
+        <div role="tablist" aria-label="活動類型" class="bg-white rounded-xl shadow-sm border border-gray-200 mb-4 overflow-hidden">
+            <div class="flex border-b border-gray-200 overflow-x-auto">
+                @foreach (var t in TabConfig)
+                {
+                    var isActive = currentTab == t.Tab;
+                    <button role="tab" type="button"
+                            aria-selected="@isActive"
+                            tabindex="@(isActive ? 0 : -1)"
+                            @onclick="() => ChangeTabAsync(t.Tab)"
+                            class="@TabButtonClass(isActive) flex items-center gap-2 px-4 py-3 text-sm font-semibold whitespace-nowrap cursor-pointer focus:outline-none focus-visible:bg-stone-50 transition-colors">
+                        <i class="fa-solid @t.Icon"></i>
+                        <span>@t.Label</span>
+                    </button>
+                }
+            </div>
+        </div>
+
+        @* ── KPI 卡片區（僅 Login Tab） ─────────────────────────────── *@
+        @if (currentTab == SystemLogTab.Login)
+        {
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+
+                @* 卡片 1：今日登入次數 *@
+                <button type="button" @onclick="@(() => ApplyKpiFilterAsync((byte)1, true, true))"
+                        class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all border-l-[3px] border-l-[var(--color-morandi)] p-5 flex flex-col min-h-[160px] text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-morandi)] focus-visible:ring-offset-2">
+                    <div class="flex items-center gap-2.5 mb-2">
+                        <div class="w-8 h-8 rounded-lg bg-blue-50 text-[var(--color-morandi)] flex items-center justify-center shrink-0">
+                            <i class="fa-solid fa-arrow-right-to-bracket text-sm"></i>
+                        </div>
+                        <p class="text-sm font-semibold text-gray-600">今日登入次數</p>
+                    </div>
+                    <div class="flex items-baseline gap-1.5">
+                        <h3 class="text-4xl font-black text-[var(--color-morandi)] tabular-nums leading-none">
+                            @(isLoadingKpi ? "…" : kpi.TodayLoginCount.ToString())
+                        </h3>
+                        <span class="text-sm text-gray-400">次</span>
+                    </div>
+                    <div class="mt-auto pt-3 border-t border-gray-100 text-xs text-gray-500">
+                        點此快速篩選今日成功登入
+                    </div>
+                </button>
+
+                @* 卡片 2：今日失敗次數 *@
+                <button type="button" @onclick="@(() => ApplyKpiFilterAsync((byte)1, false, true))"
+                        class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all border-l-[3px] border-l-[var(--color-terracotta)] p-5 flex flex-col min-h-[160px] text-left cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-terracotta)] focus-visible:ring-offset-2">
+                    <div class="flex items-center gap-2.5 mb-2">
+                        <div class="w-8 h-8 rounded-lg bg-red-50 text-[var(--color-terracotta)] flex items-center justify-center shrink-0">
+                            <i class="fa-solid fa-circle-xmark text-sm"></i>
+                        </div>
+                        <p class="text-sm font-semibold text-gray-600">今日失敗次數</p>
+                    </div>
+                    <div class="flex items-baseline gap-1.5">
+                        <h3 class="text-4xl font-black text-[var(--color-terracotta)] tabular-nums leading-none">
+                            @(isLoadingKpi ? "…" : kpi.TodayFailedCount.ToString())
+                        </h3>
+                        <span class="text-sm text-gray-400">次</span>
+                    </div>
+                    <div class="mt-auto pt-3 border-t border-gray-100 text-xs text-gray-500">
+                        點此快速篩選今日失敗
+                    </div>
+                </button>
+
+                @* 卡片 3：本週活躍使用者 *@
+                <div class="bg-white rounded-xl shadow-sm border-l-[3px] border-l-[var(--color-sage)] p-5 flex flex-col min-h-[160px]">
+                    <div class="flex items-center gap-2.5 mb-2">
+                        <div class="w-8 h-8 rounded-lg bg-emerald-50 text-[var(--color-sage)] flex items-center justify-center shrink-0">
+                            <i class="fa-solid fa-users text-sm"></i>
+                        </div>
+                        <p class="text-sm font-semibold text-gray-600">本週活躍使用者</p>
+                    </div>
+                    <div class="flex items-baseline gap-1.5">
+                        <h3 class="text-4xl font-black text-[var(--color-sage)] tabular-nums leading-none">
+                            @(isLoadingKpi ? "…" : kpi.WeeklyActiveUserCount.ToString())
+                        </h3>
+                        <span class="text-sm text-gray-400">人</span>
+                    </div>
+                    <div class="mt-auto pt-3 border-t border-gray-100 text-xs text-gray-500">
+                        近 7 日成功登入過的不重複帳號
+                    </div>
+                </div>
+
+                @* 卡片 4：近期可疑登入 *@
+                <div class="bg-white rounded-xl shadow-sm border-l-[3px] border-l-amber-500 p-5 flex flex-col min-h-[160px]">
+                    <div class="flex items-center gap-2.5 mb-2">
+                        <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                            <i class="fa-solid fa-shield-halved text-sm"></i>
+                        </div>
+                        <p class="text-sm font-semibold text-gray-600">近期可疑登入</p>
+                    </div>
+                    <div class="flex items-baseline gap-1.5">
+                        <h3 class="text-4xl font-black text-amber-600 tabular-nums leading-none">
+                            @(isLoadingKpi ? "…" : kpi.SuspiciousLoginCount.ToString())
+                        </h3>
+                        <span class="text-sm text-gray-400">組</span>
+                    </div>
+                    <div class="mt-auto pt-3 border-t border-gray-100 text-xs text-gray-500">
+                        近 24h 內同一帳號失敗 ≥ 3 次
+                    </div>
+                </div>
+            </div>
+        }
+
+        @* ── 篩選列 ──────────────────────────────────────────────── *@
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 mb-4 overflow-hidden">
+            @* 第一列：Tab 專屬篩選 *@
+            <div class="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center gap-2">
+                @if (currentTab == SystemLogTab.Login)
+                {
+                    <span class="text-xs font-bold text-gray-500 mr-1">事件：</span>
+                    @foreach (var f in EventTypeFilters)
+                    {
+                        var active = query.EventType == f.Value;
+                        <button @onclick="() => ChangeEventTypeAsync(f.Value)"
+                                class="@ChipClass(active) px-3 py-1 rounded-full text-xs font-medium border cursor-pointer transition-all duration-150">
+                            @f.Label
+                        </button>
+                    }
+                    <span class="text-xs font-bold text-gray-500 ml-3 mr-1">結果：</span>
+                    @foreach (var f in SuccessFilters)
+                    {
+                        var active = query.IsSuccess == f.Value;
+                        <button @onclick="() => ChangeSuccessAsync(f.Value)"
+                                class="@ChipClass(active) px-3 py-1 rounded-full text-xs font-medium border cursor-pointer transition-all duration-150">
+                            @f.Label
+                        </button>
+                    }
+                }
+                else
+                {
+                    <span class="text-xs font-bold text-gray-500 mr-1">動作：</span>
+                    @foreach (var f in ActionFilters)
+                    {
+                        var active = query.Action == f.Value;
+                        <button @onclick="() => ChangeActionAsync(f.Value)"
+                                class="@ChipClass(active) px-3 py-1 rounded-full text-xs font-medium border cursor-pointer transition-all duration-150">
+                            @f.Label
+                        </button>
+                    }
+                }
+            </div>
+
+            @* 第二列：搜尋 + 日期區間 *@
+            <div class="px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+                <div class="relative flex-grow max-w-sm">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                    <input type="text" value="@keywordInput"
+                           @oninput="OnKeywordChangedAsync"
+                           placeholder="@(currentTab == SystemLogTab.Login ? "搜尋帳號…" : "搜尋操作者…")"
+                           class="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[var(--color-morandi)] focus:ring-2 focus:ring-[var(--color-morandi)]/20" />
+                </div>
+                <div class="flex items-center gap-2 text-sm">
+                    <span class="text-xs text-gray-500">日期：</span>
+                    <input type="date" value="@(query.StartDate?.ToString("yyyy-MM-dd"))"
+                           @onchange="OnStartDateChangedAsync"
+                           class="px-2 py-1 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[var(--color-morandi)] focus:ring-2 focus:ring-[var(--color-morandi)]/20" />
+                    <span class="text-gray-400">至</span>
+                    <input type="date" value="@(query.EndDate?.ToString("yyyy-MM-dd"))"
+                           @onchange="OnEndDateChangedAsync"
+                           class="px-2 py-1 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-[var(--color-morandi)] focus:ring-2 focus:ring-[var(--color-morandi)]/20" />
+                </div>
+                @if (HasAnyFilter())
+                {
+                    <button @onclick="ResetFiltersAsync"
+                            class="ml-auto px-3 py-1 text-xs text-gray-500 hover:text-[var(--color-terracotta)] cursor-pointer transition-colors focus:outline-none">
+                        <i class="fa-solid fa-rotate-left mr-1"></i> 清除篩選
+                    </button>
+                }
+            </div>
+        </div>
+
+        @* ── 列表 ─────────────────────────────────────────────────── *@
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div class="px-5 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
+                <h2 class="text-sm font-bold text-gray-700 flex items-center gap-2">
+                    <i class="fa-solid fa-list-ul text-gray-400"></i> 紀錄清單
+                    @if (logPage is not null && logPage.TotalCount > 0)
+                    {
+                        <span class="ml-1 px-2 py-0.5 rounded-full bg-white text-xs font-semibold text-gray-700 tabular-nums border border-gray-200">
+                            @logPage.TotalCount
+                        </span>
+                    }
+                </h2>
+            </div>
+
+            @if (isLoadingList && logPage is null)
+            {
+                <div class="p-8">
+                    <EmptyState IconClass="fa-spinner" Message="載入中…" Compact="true" />
+                </div>
+            }
+            else if (logPage is not null && logPage.Items.Count == 0)
+            {
+                <div class="p-8">
+                    <EmptyState IconClass="fa-folder-open"
+                                Message="目前沒有符合條件的紀錄"
+                                SubMessage="請調整篩選條件或清除篩選後重試"
+                                Compact="true" />
+                </div>
+            }
+            else if (logPage is not null)
+            {
+                <ul class="divide-y divide-gray-100">
+                    @foreach (var item in logPage.Items)
+                    {
+                        var isExpanded = expandedId == item.Id;
+                        @if (currentTab == SystemLogTab.Login)
+                        {
+                            @RenderLoginRow(item, isExpanded)
+                        }
+                        else
+                        {
+                            @RenderAuditRow(item, isExpanded)
+                        }
+                    }
+                </ul>
+
+                <Pagination CurrentPage="@query.Page"
+                            TotalPages="@logPage.TotalPages"
+                            IsLoading="@isLoadingList"
+                            OnPageChanged="GoToPageAsync" />
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private const int PageSize = 30;
+
+    private SystemLogTab currentTab = SystemLogTab.Login;
+    private SystemLogQuery query = new() { PageSize = PageSize };
+    private SystemLogPage? logPage;
+    private SystemLogKpiDto kpi = new();
+
+    private bool isLoadingKpi = true;
+    private bool isLoadingList = true;
+    private long? expandedId;
+
+    private string keywordInput = "";
+    private CancellationTokenSource? keywordDebounceCts;
+
+    // ── Tab 設定 ─────────────────────────────────────────────────────
+    private record TabItem(SystemLogTab Tab, string Label, string Icon);
+
+    private static readonly TabItem[] TabConfig =
+    {
+        new(SystemLogTab.Login,        "登入活動", "fa-fingerprint"),
+        new(SystemLogTab.Members,      "人員變動", "fa-users"),
+        new(SystemLogTab.Project,      "專案變動", "fa-folder-tree"),
+        new(SystemLogTab.Announcement, "公告變動", "fa-bullhorn"),
+    };
+
+    // ── Filter Chip 設定 ─────────────────────────────────────────────
+    private static readonly (byte? Value, string Label)[] EventTypeFilters =
+    {
+        (null,      "全部"),
+        ((byte)1,   "登入"),
+        ((byte)2,   "登出"),
+    };
+
+    private static readonly (bool? Value, string Label)[] SuccessFilters =
+    {
+        (null,  "全部"),
+        (true,  "成功"),
+        (false, "失敗"),
+    };
+
+    private static readonly (byte? Value, string Label)[] ActionFilters =
+    {
+        (null,    "全部"),
+        ((byte)0, "建立"),
+        ((byte)1, "修改"),
+        ((byte)2, "刪除"),
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(LoadKpiAsync(), LoadListAsync());
+    }
+
+    // ── 載入流程 ─────────────────────────────────────────────────────
+
+    private async Task LoadKpiAsync()
+    {
+        isLoadingKpi = true;
+        try
+        {
+            kpi = await SystemLogService.GetKpiAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入系統活動 KPI 失敗");
+            kpi = new SystemLogKpiDto();
+        }
+        finally
+        {
+            isLoadingKpi = false;
+        }
+    }
+
+    private async Task LoadListAsync()
+    {
+        isLoadingList = true;
+        StateHasChanged();
+
+        try
+        {
+            query.Tab = currentTab;
+            logPage = await SystemLogService.GetLogsAsync(query);
+
+            // 防呆：篩選後筆數變少導致 Page 超界，回第 1 頁
+            if (query.Page > logPage.TotalPages && logPage.TotalPages > 0)
+            {
+                query.Page = 1;
+                logPage = await SystemLogService.GetLogsAsync(query);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入系統活動列表失敗，Tab={Tab}", currentTab);
+            logPage = new SystemLogPage();
+        }
+        finally
+        {
+            isLoadingList = false;
+        }
+    }
+
+    // ── Tab 切換 ─────────────────────────────────────────────────────
+
+    private async Task ChangeTabAsync(SystemLogTab tab)
+    {
+        if (currentTab == tab) return;
+        currentTab = tab;
+        // 切 Tab 時重置所有篩選（避免 Login Tab 的 EventType 殘留到 Audit Tab）
+        ResetQueryState();
+        await LoadListAsync();
+    }
+
+    // ── 篩選互動 ─────────────────────────────────────────────────────
+
+    private Task ChangeEventTypeAsync(byte? value)
+    {
+        if (query.EventType == value) return Task.CompletedTask;
+        query.EventType = value;
+        query.Page = 1;
+        return LoadListAsync();
+    }
+
+    private Task ChangeSuccessAsync(bool? value)
+    {
+        if (query.IsSuccess == value) return Task.CompletedTask;
+        query.IsSuccess = value;
+        query.Page = 1;
+        return LoadListAsync();
+    }
+
+    private Task ChangeActionAsync(byte? value)
+    {
+        if (query.Action == value) return Task.CompletedTask;
+        query.Action = value;
+        query.Page = 1;
+        return LoadListAsync();
+    }
+
+    /// <summary>搜尋框 debounce：500ms 後才實際查詢。</summary>
+    private async Task OnKeywordChangedAsync(ChangeEventArgs e)
+    {
+        keywordInput = e.Value?.ToString() ?? "";
+
+        keywordDebounceCts?.Cancel();
+        keywordDebounceCts = new CancellationTokenSource();
+        var token = keywordDebounceCts.Token;
+
+        try
+        {
+            await Task.Delay(500, token);
+            query.Keyword = string.IsNullOrWhiteSpace(keywordInput) ? null : keywordInput;
+            query.Page = 1;
+            await LoadListAsync();
+        }
+        catch (TaskCanceledException) { /* 後續輸入取消前一次延遲，屬正常 */ }
+    }
+
+    private Task OnStartDateChangedAsync(ChangeEventArgs e)
+    {
+        query.StartDate = DateTime.TryParse(e.Value?.ToString(), out var d) ? d : null;
+        query.Page = 1;
+        return LoadListAsync();
+    }
+
+    private Task OnEndDateChangedAsync(ChangeEventArgs e)
+    {
+        query.EndDate = DateTime.TryParse(e.Value?.ToString(), out var d) ? d : null;
+        query.Page = 1;
+        return LoadListAsync();
+    }
+
+    private async Task ResetFiltersAsync()
+    {
+        ResetQueryState();
+        await LoadListAsync();
+    }
+
+    private void ResetQueryState()
+    {
+        keywordInput = "";
+        query = new SystemLogQuery { Tab = currentTab, PageSize = PageSize };
+        expandedId = null;
+    }
+
+    /// <summary>KPI 卡片點擊 → 套用篩選（事件類型 + 結果 + 今日範圍）。</summary>
+    private async Task ApplyKpiFilterAsync(byte? eventType, bool? isSuccess, bool todayOnly)
+    {
+        query = new SystemLogQuery
+        {
+            Tab = SystemLogTab.Login,
+            EventType = eventType,
+            IsSuccess = isSuccess,
+            StartDate = todayOnly ? DateTime.Today : null,
+            EndDate   = todayOnly ? DateTime.Today : null,
+            PageSize  = PageSize
+        };
+        keywordInput = "";
+        await LoadListAsync();
+    }
+
+    private Task GoToPageAsync(int page)
+    {
+        query.Page = page;
+        return LoadListAsync();
+    }
+
+    private bool HasAnyFilter()
+        => query.EventType is not null
+        || query.IsSuccess is not null
+        || query.Action is not null
+        || query.StartDate is not null
+        || query.EndDate is not null
+        || !string.IsNullOrWhiteSpace(query.Keyword);
+
+    // ── 展開／互動輔助 ───────────────────────────────────────────────
+
+    private void ToggleExpand(long id) => expandedId = expandedId == id ? null : id;
+
+    private static string ChipClass(bool active) => active
+        ? "bg-[var(--color-slate-main)] text-white border-[var(--color-slate-main)]"
+        : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300";
+
+    private static string TabButtonClass(bool isActive) => isActive
+        ? "text-[var(--color-morandi)] border-b-2 border-[var(--color-morandi)] bg-blue-50/40"
+        : "text-gray-500 border-b-2 border-transparent hover:text-gray-700";
+
+    private static string FormatRelativeTime(DateTime time)
+    {
+        var diff = DateTime.Now - time;
+        if (diff.TotalSeconds < 60) return "剛剛";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes} 分鐘前";
+        if (diff.TotalHours   < 24) return $"{(int)diff.TotalHours} 小時前";
+        if (diff.TotalDays    <  7) return $"{(int)diff.TotalDays} 天前";
+        return time.ToString("MM/dd HH:mm");
+    }
+
+    // ── 列表項渲染：Login Tab ────────────────────────────────────────
+
+    private RenderFragment RenderLoginRow(SystemLogItem item, bool isExpanded) => __builder =>
+    {
+        var isFailure = item.IsSuccess == false;
+        var isLogin   = item.EventType == 1;
+
+        var borderClass = isFailure ? "border-l-[var(--color-terracotta)]"
+                        : isLogin   ? "border-l-[var(--color-morandi)]"
+                                    : "border-l-stone-300";
+        var rowBgClass  = isFailure ? "bg-red-50/30 hover:bg-red-50/60" : "hover:bg-stone-50";
+        var iconClass   = isFailure ? "fa-circle-xmark text-[var(--color-terracotta)]"
+                        : isLogin   ? "fa-arrow-right-to-bracket text-[var(--color-morandi)]"
+                                    : "fa-arrow-right-from-bracket text-stone-500";
+
+        <li class="border-l-2 @borderClass">
+            <button type="button" @onclick="() => ToggleExpand(item.Id)"
+                    class="w-full px-4 py-3 flex items-center gap-3 text-left cursor-pointer transition-colors @rowBgClass focus:outline-none focus-visible:bg-stone-100">
+                <span class="w-9 h-9 rounded-full flex items-center justify-center shrink-0 bg-white border border-gray-100">
+                    <i class="fa-solid @iconClass text-sm"></i>
+                </span>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-slate-main truncate">
+                        <span class="font-bold">@item.OperatorName</span>
+                        <span class="text-gray-500">
+                            @if (isFailure) { <text> 嘗試登入失敗</text> }
+                            else if (isLogin) { <text> 登入成功</text> }
+                            else { <text> 登出系統</text> }
+                        </span>
+                        @if (item.UserId is null)
+                        {
+                            <span class="ml-2 text-xs text-[var(--color-terracotta)] font-semibold">（帳號不存在）</span>
+                        }
+                    </div>
+                    <div class="text-xs text-gray-500 mt-0.5 flex items-center gap-3 flex-wrap">
+                        <span class="inline-flex items-center gap-1"><i class="fa-solid fa-user text-[11px] text-gray-400"></i>@item.Username</span>
+                        @if (!string.IsNullOrWhiteSpace(item.IpAddress))
+                        {
+                            <span class="inline-flex items-center gap-1"><i class="fa-solid fa-globe text-[11px] text-gray-400"></i>@item.IpAddress</span>
+                        }
+                        @if (isFailure && !string.IsNullOrWhiteSpace(item.FailReason))
+                        {
+                            <span class="text-[var(--color-terracotta)] font-medium truncate">@item.FailReason</span>
+                        }
+                    </div>
+                </div>
+                <time class="text-xs text-gray-400 shrink-0 tabular-nums" title="@item.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")">
+                    @FormatRelativeTime(item.CreatedAt)
+                </time>
+                <i class="fa-solid @(isExpanded ? "fa-chevron-up" : "fa-chevron-down") text-xs text-gray-400 shrink-0 transition-transform"></i>
+            </button>
+
+            @if (isExpanded)
+            {
+                <div class="px-4 py-3 bg-stone-50/70 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                    <div><span class="text-gray-500">完整時間：</span><span class="font-mono tabular-nums">@item.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</span></div>
+                    <div><span class="text-gray-500">IP 位址：</span><span class="font-mono tabular-nums">@(string.IsNullOrWhiteSpace(item.IpAddress) ? "—" : item.IpAddress)</span></div>
+                    <div class="sm:col-span-2"><span class="text-gray-500">瀏覽器環境：</span><span class="break-all text-gray-700">@(string.IsNullOrWhiteSpace(item.UserAgent) ? "—" : item.UserAgent)</span></div>
+                    @if (!string.IsNullOrWhiteSpace(item.FailReason))
+                    {
+                        <div class="sm:col-span-2"><span class="text-gray-500">失敗原因：</span><span class="text-[var(--color-terracotta)] font-medium">@item.FailReason</span></div>
+                    }
+                </div>
+            }
+        </li>
+    };
+
+    // ── 列表項渲染：Audit Tab（人員/專案/公告） ─────────────────────
+
+    private RenderFragment RenderAuditRow(SystemLogItem item, bool isExpanded) => __builder =>
+    {
+        var action = item.Action ?? 0;
+        var borderClass = action switch
+        {
+            0 => "border-l-[var(--color-sage)]",      // 建立 → 鼠尾草綠
+            1 => "border-l-[var(--color-morandi)]",   // 修改 → 莫蘭迪藍
+            2 => "border-l-[var(--color-terracotta)]",// 刪除 → 赤陶
+            _ => "border-l-stone-300"
+        };
+        var iconClass = action switch
+        {
+            0 => "fa-plus text-[var(--color-sage)]",
+            1 => "fa-pen text-[var(--color-morandi)]",
+            2 => "fa-trash text-[var(--color-terracotta)]",
+            _ => "fa-circle-info text-stone-500"
+        };
+
+        <li class="border-l-2 @borderClass">
+            <button type="button" @onclick="() => ToggleExpand(item.Id)"
+                    class="w-full px-4 py-3 flex items-center gap-3 text-left cursor-pointer transition-colors hover:bg-stone-50 focus:outline-none focus-visible:bg-stone-100">
+                <span class="w-9 h-9 rounded-full flex items-center justify-center shrink-0 bg-white border border-gray-100">
+                    <i class="fa-solid @iconClass text-sm"></i>
+                </span>
+                <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-slate-main truncate">
+                        <span class="font-bold">@item.OperatorName</span>
+                        <span class="text-gray-500"> @ActionVerb(action)了 @TargetTypeLabel(item.TargetType)</span>
+                        <span class="font-medium">「@(item.TargetName ?? "已刪除")」</span>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-0.5">
+                        @if (!string.IsNullOrWhiteSpace(item.IpAddress))
+                        {
+                            <span class="inline-flex items-center gap-1"><i class="fa-solid fa-globe text-[11px] text-gray-400"></i>@item.IpAddress</span>
+                        }
+                    </div>
+                </div>
+                <time class="text-xs text-gray-400 shrink-0 tabular-nums" title="@item.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")">
+                    @FormatRelativeTime(item.CreatedAt)
+                </time>
+                <i class="fa-solid @(isExpanded ? "fa-chevron-up" : "fa-chevron-down") text-xs text-gray-400 shrink-0 transition-transform"></i>
+            </button>
+
+            @if (isExpanded)
+            {
+                <div class="px-4 py-3 bg-stone-50/70 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs">
+                    <div><span class="text-gray-500">完整時間：</span><span class="font-mono tabular-nums">@item.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss")</span></div>
+                    <div><span class="text-gray-500">IP 位址：</span><span class="font-mono tabular-nums">@(string.IsNullOrWhiteSpace(item.IpAddress) ? "—" : item.IpAddress)</span></div>
+                    <div><span class="text-gray-500">目標類型：</span>@TargetTypeLabel(item.TargetType)</div>
+                    <div><span class="text-gray-500">目標 ID：</span><span class="font-mono tabular-nums">@item.TargetId</span></div>
+                </div>
+            }
+        </li>
+    };
+
+    private static string ActionVerb(byte action) => action switch
+    {
+        0 => "建立",
+        1 => "修改",
+        2 => "刪除",
+        _ => "操作"
+    };
+
+    private static string TargetTypeLabel(byte? type) => type switch
+    {
+        0 => "使用者",
+        1 => "角色",
+        2 => "梯次",
+        4 => "公告",
+        5 => "教師",
+        _ => "資料"
+    };
+}

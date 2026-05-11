@@ -550,7 +550,11 @@
                                             var currentRoleId = roleSlots[idx];
                                             var isFirst = idx == 0;
                                             var isLast = idx == roleSlots.Count - 1;
-                                            var canAddMore = !IsCompositionPhaseEnded && person.IsSelected && currentRoleId > 0 && isLast && roleSlots.Count < projectRoles.Count;
+                                            // + 鈕掛在第一格，啟用條件改為「最後一格已選好身份」且還沒達上限
+                                            var canAddMore = !IsCompositionPhaseEnded
+                                                && person.IsSelected
+                                                && roleSlots.Count < projectRoles.Count
+                                                && roleSlots[roleSlots.Count - 1] > 0;
 
                                             <div class="flex items-center gap-1.5">
                                                 <select value="@currentRoleId" disabled="@(IsCompositionPhaseEnded || !person.IsSelected)"
@@ -573,7 +577,8 @@
                                                         // 排除已被同人選走的身份（但保留自己目前選的，避免顯示空白）
                                                         if (role.Id == currentRoleId || !person.SelectedRoleIds.Contains(role.Id))
                                                         {
-                                                            <option value="@role.Id">@role.Name</option>
+                                                            // @key 鎖位避免 Blazor diff 就地改寫 value 屬性導致 <select> 顯示錯位
+                                                            <option value="@role.Id" @key="role.Id">@role.Name</option>
                                                         }
                                                     }
                                                 </select>

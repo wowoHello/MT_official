@@ -1,6 +1,7 @@
 using System.Data;
 using System.Text.Json;
 using Dapper;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.SqlClient;
 using MT.Hubs;
@@ -82,6 +83,7 @@ public class ProjectService : IProjectService
     private readonly IDatabaseService _db;
     private readonly ILogger<ProjectService> _logger;
     private readonly IHubContext<ProjectsHub> _projectsHubContext;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
     /// <summary>
     /// 初始化專案服務所需的資料庫、記錄器與即時同步依賴。
@@ -89,11 +91,13 @@ public class ProjectService : IProjectService
     public ProjectService(
         IDatabaseService db,
         ILogger<ProjectService> logger,
-        IHubContext<ProjectsHub> projectsHubContext)
+        IHubContext<ProjectsHub> projectsHubContext,
+        IHttpContextAccessor httpContextAccessor)
     {
         _db = db;
         _logger = logger;
         _projectsHubContext = projectsHubContext;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     /// <summary>
@@ -346,18 +350,20 @@ public class ProjectService : IProjectService
 
         await conn.ExecuteAsync(sql, new { ProjectId = projectId });
 
+        // 全站活動：MT_AuditLogs.ProjectId 留 NULL（SystemLogs「專案變動」Tab 才撈得到）
         const string auditSql = """
-            INSERT INTO dbo.MT_AuditLogs (UserId, ProjectId, Action, TargetType, TargetId, NewValue)
-            VALUES (@UserId, @ProjectId, @Action, @TargetType, @TargetId, N'刪除專案');
+            INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, OldValue, IpAddress)
+            VALUES (@UserId, @Action, @TargetType, @TargetId, @OldValue, @IpAddress);
             """;
 
         await conn.ExecuteAsync(auditSql, new
         {
             UserId = deletedBy,
-            ProjectId = projectId,
             Action = (byte)AuditAction.Delete,
             TargetType = (byte)AuditTargetType.Projects,
-            TargetId = projectId
+            TargetId = projectId,
+            OldValue = AuditLogJsonHelper.Serialize(new { targetDisplayName = $"專案 #{projectId}" }),
+            IpAddress = ClientIpResolver.Resolve(_httpContextAccessor)
         });
 
         await BroadcastProjectChangedAsync(ProjectRealtimeChangeType.Deleted, projectId);
@@ -420,19 +426,20 @@ public class ProjectService : IProjectService
 
             await conn.ExecuteAsync(updateQuestionsSql, new { ProjectId = projectId }, trans);
 
-            // 3) 稽核紀錄
+            // 3) 稽核紀錄（全站活動：ProjectId 留 NULL）
             const string auditSql = """
-                INSERT INTO dbo.MT_AuditLogs (UserId, ProjectId, Action, TargetType, TargetId, NewValue)
-                VALUES (@UserId, @ProjectId, @Action, @TargetType, @TargetId, N'提前結案入庫');
+                INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue, IpAddress)
+                VALUES (@UserId, @Action, @TargetType, @TargetId, @NewValue, @IpAddress);
                 """;
 
             await conn.ExecuteAsync(auditSql, new
             {
                 UserId = closedBy,
-                ProjectId = projectId,
                 Action = (byte)AuditAction.Update,
                 TargetType = (byte)AuditTargetType.Projects,
-                TargetId = projectId
+                TargetId = projectId,
+                NewValue = AuditLogJsonHelper.Serialize(new { action = "提前結案入庫" }),
+                IpAddress = ClientIpResolver.Resolve(_httpContextAccessor)
             }, trans);
 
             await trans.CommitAsync();
@@ -505,11 +512,18 @@ public class ProjectService : IProjectService
                 req.MemberAllocations,
                 shouldClearExisting: false);
 
-            var jsonValue = JsonSerializer.Serialize(new { ProjectId = projectId, Name = req.Name, ProjectCode = projectCode });
+            // 全站活動：ProjectId 留 NULL；改用 AuditLogJsonHelper（camelCase + targetDisplayName）
+            var jsonValue = AuditLogJsonHelper.Serialize(new
+            {
+                projectId,
+                name = req.Name,
+                projectCode,
+                targetDisplayName = req.Name   // SystemLogs / Dashboard 反查失敗時用此 key fallback
+            });
 
             const string auditSql = """
-                INSERT INTO dbo.MT_AuditLogs (UserId, ProjectId, Action, TargetType, TargetId, NewValue)
-                VALUES (@UserId, @ProjectId, @Action, @TargetType, @TargetId, @NewValue);
+                INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue, IpAddress)
+                VALUES (@UserId, @Action, @TargetType, @TargetId, @NewValue, @IpAddress);
                 """;
 
             await conn.ExecuteAsync(
@@ -517,11 +531,11 @@ public class ProjectService : IProjectService
                 new
                 {
                     UserId = req.CreatedBy,
-                    ProjectId = projectId,
                     Action = (byte)AuditAction.Create,
                     TargetType = (byte)AuditTargetType.Projects,
                     TargetId = projectId,
-                    NewValue = jsonValue
+                    NewValue = jsonValue,
+                    IpAddress = ClientIpResolver.Resolve(_httpContextAccessor)
                 },
                 transaction: trans);
 
@@ -612,9 +626,10 @@ public class ProjectService : IProjectService
             var newSnapshot = await GetProjectEditAsync(conn, trans, req.ProjectId)
                 ?? throw new InvalidOperationException("專案更新後無法重新讀取資料。");
 
+            // 全站活動：ProjectId 留 NULL；改用 AuditLogJsonHelper 統一序列化
             const string auditSql = """
-                INSERT INTO dbo.MT_AuditLogs (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue)
-                VALUES (@UserId, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue);
+                INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, OldValue, NewValue, IpAddress)
+                VALUES (@UserId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, @IpAddress);
                 """;
 
             await conn.ExecuteAsync(
@@ -622,12 +637,12 @@ public class ProjectService : IProjectService
                 new
                 {
                     UserId = req.UpdatedBy,
-                    ProjectId = req.ProjectId,
                     Action = (byte)AuditAction.Update,
                     TargetType = (byte)AuditTargetType.Projects,
                     TargetId = req.ProjectId,
-                    OldValue = JsonSerializer.Serialize(oldSnapshot),
-                    NewValue = JsonSerializer.Serialize(newSnapshot)
+                    OldValue = AuditLogJsonHelper.Serialize(oldSnapshot),
+                    NewValue = AuditLogJsonHelper.Serialize(newSnapshot),
+                    IpAddress = ClientIpResolver.Resolve(_httpContextAccessor)
                 },
                 transaction: trans);
 

@@ -616,12 +616,5 @@
         }
     };
 
-    // --- 表單模型類別 ---
-    private sealed class LoginFormModel
-    {
-        public string Username { get; set; } = "";
-        public string Password { get; set; } = "";
-        public string CaptchaInput { get; set; } = "";
-        public bool RememberMe { get; set; } = false;
-    }
+    // 表單模型已抽出到 Models/AuthModels.cs
 }

@@ -161,31 +161,24 @@ public class DashboardKpiDto
 //  稽核歷程 DTO
 // ======================================================================
 
-/// <summary>LOG Filter Chip 對應類別（單選）。</summary>
+/// <summary>
+/// 命題儀表板 LOG Filter Chip 對應類別（單選）。
+/// 僅保留梯次內活動（試題/審題），跨梯次活動（人員/專案/公告/登入）已移至 SystemLogs.razor。
+/// </summary>
 public enum LogTypeFilter : byte
 {
-    /// <summary>全部（不過濾）。</summary>
+    /// <summary>全部梯次內活動。</summary>
     All = 0,
     /// <summary>試題（TargetType=3）。</summary>
     Question = 1,
-    /// <summary>公告（TargetType=4）。</summary>
-    Announcement = 2,
-    /// <summary>人員（TargetType IN (1,5)，涵蓋角色與教師）。</summary>
-    Members = 3,
-    /// <summary>專案（TargetType=2）。</summary>
-    Project = 4,
     /// <summary>審題（TargetType=6）。</summary>
-    Review = 5,
-    /// <summary>登入（特例：以 Action 過濾，含 Login=3 / Logout=4）。</summary>
-    Login = 6
+    Review = 5
 }
 
-/// <summary>LOG 查詢條件（單一 DTO 同時支援切換梯次/Toggle/Chip/分頁）。</summary>
+/// <summary>命題儀表板 LOG 查詢條件（僅梯次內活動）。</summary>
 public class AuditLogQuery
 {
     public int  ProjectId     { get; set; }
-    /// <summary>含全站事件（ProjectId IS NULL）。</summary>
-    public bool IncludeGlobal { get; set; }
     public LogTypeFilter TypeFilter { get; set; } = LogTypeFilter.All;
     public int  Skip           { get; set; }
     public int  Take           { get; set; } = 50;

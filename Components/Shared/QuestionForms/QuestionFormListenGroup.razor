@@ -11,27 +11,10 @@
 
 <div class="p-5 lg:p-6 pb-16 max-w-4xl mx-auto space-y-4 min-h-full">
 
-    <FormSectionCard Title="聽力音檔" Icon="fa-headphones" Required="true"
+    <FormSectionCard Title="聽力音檔" Icon="fa-headphones" HintText="可先命題，音檔之後再補上"
         DataField="AudioUrl" ContainerClass="@InvalidRing("AudioUrl")">
-        <div class="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-morandi hover:bg-morandi/5 transition-all cursor-pointer group">
-            @if (string.IsNullOrEmpty(AudioFileName))
-            {
-                <i class="fa-solid fa-cloud-arrow-up text-3xl text-gray-300 group-hover:text-morandi mb-2 transition-colors"></i>
-                <p class="text-sm text-gray-400 group-hover:text-gray-600">點擊或拖曳音檔至此上傳</p>
-                <p class="text-xs text-gray-300 mt-1">支援 MP3、WAV、OGG 格式，檔案大小上限 10MB</p>
-            }
-            else
-            {
-                <div class="flex items-center justify-center gap-3">
-                    <i class="fa-solid fa-file-audio text-2xl text-morandi"></i>
-                    <span class="text-sm font-medium text-slate-main">@AudioFileName</span>
-                    <button type="button" @onclick="() => { AudioFileName = string.Empty; }"
-                        class="text-xs text-red-400 hover:text-red-600 ml-2 cursor-pointer">
-                        <i class="fa-solid fa-xmark"></i> 移除
-                    </button>
-                </div>
-            }
-        </div>
+        <AudioUploadField AudioUrl="@AudioFileName"
+            AudioUrlChanged="v => { AudioFileName = v; AudioFileNameChanged.InvokeAsync(v); }" />
     </FormSectionCard>
 
     <FormSectionCard Title="語音內容" Icon="fa-microphone" Required="true"

@@ -20,8 +20,9 @@
             RadioName="@($"answer-{Id}")" Layout="OptionGroup.OptionLayout.Vertical" />
     </FormSectionCard>
 
-    <FormSectionCard Title="解析" Icon="fa-lightbulb" IconColor="text-amber-500">
-        <QuillField Value="@Analysis" ValueChanged="v => { Analysis = v; AnalysisChanged.InvokeAsync(v); }" FieldLabel="解析" Placeholder="請輸入解析內容（選填）..." />
+    <FormSectionCard Title="試題解析" Icon="fa-lightbulb" IconColor="text-amber-500" Required="true" HintText="紀錄答案理由"
+        DataField="Analysis" ContainerClass="@InvalidRing("Analysis")">
+        <QuillField Value="@Analysis" ValueChanged="v => { Analysis = v; AnalysisChanged.InvokeAsync(v); }" FieldLabel="試題解析" Placeholder="請輸入解析內容，可說明正確答案依據與其他選項錯誤原因..." />
     </FormSectionCard>
 </div>
 

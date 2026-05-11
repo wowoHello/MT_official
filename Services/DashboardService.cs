@@ -1035,40 +1035,27 @@ public class DashboardService : IDashboardService
     {
         using var conn = _db.CreateConnection();
 
-        // 過濾條件（C# 端解析）：
-        //   typeCodes → 對應 MT_AuditLogs.TargetType 的 IN 清單（空陣列 = 不過濾）
-        //   loginOnly → 1 表示僅顯示 Action 3/4（登入/登出）
-        // Members 同時涵蓋 TargetType 1（角色）與 5（教師），需 IN 陣列。
+        // Dashboard 只看「梯次內」活動（命題 + 審題）；跨梯次活動已移至 SystemLogs.razor
+        // 強制 ProjectId = @pid，永遠不顯示 ProjectId IS NULL 的全站紀錄
         int[] typeCodes = query.TypeFilter switch
         {
-            LogTypeFilter.Members      => [1, 5],
-            LogTypeFilter.Project      => [2],
-            LogTypeFilter.Question     => [3],
-            LogTypeFilter.Announcement => [4],
-            LogTypeFilter.Review       => [6],
-            _                          => []   // All / Login：不過濾 TargetType
+            LogTypeFilter.Question => [3],
+            LogTypeFilter.Review   => [6],
+            _                      => [3, 6]   // All：試題 + 審題
         };
-        int loginOnly  = query.TypeFilter == LogTypeFilter.Login ? 1 : 0;
-        int includeGlb = query.IncludeGlobal ? 1 : 0;
-
-        // typeCodes 有值時才拼入 IN 條件，避免空 IN 造成語法錯誤
-        string typeCodeFilter = typeCodes.Length > 0
-            ? "AND al.TargetType IN @typeCodes"
-            : "";
 
         var sqlParams = new
         {
-            pid           = query.ProjectId,
-            includeGlobal = includeGlb,
+            pid       = query.ProjectId,
             typeCodes,
-            loginOnly,
-            skip          = query.Skip,
-            take          = query.Take
+            skip      = query.Skip,
+            take      = query.Take
         };
 
         // ── Step 1：主查詢（OFFSET FETCH 分頁）──────────────────────────
         // OldValue/NewValue 也帶出，以便目標資料已刪除時從 JSON 解析名稱
-        string sqlMain = $"""
+        // 強制 ProjectId = @pid（不接受 ProjectId IS NULL）+ Action IN (0,1,2) + TargetType IN (3,6)
+        string sqlMain = """
             SELECT
                 al.Id,
                 al.UserId,
@@ -1081,23 +1068,19 @@ public class DashboardService : IDashboardService
                 al.NewValue
             FROM   dbo.MT_AuditLogs al
             LEFT   JOIN dbo.MT_Users u ON u.Id = al.UserId
-            WHERE  ( al.ProjectId = @pid
-                     OR (@includeGlobal = 1 AND al.ProjectId IS NULL) )
-              AND  al.Action IN (0, 1, 2, 3, 4)
-              {typeCodeFilter}
-              AND  ( @loginOnly = 0     OR al.Action IN (3, 4) )
+            WHERE  al.ProjectId = @pid
+              AND  al.Action IN (0, 1, 2)
+              AND  al.TargetType IN @typeCodes
             ORDER  BY al.CreatedAt DESC
             OFFSET @skip ROWS FETCH NEXT @take ROWS ONLY;
             """;
 
-        string sqlCount = $"""
+        string sqlCount = """
             SELECT COUNT(*)
             FROM   dbo.MT_AuditLogs al
-            WHERE  ( al.ProjectId = @pid
-                     OR (@includeGlobal = 1 AND al.ProjectId IS NULL) )
-              AND  al.Action IN (0, 1, 2, 3, 4)
-              {typeCodeFilter}
-              AND  ( @loginOnly = 0     OR al.Action IN (3, 4) );
+            WHERE  al.ProjectId = @pid
+              AND  al.Action IN (0, 1, 2)
+              AND  al.TargetType IN @typeCodes;
             """;
 
         var logs = (await conn.QueryAsync<RecentAuditLog>(sqlMain, sqlParams)).ToList();
@@ -1127,10 +1110,8 @@ public class DashboardService : IDashboardService
 
         // ── Step 2：依 TargetType 分組批次解析 TargetName ──────────────
         // 聚合各 TargetType → TargetId 清單
-        // - Login/Logout（Action 3,4）：UserName 已在 Step 1 取得，無需再查目標名稱
         // - TargetType=6(Reviews) JOIN MT_Questions 顯示對應題目的 QuestionCode
         var grouped = logs
-            .Where(l => l.Action != 3 && l.Action != 4)
             .GroupBy(l => l.TargetType)
             .ToDictionary(g => g.Key, g => g.Select(x => x.TargetId).Distinct().ToList());
 
@@ -1172,12 +1153,7 @@ public class DashboardService : IDashboardService
         // ── 填入 TargetName ─────────────────────────────────────────────
         foreach (var log in logs)
         {
-            if (log.Action == 3 || log.Action == 4)
-            {
-                // Login/Logout：目標就是使用者本人，UI 端顯示時不引用 TargetName
-                log.TargetName = string.Empty;
-            }
-            else if (nameMap.TryGetValue((log.TargetType, log.TargetId), out var found))
+            if (nameMap.TryGetValue((log.TargetType, log.TargetId), out var found))
             {
                 log.TargetName = found;
             }

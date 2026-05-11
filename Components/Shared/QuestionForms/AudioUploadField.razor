@@ -1,0 +1,112 @@
+@* ====================================================================== *@
+@*  AudioUploadField — 聽力題目／題組共用音檔上傳欄位                       *@
+@*  - 點擊區塊呼叫 AudioUpload.pick (JS) 開檔案選擇器                        *@
+@*  - 上傳成功後將 URL 回拋父層（@bind-AudioUrl）                            *@
+@*  - 已上傳時改顯示原生 <audio> 播放器與「移除」按鈕                        *@
+@* ====================================================================== *@
+@inject IJSRuntime JS
+
+<div class="border-2 border-dashed @BorderClass rounded-xl p-6 @ContainerInteractClass transition-all group" @onclick="OnZoneClick">
+    @if (string.IsNullOrEmpty(AudioUrl))
+    {
+        @if (isUploading)
+        {
+            <div class="flex flex-col items-center gap-2">
+                <i class="fa-solid fa-spinner fa-spin text-3xl text-morandi"></i>
+                <p class="text-sm text-gray-600">音檔上傳中…</p>
+            </div>
+        }
+        else
+        {
+            <div class="text-center">
+                <i class="fa-solid fa-cloud-arrow-up text-3xl text-gray-300 group-hover:text-morandi mb-2 transition-colors"></i>
+                <p class="text-sm text-gray-400 group-hover:text-gray-600">點擊此處選擇音檔</p>
+                <p class="text-xs text-gray-300 mt-1">支援 MP3 / WAV / OGG / M4A，檔案大小上限 10MB</p>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="flex items-center gap-3" @onclick:stopPropagation="true">
+            <i class="fa-solid fa-file-audio text-2xl text-morandi flex-shrink-0"></i>
+            <audio controls preload="auto" src="@AudioUrl" class="flex-1 min-w-0"></audio>
+            @if (!IsReadOnly)
+            {
+                <button type="button" @onclick="RemoveAudio"
+                    class="text-xs text-red-400 hover:text-red-600 cursor-pointer flex-shrink-0">
+                    <i class="fa-solid fa-xmark"></i> 移除
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <p class="mt-2 text-xs text-red-500 flex items-center gap-1">
+        <i class="fa-solid fa-circle-exclamation"></i> @errorMessage
+    </p>
+}
+
+@code {
+    [Parameter] public string AudioUrl { get; set; } = "";
+    [Parameter] public EventCallback<string> AudioUrlChanged { get; set; }
+    [Parameter] public bool IsReadOnly { get; set; }
+
+    private bool isUploading;
+    private string? errorMessage;
+
+    private string BorderClass => string.IsNullOrEmpty(AudioUrl)
+        ? "border-gray-300 hover:border-morandi hover:bg-morandi/5"
+        : "border-gray-200 bg-white";
+
+    private string ContainerInteractClass => (!IsReadOnly && string.IsNullOrEmpty(AudioUrl) && !isUploading)
+        ? "cursor-pointer text-center"
+        : "cursor-default";
+
+    private async Task OnZoneClick()
+    {
+        if (IsReadOnly || isUploading || !string.IsNullOrEmpty(AudioUrl))
+        {
+            return;
+        }
+        await PickAndUploadAsync();
+    }
+
+    private async Task PickAndUploadAsync()
+    {
+        errorMessage = null;
+        isUploading = true;
+        StateHasChanged();
+
+        try
+        {
+            var url = await JS.InvokeAsync<string?>("AudioUpload.pick");
+            if (!string.IsNullOrEmpty(url))
+            {
+                AudioUrl = url;
+                await AudioUrlChanged.InvokeAsync(url);
+            }
+        }
+        catch (JSException ex)
+        {
+            errorMessage = ex.Message;
+        }
+        catch (Exception ex) when (ex is TaskCanceledException || ex.GetType().Name == "JSDisconnectedException")
+        {
+            // 連線中斷或取消：忽略
+        }
+        finally
+        {
+            isUploading = false;
+        }
+    }
+
+    private async Task RemoveAudio()
+    {
+        if (IsReadOnly) return;
+        AudioUrl = "";
+        errorMessage = null;
+        await AudioUrlChanged.InvokeAsync("");
+    }
+}

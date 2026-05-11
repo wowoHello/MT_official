@@ -130,7 +130,8 @@ public static class QuestionFormValidator
             optionPrefix: nameof(QuestionFormData.Options),
             answerKey: nameof(QuestionFormData.Answer));
 
-        // 解析非必填，遵循 QuestionFormSingle.razor 的「選填」標示
+        if (IsRichTextEmpty(data.Analysis))
+            errors.Add(new(nameof(QuestionFormData.Analysis), "請填寫試題解析"));
     }
 
     /// <summary>長文題目。</summary>
@@ -240,8 +241,6 @@ public static class QuestionFormValidator
         if (data.Difficulty is null)
             errors.Add(new(nameof(QuestionFormData.Difficulty), "請選擇難易度"));
 
-        if (string.IsNullOrWhiteSpace(data.AudioUrl))
-            errors.Add(new(nameof(QuestionFormData.AudioUrl), "請上傳聽力音檔"));
         if (IsRichTextEmpty(data.Stem))
             errors.Add(new(nameof(QuestionFormData.Stem), "請填寫題幹"));
 
@@ -261,8 +260,6 @@ public static class QuestionFormValidator
         if (data.Material is null)
             errors.Add(new(nameof(QuestionFormData.Material), "請選擇素材分類"));
 
-        if (string.IsNullOrWhiteSpace(data.AudioUrl))
-            errors.Add(new(nameof(QuestionFormData.AudioUrl), "請上傳聽力音檔"));
         if (IsRichTextEmpty(data.ArticleContent))
             errors.Add(new(nameof(QuestionFormData.ArticleContent), "請填寫語音內容"));
 

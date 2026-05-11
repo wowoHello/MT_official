@@ -1,6 +1,7 @@
 using System.Data;
 using System.Text.Json;
 using Dapper;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Data.SqlClient;
 using MT.Models;
 
@@ -55,11 +56,13 @@ public class TeacherService : ITeacherService
 
     private readonly IDatabaseService _db;
     private readonly ILogger<TeacherService> _logger;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public TeacherService(IDatabaseService db, ILogger<TeacherService> logger)
+    public TeacherService(IDatabaseService db, ILogger<TeacherService> logger, IHttpContextAccessor httpContextAccessor)
     {
         _db = db;
         _logger = logger;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     // ==================================================================
@@ -869,7 +872,7 @@ public class TeacherService : ITeacherService
     // 私有輔助方法
     // ==================================================================
 
-    private static async Task WriteAuditAsync(
+    private async Task WriteAuditAsync(
         IDbConnection conn,
         int operatorId,
         AuditAction action,
@@ -879,8 +882,8 @@ public class TeacherService : ITeacherService
         IDbTransaction? transaction = null)
     {
         const string sql = """
-            INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue)
-            VALUES (@UserId, @Action, @TargetType, @TargetId, @NewValue);
+            INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue, IpAddress)
+            VALUES (@UserId, @Action, @TargetType, @TargetId, @NewValue, @IpAddress);
             """;
 
         await conn.ExecuteAsync(sql, new
@@ -890,6 +893,7 @@ public class TeacherService : ITeacherService
             TargetType = (byte)targetType,
             TargetId = targetId,
             NewValue = newValue,
+            IpAddress = ClientIpResolver.Resolve(_httpContextAccessor),
         }, transaction: transaction);
     }
 }

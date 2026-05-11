@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using Microsoft.AspNetCore.Http;
 using MT.Models;
 
 namespace MT.Services;
@@ -23,11 +24,13 @@ public class AnnouncementService : IAnnouncementService
 {
     private readonly IDatabaseService _db;
     private readonly ILogger<AnnouncementService> _logger;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public AnnouncementService(IDatabaseService db, ILogger<AnnouncementService> logger)
+    public AnnouncementService(IDatabaseService db, ILogger<AnnouncementService> logger, IHttpContextAccessor httpContextAccessor)
     {
         _db = db;
         _logger = logger;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     // ─── 權限門鎖：寫入動作前必過 ───
@@ -121,8 +124,8 @@ public class AnnouncementService : IAnnouncementService
             """;
 
         const string auditSql = """
-            INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue)
-            VALUES (@UserId, @Action, @TargetType, @TargetId, @NewValue);
+            INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue, IpAddress)
+            VALUES (@UserId, @Action, @TargetType, @TargetId, @NewValue, @IpAddress);
             """;
 
         using var conn = _db.CreateConnection();
@@ -147,13 +150,22 @@ public class AnnouncementService : IAnnouncementService
                 AuthorId = operatorId
             }, tx);
 
+            // NewValue 統一改為 JSON（含 targetDisplayName）：刪除後 SystemLogs 仍能 fallback 顯示
             await conn.ExecuteAsync(auditSql, new
             {
                 UserId = operatorId,
                 Action = (byte)AuditAction.Create,
                 TargetType = (byte)AuditTargetType.Announcements,
                 TargetId = newId,
-                NewValue = model.Title
+                NewValue = AuditLogJsonHelper.Serialize(new
+                {
+                    title = model.Title,
+                    category = model.Category,
+                    isPinned = model.IsPinned,
+                    projectId = model.ProjectId,           // 公告綁定的梯次（僅參考，不寫進 LOG 的 ProjectId 欄位）
+                    targetDisplayName = model.Title
+                }),
+                IpAddress = ClientIpResolver.Resolve(_httpContextAccessor)
             }, tx);
 
             tx.Commit();
@@ -179,8 +191,8 @@ public class AnnouncementService : IAnnouncementService
             """;
 
         const string auditSql = """
-            INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue)
-            VALUES (@UserId, @Action, @TargetType, @TargetId, @NewValue);
+            INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue, IpAddress)
+            VALUES (@UserId, @Action, @TargetType, @TargetId, @NewValue, @IpAddress);
             """;
 
         using var conn = _db.CreateConnection();
@@ -211,7 +223,15 @@ public class AnnouncementService : IAnnouncementService
                 Action = (byte)AuditAction.Update,
                 TargetType = (byte)AuditTargetType.Announcements,
                 TargetId = id,
-                NewValue = model.Title
+                NewValue = AuditLogJsonHelper.Serialize(new
+                {
+                    title = model.Title,
+                    category = model.Category,
+                    isPinned = model.IsPinned,
+                    projectId = model.ProjectId,
+                    targetDisplayName = model.Title
+                }),
+                IpAddress = ClientIpResolver.Resolve(_httpContextAccessor)
             }, tx);
 
             tx.Commit();
@@ -226,16 +246,18 @@ public class AnnouncementService : IAnnouncementService
     // ─── 置頂切換 ───
     public async Task TogglePinAsync(int id, int operatorId)
     {
+        // UPDATE 後用 OUTPUT 取得新的 IsPinned 與 Title，供 LOG 寫入時記錄切換後狀態
         const string toggleSql = """
             UPDATE dbo.MT_Announcements
             SET IsPinned = CASE WHEN IsPinned = 1 THEN 0 ELSE 1 END,
                 UpdatedAt = SYSDATETIME()
+            OUTPUT INSERTED.IsPinned AS IsPinned, INSERTED.Title AS Title
             WHERE Id = @Id;
             """;
 
         const string auditSql = """
-            INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue)
-            VALUES (@UserId, @Action, @TargetType, @TargetId, @NewValue);
+            INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue, IpAddress)
+            VALUES (@UserId, @Action, @TargetType, @TargetId, @NewValue, @IpAddress);
             """;
 
         using var conn = _db.CreateConnection();
@@ -247,7 +269,7 @@ public class AnnouncementService : IAnnouncementService
 
         try
         {
-            await conn.ExecuteAsync(toggleSql, new { Id = id }, tx);
+            var updated = await conn.QuerySingleAsync<(bool IsPinned, string Title)>(toggleSql, new { Id = id }, tx);
 
             await conn.ExecuteAsync(auditSql, new
             {
@@ -255,7 +277,14 @@ public class AnnouncementService : IAnnouncementService
                 Action = (byte)AuditAction.Update,
                 TargetType = (byte)AuditTargetType.Announcements,
                 TargetId = id,
-                NewValue = "置頂切換"
+                NewValue = AuditLogJsonHelper.Serialize(new
+                {
+                    title = updated.Title,
+                    action = updated.IsPinned ? "置頂" : "取消置頂",
+                    isPinned = updated.IsPinned,
+                    targetDisplayName = updated.Title
+                }),
+                IpAddress = ClientIpResolver.Resolve(_httpContextAccessor)
             }, tx);
 
             tx.Commit();
@@ -287,9 +316,13 @@ public class AnnouncementService : IAnnouncementService
                   )
               );
 
-            INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue)
-            SELECT @UserId, @Action, @TargetType, Id, @NewValue
-            FROM @Updated;
+            -- 為每筆被取消置頂的公告寫一筆 LOG；targetDisplayName 從 MT_Announcements.Title 取
+            INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue, IpAddress)
+            SELECT @UserId, @Action, @TargetType, u.Id,
+                   N'{"action":"自動取消過期公告置頂","targetDisplayName":"' + REPLACE(ISNULL(a.Title, N''), N'"', N'\"') + N'"}',
+                   @IpAddress
+            FROM @Updated u
+            LEFT JOIN dbo.MT_Announcements a ON a.Id = u.Id;
 
             SELECT COUNT(*) FROM @Updated;
             """;
@@ -310,7 +343,7 @@ public class AnnouncementService : IAnnouncementService
                 PublishedStatus = (byte)AnnouncementStatus.Published,
                 Action = (byte)AuditAction.Update,
                 TargetType = (byte)AuditTargetType.Announcements,
-                NewValue = "自動取消過期或草稿公告置頂"
+                IpAddress = ClientIpResolver.Resolve(_httpContextAccessor)
             }, tx);
 
             tx.Commit();
@@ -351,13 +384,19 @@ public class AnnouncementService : IAnnouncementService
     // ─── 刪除公告 ───
     public async Task DeleteAsync(int id, int operatorId)
     {
+        const string selectSql = """
+            SELECT Id, Title, Category, IsPinned, ProjectId
+            FROM dbo.MT_Announcements WHERE Id = @Id;
+            """;
+
         const string deleteSql = """
             DELETE FROM dbo.MT_Announcements WHERE Id = @Id;
             """;
 
+        // Delete 用 OldValue 記錄被刪除前的內容，供 SystemLogs / Dashboard 反查 Title
         const string auditSql = """
-            INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue)
-            VALUES (@UserId, @Action, @TargetType, @TargetId, @NewValue);
+            INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, OldValue, IpAddress)
+            VALUES (@UserId, @Action, @TargetType, @TargetId, @OldValue, @IpAddress);
             """;
 
         using var conn = _db.CreateConnection();
@@ -369,13 +408,24 @@ public class AnnouncementService : IAnnouncementService
 
         try
         {
+            // 先取得即將刪除的公告資料，作為 OldValue 寫入 audit
+            var snapshot = await conn.QuerySingleOrDefaultAsync<AnnouncementDeleteSnapshot>(selectSql, new { Id = id }, tx);
+
             await conn.ExecuteAsync(auditSql, new
             {
                 UserId = operatorId,
                 Action = (byte)AuditAction.Delete,
                 TargetType = (byte)AuditTargetType.Announcements,
                 TargetId = id,
-                NewValue = "刪除公告"
+                OldValue = AuditLogJsonHelper.Serialize(new
+                {
+                    title = snapshot?.Title,
+                    category = snapshot?.Category,
+                    isPinned = snapshot?.IsPinned,
+                    projectId = snapshot?.ProjectId,
+                    targetDisplayName = snapshot?.Title
+                }),
+                IpAddress = ClientIpResolver.Resolve(_httpContextAccessor)
             }, tx);
 
             await conn.ExecuteAsync(deleteSql, new { Id = id }, tx);
@@ -387,5 +437,15 @@ public class AnnouncementService : IAnnouncementService
             tx.Rollback();
             throw;
         }
+    }
+
+    /// <summary>刪除公告前的快照（僅給 audit OldValue 用）。</summary>
+    private sealed class AnnouncementDeleteSnapshot
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = "";
+        public byte Category { get; set; }
+        public bool IsPinned { get; set; }
+        public int? ProjectId { get; set; }
     }
 }

@@ -87,6 +87,9 @@ builder.Services.AddScoped<IHomeService, HomeService>();
 // 命題儀表板 KPI 統計（Dashboard.razor）
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 
+// 系統活動記錄（登入/人員/專案/公告）統一查詢服務（SystemLogs.razor）
+builder.Services.AddScoped<ISystemLogService, SystemLogService>();
+
 // 階段轉換協調器：CwtList / Reviews / OverviewService 共用入口，60 秒去重
 // Singleton + IMemoryCache 跨 user 跨 tab 共享狀態，避免雜訊 SQL
 builder.Services.AddMemoryCache();
@@ -157,7 +160,7 @@ app.MapGet("/auth/logout", async (IAuthService authService, HttpContext context)
         {
             var ip = context.Request.Headers["X-Forwarded-For"].FirstOrDefault()?.Split(',')[0].Trim()
                      ?? context.Connection.RemoteIpAddress?.ToString();
-            await authService.LogAuditAsync(userId, MT.Models.AuditAction.Logout, ip);
+            await authService.LogLogoutAsync(userId, ip);
         }
     }
     catch
@@ -206,6 +209,53 @@ app.MapPost("/api/upload", async (HttpRequest request, IWebHostEnvironment env) 
 
     var pathBase = request.PathBase.HasValue ? request.PathBase.Value : "";
     return Results.Ok(new { url = $"{pathBase}/uploads/{fileName}" });
+})
+.DisableAntiforgery()
+.RequireAuthorization();
+
+// 給聽力題型上傳音檔使用，成功後回傳可存取的靜態網址
+app.MapPost("/api/upload-audio", async (HttpRequest request, IWebHostEnvironment env) =>
+{
+    var form = await request.ReadFormAsync();
+    var file = form.Files.GetFile("file");
+
+    if (file is null || file.Length == 0)
+    {
+        return Results.BadRequest(new { error = "未收到上傳檔案。" });
+    }
+
+    if (file.Length > 10 * 1024 * 1024)
+    {
+        return Results.BadRequest(new { error = "音檔大小不可超過 10MB。" });
+    }
+
+    // MIME 白名單：MP3 / WAV / OGG / M4A
+    // 各家瀏覽器送出的 MIME 不一致，因此同時以副檔名兜底
+    var allowedMime = new[]
+    {
+        "audio/mpeg", "audio/mp3",
+        "audio/wav", "audio/wave", "audio/x-wav", "audio/vnd.wave",
+        "audio/ogg", "application/ogg",
+        "audio/mp4", "audio/x-m4a", "audio/m4a"
+    };
+    var allowedExt = new[] { ".mp3", ".wav", ".ogg", ".m4a" };
+    var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+    if (!allowedExt.Contains(ext) && !allowedMime.Contains(file.ContentType))
+    {
+        return Results.BadRequest(new { error = "僅支援 MP3、WAV、OGG、M4A 音檔。" });
+    }
+
+    var audioDir = Path.Combine(env.WebRootPath, "uploads", "audio");
+    Directory.CreateDirectory(audioDir);
+
+    var fileName = $"{Guid.NewGuid():N}{ext}";
+    var filePath = Path.Combine(audioDir, fileName);
+
+    await using var stream = new FileStream(filePath, FileMode.Create);
+    await file.CopyToAsync(stream);
+
+    var pathBase = request.PathBase.HasValue ? request.PathBase.Value : "";
+    return Results.Ok(new { url = $"{pathBase}/uploads/audio/{fileName}" });
 })
 .DisableAntiforgery()
 .RequireAuthorization();

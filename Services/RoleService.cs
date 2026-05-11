@@ -1,5 +1,6 @@
 using System.Data;
 using Dapper;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Data.SqlClient;
 using MT.Hubs;
@@ -54,12 +55,14 @@ public class RoleService : IRoleService
     private readonly IDatabaseService _db;
     private readonly ILogger<RoleService> _logger;
     private readonly IHubContext<ProjectsHub> _hubContext;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public RoleService(IDatabaseService db, ILogger<RoleService> logger, IHubContext<ProjectsHub> hubContext)
+    public RoleService(IDatabaseService db, ILogger<RoleService> logger, IHubContext<ProjectsHub> hubContext, IHttpContextAccessor httpContextAccessor)
     {
         _db = db;
         _logger = logger;
         _hubContext = hubContext;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     /// <summary>廣播角色/權限變更事件，通知所有客戶端重載模組權限。</summary>
@@ -993,7 +996,11 @@ public class RoleService : IRoleService
     /// 統一寫入 MT_AuditLogs 的輔助方法。
     /// 帳號 / 角色變更不綁定梯次，故 projectId 預設為 NULL；其他 Service 可依情境帶值。
     /// </summary>
-    private static async Task WriteAuditAsync(
+    /// <summary>
+    /// 統一寫 MT_AuditLogs：自動帶上當前 HttpContext 的 IpAddress；
+    /// 改為 instance method 以便取用 _httpContextAccessor，呼叫端簽名不變（projectId/transaction 仍可選）。
+    /// </summary>
+    private async Task WriteAuditAsync(
         IDbConnection conn,
         int operatorId,
         AuditAction action,
@@ -1005,8 +1012,8 @@ public class RoleService : IRoleService
         IDbTransaction? transaction = null)
     {
         const string sql = """
-            INSERT INTO dbo.MT_AuditLogs (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue)
-            VALUES (@UserId, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue);
+            INSERT INTO dbo.MT_AuditLogs (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, IpAddress)
+            VALUES (@UserId, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, @IpAddress);
             """;
 
         await conn.ExecuteAsync(sql, new
@@ -1018,6 +1025,7 @@ public class RoleService : IRoleService
             TargetId = targetId,
             OldValue = oldValue,
             NewValue = newValue,
+            IpAddress = ClientIpResolver.Resolve(_httpContextAccessor),
         }, transaction: transaction);
     }
 

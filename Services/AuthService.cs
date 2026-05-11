@@ -18,14 +18,14 @@ public interface IAuthService
     Task LogLoginAttemptAsync(int? userId, string username, bool isSuccess, string? failReason, string? ip, string? userAgent);
     Task UpdateLastLoginAsync(int userId);
 
+    /// <summary>登出時寫入 MT_LoginLogs（EventType=2）。失敗不阻擋登出流程，由 caller 包 try/catch。</summary>
+    Task LogLogoutAsync(int userId, string? ip);
+
     /// <summary>暫存登入資料，回傳一次性 key，供 HTTP 端點完成 Cookie 寫入</summary>
     string PrepareSignIn(UserInfo user, bool rememberMe);
 
     /// <summary>由 HTTP 端點呼叫，使用一次性 key 完成 Cookie 寫入，回傳是否為首次登入以決定導向</summary>
     Task<(bool Success, bool IsFirstLogin)> CompleteSignInAsync(string key, HttpContext httpContext);
-
-    /// <summary>寫入 MT_AuditLogs 稽核紀錄（登入/登出等）</summary>
-    Task LogAuditAsync(int userId, AuditAction action, string? ipAddress = null);
 }
 
 public class AuthService : IAuthService
@@ -167,9 +167,10 @@ public class AuthService : IAuthService
     {
         using var conn = _db.CreateConnection();
 
+        // EventType 顯式指定 1（Login）以對齊 MT_LoginLogs 的設計，雖然 DB 有 DEFAULT 1
         await conn.ExecuteAsync(
-            @"INSERT INTO dbo.MT_LoginLogs (UserId, Username, IsSuccess, IpAddress, UserAgent, FailReason)
-              VALUES (@UserId, @Username, @IsSuccess, @IpAddress, @UserAgent, @FailReason)",
+            @"INSERT INTO dbo.MT_LoginLogs (UserId, Username, EventType, IsSuccess, IpAddress, UserAgent, FailReason)
+              VALUES (@UserId, @Username, 1, @IsSuccess, @IpAddress, @UserAgent, @FailReason)",
             new
             {
                 UserId = userId,
@@ -178,6 +179,25 @@ public class AuthService : IAuthService
                 IpAddress = TrimToLength(ip ?? ResolveIpAddress(), 50),
                 UserAgent = TrimToLength(userAgent ?? ResolveUserAgent(null), 500),
                 FailReason = TrimToLength(failReason, 200)
+            });
+    }
+
+    public async Task LogLogoutAsync(int userId, string? ip)
+    {
+        using var conn = _db.CreateConnection();
+
+        // 登出寫入 MT_LoginLogs（EventType=2, IsSuccess=1）
+        // Username 由 MT_Users 反查（登出時 context 仍有效），UserAgent 由 HttpContext 取得
+        await conn.ExecuteAsync(
+            @"INSERT INTO dbo.MT_LoginLogs (UserId, Username, EventType, IsSuccess, IpAddress, UserAgent)
+              SELECT @UserId, u.Username, 2, 1, @IpAddress, @UserAgent
+              FROM dbo.MT_Users u
+              WHERE u.Id = @UserId",
+            new
+            {
+                UserId = userId,
+                IpAddress = TrimToLength(ip ?? ResolveIpAddress(), 50),
+                UserAgent = TrimToLength(ResolveUserAgent(null), 500)
             });
     }
 
@@ -249,7 +269,7 @@ public class AuthService : IAuthService
             clientIp,
             ResolveUserAgent(null, httpContext));
         await UpdateLastLoginAsync(data.User.Id);
-        await LogAuditAsync(data.User.Id, AuditAction.Login, clientIp);
+        // Login 事件已由上方 LogLoginAttemptAsync 寫入 MT_LoginLogs，不再重複寫 MT_AuditLogs
 
         return (true, data.User.IsFirstLogin);
     }
@@ -346,23 +366,6 @@ public class AuthService : IAuthService
 
         var context = httpContext ?? _httpContextAccessor.HttpContext;
         return context?.Request.Headers.UserAgent.ToString();
-    }
-
-    public async Task LogAuditAsync(int userId, AuditAction action, string? ipAddress = null)
-    {
-        using var conn = _db.CreateConnection();
-
-        await conn.ExecuteAsync(
-            @"INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, IpAddress)
-              VALUES (@UserId, @Action, @TargetType, @TargetId, @IpAddress)",
-            new
-            {
-                UserId = userId,
-                Action = (byte)action,
-                TargetType = (byte)AuditTargetType.Users,
-                TargetId = userId,
-                IpAddress = TrimToLength(ipAddress, 50)
-            });
     }
 
     private static string? TrimToLength(string? value, int maxLength)

@@ -103,7 +103,13 @@ JS interop 檔位於 `wwwroot/js/`：`login-interop.js`、`quill-interop.js`、`
   2. 用 `NavigationManager.NavigateTo("/auth/login?key=...", forceLoad: true)` 觸發真正的 HTTP request。
   3. `Program.cs` 的 `/auth/login` endpoint 才呼叫 `CompleteSignInAsync` 寫 Cookie。
 - 「記住登入」勾選後 `IsPersistent=true` 且絕對期限 90 天；未勾為 sliding 2 小時。
-- 登入/登出都要寫 `MT_AuditLogs`（`AuditAction.Logout` 等）。
+- **全站活動 vs 梯次內活動**：
+  - 全站活動（登入登出、人員/角色/教師 CUD、專案 CUD、公告 CUD）由 `SystemLogs.razor`（路由 `/system-logs`）統一呈現，資料源為 `MT_LoginLogs` + `MT_AuditLogs WHERE ProjectId IS NULL`
+  - 梯次內活動（試題 CUD、審題 CUD）由 `Dashboard.razor` 呈現，資料源為 `MT_AuditLogs WHERE ProjectId = @pid AND TargetType IN (3, 6)`
+- 登入/登出寫 `MT_LoginLogs`（`EventType` 1=Login / 2=Logout），不寫 `MT_AuditLogs`；資料 CUD 寫 `MT_AuditLogs`（`Action` 0/1/2）。
+- **寫 `MT_AuditLogs` 的兩條鐵律**：
+  1. **`ProjectId` 欄位**：跨梯次活動（人員/角色/教師/專案/公告 CUD）一律 NULL；梯次內活動（試題/審題 CUD）才填當前梯次 Id。
+  2. **`OldValue` / `NewValue`**：必須是 JSON（用 `AuditLogJsonHelper.Serialize`），且**包含 `targetDisplayName` 欄位**——這是目標被刪除後 `SystemLogs.razor` / `Dashboard.razor` 用來 fallback 顯示名稱的唯一線索；Delete 動作把名稱寫入 OldValue，Create/Update 寫入 NewValue。
 
 ### 路由與授權（`Components/Routes.razor`）
 - 預設全站 `[Authorize]`（在 `_Imports.razor` 設定）；登入/重設密碼頁要 `[AllowAnonymous]` + `@layout LoginLayout`。

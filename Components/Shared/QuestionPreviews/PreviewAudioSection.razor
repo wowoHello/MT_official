@@ -4,7 +4,8 @@
 @*  設計：                                                                  *@
 @*    - 模擬實際聽力試卷上方的「請聆聽以下音檔」框                              *@
 @*    - 中性灰底 + headphones 圖示，避免太繽紛搶焦點                           *@
-@*    - 含模擬播放器 UI（▶ 圖示 + 進度條 + 時間），讓考生視覺認知更貼近實際      *@
+@*    - 已上傳：原生 <audio controls> 真實播放                                 *@
+@*    - 未上傳：保留模擬播放器佔位（命題尚未補音檔的視覺指引）                  *@
 @* ====================================================================== *@
 
 <div class="my-6 border border-gray-200 rounded-lg bg-gray-50/70 p-4 font-sans">
@@ -14,32 +15,28 @@
         </div>
         <div class="flex-1 min-w-0">
             <p class="text-sm font-bold text-slate-main mb-0.5">請聆聽以下音檔</p>
-            @if (!string.IsNullOrEmpty(AudioFileName))
+            @if (string.IsNullOrEmpty(AudioFileName))
             {
-                <p class="text-xs text-gray-500 truncate">
-                    <i class="fa-solid fa-file-audio mr-1 text-gray-400"></i>@AudioFileName
-                </p>
-            }
-            else
-            {
-                <p class="text-xs text-gray-400 italic">尚未上傳音檔（正式版將於此載入音檔播放器）</p>
+                <p class="text-xs text-gray-400 italic">尚未上傳音檔（可於命題完成後再補上）</p>
             }
         </div>
-        @* 模擬播放控制（不可互動） *@
-        <button type="button" disabled
-            class="flex-shrink-0 w-10 h-10 bg-morandi text-white rounded-full flex items-center justify-center opacity-90 cursor-not-allowed shadow-sm">
-            <i class="fa-solid fa-play text-sm ml-0.5"></i>
-        </button>
     </div>
 
-    @* 模擬進度條 *@
-    <div class="mt-3 flex items-center gap-2 text-xs text-gray-400">
-        <span>00:00</span>
-        <div class="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
-            <div class="h-full w-0 bg-morandi/50"></div>
+    @if (!string.IsNullOrEmpty(AudioFileName))
+    {
+        <audio controls preload="auto" src="@AudioFileName" class="mt-3 w-full"></audio>
+    }
+    else
+    {
+        @* 模擬進度條（佔位視覺，提示考生此處將出現播放器） *@
+        <div class="mt-3 flex items-center gap-2 text-xs text-gray-400">
+            <span>00:00</span>
+            <div class="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
+                <div class="h-full w-0 bg-morandi/50"></div>
+            </div>
+            <span>--:--</span>
         </div>
-        <span>--:--</span>
-    </div>
+    }
 </div>
 
 @code {
