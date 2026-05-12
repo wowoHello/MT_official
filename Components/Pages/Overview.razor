@@ -612,14 +612,14 @@
                 break;
             case QuestionTypeCodes.ReadGroup:
                 <PreviewReadGroup Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
-                    Stem="@detailData.Stem" Passage="@detailData.ArticleContent"
+                    Passage="@detailData.ArticleContent" Images="@detailData.Images"
                     SubQuestions="@detailData.ReadSubQuestions.Select(sq => new PreviewReadGroup.SubQuestionData {
                         Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer
                     }).ToList()" />
                 break;
             case QuestionTypeCodes.ShortGroup:
                 <PreviewShortGroup Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
-                    Stem="@detailData.Stem" Passage="@detailData.ArticleContent"
+                    Passage="@detailData.ArticleContent"
                     SubQuestions="@detailData.ShortSubQuestions.Select(sq => new PreviewShortGroup.SubQuestionData {
                         Stem      = sq.Stem,
                         Dimension = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ShortGroup),

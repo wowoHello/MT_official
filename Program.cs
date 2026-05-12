@@ -31,7 +31,16 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         // Session 預設：未勾「記住登入」時的票據有效時間（滑動延長）
         // 勾選「記住登入」時，於 AuthService.CompleteSignInAsync 顯式覆寫為 90 天絕對期限
         options.ExpireTimeSpan = TimeSpan.FromHours(2);
-        options.SlidingExpiration = true;        
+        options.SlidingExpiration = true;
+
+        // 不需要 ReturnUrl 跳回機制（登入成功一律由 /auth/login 端點導去首頁）
+        // 覆寫預設行為，剝掉 query string，讓網址保持乾淨 /login
+        options.Events.OnRedirectToLogin = context =>
+        {
+            var loginPath = context.Request.PathBase + context.Options.LoginPath;
+            context.Response.Redirect(loginPath);
+            return Task.CompletedTask;
+        };
     });
 
 builder.Services.AddAuthorization();

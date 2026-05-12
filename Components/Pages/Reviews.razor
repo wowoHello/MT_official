@@ -635,14 +635,13 @@
                                 break;
                             case QuestionTypeCodes.ReadGroup:
                                 <QuestionFormReadGroup Status="@QuestionStatus.FinalReviewing"
-                                    @bind-Stem="finalEditFormData.Stem"
                                     @bind-Passage="finalEditFormData.ArticleContent"
                                     @bind-SubQuestions="finalEditFormData.ReadSubQuestions"
+                                    @bind-Images="finalEditFormData.Images"
                                     InvalidFields="finalEditInvalidFields" />
                                 break;
                             case QuestionTypeCodes.ShortGroup:
                                 <QuestionFormShortGroup Status="@QuestionStatus.FinalReviewing"
-                                    @bind-Stem="finalEditFormData.Stem"
                                     @bind-Passage="finalEditFormData.ArticleContent"
                                     @bind-SubQuestions="finalEditFormData.ShortSubQuestions"
                                     InvalidFields="finalEditInvalidFields" />

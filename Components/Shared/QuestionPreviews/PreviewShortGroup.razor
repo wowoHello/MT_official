@@ -3,19 +3,7 @@
 
 <PreviewHeader QuestionType="短文題組" Level="@Level" Difficulty="@Difficulty" Tags="@Tags" />
 
-<!-- 題組標題 -->
-@if (HasContent(Stem))
-{
-    <h3 class="text-lg font-bold text-gray-900 mb-3 font-serif border-b border-gray-200 pb-2">
-        @((MarkupString)Stem)
-    </h3>
-}
-else
-{
-    <p class="text-gray-400 italic text-sm font-sans mb-3">題目尚未填寫</p>
-}
-
-<!-- 文章內容 -->
+<!-- 文章內容（實際考卷格式：不顯示「題目」，直接顯示文章） -->
 <PreviewPassage Content="@Passage" Label="閱讀文章" />
 
 <!-- 作答提示 -->
@@ -73,7 +61,6 @@ else
     [Parameter] public string Level { get; set; } = "";
     [Parameter] public string Difficulty { get; set; } = "";
     [Parameter] public Dictionary<string, string>? Tags { get; set; }
-    [Parameter] public string Stem { get; set; } = "";
     [Parameter] public string Passage { get; set; } = "";
     [Parameter] public List<SubQuestionData> SubQuestions { get; set; } = new();
 

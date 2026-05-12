@@ -221,11 +221,12 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
             var newId = await conn.QuerySingleAsync<int>(insertSql, BuildQuestionParams(formData, projectId, creatorUserId, initialStatus, typeId, code), tx);
 
-            // 4. 子題（題組型才有）
+            // 4. 子題（題組型才有；本步驟會把每個 sq.Id 從 DB 回填）
             await InsertSubQuestionsAsync(conn, tx, newId, formData);
 
-            // 5. 母題附圖（MT_QuestionImages，子題附圖待題組擴充）
+            // 5. 附圖（母題層 + 子題層；子題層需 sq.Id 已存在，故放在子題 INSERT 之後）
             await QuestionImagePersistence.UpsertMasterAsync(conn, tx, newId, formData.Images);
+            await QuestionImagePersistence.UpsertSubAsync(conn, tx, newId, GetSubQuestionDbIds(formData), formData.Images);
 
             // 6. 系統稽核：建立題目
             await WriteAuditLogAsync(conn, tx, creatorUserId, projectId,
@@ -351,11 +352,12 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
             if (affected == 0) return false;
 
-            // 3. 子題：UPSERT by SubId + 缺席軟刪除（保留 Id 穩定）
+            // 3. 子題：UPSERT by SubId + 缺席軟刪除（保留 Id 穩定，sq.Id 由本步驟維護）
             await UpsertSubQuestionsAsync(conn, tx, questionId, formData, operatorUserId, projectId);
 
-            // 4. 母題附圖：DELETE + INSERT 全量覆寫
+            // 4. 附圖：DELETE + INSERT 全量覆寫（母題層 + 子題層）
             await QuestionImagePersistence.UpsertMasterAsync(conn, tx, questionId, formData.Images);
+            await QuestionImagePersistence.UpsertSubAsync(conn, tx, questionId, GetSubQuestionDbIds(formData), formData.Images);
 
             // 5. 系統稽核：修改題目（狀態轉移寫進 OldValue/NewValue）
             await WriteAuditLogAsync(conn, tx, operatorUserId, projectId,
@@ -487,6 +489,9 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 }).ToList()
                 : [new() { FixedDifficulty = 3 }, new() { FixedDifficulty = 4 }];
         }
+
+        // 子題附圖：把 DB SubQuestionId 反查為 form 位置索引（SubQuestionIndex）後 append 進 Images
+        data.Images.AddRange(await QuestionImagePersistence.LoadSubAsync(conn, questionId, GetSubQuestionDbIds(data)));
 
         return data;
     }
@@ -1881,8 +1886,9 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             // 4. UPSERT 子題
             await UpsertSubQuestionsAsync(conn, tx, req.QuestionId, req.FormData, operatorUserId, meta.ProjectId);
 
-            // 4.5 母題附圖：DELETE + INSERT 全量覆寫（與 UpdateAsync 邏輯一致）
+            // 4.5 附圖：DELETE + INSERT 全量覆寫（母題層 + 子題層，與 UpdateAsync 邏輯一致）
             await QuestionImagePersistence.UpsertMasterAsync(conn, tx, req.QuestionId, req.FormData.Images);
+            await QuestionImagePersistence.UpsertSubAsync(conn, tx, req.QuestionId, GetSubQuestionDbIds(req.FormData), req.FormData.Images);
 
             // 5. INSERT MT_RevisionReplies — 純 append-only（每輪一筆獨立 row）
             //    Plan_014：總修階段（Stage=8）允許跨輪多次回覆，每輪退回後重新送出都產生新 row
@@ -2100,6 +2106,22 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
     }
 
     // ---- 子題 INSERT/UPDATE 共用參數組裝 ----
+    /// <summary>
+    /// 抽出 formData 中子題的 DB Id 列表，依 form 位置順序排列。
+    /// 必須在 InsertSubQuestionsAsync / UpsertSubQuestionsAsync 跑完之後呼叫，
+    /// 屆時每個子題的 sq.Id 已經由 DB 回填。新增的子題若尚未寫入 DB，對應位置會是 0
+    /// （由 QuestionImagePersistence.UpsertSubAsync 內部過濾掉）。
+    /// 非題組題型回傳空陣列。
+    /// </summary>
+    private static IReadOnlyList<int> GetSubQuestionDbIds(QuestionFormData formData) =>
+        formData.QuestionType switch
+        {
+            QuestionTypeCodes.ReadGroup    => formData.ReadSubQuestions.Select(s => s.Id).ToList(),
+            QuestionTypeCodes.ShortGroup   => formData.ShortSubQuestions.Select(s => s.Id).ToList(),
+            QuestionTypeCodes.ListenGroup  => formData.ListenGroupSubQuestions.Select(s => s.Id).ToList(),
+            _                              => Array.Empty<int>()
+        };
+
     private static object BuildReadSubParams(int parentId, int sortOrder, SubQuestionChoice sq) => new
     {
         ParentId        = parentId,

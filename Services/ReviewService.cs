@@ -820,8 +820,17 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             //    總召代修非題組題型較多（Single/Listen），子題邏輯保守：若 formData 含子題清單則 UPSERT
             await UpsertFinalSubQuestionsAsync(conn, tx, req.QuestionId, req.FormData);
 
-            // 5.5 母題附圖：DELETE + INSERT 全量覆寫（與 QuestionService.UpdateAsync 邏輯一致）
+            // 5.5 附圖：DELETE + INSERT 全量覆寫（母題層 + 子題層，與 QuestionService.UpdateAsync 邏輯一致）
             await QuestionImagePersistence.UpsertMasterAsync(conn, tx, req.QuestionId, req.FormData.Images);
+            await QuestionImagePersistence.UpsertSubAsync(conn, tx, req.QuestionId,
+                req.FormData.QuestionType switch
+                {
+                    QuestionTypeCodes.ReadGroup    => req.FormData.ReadSubQuestions.Select(s => s.Id).ToList(),
+                    QuestionTypeCodes.ShortGroup   => req.FormData.ShortSubQuestions.Select(s => s.Id).ToList(),
+                    QuestionTypeCodes.ListenGroup  => req.FormData.ListenGroupSubQuestions.Select(s => s.Id).ToList(),
+                    _                              => (IReadOnlyList<int>)Array.Empty<int>()
+                },
+                req.FormData.Images);
 
             // 6. UPDATE ReviewAssignment → Completed, Decision, DecidedAt
             const string updateAssignSql = """

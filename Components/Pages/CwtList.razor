@@ -393,11 +393,11 @@
                                 InvalidFields="invalidFields" />
                             break;
                         case QuestionTypeCodes.ReadGroup:
-                            <QuestionFormReadGroup Status="@currentFormStatus" @bind-Stem="formData.Stem" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ReadSubQuestions"
+                            <QuestionFormReadGroup Status="@currentFormStatus" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ReadSubQuestions" @bind-Images="formData.Images"
                                 InvalidFields="invalidFields" />
                             break;
                         case QuestionTypeCodes.ShortGroup:
-                            <QuestionFormShortGroup Status="@currentFormStatus" @bind-Stem="formData.Stem" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ShortSubQuestions"
+                            <QuestionFormShortGroup Status="@currentFormStatus" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ShortSubQuestions"
                                 InvalidFields="invalidFields" />
                             break;
                         case QuestionTypeCodes.Listen:
@@ -434,7 +434,7 @@
             break;
         case QuestionTypeCodes.ReadGroup:
             <PreviewReadGroup Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel" Tags="@GetPreviewTags()"
-                Stem="@formData.Stem" Passage="@formData.ArticleContent"
+                Passage="@formData.ArticleContent" Images="@formData.Images"
                 SubQuestions="@formData.ReadSubQuestions.Select(sq => new PreviewReadGroup.SubQuestionData { Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer }).ToList()" />
             break;
         case QuestionTypeCodes.LongText:
@@ -443,7 +443,7 @@
             break;
         case QuestionTypeCodes.ShortGroup:
             <PreviewShortGroup Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel" Tags="@GetPreviewTags()"
-                Stem="@formData.Stem" Passage="@formData.ArticleContent"
+                Passage="@formData.ArticleContent"
                 SubQuestions="@formData.ShortSubQuestions.Select(sq => new PreviewShortGroup.SubQuestionData {
                     Stem = sq.Stem,
                     Dimension = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ShortGroup),
@@ -750,7 +750,7 @@
             return ("fa-file-circle-plus", "目前此區沒有試題", "點擊上方「新增試題」開始命題。");
 
         if (currentTab == "history")
-            return ("fa-box-archive", "尚無已判決的試題", "等待總審判決後，已採用 / 不採用題目會出現於此。");
+            return ("fa-box-archive", "尚無審核結果", "總審判決後的題目將顯示於此。");
 
         // revision tab：先依使用者點擊的卡片 filter 提示，再 fallback 到階段提示。
         switch (activeFilter)

@@ -181,11 +181,9 @@ public static class QuestionFormValidator
         if (data.Difficulty is null)
             errors.Add(new(nameof(QuestionFormData.Difficulty), "請選擇難易度"));
 
-        // 母題：標題 + 文章內容
-        if (IsRichTextEmpty(data.Stem))
-            errors.Add(new(nameof(QuestionFormData.Stem), "請填寫標題"));
-        if (IsRichTextEmpty(data.ArticleContent))
-            errors.Add(new(nameof(QuestionFormData.ArticleContent), "請填寫文章內容"));
+        // 母題：只有文章內容（文字或圖片擇一）。實際考卷不需要標題，故移除 Stem 檢查
+        if (IsRichTextEmpty(data.ArticleContent) && !HasMasterImage(data.Images, QuestionImageField.ArticleContent))
+            errors.Add(new(nameof(QuestionFormData.ArticleContent), "請填寫文章內容或上傳文章圖片"));
 
         // 子題逐筆
         if (data.ReadSubQuestions.Count == 0)
@@ -198,20 +196,43 @@ public static class QuestionFormValidator
         {
             var sub = data.ReadSubQuestions[i];
             var n = i + 1;
+            var subIdx = i;   // 0-based form 位置（對應 QuestionImage.SubQuestionIndex）
 
-            if (IsRichTextEmpty(sub.Stem))
-                errors.Add(new($"ReadSub_{n}_Stem", $"子題 {n}：請填寫題目內容", n));
+            // 題目內容：文字或圖片擇一
+            if (IsRichTextEmpty(sub.Stem) && !HasSubImage(data.Images, QuestionImageField.Stem, subIdx))
+                errors.Add(new($"ReadSub_{n}_Stem", $"子題 {n}：請填寫題目內容或上傳題目圖片", n));
 
-            ValidateOptionsAndAnswer(sub.Options, sub.Answer, errors,
-                optionPrefix: $"ReadSub_{n}_Options",
-                answerKey: $"ReadSub_{n}_Answer",
-                subIndex: n,
-                subLabel: $"子題 {n}：");
+            // 四選項：逐項「文字或圖片擇一」；只回報第一個漏的
+            for (int j = 0; j < 4; j++)
+            {
+                var hasText  = !IsRichTextEmpty(j < sub.Options.Length ? sub.Options[j] : "");
+                var hasImage = HasSubImage(data.Images, (QuestionImageField)((byte)QuestionImageField.OptionA + j), subIdx);
+                if (!hasText && !hasImage)
+                {
+                    var letter = "ABCD"[j];
+                    errors.Add(new($"ReadSub_{n}_Options_{j}",
+                        $"子題 {n}：選項 ({letter}) 請輸入文字或上傳圖片", n));
+                    break;
+                }
+            }
+
+            // 答案必選
+            if (string.IsNullOrWhiteSpace(sub.Answer)
+                || (sub.Answer != "A" && sub.Answer != "B" && sub.Answer != "C" && sub.Answer != "D"))
+            {
+                errors.Add(new($"ReadSub_{n}_Answer", $"子題 {n}：請選擇正確答案", n));
+            }
 
             if (IsRichTextEmpty(sub.Analysis))
                 errors.Add(new($"ReadSub_{n}_Analysis", $"子題 {n}：請填寫試題解析", n));
         }
     }
+
+    /// <summary>檢查子題層級指定 FieldType + SubQuestionIndex 是否至少有一張有效圖片。</summary>
+    private static bool HasSubImage(List<QuestionImage> images, QuestionImageField fieldType, int subIdx) =>
+        images.Any(i => i.FieldType == (byte)fieldType
+                     && i.SubQuestionIndex == subIdx
+                     && !string.IsNullOrWhiteSpace(i.ImagePath));
 
     /// <summary>短文題組。</summary>
     private static void ValidateShortGroup(QuestionFormData data, List<ValidationError> errors)
@@ -221,8 +242,7 @@ public static class QuestionFormValidator
         if (data.Difficulty is null)
             errors.Add(new(nameof(QuestionFormData.Difficulty), "請選擇難易度"));
 
-        if (IsRichTextEmpty(data.Stem))
-            errors.Add(new(nameof(QuestionFormData.Stem), "請填寫題目"));
+        // 實際考卷不需要「題目」欄位，故只檢查文章內容
         if (IsRichTextEmpty(data.ArticleContent))
             errors.Add(new(nameof(QuestionFormData.ArticleContent), "請填寫文章內容"));
 

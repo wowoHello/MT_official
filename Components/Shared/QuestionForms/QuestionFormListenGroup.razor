@@ -101,7 +101,7 @@
                             </label>
                             <OptionGroup Options="@sq.Options" OptionsChanged="v => SubQuestionsChanged.InvokeAsync(SubQuestions)"
                                 Answer="@sq.Answer" AnswerChanged="v => { sq.Answer = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }"
-                                RadioName="@($"lg-answer-{idx}")" Layout="OptionGroup.OptionLayout.Grid" />
+                                RadioName="@($"lg-answer-{idx}")" Layout="OptionGroup.OptionLayout.Vertical" />
                         </div>
 
                         <!-- 試題解析 -->

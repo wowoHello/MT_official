@@ -3,20 +3,9 @@
 
 <PreviewHeader QuestionType="閱讀題組" Level="@Level" Difficulty="@Difficulty" Tags="@Tags" />
 
-<!-- 題組標題 -->
-@if (HasContent(Stem))
-{
-    <h3 class="text-lg font-bold text-gray-900 mb-3 font-serif border-b border-gray-200 pb-2">
-        @((MarkupString)Stem)
-    </h3>
-}
-else
-{
-    <p class="text-gray-400 italic text-sm font-sans mb-3">標題尚未填寫</p>
-}
-
-<!-- 文章內容 -->
+<!-- 文章內容 + 附圖（實際考卷格式：不顯示「標題」，直接顯示文章） -->
 <PreviewPassage Content="@Passage" Label="閱讀文章" />
+<PreviewImageRow Images="ArticleImages" />
 
 <!-- 作答提示 -->
 <p class="text-xs text-gray-500 italic mt-4 mb-2 font-sans">
@@ -27,25 +16,33 @@ else
 <div class="space-y-6 mt-4">
     @for (int i = 0; i < SubQuestions.Count; i++)
     {
-        var sq = SubQuestions[i];
-        var num = i + 1;
-        <div class="@(i > 0 ? "border-t border-gray-200 pt-5" : "")">
-            <!-- 題號 + 題幹 -->
+        var idx = i;
+        var sq = SubQuestions[idx];
+        var num = idx + 1;
+        var subStem = sq.Stem;
+        var hasStemText = HasContent(subStem);
+        var subStemImages = SubStemImages(idx);
+        <div class="@(idx > 0 ? "border-t border-gray-200 pt-5" : "")">
+            <!-- 題號 + 題幹（純圖時不顯示「尚未填寫」佔位字） -->
             <div class="flex items-baseline gap-3 mb-2 font-serif">
                 <span class="text-lg font-bold text-gray-900 leading-none">@num.</span>
                 <div class="flex-1 prose prose-base max-w-none leading-relaxed text-gray-900">
-                    @if (HasContent(sq.Stem))
+                    @if (hasStemText)
                     {
-                        @((MarkupString)sq.Stem)
+                        @((MarkupString)subStem)
                     }
-                    else
+                    else if (subStemImages.Count == 0)
                     {
                         <p class="text-gray-400 italic text-sm font-sans">子題題幹尚未填寫</p>
                     }
                 </div>
             </div>
+            <!-- 子題題幹附圖 -->
+            <PreviewImageRow Images="subStemImages" />
 
-            <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer" />
+            <!-- 子題選項：傳 SubQuestionIndex 給 PreviewChoiceOptions，由它依 (FieldType, SubQuestionIndex) 抓對應圖 -->
+            <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer"
+                Images="@Images" SubQuestionIndex="idx" />
         </div>
     }
 
@@ -59,9 +56,9 @@ else
     [Parameter] public string Level { get; set; } = "";
     [Parameter] public string Difficulty { get; set; } = "";
     [Parameter] public Dictionary<string, string>? Tags { get; set; }
-    [Parameter] public string Stem { get; set; } = "";
     [Parameter] public string Passage { get; set; } = "";
     [Parameter] public List<SubQuestionData> SubQuestions { get; set; } = new();
+    [Parameter] public List<QuestionImage> Images { get; set; } = [];
 
     public class SubQuestionData
     {
@@ -69,6 +66,16 @@ else
         public string[] Options { get; set; } = new string[4];
         public string Answer { get; set; } = "";
     }
+
+    // 母題文章內容附圖
+    private List<QuestionImage> ArticleImages =>
+        Images.Where(i => i.FieldType == (byte)QuestionImageField.ArticleContent && i.SubQuestionIndex == null)
+              .OrderBy(i => i.SortOrder).ToList();
+
+    // 指定子題的題幹附圖
+    private List<QuestionImage> SubStemImages(int subIdx) =>
+        Images.Where(i => i.FieldType == (byte)QuestionImageField.Stem && i.SubQuestionIndex == subIdx)
+              .OrderBy(i => i.SortOrder).ToList();
 
     private bool HasContent(string? html)
     {

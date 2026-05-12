@@ -188,8 +188,9 @@
     private RenderFragment RenderReadGroupPreview => __builder =>
     {
         <PreviewReadGroup Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
-                          Tags="@BuildTags()" Stem="@(Question.Stem ?? "")"
+                          Tags="@BuildTags()"
                           Passage="@(Question.ArticleContent ?? "")"
+                          Images="@Question.Images"
                           SubQuestions="@Question.ReadSubQuestions.Select(sq => new PreviewReadGroup.SubQuestionData {
                               Stem    = sq.Stem ?? "",
                               Options = sq.Options,
@@ -201,7 +202,7 @@
     private RenderFragment RenderShortGroupPreview => __builder =>
     {
         <PreviewShortGroup Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
-                           Tags="@BuildTags()" Stem="@(Question.Stem ?? "")"
+                           Tags="@BuildTags()"
                            Passage="@(Question.ArticleContent ?? "")"
                            SubQuestions="@Question.ShortSubQuestions.Select(sq => new PreviewShortGroup.SubQuestionData {
                                Stem      = sq.Stem ?? "",

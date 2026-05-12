@@ -167,13 +167,14 @@
                                                                       InvalidFields="invalidFields" />
                                                 break;
                                             case QuestionTypeCodes.ReadGroup:
-                                                <QuestionFormReadGroup Status="@data.QStatus" @bind-Stem="data.Question.Stem"
+                                                <QuestionFormReadGroup Status="@data.QStatus"
                                                                        @bind-Passage="data.Question.ArticleContent"
                                                                        @bind-SubQuestions="data.Question.ReadSubQuestions"
+                                                                       @bind-Images="data.Question.Images"
                                                                        InvalidFields="invalidFields" />
                                                 break;
                                             case QuestionTypeCodes.ShortGroup:
-                                                <QuestionFormShortGroup Status="@data.QStatus" @bind-Stem="data.Question.Stem"
+                                                <QuestionFormShortGroup Status="@data.QStatus"
                                                                         @bind-Passage="data.Question.ArticleContent"
                                                                         @bind-SubQuestions="data.Question.ShortSubQuestions"
                                                                         InvalidFields="invalidFields" />

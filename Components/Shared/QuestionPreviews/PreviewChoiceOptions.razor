@@ -3,13 +3,14 @@
 @*                                                                          *@
 @*  設計：                                                                  *@
 @*    - 改用 (A)(B)(C)(D) 文字標籤，貼近真實考卷                              *@
-@*    - 預設縱向排版，每行一個選項，serif 字體閱讀感                           *@
+@*    - 預設縱向 1×4 排版（與實際考卷長句選項排版一致）                       *@
+@*    - 短內容（每選項 ≤ MaxLenForGrid 字、且無附圖）自動切 2×2 grid 節省版面 *@
 @*    - 正確答案以 sage 細左 border + 文字色變強調，不用厚重綠色卡片            *@
 @*    - 底部以虛線分隔附上「正解：A」小標，給命題者驗收用                       *@
 @*    - 選項附圖：每個選項文字下方依 FieldType 渲染對應的 PreviewImageRow      *@
 @* ====================================================================== *@
 
-<div class="space-y-2 my-5 font-serif">
+<div class="@ContainerClass my-5 font-serif">
     @for (int i = 0; i < Labels.Length; i++)
     {
         var idx = i;
@@ -69,17 +70,46 @@
     [Parameter] public string[] Options { get; set; } = Array.Empty<string>();
     [Parameter] public string Answer { get; set; } = "";
 
-    /// <summary>母題層級附圖；本元件只取 FieldType 在 OptionA~D (2~5) 範圍的資料。</summary>
+    /// <summary>題目附圖清單；本元件只取 FieldType 在 OptionA~D (2~5) 範圍的資料。</summary>
     [Parameter] public List<QuestionImage>? Images { get; set; }
+
+    /// <summary>
+    /// 此選項組所屬層級。null = 母題（Single / Listen）；
+    /// 非 null = 該子題的位置索引（ReadGroup / ListenGroup 子題）。
+    /// </summary>
+    [Parameter] public int? SubQuestionIndex { get; set; }
 
     private static readonly string[] Labels = { "A", "B", "C", "D" };
 
-    /// <summary>選項索引 (0~3) → 對應該選項的母題附圖（依 SortOrder）。</summary>
+    /// <summary>
+    /// 切 2×2 grid 的長度上限（去 HTML 標籤後字數）。
+    /// 12 字以內可舒適放入 2 欄、超過則改用 1×4 避免換行擁擠。
+    /// 實際考卷的長句選項通常 15~20 字，會自動落入 1×4。
+    /// </summary>
+    private const int MaxLenForGrid = 12;
+
+    /// <summary>容器 class：2×2 grid（短內容 + 無圖）或 1×4 vertical（其餘）。</summary>
+    private string ContainerClass => ShouldUseGrid() ? "grid grid-cols-2 gap-2" : "space-y-2";
+
+    /// <summary>是否切 2×2 grid 排版（所有選項皆無圖、且文字長度都 ≤ 上限）。</summary>
+    private bool ShouldUseGrid()
+    {
+        if (Options.Length < 4) return false;
+        // 任一選項有附圖 → 一律 vertical（圖片佔版面，2×2 會擠到變形）
+        for (int i = 0; i < 4; i++)
+        {
+            if (ImagesOf(i).Count > 0) return false;
+            if (StripText(Options[i]).Length > MaxLenForGrid) return false;
+        }
+        return true;
+    }
+
+    /// <summary>選項索引 (0~3) → 對應該選項的附圖（依 SortOrder）。</summary>
     private List<QuestionImage> ImagesOf(int idx)
     {
         if (Images is null) return [];
         var fieldType = (byte)((byte)QuestionImageField.OptionA + idx);
-        return Images.Where(i => i.FieldType == fieldType && i.SubQuestionIndex == null)
+        return Images.Where(i => i.FieldType == fieldType && i.SubQuestionIndex == SubQuestionIndex)
                      .OrderBy(i => i.SortOrder)
                      .ToList();
     }
@@ -87,7 +117,12 @@
     private bool HasContent(string? html)
     {
         if (string.IsNullOrWhiteSpace(html)) return false;
-        var stripped = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]*>", "").Trim();
+        var stripped = StripText(html);
         return !string.IsNullOrEmpty(stripped) || html.Contains("<img");
     }
+
+    private static string StripText(string? html) =>
+        string.IsNullOrEmpty(html)
+            ? ""
+            : System.Text.RegularExpressions.Regex.Replace(html, "<[^>]*>", "").Trim();
 }

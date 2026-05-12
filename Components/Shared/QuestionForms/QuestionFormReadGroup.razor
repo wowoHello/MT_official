@@ -1,17 +1,14 @@
 @* ====================================================================== *@
 @*  QuestionFormReadGroup — 閱讀題組 命題表單                               *@
-@*  結構：標題（Quill）+ 文章內容（Quill）+ N 個子題（題目內容+ABCD+解析） *@
+@*  結構：文章內容（Quill + 附圖）+ N 個子題                                 *@
+@*    子題：題目內容（Quill + 附圖）+ ABCD（含選項附圖）+ 解析（Quill）      *@
 @*  屬性側欄：文體（文言文 / 應用文 / 語體文）                              *@
+@*  ※ 實際考卷格式不需要「標題」，故不設此欄位（與 ShortGroup 一致）        *@
 @* ====================================================================== *@
 @using MT.Components.Shared
 @inject IJSRuntime JS
 
 <div class="p-5 lg:p-6 pb-16 max-w-4xl mx-auto space-y-4 min-h-full">
-
-    <FormSectionCard Title="標題" Icon="fa-pen" Required="true"
-        DataField="Stem" ContainerClass="@InvalidRing("Stem")">
-        <QuillField Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="標題" Placeholder="點擊此處開始編輯標題..." />
-    </FormSectionCard>
 
     <FormSectionCard Title="文章內容" Icon="fa-book-open" Required="true"
         DataField="ArticleContent" ContainerClass="@InvalidRing("ArticleContent")">
@@ -20,10 +17,11 @@
             <i class="fa-solid fa-circle-info text-amber-500 mt-0.5 flex-shrink-0"></i>
             <div class="text-xs leading-relaxed text-amber-700">
                 <span class="font-bold text-terracotta">閱讀題組母題提醒</span>
-                — 母題包含「標題」與「文章內容」，兩者皆為必填；文章內容可附圖。子題再補上選項、答案與解析即可。
+                — 母題只需填寫「文章內容」（文字或附圖擇一）；子題再補上選項、答案與解析即可。
             </div>
         </div>
         <QuillField Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }" FieldLabel="文章內容" Placeholder="點擊此處開始輸入文章內容..." />
+        <QuestionImagesField Images="ArticleImages" ImagesChanged="OnArticleImagesChanged" />
     </FormSectionCard>
 
     <FormSectionCard Title="子題區" Icon="fa-layer-group" BodyClass="p-5">
@@ -68,7 +66,9 @@
                                 題目內容 <span class="text-red-400">*</span>
                             </label>
                             <QuillField Value="@sq.Stem" ValueChanged="v => { sq.Stem = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }" FieldLabel="@($"第 {n} 題 題目內容")"
-                                Placeholder="點擊此處開始編輯題目內容，可插入圖片..." />
+                                Placeholder="點擊此處開始編輯題目內容..." />
+                            <QuestionImagesField Images="SubStemImages(idx)"
+                                ImagesChanged="upd => OnSubStemImagesChanged(idx, upd)" />
                         </div>
 
                         <!-- 選項與答案 -->
@@ -78,17 +78,23 @@
                             </label>
                             <OptionGroup Options="@sq.Options" OptionsChanged="v => SubQuestionsChanged.InvokeAsync(SubQuestions)"
                                 Answer="@sq.Answer" AnswerChanged="v => { sq.Answer = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }"
-                                RadioName="@($"sub-answer-{idx}")" Layout="OptionGroup.OptionLayout.Grid" />
+                                RadioName="@($"sub-answer-{idx}")" Layout="OptionGroup.OptionLayout.Vertical"
+                                EnableImages="true"
+                                OptionImages="SubOptionImagesByLetter(idx)"
+                                OptionImageChanged="e => OnSubOptionImagesChanged(idx, e)" />
                         </div>
 
-                        <!-- 試題解析 -->
+                        <!-- 試題解析（樣式對齊一般單選題：lightbulb 琥珀色 + 標題與 hint 分層） -->
                         <div data-field="@analysisKey" class="@InvalidRing(analysisKey) rounded-lg p-1">
                             <label class="block text-sm font-bold text-gray-700 mb-2">
-                                試題解析（紀錄答案理由） <span class="text-red-400">*</span>
+                                <i class="fa-solid fa-lightbulb text-amber-500"></i>
+                                <span>試題解析</span>
+                                <span class="text-red-400">*</span>
+                                <span class="text-xs text-gray-400 font-normal ml-1">紀錄答案理由</span>
                             </label>
                             <QuillField Value="@sq.Analysis" ValueChanged="v => { sq.Analysis = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }"
-                                FieldLabel="@($"第 {n} 題 解析")"
-                                Placeholder="點擊此處開始編輯解析，可說明正確答案依據與其他選項錯誤原因..." />
+                                FieldLabel="@($"第 {n} 題 試題解析")"
+                                Placeholder="請輸入解析內容，可說明正確答案依據與其他選項錯誤原因..." />
                         </div>
                     </div>
                 </div>
@@ -99,14 +105,15 @@
 </div>
 
 @code {
-    [Parameter] public string Stem { get; set; } = "";
-    [Parameter] public EventCallback<string> StemChanged { get; set; }
-
     [Parameter] public string Passage { get; set; } = "";
     [Parameter] public EventCallback<string> PassageChanged { get; set; }
 
     [Parameter] public List<SubQuestionChoice> SubQuestions { get; set; } = [new()];
     [Parameter] public EventCallback<List<SubQuestionChoice>> SubQuestionsChanged { get; set; }
+
+    /// <summary>題目附圖（母題層級 + 子題層級，由 FieldType / SubQuestionIndex 區分）。</summary>
+    [Parameter] public List<QuestionImage> Images { get; set; } = [];
+    [Parameter] public EventCallback<List<QuestionImage>> ImagesChanged { get; set; }
 
     /// <summary>當前題目狀態，僅 Draft 開放刪除子題；其餘狀態（命題完成 / 送審後）按鈕隱藏</summary>
     [Parameter] public byte Status { get; set; } = QuestionStatus.Draft;
@@ -119,6 +126,50 @@
 
     private string InvalidRingAny(IEnumerable<string> keys) =>
         keys.Any(k => InvalidFields?.Contains(k) == true) ? "ring-2 ring-red-400" : "";
+
+    // ------------------------------------------------------------------
+    //  附圖切片：依 (FieldType, SubQuestionIndex) 從 Images 抽出對應清單
+    // ------------------------------------------------------------------
+
+    private static QuestionImageField OptionFieldFor(int idx) =>
+        (QuestionImageField)((byte)QuestionImageField.OptionA + idx);
+
+    private List<QuestionImage> ImagesOf(QuestionImageField fieldType, int? subIdx = null) =>
+        Images.Where(i => i.FieldType == (byte)fieldType && i.SubQuestionIndex == subIdx)
+              .OrderBy(i => i.SortOrder).ToList();
+
+    private List<QuestionImage> ArticleImages => ImagesOf(QuestionImageField.ArticleContent);
+    private List<QuestionImage> SubStemImages(int subIdx) => ImagesOf(QuestionImageField.Stem, subIdx);
+    private List<List<QuestionImage>> SubOptionImagesByLetter(int subIdx) =>
+        Enumerable.Range(0, 4).Select(j => ImagesOf(OptionFieldFor(j), subIdx)).ToList();
+
+    private async Task OnArticleImagesChanged(List<QuestionImage> updated) =>
+        await ApplyImageChange(QuestionImageField.ArticleContent, null, updated);
+
+    private async Task OnSubStemImagesChanged(int subIdx, List<QuestionImage> updated) =>
+        await ApplyImageChange(QuestionImageField.Stem, subIdx, updated);
+
+    private async Task OnSubOptionImagesChanged(int subIdx, (int Index, List<QuestionImage> Updated) e) =>
+        await ApplyImageChange(OptionFieldFor(e.Index), subIdx, e.Updated);
+
+    /// <summary>把指定欄位（FieldType + SubQuestionIndex）的圖片清單覆蓋為 updated，回拋父層。</summary>
+    private async Task ApplyImageChange(QuestionImageField fieldType, int? subIdx, List<QuestionImage> updated)
+    {
+        var others = Images.Where(i => !(i.FieldType == (byte)fieldType && i.SubQuestionIndex == subIdx)).ToList();
+        for (int i = 0; i < updated.Count; i++)
+        {
+            updated[i].FieldType = (byte)fieldType;
+            updated[i].SubQuestionIndex = subIdx;
+            updated[i].SortOrder = (byte)(i + 1);
+        }
+        others.AddRange(updated);
+        Images = others;
+        await ImagesChanged.InvokeAsync(others);
+    }
+
+    // ------------------------------------------------------------------
+    //  子題新增 / 刪除
+    // ------------------------------------------------------------------
 
     private async Task AddSubQuestion()
     {
@@ -154,7 +205,17 @@
         if (confirmed)
         {
             SubQuestions.RemoveAt(idx);
+            // 刪掉子題後同步刪除其附圖；後續子題的 SubQuestionIndex 往前推一格
+            Images = Images
+                .Where(i => i.SubQuestionIndex != idx)
+                .Select(i =>
+                {
+                    if (i.SubQuestionIndex is int sIdx && sIdx > idx)
+                        i.SubQuestionIndex = sIdx - 1;
+                    return i;
+                })
+                .ToList();
+            await ImagesChanged.InvokeAsync(Images);
         }
     }
 }
-
