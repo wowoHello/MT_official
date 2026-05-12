@@ -386,7 +386,7 @@
                         case QuestionTypeCodes.Single:
                         case QuestionTypeCodes.Select:
                             <QuestionFormSingle @bind-Stem="formData.Stem" @bind-Options="formData.Options" @bind-Answer="formData.Answer" @bind-Analysis="formData.Analysis"
-                                InvalidFields="invalidFields" />
+                                @bind-Images="formData.Images" InvalidFields="invalidFields" />
                             break;
                         case QuestionTypeCodes.LongText:
                             <QuestionFormLongText @bind-Stem="formData.Stem" @bind-Passage="formData.ArticleContent" @bind-GradingNote="formData.GradingNote"
@@ -430,7 +430,7 @@
         case QuestionTypeCodes.Single:
         case QuestionTypeCodes.Select:
             <PreviewSingle QuestionType="@QuestionConstants.TypeLabels.GetValueOrDefault(formData.QuestionType, "")" Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel"
-                Tags="@GetPreviewTags()" Stem="@formData.Stem" Options="@formData.Options" Answer="@formData.Answer" />
+                Tags="@GetPreviewTags()" Stem="@formData.Stem" Options="@formData.Options" Answer="@formData.Answer" Images="@formData.Images" />
             break;
         case QuestionTypeCodes.ReadGroup:
             <PreviewReadGroup Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel" Tags="@GetPreviewTags()"
@@ -962,6 +962,9 @@
     private void OnQuestionTypeChanged(string newType)
     {
         formData = new() { QuestionType = newType };
+        // 重要：清掉前一題型留下的紅框（Stem / Options / Analysis 等共用 FieldKey
+        // 在新題型仍會命中，造成切過去就一片紅）
+        invalidFields.Clear();
     }
 
     private void OpenComposeModal(string? presetTypeKey = null)

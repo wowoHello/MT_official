@@ -6,31 +6,50 @@
 @*    - 預設縱向排版，每行一個選項，serif 字體閱讀感                           *@
 @*    - 正確答案以 sage 細左 border + 文字色變強調，不用厚重綠色卡片            *@
 @*    - 底部以虛線分隔附上「正解：A」小標，給命題者驗收用                       *@
+@*    - 選項附圖：每個選項文字下方依 FieldType 渲染對應的 PreviewImageRow      *@
 @* ====================================================================== *@
 
 <div class="space-y-2 my-5 font-serif">
     @for (int i = 0; i < Labels.Length; i++)
     {
-        var label = Labels[i];
-        var content = i < Options.Length ? Options[i] : "";
+        var idx = i;
+        var label = Labels[idx];
+        var content = idx < Options.Length ? Options[idx] : "";
         var isAnswer = Answer == label;
+        var optionImages = ImagesOf(idx);
 
-        <div class="flex items-baseline gap-2 px-3 py-2 rounded
+        // 對齊規則：
+        //   純圖片 → items-center（(A) 對齊圖片中線）
+        //   有文字（含「文字+圖」）→ items-baseline
+        //     CSS 規則：block 元素 baseline = 其第一個 in-flow 後代的 baseline
+        //     所以右欄是「文字段落 + 圖片」時，整欄 baseline 仍是第一行文字基線，
+        //     (A) 自然與第一行文字精準對齊（即「貼齊上方」的視覺效果）
+        var hasText  = HasContent(content);
+        var hasImage = optionImages.Count > 0;
+        var alignClass = (!hasText && hasImage) ? "items-center" : "items-baseline";
+        // 正解 ✓ 在 items-baseline 模式下需要 mt-1.5 才能視覺對齊文字基線
+        var checkOffset = alignClass == "items-baseline" ? "mt-1.5" : "";
+
+        <div class="flex @alignClass gap-2 px-3 py-2 rounded
                     border-l-2 @(isAnswer ? "border-sage bg-sage/5" : "border-transparent")">
             <span class="font-bold text-gray-700 flex-shrink-0 select-none">(@label)</span>
-            <div class="flex-1 prose prose-sm max-w-none leading-relaxed @(isAnswer ? "text-sage font-medium" : "text-gray-800")">
-                @if (HasContent(content))
-                {
-                    @((MarkupString)content)
-                }
-                else
-                {
-                    <span class="text-gray-400 italic font-sans text-xs">尚未輸入選項內容</span>
-                }
+            <div class="flex-1 min-w-0">
+                <div class="prose prose-sm max-w-none leading-relaxed @(isAnswer ? "text-sage font-medium" : "text-gray-800")">
+                    @if (hasText)
+                    {
+                        @((MarkupString)content)
+                    }
+                    else if (!hasImage)
+                    {
+                        @* 文字與圖片都沒有時才顯示佔位字；純圖片選項不顯示 *@
+                        <span class="text-gray-400 italic font-sans text-xs">尚未輸入選項內容</span>
+                    }
+                </div>
+                <PreviewImageRow Images="optionImages" />
             </div>
             @if (isAnswer)
             {
-                <i class="fa-solid fa-check text-sage text-xs flex-shrink-0 mt-1.5" title="正解"></i>
+                <i class="fa-solid fa-check text-sage text-xs flex-shrink-0 @checkOffset" title="正解"></i>
             }
         </div>
     }
@@ -50,7 +69,20 @@
     [Parameter] public string[] Options { get; set; } = Array.Empty<string>();
     [Parameter] public string Answer { get; set; } = "";
 
+    /// <summary>母題層級附圖；本元件只取 FieldType 在 OptionA~D (2~5) 範圍的資料。</summary>
+    [Parameter] public List<QuestionImage>? Images { get; set; }
+
     private static readonly string[] Labels = { "A", "B", "C", "D" };
+
+    /// <summary>選項索引 (0~3) → 對應該選項的母題附圖（依 SortOrder）。</summary>
+    private List<QuestionImage> ImagesOf(int idx)
+    {
+        if (Images is null) return [];
+        var fieldType = (byte)((byte)QuestionImageField.OptionA + idx);
+        return Images.Where(i => i.FieldType == fieldType && i.SubQuestionIndex == null)
+                     .OrderBy(i => i.SortOrder)
+                     .ToList();
+    }
 
     private bool HasContent(string? html)
     {

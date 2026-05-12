@@ -172,7 +172,8 @@
     {
         <PreviewSingle QuestionType="@TypeLabel()" Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
                        Tags="@BuildTags()" Stem="@(Question.Stem ?? "")"
-                       Options="@Question.Options" Answer="@(Question.Answer ?? "")" />
+                       Options="@Question.Options" Answer="@(Question.Answer ?? "")"
+                       Images="@Question.Images" />
     };
 
     /// <summary>長文題目：PreviewLongText + 批閱說明 details</summary>

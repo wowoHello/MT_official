@@ -474,11 +474,50 @@ public class QuestionFormData
     public List<ListenGroupSubQuestion> ListenGroupSubQuestions { get; set; } =
         [new() { FixedDifficulty = 3 }, new() { FixedDifficulty = 4 }];
 
+    /// <summary>
+    /// 題目附圖（對應 MT_QuestionImages 表）。
+    /// 母題附圖 SubQuestionIndex=null；子題附圖 SubQuestionIndex 為 0-based 子題索引。
+    /// 透過 GetImages / SetImages helper 進行欄位切片。
+    /// </summary>
+    public List<QuestionImage> Images { get; set; } = [];
+
     /// <summary>題目建立時間（審題 Modal 顯示用，由 GetByIdAsync 填入）</summary>
     public DateTime CreatedAt { get; set; }
 
     /// <summary>題目最後編輯時間（審題 Modal 顯示用，由 GetByIdAsync 填入）</summary>
     public DateTime UpdatedAt { get; set; }
+
+    /// <summary>取得指定欄位的附圖（依 SortOrder 升冪排序）。</summary>
+    public List<QuestionImage> GetImages(QuestionImageField fieldType, int? subQuestionIndex = null) =>
+        Images.Where(i => i.FieldType == (byte)fieldType && i.SubQuestionIndex == subQuestionIndex)
+              .OrderBy(i => i.SortOrder)
+              .ToList();
+
+    /// <summary>覆蓋指定欄位的附圖清單（會先移除舊紀錄、再寫入新清單，並自動寫入 FieldType / SubQuestionIndex / SortOrder）。</summary>
+    public void SetImages(QuestionImageField fieldType, int? subQuestionIndex, List<QuestionImage> updated)
+    {
+        Images.RemoveAll(i => i.FieldType == (byte)fieldType && i.SubQuestionIndex == subQuestionIndex);
+        for (int i = 0; i < updated.Count; i++)
+        {
+            updated[i].FieldType = (byte)fieldType;
+            updated[i].SubQuestionIndex = subQuestionIndex;
+            updated[i].SortOrder = (byte)(i + 1);
+        }
+        Images.AddRange(updated);
+    }
+}
+
+/// <summary>
+/// 題目附圖（對應 MT_QuestionImages 一筆 row）。
+/// 在 UI 編輯期間 Id=0 的視為新增；存檔後由 Service 層回填真實 Id。
+/// </summary>
+public class QuestionImage
+{
+    public int Id { get; set; }                  // 0 = 新增；> 0 = 既有 row
+    public byte FieldType { get; set; }          // 對應 QuestionImageField enum
+    public int? SubQuestionIndex { get; set; }   // null = 母題；>= 0 = 子題在當前清單的索引
+    public string ImagePath { get; set; } = "";  // /uploads/{guid}.{ext}
+    public byte SortOrder { get; set; } = 1;     // 同欄位多張時的顯示順序
 }
 
 // ======================================================================

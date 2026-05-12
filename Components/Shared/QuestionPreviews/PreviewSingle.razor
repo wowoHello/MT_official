@@ -11,15 +11,19 @@
         {
             @((MarkupString)Stem)
         }
-        else
+        else if (StemImages.Count == 0)
         {
+            @* 文字與圖片都沒有時才顯示佔位字；純圖片題不顯示 *@
             <p class="text-gray-400 italic text-sm font-sans">題幹尚未填寫</p>
         }
     </div>
 </div>
 
+<!-- 題幹附圖 -->
+<PreviewImageRow Images="StemImages" />
+
 <!-- ABCD 選項 -->
-<PreviewChoiceOptions Options="@Options" Answer="@Answer" />
+<PreviewChoiceOptions Options="@Options" Answer="@Answer" Images="@Images" />
 
 @code {
     [Parameter] public string QuestionType { get; set; } = "";
@@ -29,6 +33,11 @@
     [Parameter] public string Stem { get; set; } = "";
     [Parameter] public string[] Options { get; set; } = new string[4];
     [Parameter] public string Answer { get; set; } = "";
+    [Parameter] public List<QuestionImage> Images { get; set; } = [];
+
+    private List<QuestionImage> StemImages =>
+        Images.Where(i => i.FieldType == (byte)QuestionImageField.Stem && i.SubQuestionIndex == null)
+              .OrderBy(i => i.SortOrder).ToList();
 
     private bool HasContent(string? html)
     {

@@ -111,7 +111,7 @@ public static class QuestionFormValidator
     //  各題型驗證
     // ------------------------------------------------------------------
 
-    /// <summary>一般 / 精選單選題。</summary>
+    /// <summary>一般 / 精選單選題。題幹與選項：文字或圖片至少要有一個（支援純圖題、對話截圖選項題等）。</summary>
     private static void ValidateSingleOrSelect(QuestionFormData data, List<ValidationError> errors)
     {
         // 屬性面板：主類 / 次類 / 難易度
@@ -122,17 +122,40 @@ public static class QuestionFormValidator
         if (data.Difficulty is null)
             errors.Add(new(nameof(QuestionFormData.Difficulty), "請選擇難易度"));
 
-        // 主要內容：題幹 / 四選項 / 答案
-        if (IsRichTextEmpty(data.Stem))
-            errors.Add(new(nameof(QuestionFormData.Stem), "請填寫題幹"));
+        // 題幹：文字或圖片至少要有一個
+        if (IsRichTextEmpty(data.Stem) && !HasMasterImage(data.Images, QuestionImageField.Stem))
+            errors.Add(new(nameof(QuestionFormData.Stem), "請填寫題幹文字或上傳題幹圖片"));
 
-        ValidateOptionsAndAnswer(data.Options, data.Answer, errors,
-            optionPrefix: nameof(QuestionFormData.Options),
-            answerKey: nameof(QuestionFormData.Answer));
+        // 四選項：逐項檢查「文字或圖片至少一個」；保留舊邏輯只回報第一個漏的選項
+        for (int i = 0; i < 4; i++)
+        {
+            var hasText  = !IsRichTextEmpty(i < data.Options.Length ? data.Options[i] : "");
+            var hasImage = HasMasterImage(data.Images, (QuestionImageField)((byte)QuestionImageField.OptionA + i));
+            if (!hasText && !hasImage)
+            {
+                var letter = "ABCD"[i];
+                errors.Add(new($"{nameof(QuestionFormData.Options)}_{i}",
+                    $"選項 ({letter}) 請輸入文字或上傳圖片"));
+                break;
+            }
+        }
+
+        // 答案必選（沿用既有邏輯）
+        if (string.IsNullOrWhiteSpace(data.Answer)
+            || (data.Answer != "A" && data.Answer != "B" && data.Answer != "C" && data.Answer != "D"))
+        {
+            errors.Add(new(nameof(QuestionFormData.Answer), "請選擇正確答案"));
+        }
 
         if (IsRichTextEmpty(data.Analysis))
             errors.Add(new(nameof(QuestionFormData.Analysis), "請填寫試題解析"));
     }
+
+    /// <summary>檢查母題層級指定 FieldType 是否至少有一張有效圖片。</summary>
+    private static bool HasMasterImage(List<QuestionImage> images, QuestionImageField fieldType) =>
+        images.Any(i => i.FieldType == (byte)fieldType
+                     && i.SubQuestionIndex is null
+                     && !string.IsNullOrWhiteSpace(i.ImagePath));
 
     /// <summary>長文題目。</summary>
     private static void ValidateLongText(QuestionFormData data, List<ValidationError> errors)

@@ -2,6 +2,9 @@
 @*  QuestionFormSingle — 一般單選題 / 精選單選題 命題表單                    *@
 @*  共用結構：題幹（Quill）+ 四選項（A-D radio + Quill）+ 解析（Quill）     *@
 @*  屬性側欄：主題 + 次類（cascading dropdown）                             *@
+@*                                                                         *@
+@*  附圖支援：題幹底下 + 四選項各底下嵌入 QuestionImagesField              *@
+@*    Images 由父層 binding 傳入；本元件依 FieldType 切片再回拋變動         *@
 @* ====================================================================== *@
 @using MT.Components.Shared
 
@@ -10,6 +13,7 @@
     <FormSectionCard Title="題幹" Icon="fa-file-lines" Required="true"
         DataField="Stem" ContainerClass="@InvalidRing("Stem")">
         <QuillField Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="題幹" Placeholder="請輸入題幹內容..." />
+        <QuestionImagesField Images="StemImages" ImagesChanged="OnStemImagesChanged" />
     </FormSectionCard>
 
     @* 選項與答案：四個選項 + 答案任一缺漏皆畫紅框；data-field 取最常見的 Answer 作為主要錨點 *@
@@ -17,7 +21,10 @@
         DataField="@OptionsFieldKey" ContainerClass="@InvalidRingAny(OptionsAndAnswerKeys)">
         <OptionGroup Options="@Options" OptionsChanged="OptionsChanged"
             Answer="@Answer" AnswerChanged="AnswerChanged"
-            RadioName="@($"answer-{Id}")" Layout="OptionGroup.OptionLayout.Vertical" />
+            RadioName="@($"answer-{Id}")" Layout="OptionGroup.OptionLayout.Vertical"
+            EnableImages="true"
+            OptionImages="OptionImagesByLetter"
+            OptionImageChanged="OnOptionImagesChanged" />
     </FormSectionCard>
 
     <FormSectionCard Title="試題解析" Icon="fa-lightbulb" IconColor="text-amber-500" Required="true" HintText="紀錄答案理由"
@@ -41,6 +48,10 @@
     [Parameter] public string Analysis { get; set; } = "";
     [Parameter] public EventCallback<string> AnalysisChanged { get; set; }
 
+    /// <summary>題目附圖（母題層級，FieldType 1=Stem / 2~5=OptionA-D）。</summary>
+    [Parameter] public List<QuestionImage> Images { get; set; } = [];
+    [Parameter] public EventCallback<List<QuestionImage>> ImagesChanged { get; set; }
+
     /// <summary>由父層傳入的驗證失敗欄位集合，用以決定欄位是否需要紅框。</summary>
     [Parameter] public HashSet<string>? InvalidFields { get; set; }
 
@@ -58,4 +69,50 @@
 
     private string InvalidRingAny(IEnumerable<string> keys) =>
         keys.Any(k => InvalidFields?.Contains(k) == true) ? "ring-2 ring-red-400" : "";
+
+    // ------------------------------------------------------------------
+    //  附圖切片：依 FieldType 從 Images 抽出對應欄位的圖片清單
+    // ------------------------------------------------------------------
+
+    /// <summary>選項索引 (0~3) → QuestionImageField.OptionA~D。</summary>
+    private static QuestionImageField OptionFieldFor(int idx) =>
+        (QuestionImageField)((byte)QuestionImageField.OptionA + idx);
+
+    /// <summary>抽出母題層級指定欄位的附圖（依 SortOrder 排序）。</summary>
+    private List<QuestionImage> ImagesOf(QuestionImageField fieldType) =>
+        Images.Where(i => i.FieldType == (byte)fieldType && i.SubQuestionIndex == null)
+              .OrderBy(i => i.SortOrder).ToList();
+
+    private List<QuestionImage> StemImages => ImagesOf(QuestionImageField.Stem);
+
+    private List<List<QuestionImage>> OptionImagesByLetter =>
+        Enumerable.Range(0, 4).Select(idx => ImagesOf(OptionFieldFor(idx))).ToList();
+
+    private async Task OnStemImagesChanged(List<QuestionImage> updated)
+    {
+        var next = MergeImages(QuestionImageField.Stem, null, updated);
+        Images = next;
+        await ImagesChanged.InvokeAsync(next);
+    }
+
+    private async Task OnOptionImagesChanged((int Index, List<QuestionImage> Updated) e)
+    {
+        var next = MergeImages(OptionFieldFor(e.Index), null, e.Updated);
+        Images = next;
+        await ImagesChanged.InvokeAsync(next);
+    }
+
+    /// <summary>把指定欄位（FieldType + SubQuestionIndex）的圖片清單覆蓋為 updated，回傳新陣列。</summary>
+    private List<QuestionImage> MergeImages(QuestionImageField fieldType, int? subIndex, List<QuestionImage> updated)
+    {
+        var others = Images.Where(i => !(i.FieldType == (byte)fieldType && i.SubQuestionIndex == subIndex)).ToList();
+        for (int i = 0; i < updated.Count; i++)
+        {
+            updated[i].FieldType = (byte)fieldType;
+            updated[i].SubQuestionIndex = subIndex;
+            updated[i].SortOrder = (byte)(i + 1);
+        }
+        others.AddRange(updated);
+        return others;
+    }
 }

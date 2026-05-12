@@ -14,7 +14,7 @@ const toolbarOptions = [
     [{ color: [] }, { align: [] }],
     ['bold', 'underline', 'strike'],
     [{ list: 'ordered' }, { list: 'bullet' }, { indent: '-1' }, { indent: '+1' }],
-    ['image', 'clean']
+    ['clean']
 ];
 
 // 精簡工具列（審題意見等短評輸入；無字體/大小/色彩/對齊/縮排/圖片）

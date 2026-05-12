@@ -1,0 +1,128 @@
+@* ====================================================================== *@
+@*  QuestionImagesField — 命題表單附圖欄位（莫蘭迪低調風格）                  *@
+@*                                                                          *@
+@*  設計準則（ui-ux-pro-max §8 Forms / §4 State Clarity）：                  *@
+@*    - 空狀態：右下角極簡 ghost link「+ 加圖片」，無邊框無背景            *@
+@*    - 已上傳：縮圖列 + 同尺寸 dashed 加號；× 刪除按鈕 hover 才浮現         *@
+@*    - 視覺重量隨內容浮動：empty 時近乎隱形，不爭奪上方題幹輸入框焦點       *@
+@*    - 不限張數，使用者實際很少超過 1~2 張                                   *@
+@* ====================================================================== *@
+@inject IJSRuntime JS
+
+@if (Images.Count == 0 && !isUploading)
+{
+    @* 空狀態：整段「規則備註 + 加圖片」合併為單一按鈕，整列都可點，年長者好瞄準 *@
+    <div class="mt-2 flex justify-end">
+        @if (!IsReadOnly)
+        {
+            <button type="button" @onclick="PickAndUploadAsync"
+                class="text-xs text-gray-400 hover:text-morandi hover:bg-morandi/5 inline-flex items-center gap-3 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
+                <span>支援 PNG / JPEG / GIF / WebP，單檔 5MB</span>
+                <span class="h-3 w-px bg-gray-300" aria-hidden="true"></span>
+                <i class="fa-solid fa-paperclip text-[11px]"></i>
+                <span>加圖片</span>
+            </button>
+        }
+    </div>
+}
+else
+{
+    @* 已上傳：縮圖列 *@
+    <div class="mt-3 flex flex-wrap gap-2 items-center">
+        @for (int i = 0; i < Images.Count; i++)
+        {
+            var idx = i;
+            var img = Images[idx];
+            <div class="group relative w-16 h-16 rounded-md border border-gray-200 bg-white overflow-hidden">
+                <a href="@img.ImagePath" target="_blank" rel="noopener" class="block w-full h-full">
+                    <img src="@img.ImagePath" alt="@($"附圖 {idx + 1}")" loading="lazy"
+                         class="w-full h-full object-cover cursor-zoom-in" />
+                </a>
+                @if (!IsReadOnly)
+                {
+                    <button type="button" @onclick="() => RemoveAsync(idx)"
+                        class="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-white/95 text-terracotta opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity duration-150 flex items-center justify-center cursor-pointer shadow-sm"
+                        aria-label="@($"刪除附圖 {idx + 1}")">
+                        <i class="fa-solid fa-xmark text-[10px]"></i>
+                    </button>
+                }
+            </div>
+        }
+
+        @if (isUploading)
+        {
+            @* 上傳中佔位（保留版位避免 layout shift） *@
+            <div class="w-16 h-16 rounded-md border border-gray-200 bg-gray-50 flex items-center justify-center">
+                <i class="fa-solid fa-spinner fa-spin text-morandi text-sm"></i>
+            </div>
+        }
+        else if (!IsReadOnly)
+        {
+            @* 加號：與縮圖等尺寸維持節奏 *@
+            <button type="button" @onclick="PickAndUploadAsync"
+                class="w-16 h-16 rounded-md border border-dashed border-gray-300 text-gray-400 hover:border-morandi hover:text-morandi hover:bg-morandi/5 transition-colors cursor-pointer flex flex-col items-center justify-center gap-0.5"
+                aria-label="新增附圖">
+                <i class="fa-solid fa-plus text-sm"></i>
+                <span class="text-[11px]">加圖片</span>
+            </button>
+        }
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <p class="mt-1.5 text-xs text-terracotta flex items-center gap-1">
+        <i class="fa-solid fa-circle-exclamation text-[11px]"></i>
+        <span>@errorMessage</span>
+    </p>
+}
+
+@code {
+    [Parameter] public List<QuestionImage> Images { get; set; } = [];
+    [Parameter] public EventCallback<List<QuestionImage>> ImagesChanged { get; set; }
+    [Parameter] public bool IsReadOnly { get; set; }
+
+    private bool isUploading;
+    private string? errorMessage;
+
+    private async Task PickAndUploadAsync()
+    {
+        if (IsReadOnly || isUploading) return;
+        errorMessage = null;
+        isUploading = true;
+        StateHasChanged();
+
+        try
+        {
+            var url = await JS.InvokeAsync<string?>("ImageUpload.pick");
+            if (!string.IsNullOrEmpty(url))
+            {
+                var next = Images.ToList();
+                next.Add(new QuestionImage { ImagePath = url });
+                await ImagesChanged.InvokeAsync(next);
+            }
+        }
+        catch (JSException ex)
+        {
+            errorMessage = ex.Message;
+        }
+        catch (Exception ex) when (ex is TaskCanceledException || ex.GetType().Name == "JSDisconnectedException")
+        {
+            // 連線中斷或取消：忽略
+        }
+        finally
+        {
+            isUploading = false;
+        }
+    }
+
+    private async Task RemoveAsync(int idx)
+    {
+        if (IsReadOnly) return;
+        if (idx < 0 || idx >= Images.Count) return;
+        var next = Images.ToList();
+        next.RemoveAt(idx);
+        errorMessage = null;
+        await ImagesChanged.InvokeAsync(next);
+    }
+}

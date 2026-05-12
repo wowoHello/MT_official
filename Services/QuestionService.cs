@@ -224,7 +224,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             // 4. 子題（題組型才有）
             await InsertSubQuestionsAsync(conn, tx, newId, formData);
 
-            // 5. 系統稽核：建立題目
+            // 5. 母題附圖（MT_QuestionImages，子題附圖待題組擴充）
+            await QuestionImagePersistence.UpsertMasterAsync(conn, tx, newId, formData.Images);
+
+            // 6. 系統稽核：建立題目
             await WriteAuditLogAsync(conn, tx, creatorUserId, projectId,
                 AuditLogAction.Create, newId,
                 oldValue: null,
@@ -351,7 +354,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             // 3. 子題：UPSERT by SubId + 缺席軟刪除（保留 Id 穩定）
             await UpsertSubQuestionsAsync(conn, tx, questionId, formData, operatorUserId, projectId);
 
-            // 4. 系統稽核：修改題目（狀態轉移寫進 OldValue/NewValue）
+            // 4. 母題附圖：DELETE + INSERT 全量覆寫
+            await QuestionImagePersistence.UpsertMasterAsync(conn, tx, questionId, formData.Images);
+
+            // 5. 系統稽核：修改題目（狀態轉移寫進 OldValue/NewValue）
             await WriteAuditLogAsync(conn, tx, operatorUserId, projectId,
                 AuditLogAction.Modify, questionId,
                 oldValue: new { Status = oldStatus },
@@ -427,6 +433,9 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             CreatedAt       = master.CreatedAt,
             UpdatedAt       = master.UpdatedAt
         };
+
+        // 母題附圖（所有題型一律載入）
+        data.Images = await QuestionImagePersistence.LoadMasterAsync(conn, questionId);
 
         // 題組型才需要載子題
         var isGroupType = data.QuestionType is QuestionTypeCodes.ReadGroup
@@ -1871,6 +1880,9 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
             // 4. UPSERT 子題
             await UpsertSubQuestionsAsync(conn, tx, req.QuestionId, req.FormData, operatorUserId, meta.ProjectId);
+
+            // 4.5 母題附圖：DELETE + INSERT 全量覆寫（與 UpdateAsync 邏輯一致）
+            await QuestionImagePersistence.UpsertMasterAsync(conn, tx, req.QuestionId, req.FormData.Images);
 
             // 5. INSERT MT_RevisionReplies — 純 append-only（每輪一筆獨立 row）
             //    Plan_014：總修階段（Stage=8）允許跨輪多次回覆，每輪退回後重新送出都產生新 row

@@ -33,6 +33,11 @@
                     ValueChanged="v => OnOptionChange(idx, v)"
                     FieldLabel="@($"選項 ({optLabel})")"
                     Placeholder="@($"請輸入選項 ({optLabel}) 內容...")" />
+                @if (EnableImages && OptionImages is not null && idx < OptionImages.Count)
+                {
+                    <QuestionImagesField Images="OptionImages[idx]"
+                        ImagesChanged="updated => OnOptionImagesChanged(idx, updated)" />
+                }
             </div>
         </div>
     }
@@ -48,6 +53,15 @@
     [Parameter] public string RadioName { get; set; } = Guid.NewGuid().ToString("N")[..8];
     [Parameter] public OptionLayout Layout { get; set; } = OptionLayout.Vertical;
 
+    /// <summary>是否啟用每個選項下方的附圖欄位（預設關閉，未提供 OptionImages 的題型不受影響）。</summary>
+    [Parameter] public bool EnableImages { get; set; }
+
+    /// <summary>四個選項的附圖清單（長度必須 = 4），與 OptionImageChanged 搭配使用。</summary>
+    [Parameter] public List<List<QuestionImage>>? OptionImages { get; set; }
+
+    /// <summary>選項附圖變動：(選項索引 0~3, 該選項更新後的附圖清單)。</summary>
+    [Parameter] public EventCallback<(int Index, List<QuestionImage> Updated)> OptionImageChanged { get; set; }
+
     private static readonly string[] Labels = ["A", "B", "C", "D"];
 
     private async Task OnAnswerSelect(string label)
@@ -60,6 +74,11 @@
     {
         Options[idx] = value;
         await OptionsChanged.InvokeAsync(Options);
+    }
+
+    private async Task OnOptionImagesChanged(int idx, List<QuestionImage> updated)
+    {
+        await OptionImageChanged.InvokeAsync((idx, updated));
     }
 
     public enum OptionLayout { Vertical, Grid }
