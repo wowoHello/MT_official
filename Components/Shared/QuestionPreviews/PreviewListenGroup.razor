@@ -16,7 +16,7 @@
             <i class="fa-solid fa-chevron-down ml-auto text-xs text-amber-500"></i>
         </summary>
         <div class="px-4 pb-3 pt-1">
-            <div class="prose prose-sm max-w-none leading-relaxed text-gray-700 font-serif">
+            <div class="prose prose-sm max-w-none leading-relaxed text-gray-700 font-serif" data-annot-target="article">
                 @((MarkupString)Passage)
             </div>
         </div>
@@ -32,15 +32,16 @@
 <div class="space-y-6 mt-2">
     @for (int i = 0; i < SubQuestions.Count; i++)
     {
-        var idx = i;
-        var sq = SubQuestions[idx];
+        @* idx = 原始母題中的 index（StartIndex 控制起始）；num 顯示題號；data-annot-target 用 idx 對齊審題端容器 *@
+        var idx = i + StartIndex;
+        var sq = SubQuestions[i];
         var num = idx + 1;
         var subStemImages = SubStemImagesOf(idx);
-        <div class="@(idx > 0 ? "border-t border-gray-200 pt-5" : "")">
+        <div class="@(i > 0 ? "border-t border-gray-200 pt-5" : "")">
             <!-- 題號 + 題幹 -->
             <div class="flex items-baseline gap-3 mb-2 font-serif">
                 <span class="text-lg font-bold text-gray-900 leading-none">@num.</span>
-                <div class="flex-1 prose prose-base max-w-none leading-relaxed text-gray-900">
+                <div class="flex-1 prose prose-base max-w-none leading-relaxed text-gray-900" data-annot-target="@($"subStem.{idx}")">
                     @if (HasContent(sq.Stem))
                     {
                         @((MarkupString)sq.Stem)
@@ -66,6 +67,11 @@
     [Parameter] public string Passage { get; set; } = "";
     [Parameter] public List<SubQuestionData> SubQuestions { get; set; } = new();
     [Parameter] public List<QuestionImage> Images { get; set; } = [];
+
+    /// <summary>
+    /// 子題在原母題中的起始 index（用於子題聚焦模式正確顯示題號 + data-annot-target 對齊）。預設 0。
+    /// </summary>
+    [Parameter] public int StartIndex { get; set; } = 0;
 
     public class SubQuestionData
     {

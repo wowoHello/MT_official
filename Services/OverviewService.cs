@@ -24,6 +24,12 @@ public interface IOverviewService
     /// <summary>取此題的審題歷程（管理員監控用，不匿名）。委派 IReviewService。</summary>
     Task<List<ReviewHistoryEntry>> GetReviewHistoryAsync(int questionId);
 
+    /// <summary>
+    /// 取此單元（母題=subQuestionId null / 子題=subQuestionId 值）所有審題者的劃記評語。
+    /// 管理員視角不匿名，依 (Stage, CreatedAt) 升冪排序。委派 IAnnotationService.GetByQuestionUnitAsync。
+    /// </summary>
+    Task<List<OverviewAnnotationCard>> GetAnnotationsForUnitAsync(int questionId, int? subQuestionId);
+
     /// <summary>依題型組成詳情面板用的標籤（主類/次類/文體/核心能力…）。</summary>
     Dictionary<string, string> BuildPreviewTags(QuestionFormData formData);
 
@@ -35,12 +41,14 @@ public class OverviewService(
     IQuestionService questionService,
     IReviewService reviewService,
     IDatabaseService db,
-    IPhaseTransitionCoordinator phaseCoordinator) : IOverviewService
+    IPhaseTransitionCoordinator phaseCoordinator,
+    IAnnotationService annotationService) : IOverviewService
 {
     private readonly IQuestionService _questionService = questionService;
     private readonly IReviewService   _reviewService   = reviewService;
     private readonly IDatabaseService _db = db;
     private readonly IPhaseTransitionCoordinator _phaseCoordinator = phaseCoordinator;
+    private readonly IAnnotationService _annotationService = annotationService;
 
     public async Task<OverviewListResult> LoadAsync(int projectId, OverviewFilter filter)
     {
@@ -82,8 +90,10 @@ public class OverviewService(
         }
 
         // countsTask、listTask 兩者並行；StatusCounts 永遠不受下拉影響（給統計卡片用，符合既有契約）
-        // statusKeyCountsTask：忽略所有篩選，計算梯次內每個 OverviewStatusKey 的題數，給狀態下拉動態渲染用
-        var countsTask          = _questionService.GetStatusCountsAsync(projectId, creatorId: null);
+        // 命題總覽：題組類拆列（母題 + 每子題各一列），故 StatusCounts 改為「列數視角」—
+        //   母題與子題各依各自 Status 分桶，使「總題數=列數」直觀對齊清單畫面。
+        // pendingTask、statusKeyCountsTask 同樣納入子題列。
+        var countsTask          = BuildStatusRowCountsAsync(projectId);
         var listTask            = _questionService.ListAsync(listFilter);
         var pendingTask         = GetPendingRevisionCountAsync(projectId, phaseCode);
         var statusKeyCountsTask = BuildStatusKeyCountsAsync(projectId, phaseCode);
@@ -314,11 +324,11 @@ public class OverviewService(
     }
 
     /// <summary>
-    /// 計算「待修編」實際數量：Status = 梯次當前 PhaseCode（限修題階段 4/6/8）
-    /// 且命題者尚未於該階段於 MT_RevisionReplies 留下紀錄。
-    /// 用 PhaseCode 同時鎖「目前階段」與「修題狀態」（因修題階段 Status 與 PhaseCode 為 1:1 對齊）；
-    /// PhaseCode 由 IQuestionService.GetCurrentPhaseAsync 統一計算（依 MT_ProjectPhases 日期區間）後傳入，
-    /// 避免在 SQL 內重複實作日期比對邏輯，保持單一資料來源。
+    /// 計算「待修編」實際數量（列數視角，含子題）：
+    ///   母題列：q.Status = PhaseCode（限 4/6/8）且命題者尚未於本輪同 stage 寫 RevisionReplies（SubQuestionId IS NULL）
+    ///   子題列：sq.Status = PhaseCode 且命題者尚未於本輪同 stage 寫 RevisionReplies（SubQuestionId = sq.Id）
+    /// 兩者 UNION ALL 後 COUNT，與列表「拆列後」實際呈現的待修編列數一致。
+    /// Plan_014：本輪過濾 — 只認「上次總審退回後」寫的 reply 為本輪已修。
     /// 若 phaseCode 為 null 或不在 {4,6,8}，直接回 0（不打 DB）。
     /// </summary>
     private async Task<int> GetPendingRevisionCountAsync(int projectId, byte? phaseCode)
@@ -326,25 +336,48 @@ public class OverviewService(
         // 邊界守門：非修題階段直接回 0
         if (phaseCode is not (4 or 6 or 8)) return 0;
 
-        // Plan_014：本輪過濾 — 只認「上次總審退回後」寫的 reply 為本輪已修
-        // PhaseCode 4/6 為線性單輪，MAX(DecidedAt for ReviewStage=3) 永遠為 NULL（fallback 1900-01-01），
-        // 等同未過濾，行為不變；只對 PhaseCode=8 真正生效。
         const string sql = """
-            SELECT COUNT(1)
-            FROM dbo.MT_Questions q
-            WHERE q.ProjectId = @ProjectId
-              AND q.IsDeleted = 0
-              AND q.Status    = @PhaseCode
-              AND NOT EXISTS (
-                    SELECT 1 FROM dbo.MT_RevisionReplies rr
-                    WHERE rr.QuestionId = q.Id
-                      AND rr.UserId     = q.CreatorId
-                      AND rr.Stage      = q.Status
-                      AND rr.CreatedAt > ISNULL(
-                          (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
-                           WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)),
-                          '1900-01-01')
-              );
+            WITH pending AS (
+                -- 母題單元
+                SELECT q.Id AS QId, CAST(NULL AS INT) AS SubId
+                FROM dbo.MT_Questions q
+                WHERE q.ProjectId = @ProjectId
+                  AND q.IsDeleted = 0
+                  AND q.Status    = @PhaseCode
+                  AND NOT EXISTS (
+                        SELECT 1 FROM dbo.MT_RevisionReplies rr
+                        WHERE rr.QuestionId = q.Id
+                          AND rr.SubQuestionId IS NULL
+                          AND rr.UserId       = q.CreatorId
+                          AND rr.Stage        = q.Status
+                          AND rr.CreatedAt > ISNULL(
+                              (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
+                               WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)),
+                              '1900-01-01')
+                  )
+
+                UNION ALL
+
+                -- 子題單元（題組類拆列）
+                SELECT q.Id AS QId, sq.Id AS SubId
+                FROM dbo.MT_SubQuestions sq
+                INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                WHERE q.ProjectId = @ProjectId
+                  AND q.IsDeleted = 0
+                  AND sq.Status   = @PhaseCode
+                  AND NOT EXISTS (
+                        SELECT 1 FROM dbo.MT_RevisionReplies rr
+                        WHERE rr.QuestionId    = q.Id
+                          AND rr.SubQuestionId = sq.Id
+                          AND rr.UserId        = q.CreatorId
+                          AND rr.Stage         = sq.Status
+                          AND rr.CreatedAt > ISNULL(
+                              (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
+                               WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)),
+                              '1900-01-01')
+                  )
+            )
+            SELECT COUNT(*) FROM pending;
             """;
 
         using var conn = _db.CreateConnection();
@@ -352,24 +385,60 @@ public class OverviewService(
     }
 
     /// <summary>
-    /// 計算梯次內每個 OverviewStatusKey 對應的題數（用於下拉動態渲染：忽略所有 filter）。
-    /// 規則表與 razor 端 ResolveDisplayStatus + TranslateStatusKey 同源——三方共用 Match*Async 條件函式。
-    /// 一筆題目可能同時落在多個 key（例：修題中 + 修題已送出 → 正常；修題已送出單獨計於 RevisionSubmitted）。
+    /// 命題總覽專屬 StatusCounts（列數視角，含子題）：
+    /// 母題列計入 q.Status；子題列各自計入 sq.Status；IsDeleted=1 列不計入（與 GetStatusCountsAsync 同步）。
+    /// 使「TotalQuestions = StatusCounts.Values.Sum() = 列表拆列後總列數」對齊。
+    /// </summary>
+    private async Task<Dictionary<byte, int>> BuildStatusRowCountsAsync(int projectId)
+    {
+        const string sql = """
+            WITH combined AS (
+                SELECT q.Status FROM dbo.MT_Questions q
+                WHERE q.ProjectId = @ProjectId AND q.IsDeleted = 0
+
+                UNION ALL
+
+                SELECT sq.Status FROM dbo.MT_SubQuestions sq
+                INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                WHERE q.ProjectId = @ProjectId AND q.IsDeleted = 0
+            )
+            SELECT Status, COUNT(*) AS Cnt
+            FROM combined
+            GROUP BY Status;
+            """;
+
+        using var conn = _db.CreateConnection();
+        var rows = await conn.QueryAsync<StatusCountRow>(sql, new { ProjectId = projectId });
+        return rows.ToDictionary(r => r.Status, r => r.Cnt);
+    }
+
+    /// <summary>BuildStatusRowCountsAsync 用的輕量資料列。</summary>
+    private record StatusCountRow(byte Status, int Cnt);
+
+    /// <summary>
+    /// 計算梯次內每個 OverviewStatusKey 對應的「列數」（用於下拉動態渲染：忽略所有 filter）。
+    /// 列數視角：母題列 + 每子題列各計一筆，與列表拆列後呈現一致。
+    /// 規則表與 razor 端 ResolveDisplayStatus + TranslateStatusKey 同源——三方共用 Match* 條件函式。
+    /// 一筆列可能同時落在多個 key（例：修題中 + 修題已送出 → 正常；修題已送出單獨計於 RevisionSubmitted）。
     /// 若梯次無題目直接回空 dict，下拉只會剩「所有狀態」一個選項。
     /// </summary>
     private async Task<Dictionary<string, int>> BuildStatusKeyCountsAsync(int projectId, byte? phaseCode)
     {
-        // 輕量 SQL：只 SELECT 分桶必要欄位（不 join 顯示資料表）
+        // 輕量 SQL：母題 + 子題 UNION ALL，每列各自帶自身 Status / HasRepliedThisStage / IsDeleted
         // HasRepliedThisStage 邏輯與 QuestionService.ListAsync 同步：EXISTS RevisionReplies 同 Stage + UserId=CreatorId
         // Plan_014：與 ListAsync 同步加上「本輪過濾」— PC=8 跨輪退回後舊 reply 不算本輪已修
+        // 子題列：RevisionReplies 用 SubQuestionId = sq.Id 比對
         const string sql = """
+            -- 母題列
             SELECT
-                q.Id,
+                q.Id AS Id,
+                CAST(NULL AS INT) AS SubId,
                 q.Status,
                 q.IsDeleted,
                 CAST(CASE WHEN EXISTS (
                     SELECT 1 FROM dbo.MT_RevisionReplies rr
                     WHERE rr.QuestionId = q.Id
+                      AND rr.SubQuestionId IS NULL
                       AND rr.UserId     = q.CreatorId
                       AND rr.Stage      = q.Status
                       AND q.Status IN (4, 6, 8)
@@ -379,6 +448,30 @@ public class OverviewService(
                           '1900-01-01')
                 ) THEN 1 ELSE 0 END AS BIT) AS HasRepliedThisStage
             FROM dbo.MT_Questions q
+            WHERE q.ProjectId = @ProjectId
+
+            UNION ALL
+
+            -- 子題列（題組類）
+            SELECT
+                q.Id AS Id,
+                sq.Id AS SubId,
+                sq.Status,
+                q.IsDeleted,
+                CAST(CASE WHEN EXISTS (
+                    SELECT 1 FROM dbo.MT_RevisionReplies rr
+                    WHERE rr.QuestionId    = q.Id
+                      AND rr.SubQuestionId = sq.Id
+                      AND rr.UserId        = q.CreatorId
+                      AND rr.Stage         = sq.Status
+                      AND sq.Status IN (4, 6, 8)
+                      AND rr.CreatedAt > ISNULL(
+                          (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
+                           WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)),
+                          '1900-01-01')
+                ) THEN 1 ELSE 0 END AS BIT) AS HasRepliedThisStage
+            FROM dbo.MT_SubQuestions sq
+            INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
             WHERE q.ProjectId = @ProjectId;
             """;
 
@@ -432,8 +525,8 @@ public class OverviewService(
         return counts;
     }
 
-    /// <summary>BuildStatusKeyCountsAsync 用的輕量資料列。</summary>
-    private record StatusBucketRow(int Id, byte Status, bool IsDeleted, bool HasRepliedThisStage);
+    /// <summary>BuildStatusKeyCountsAsync 用的輕量資料列（含子題列 — Id=母題 QId、SubId=子題 Id 或 NULL）。</summary>
+    private record StatusBucketRow(int Id, int? SubId, byte Status, bool IsDeleted, bool HasRepliedThisStage);
 
     public async Task<List<OverviewCreatorOption>> GetCreatorOptionsAsync(int projectId)
     {
@@ -463,6 +556,36 @@ public class OverviewService(
 
     public Task<List<ReviewHistoryEntry>> GetReviewHistoryAsync(int questionId)
         => _reviewService.GetHistoryByQuestionIdAsync(questionId);
+
+    public async Task<List<OverviewAnnotationCard>> GetAnnotationsForUnitAsync(int questionId, int? subQuestionId)
+    {
+        var rows = await _annotationService.GetByQuestionUnitAsync(questionId, subQuestionId);
+        return rows.Select(a => new OverviewAnnotationCard
+        {
+            AnnotationId   = a.Id,
+            SubQuestionId  = a.SubQuestionId,
+            FieldKey       = a.FieldKey,
+            FieldLabel     = AnnotationFieldLabel.Describe(a.FieldKey),
+            Stage          = (byte)a.Stage,
+            // 管理員視角：直接顯示真實階段名稱，不走 AnnotationActorLabel 匿名
+            StageLabel     = a.Stage switch
+            {
+                ReviewStage.Mutual => "互審",
+                ReviewStage.Expert => "專審",
+                ReviewStage.Final  => "總審",
+                _                  => ""
+            },
+            AnchorStart    = a.AnchorStart,
+            AnchorEnd      = a.AnchorEnd,
+            SelectedText   = a.SelectedText,
+            Comment        = a.Comment,
+            ResponseState  = a.ResponseState is null ? (byte?)null : (byte)a.ResponseState.Value,
+            NoChangeReason = a.NoChangeReason,
+            ResponseByName = a.ResponseByName,
+            CreatorName    = a.CreatorName,
+            CreatedAt      = a.CreatedAt
+        }).ToList();
+    }
 
     public Dictionary<string, string> BuildPreviewTags(QuestionFormData f)
     {

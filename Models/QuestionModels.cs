@@ -467,6 +467,13 @@ public class QuestionListFilter
     /// <summary>修題回覆篩選：true=只看已送出修題、false=只看未送出、null=不限。
     /// 僅在 Status ∈ {4,6,8} 時有意義；其他 Tab/Status 設此值無效果。</summary>
     public bool? HasReplied { get; set; }
+
+    /// <summary>
+    /// 是否啟用題組類「N+1 列拆解」（母題 + 每個子題各一列）。
+    /// 預設 false 保留原行為；Overview 端設 true 以便子題列獨立顯示燈號與當前狀態。
+    /// 內部會與 Tab=="revision" 結果 OR 起來，避免影響 CwtList 審修作業區既有邏輯。
+    /// </summary>
+    public bool IncludeSubRows { get; set; } = false;
 }
 
 public class QuestionListResult

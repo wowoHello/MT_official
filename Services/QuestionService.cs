@@ -571,9 +571,9 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             : "AND (@Keyword IS NULL OR q.Stem LIKE '%' + @Keyword + '%' OR q.QuestionCode LIKE '%' + @Keyword + '%')";
 
         // Stage B-4-2：revision tab 拆 N+1 列 — 母題列 + 每子題列各一筆，使用 UNION ALL。
-        //   其他 Tab（compose / history / Overview）仍走原本「每題一列」邏輯，UNION 子題分支不啟用。
-        //   啟用條件：filter.Tab == "revision"（其他 caller 預設不啟用，保留原相容性）。
-        var includeSubRows = filter.Tab == "revision";
+        //   其他 Tab（compose / history）仍走原本「每題一列」邏輯，UNION 子題分支不啟用。
+        //   啟用條件：filter.Tab == "revision" 或 filter.IncludeSubRows（Overview 用後者明示啟用）。
+        var includeSubRows = filter.Tab == "revision" || filter.IncludeSubRows;
 
         // 子題列 status 過濾（subRows 用）— 採用 sq.Status，與母題列共用 @Statuses 參數
         // 子題的「HasRepliedThisStage」需要 JOIN MT_RevisionReplies 並比對 SubQuestionId

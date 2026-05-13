@@ -30,9 +30,41 @@ public class OverviewFilter
         QuestionTypeId    = QuestionTypeId,
         Keyword           = string.IsNullOrWhiteSpace(Keyword) ? null : Keyword.Trim(),
         SearchCreatorName = true,             // 命題總覽：跨教師搜尋（CwtList/Reviews 不啟用）
+        IncludeSubRows    = true,             // 命題總覽：題組類母題與子題各自獨立成列、各自顯示燈號與當前狀態
         Page              = Page,
         PageSize          = PageSize
     };
+}
+
+/// <summary>
+/// 命題總覽詳情 SlideOver 的劃記評語卡片資料（管理員視角，不匿名）。
+/// 一張卡 = 一筆 MT_ReviewAnnotations。Hover 卡片時觸發螢光筆高亮預覽對應位置。
+/// </summary>
+public class OverviewAnnotationCard
+{
+    public int     AnnotationId    { get; set; }
+    public int?    SubQuestionId   { get; set; }       // NULL = 母題單元；非 NULL = 該子題單元
+
+    /// <summary>原始 fieldKey（如 "stem"、"subOptionA.0"），供 annotation.js 比對；卡片顯示請用 FieldLabel</summary>
+    public string  FieldKey        { get; set; } = "";
+
+    /// <summary>翻譯後的友善欄位名稱（透過 AnnotationFieldLabel.Describe）</summary>
+    public string  FieldLabel      { get; set; } = "";
+
+    public byte    Stage           { get; set; }       // 1=互審 / 2=專審 / 3=總審
+    public string  StageLabel      { get; set; } = ""; // 管理員視角顯示真實名稱（互審 / 專審 / 總審）
+
+    public int     AnchorStart     { get; set; }
+    public int     AnchorEnd       { get; set; }
+    public string  SelectedText    { get; set; } = "";
+    public string  Comment         { get; set; } = "";
+
+    public byte?   ResponseState   { get; set; }       // 1=Accepted / 2=Rejected / null=未回應
+    public string? NoChangeReason  { get; set; }
+    public string? ResponseByName  { get; set; }
+
+    public string  CreatorName     { get; set; } = "";
+    public DateTime CreatedAt      { get; set; }
 }
 
 /// <summary>

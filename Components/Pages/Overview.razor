@@ -159,19 +159,38 @@
                             <div class="col-span-1 text-center">當前狀態</div>
                         </div>
 
+                    @* 題組類拆列：建立「母題 Status 索引」供子題列在母題=結案不採用(11) 時 fallback 強制顯示 *@
+                    @{
+                        var parentStatusById = result.Items
+                            .Where(i => i.SubQuestionId is null)
+                            .GroupBy(i => i.Id)
+                            .ToDictionary(g => g.Key, g => g.First().Status);
+                    }
                     @foreach (var item in result.Items)
                     {
-                        <div @onclick="() => OpenDetailAsync(item.Id)"
+                        var isSubRow = item.SubQuestionId.HasValue;
+                        <div @onclick="() => OpenDetailAsync(item.Id, item.SubQuestionId)"
                             class="grid grid-cols-12 gap-4 px-6 py-4 border-b border-gray-100 relative hover:z-10 hover:bg-blue-50/40 hover:shadow-[inset_4px_0_0_var(--color-morandi),0_6px_16px_-4px_rgba(0,0,0,0.18)] transition-all items-center cursor-pointer group">
                             <div class="col-span-2 flex flex-col">
-                                <span class="font-bold text-slate-main text-sm group-hover:text-morandi transition-colors">@item.QuestionCode</span>
+                                <span class="font-bold text-slate-main text-sm group-hover:text-morandi transition-colors inline-flex items-center gap-1">
+                                    @if (isSubRow)
+                                    {
+                                        @* 子題列：縮排 + 樹枝符號（沿用 Reviews.razor 的視覺語彙） *@
+                                        <span class="inline-flex items-center text-xs text-gray-400 mr-1" aria-hidden="true">
+                                            <i class="fa-solid fa-turn-up rotate-90"></i>
+                                        </span>
+                                    }
+                                    @* 子題列：題號後加 -NN（兩位數零填）；SubSortOrder 是 DB 1-based，直接用不要 +1 *@
+                                    <span>@(isSubRow ? $"{item.QuestionCode}-{(item.SubSortOrder ?? 1):00}" : item.QuestionCode)</span>
+                                </span>
                                 <span class="text-xs text-gray-400 mt-0.5">@item.UpdatedAt.ToString("yyyy/MM/dd HH:mm")</span>
-                                @if (item.SubQuestionCount > 0)
+                                @if (!isSubRow && item.SubQuestionCount > 0)
                                 {
                                     <span class="inline-flex items-center self-start mt-1 px-1.5 py-0.5 bg-morandi/10 text-morandi rounded text-xs font-bold border border-morandi/20">
                                         @item.SubQuestionCount 子題
                                     </span>
                                 }
+                                @* 子題列題號已加 -NN 後綴（見上方），不再顯示額外「第 N 子題」徽章 *@
                             </div>
                             <!-- 命題教師 -->
                             <div class="col-span-1 flex items-center gap-1.5 text-sm text-slate-main min-w-0">
@@ -215,9 +234,11 @@
                                 }
                                 else
                                 {
-                                    @* 當前狀態 Badge：依「題目 Status × 梯次 PhaseCode × 本人是否送出修題 × 全體審題者是否已給意見」四維度判定 *@
+                                    @* 當前狀態 Badge：依「題目 Status × 梯次 PhaseCode × 本人是否送出修題 × 全體審題者是否已給意見」四維度判定。
+                                       母題結案淘汰例外：父母題 Status=11（結案不採用）時，子題列強制 fallback 為「結案不採用」 *@
                                     var allResponded = result.AllReviewersResponded.GetValueOrDefault(item.Id);
-                                    var display = ResolveDisplayStatus(item.Status, result.CurrentPhaseCode, item.HasRepliedThisStage, allResponded);
+                                    byte? parentStatusForFallback = isSubRow && parentStatusById.TryGetValue(item.Id, out var ps) ? ps : null;
+                                    var display = ResolveDisplayStatus(item.Status, result.CurrentPhaseCode, item.HasRepliedThisStage, allResponded, parentStatusForFallback);
                                     @if (display.IsAwaitingNext)
                                     {
                                         @* 「OO 完成」等待下一階段：用莫蘭迪藍 inline badge，與綠色「修題已送出 / 完成」做語意區隔 *@
@@ -243,7 +264,7 @@
 </div>
 
 <!-- 詳情 Slide-over -->
-<CustomModal @bind-IsVisible="showDetailModal" Type="CustomModal.ModalType.SlideOver" Title="@modalTitle" MaxWidth="max-w-3xl">
+<CustomModal @bind-IsVisible="showDetailModal" Type="CustomModal.ModalType.SlideOver" Title="@CurrentModalTitle" MaxWidth="max-w-3xl">
     <ChildContent>
         @if (detailItem is null || detailData is null)
         {
@@ -258,7 +279,8 @@
                 <div class="flex justify-between items-start border-b border-gray-100 pb-4 mb-4">
                     <div>
                         <div class="text-xs text-gray-400 mb-1">題號</div>
-                        <div class="text-base font-mono font-bold text-slate-main">@detailItem.QuestionCode</div>
+                        @* 子題聚焦模式：顯示 母題碼-子題序號（-01/-02/-03）；母題模式顯示原碼 *@
+                        <div class="text-base font-mono font-bold text-slate-main">@FormattedDetailCode</div>
                     </div>
                     <div class="text-right">
                         <div class="text-xs text-gray-400 mb-1">題型 / 等級 / 難易度</div>
@@ -277,10 +299,94 @@
                 </div>
 
                 <h3 class="text-xs font-bold text-morandi uppercase tracking-wider mb-2">題目內容</h3>
+                @* 不掛粗粒度 data-annot-target —— PreviewXxx 元件內部已備齊細粒度容器
+                   （stem / optionA-D / article / subStem.{idx} / subOption*.{idx} 等），
+                   hover 時直接傳 annotation 真實 fieldKey + AnchorStart/End，由 annotation.js 在對應容器內精準定位螢光筆 *@
                 <div class="bg-gray-50 rounded-lg p-4 border border-gray-100">
                     @RenderPreview()
                 </div>
             </div>
+
+            <!-- 中段：劃記評語卡片（hover 卡片觸發上方螢光筆） -->
+            @if (detailAnnotations.Count > 0)
+            {
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                    <div class="px-5 py-3 border-b border-gray-100 bg-amber-50/40 flex items-center gap-2">
+                        <i class="fa-solid fa-highlighter text-amber-500"></i>
+                        <h3 class="text-sm font-bold text-slate-main">劃記評語</h3>
+                        <span class="text-xs text-gray-400 ml-auto">滑鼠移到卡片查看對應位置・共 @detailAnnotations.Count 筆</span>
+                    </div>
+                    <div class="p-4">
+                        @* GetAnnotationsForUnitAsync 已用 (QuestionId, SubQuestionId) NULL-safe 比對，
+                           回傳全部是同一單元的劃記 → 不再分組，直接依 Stage 升冪排序展開卡片 *@
+                        <div class="space-y-2">
+                            @foreach (var card in detailAnnotations.OrderBy(a => a.Stage).ThenBy(a => a.CreatedAt))
+                            {
+                                        var stageCss = card.Stage switch
+                                        {
+                                            1 => "bg-morandi/15 text-morandi border-morandi/30",      // 互審
+                                            2 => "bg-terracotta/15 text-terracotta border-terracotta/30", // 專審
+                                            3 => "bg-red-50 text-red-700 border-red-200",            // 總審
+                                            _ => "bg-gray-100 text-gray-500 border-gray-300"
+                                        };
+                                        var isPinned = pinnedAnnotationId == card.AnnotationId;
+                                        var pinCss = isPinned
+                                            ? "border-amber-400 bg-amber-50 ring-2 ring-amber-200 shadow-md"
+                                            : "border-gray-200 hover:border-amber-300 hover:bg-amber-50/30 hover:shadow-md";
+                                        <div @onmouseenter="() => OnAnnotationHoverAsync(card)"
+                                             @onmouseleave="OnAnnotationLeaveAsync"
+                                             @onclick="() => OnAnnotationClickAsync(card)"
+                                             class="border rounded-lg p-3 transition-all cursor-pointer @pinCss">
+                                            <div class="flex flex-wrap items-center gap-2 mb-2">
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold border bg-gray-100 text-gray-600 border-gray-200">
+                                                    @card.FieldLabel
+                                                </span>
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold border @stageCss">
+                                                    @card.StageLabel
+                                                </span>
+                                                @if (isPinned)
+                                                {
+                                                    @* 釘選徽章：提示使用者「再次點按可取消」 *@
+                                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold border bg-amber-100 text-amber-700 border-amber-300">
+                                                        <i class="fa-solid fa-thumbtack text-xs"></i> 已釘選（再點取消）
+                                                    </span>
+                                                }
+                                                <span class="text-xs text-gray-400 ml-auto">@card.CreatedAt.ToString("yyyy/MM/dd HH:mm")</span>
+                                            </div>
+                                            @if (!string.IsNullOrWhiteSpace(card.SelectedText))
+                                            {
+                                                <div class="text-xs text-gray-500 mb-1">劃記原文：</div>
+                                                <div class="bg-amber-100 text-gray-800 px-2 py-1 rounded text-sm mb-2 font-serif break-words">
+                                                    @card.SelectedText
+                                                </div>
+                                            }
+                                            <div class="text-xs text-gray-500 mb-1">評語：</div>
+                                            <div class="text-sm text-slate-main mb-2 whitespace-pre-wrap break-words">@card.Comment</div>
+
+                                            <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-dashed border-gray-200 text-xs">
+                                                <span class="text-gray-500">建立人：<span class="font-bold text-slate-main">@(string.IsNullOrWhiteSpace(card.CreatorName) ? "—" : card.CreatorName)</span></span>
+                                                @{
+                                                    var (respText, respCss, respIcon) = card.ResponseState switch
+                                                    {
+                                                        1 => ("命題者已確認修改", "bg-sage/15 text-sage border-sage/30",         "fa-check"),
+                                                        2 => ("命題者堅持不修改", "bg-red-50 text-red-700 border-red-200",       "fa-xmark"),
+                                                        _ => ("命題者未回應",     "bg-amber-50 text-amber-700 border-amber-200", "fa-hourglass-half")
+                                                    };
+                                                }
+                                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded border text-xs font-bold @respCss">
+                                                    <i class="fa-solid @respIcon"></i> @respText
+                                                </span>
+                                                @if (card.ResponseState == 2 && !string.IsNullOrWhiteSpace(card.NoChangeReason))
+                                                {
+                                                    <span class="text-gray-500">不修改理由：<span class="text-slate-main">@card.NoChangeReason</span></span>
+                                                }
+                                            </div>
+                                        </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
 
             <!-- 下半：審題意見歷程（管理員視角，不匿名） -->
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -320,10 +426,28 @@
     private List<OverviewCreatorOption> creatorOptions = [];
 
     private bool showDetailModal;
-    private string modalTitle = "試題詳情";
     private QuestionListItem? detailItem;
     private QuestionFormData? detailData;
     private List<ReviewHistoryEntry> detailHistory = new();
+
+    /// <summary>當前 SlideOver 聚焦的子題單元 Id；NULL = 母題單元（傳給 GetAnnotationsForUnitAsync 用）</summary>
+    private int? detailSubQuestionId;
+
+    /// <summary>當前單元的劃記評語卡片清單（hover 卡片時觸發螢光筆）</summary>
+    private List<OverviewAnnotationCard> detailAnnotations = new();
+
+    /// <summary>annotation.js 是否已 init（避免重複 init）</summary>
+    private bool annotJsInited;
+
+    /// <summary>
+    /// 被「點按釘選」的劃記 Id（null = 無釘選）。互動模式：
+    ///   hover 卡片        → 螢光筆短暫亮起；
+    ///   leave 卡片        → 若無 pinned 則熄滅、若有 pinned 則切回該 pinned；
+    ///   click 卡片        → 釘選 + 渲染 + scroll 錨點；
+    ///   click 已釘選卡片  → 取消釘選 + 熄滅。
+    /// 切換子題單元 / 重新開啟 SlideOver 時 reset。
+    /// </summary>
+    private int? pinnedAnnotationId;
 
     // 已載入的 ProjectId 守門 —— 避免父層重渲染時重跑 LoadAsync 導致列表骨架閃爍
     private int? loadedProjectId;
@@ -421,22 +545,139 @@
         await LoadAsync();
     }
 
-    private async Task OpenDetailAsync(int questionId)
+    private async Task OpenDetailAsync(int questionId, int? subQuestionId = null)
     {
-        detailItem    = result.Items.FirstOrDefault(x => x.Id == questionId);
-        detailData    = null;
-        detailHistory = new();
-        modalTitle    = $"試題詳情 — {detailItem?.QuestionCode ?? ""}";
+        // 對於題組類拆列：可能同一 questionId 同時有母題列與多筆子題列，先精準對位
+        detailItem = result.Items.FirstOrDefault(x => x.Id == questionId && x.SubQuestionId == subQuestionId)
+                  ?? result.Items.FirstOrDefault(x => x.Id == questionId);
+        detailSubQuestionId = subQuestionId;
+        detailData          = null;
+        detailHistory       = new();
+        detailAnnotations   = new();
+        pinnedAnnotationId  = null;
+        @* modalTitle / 題號顯示已改為 computed property（CurrentModalTitle / FormattedDetailCode），會在 detailData 載入後自動套用子題編號 *@
         showDetailModal = true;
+        // 進入新單元時先清掉舊高亮 + 清空 snapshot，避免殘留（clearAll 同時清 DOM 與 snapshot）
+        try { await JS.InvokeVoidAsync("annotation.clearAll"); } catch { }
         StateHasChanged();
 
-        // 並行載入題目詳情與審題歷程，避免序列等待
-        var dataTask    = OverviewService.GetDetailAsync(questionId);
-        var historyTask = OverviewService.GetReviewHistoryAsync(questionId);
-        await Task.WhenAll(dataTask, historyTask);
-        detailData    = dataTask.Result;
-        detailHistory = historyTask.Result;
+        // 並行載入題目詳情、審題歷程、劃記評語
+        var dataTask        = OverviewService.GetDetailAsync(questionId);
+        var historyTask     = OverviewService.GetReviewHistoryAsync(questionId);
+        var annotationsTask = OverviewService.GetAnnotationsForUnitAsync(questionId, subQuestionId);
+        await Task.WhenAll(dataTask, historyTask, annotationsTask);
+        detailData        = dataTask.Result;
+        detailHistory     = historyTask.Result;
+        detailAnnotations = annotationsTask.Result;
         StateHasChanged();
+    }
+
+    /// <summary>
+    /// 詳情 SlideOver 開啟時初始化 annotation.js（純唯讀模式，不需要 .NET 回呼）。
+    /// 關閉時呼叫 dispose。切換不同單元（detailItem/detailSubQuestionId 變更）時，OpenDetailAsync 內已先 clearHighlights。
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (showDetailModal && !annotJsInited)
+        {
+            try
+            {
+                // 純唯讀：dotnetRef 傳 null（annotation.js init 已支援），不彈加註浮層按鈕
+                await JS.InvokeVoidAsync("annotation.init", null, new { readOnly = true });
+                annotJsInited = true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[Overview] annotation.init failed: {ex.Message}");
+            }
+        }
+        else if (!showDetailModal && annotJsInited)
+        {
+            try { await JS.InvokeVoidAsync("annotation.dispose"); } catch { }
+            annotJsInited = false;
+        }
+    }
+
+    /// <summary>
+    /// hover 進入卡片 → 渲染對應螢光筆（短暫）。若已是 pinned 卡片則略過（避免重複 render）。
+    /// 不 scroll：scroll 只在 click 釘選時做（避免使用者只是滑過畫面就跳動）。
+    /// </summary>
+    private async Task OnAnnotationHoverAsync(OverviewAnnotationCard card)
+    {
+        if (!annotJsInited) return;
+        if (pinnedAnnotationId == card.AnnotationId) return;
+        await RenderHighlightAsync(card, scrollTo: false);
+    }
+
+    /// <summary>
+    /// 離開卡片 → 若無 pinned 則 clearAll；若有 pinned 則切回 pinned 的螢光筆。
+    /// </summary>
+    private async Task OnAnnotationLeaveAsync()
+    {
+        if (!annotJsInited) return;
+        if (pinnedAnnotationId is null)
+        {
+            try { await JS.InvokeVoidAsync("annotation.clearAll"); }
+            catch (Exception ex) { Console.Error.WriteLine($"[Overview] clearAll failed: {ex.Message}"); }
+            return;
+        }
+        // 回到 pinned 狀態
+        var pinned = detailAnnotations.FirstOrDefault(c => c.AnnotationId == pinnedAnnotationId.Value);
+        if (pinned is not null)
+        {
+            await RenderHighlightAsync(pinned, scrollTo: false);
+        }
+        else
+        {
+            // pinned 卡片不在當前 list（理論不應發生）→ 清掉狀態
+            pinnedAnnotationId = null;
+            try { await JS.InvokeVoidAsync("annotation.clearAll"); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// 點按卡片：
+    ///   未釘選 → 釘選 + render + scroll 錨點過去
+    ///   已釘選同一張 → 取消釘選 + clearAll
+    /// 點不同卡片自動換 pinned。
+    /// </summary>
+    private async Task OnAnnotationClickAsync(OverviewAnnotationCard card)
+    {
+        if (!annotJsInited) return;
+        if (pinnedAnnotationId == card.AnnotationId)
+        {
+            pinnedAnnotationId = null;
+            try { await JS.InvokeVoidAsync("annotation.clearAll"); }
+            catch (Exception ex) { Console.Error.WriteLine($"[Overview] clearAll failed: {ex.Message}"); }
+            return;
+        }
+        pinnedAnnotationId = card.AnnotationId;
+        await RenderHighlightAsync(card, scrollTo: true);
+    }
+
+    /// <summary>共用：把 annotation 物件丟給 JS render，並選擇是否 scroll 到該位置。</summary>
+    private async Task RenderHighlightAsync(OverviewAnnotationCard card, bool scrollTo)
+    {
+        var payload = new[]
+        {
+            new
+            {
+                id            = card.AnnotationId,
+                fieldKey      = card.FieldKey,
+                anchorStart   = card.AnchorStart,
+                anchorEnd     = card.AnchorEnd,
+                selectedText  = card.SelectedText,
+                comment       = card.Comment,
+                responseState = card.ResponseState
+            }
+        };
+        try
+        {
+            await JS.InvokeVoidAsync("annotation.renderHighlights", (object)payload);
+            if (scrollTo)
+                await JS.InvokeVoidAsync("annotation.scrollToAnnotation", card.AnnotationId);
+        }
+        catch (Exception ex) { Console.Error.WriteLine($"[Overview] highlight failed: {ex.Message}"); }
     }
 
     /// <summary>ESC 鍵關閉詳情 SlideOver（補 CustomModal 未支援的鍵盤關閉行為，避免動到共用元件）。</summary>
@@ -539,8 +780,14 @@
     ///  C.  其他狀態（含修題進行中尚未送出）→ 沿用 QuestionStatus.Labels 對應文字。
     /// </summary>
     private static (string Text, string BadgeType, bool IsAwaitingNext) ResolveDisplayStatus(
-        byte status, byte? currentPhaseCode, bool hasRepliedThisStage, bool allReviewersResponded)
+        byte status, byte? currentPhaseCode, bool hasRepliedThisStage, bool allReviewersResponded,
+        byte? parentStatusForFallback = null)
     {
+        // 母題結案淘汰例外：父母題 Status=11（結案不採用）時，子題列強制顯示「結案不採用」
+        // 此 fallback 不改子題實際 Status，只覆寫顯示文字；對母題列 parentStatusForFallback 永遠為 null，不受影響
+        if (parentStatusForFallback == QuestionStatus.ClosedNotAdopted)
+            return ("結案不採用", "default", false);
+
         // 規則 R1：草稿題目 + 梯次已進入交互審題後 → 已永久落隊（命題教師沒命完）
         // PhaseCode 3 = 交互審題；PhaseCode ≥ 3 涵蓋之後所有階段（互修/專審/專修/總審/總修）
         if (status == QuestionStatus.Draft && currentPhaseCode is byte pcDraft && pcDraft >= 3)
@@ -589,7 +836,13 @@
         </div>
     };
 
-    /// <summary>依題型挑對應預覽元件呈現（複用 CwtList 的 QuestionPreviews/*）。詳情面板僅展示。</summary>
+    /// <summary>
+    /// 詳情預覽：依題型挑對應 PreviewXxx 元件。
+    /// 題組類（ReadGroup / ShortGroup / ListenGroup）做 master/sub 切換：
+    ///   - 母題模式（detailSubQuestionId is null）：顯示文章/語音 + 子題索引卡，子題不全部展開（避免畫面雜亂）
+    ///   - 子題聚焦模式：顯示文章/語音作上下文 + 單一子題 + 返回母題按鈕
+    /// 非題組類沿用整題渲染。
+    /// </summary>
     private RenderFragment RenderPreview() => __builder =>
     {
         if (detailData is null || detailItem is null) return;
@@ -605,46 +858,321 @@
             case QuestionTypeCodes.Select:
                 <PreviewSingle QuestionType="@typeLabel" Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
                     Stem="@detailData.Stem" Options="@detailData.Options" Answer="@detailData.Answer" Images="@detailData.Images" />
+                @RenderAnalysisSection
                 break;
             case QuestionTypeCodes.LongText:
                 <PreviewLongText Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
                     Stem="@detailData.Stem" Passage="@detailData.ArticleContent" Images="@detailData.Images" />
-                break;
-            case QuestionTypeCodes.ReadGroup:
-                <PreviewReadGroup Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
-                    Passage="@detailData.ArticleContent" Images="@detailData.Images"
-                    SubQuestions="@detailData.ReadSubQuestions.Select(sq => new PreviewReadGroup.SubQuestionData {
-                        Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer,
-                        Dimension = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ReadGroup),
-                        Indicator = QuestionConstants.DecodeSubIndicator(sq.Indicator, QuestionTypeCodes.ReadGroup)
-                    }).ToList()" />
-                break;
-            case QuestionTypeCodes.ShortGroup:
-                <PreviewShortGroup Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
-                    Passage="@detailData.ArticleContent"
-                    Images="@detailData.Images"
-                    SubQuestions="@detailData.ShortSubQuestions.Select(sq => new PreviewShortGroup.SubQuestionData {
-                        Stem      = sq.Stem,
-                        Dimension = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ShortGroup),
-                        Indicator = QuestionConstants.DecodeSubIndicator(sq.Indicator, QuestionTypeCodes.ShortGroup)
-                    }).ToList()" />
+                @RenderAnalysisSection
                 break;
             case QuestionTypeCodes.Listen:
                 <PreviewListen Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
                     AudioFileName="@detailData.AudioUrl" Stem="@detailData.Stem"
                     Options="@detailData.Options" Answer="@detailData.Answer"
                     Images="@detailData.Images" />
+                @RenderAnalysisSection
                 break;
+
+            case QuestionTypeCodes.ReadGroup:
+                if (detailSubQuestionId is null)
+                {
+                    @* 母題模式：傳空 SubQuestions list，PreviewReadGroup 只渲染文章不展開子題 *@
+                    <PreviewReadGroup Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
+                        Passage="@detailData.ArticleContent" Images="@detailData.Images"
+                        SubQuestions="@(new List<PreviewReadGroup.SubQuestionData>())" />
+                    @RenderSubIndexCards(detailData.ReadSubQuestions.Select(s => (s.Id, s.Stem)).ToList())
+                }
+                else
+                {
+                    var focusIdx = detailData.ReadSubQuestions.FindIndex(s => s.Id == detailSubQuestionId);
+                    @RenderBackButton
+                    if (focusIdx >= 0)
+                    {
+                        var focus = detailData.ReadSubQuestions[focusIdx];
+                        <PreviewReadGroup Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
+                            Passage="@detailData.ArticleContent" Images="@detailData.Images"
+                            StartIndex="@focusIdx"
+                            SubQuestions="@(new List<PreviewReadGroup.SubQuestionData> {
+                                new PreviewReadGroup.SubQuestionData {
+                                    Stem = focus.Stem, Options = focus.Options, Answer = focus.Answer,
+                                    Dimension = QuestionConstants.DecodeSubCoreAbility(focus.CoreAbility, QuestionTypeCodes.ReadGroup),
+                                    Indicator = QuestionConstants.DecodeSubIndicator(focus.Indicator, QuestionTypeCodes.ReadGroup)
+                                }
+                            })" />
+                        @RenderSubAnalysisSection(focus.Analysis, focusIdx)
+                    }
+                    else
+                    {
+                        <div class="bg-white rounded-xl border border-dashed border-terracotta/30 p-6 text-center text-sm text-terracotta font-sans">
+                            <i class="fa-solid fa-circle-exclamation mr-1"></i>找不到該子題（可能已被刪除）
+                        </div>
+                    }
+                }
+                break;
+
+            case QuestionTypeCodes.ShortGroup:
+                if (detailSubQuestionId is null)
+                {
+                    <PreviewShortGroup Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
+                        Passage="@detailData.ArticleContent" Images="@detailData.Images"
+                        SubQuestions="@(new List<PreviewShortGroup.SubQuestionData>())" />
+                    @RenderSubIndexCards(detailData.ShortSubQuestions.Select(s => (s.Id, s.Stem)).ToList())
+                }
+                else
+                {
+                    var focusIdx = detailData.ShortSubQuestions.FindIndex(s => s.Id == detailSubQuestionId);
+                    @RenderBackButton
+                    if (focusIdx >= 0)
+                    {
+                        var focus = detailData.ShortSubQuestions[focusIdx];
+                        <PreviewShortGroup Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
+                            Passage="@detailData.ArticleContent" Images="@detailData.Images"
+                            StartIndex="@focusIdx"
+                            SubQuestions="@(new List<PreviewShortGroup.SubQuestionData> {
+                                new PreviewShortGroup.SubQuestionData {
+                                    Stem      = focus.Stem,
+                                    Dimension = QuestionConstants.DecodeSubCoreAbility(focus.CoreAbility, QuestionTypeCodes.ShortGroup),
+                                    Indicator = QuestionConstants.DecodeSubIndicator(focus.Indicator, QuestionTypeCodes.ShortGroup)
+                                }
+                            })" />
+                        @RenderSubAnalysisSection(focus.Analysis, focusIdx)
+                    }
+                    else
+                    {
+                        <div class="bg-white rounded-xl border border-dashed border-terracotta/30 p-6 text-center text-sm text-terracotta font-sans">
+                            <i class="fa-solid fa-circle-exclamation mr-1"></i>找不到該子題（可能已被刪除）
+                        </div>
+                    }
+                }
+                break;
+
             case QuestionTypeCodes.ListenGroup:
-                <PreviewListenGroup Tags="@tags" AudioFileName="@detailData.AudioUrl" Passage="@detailData.ArticleContent"
-                    Images="@detailData.Images"
-                    SubQuestions="@detailData.ListenGroupSubQuestions.Select(sq => new PreviewListenGroup.SubQuestionData {
-                        Level           = QuestionConstants.ListenLevelLabels.GetValueOrDefault(sq.FixedDifficulty, ""),
-                        CoreAbility     = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ListenGroup),
-                        DetailIndicator = QuestionConstants.DecodeSubIndicator(sq.DetailIndicator, QuestionTypeCodes.ListenGroup),
-                        Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer
-                    }).ToList()" />
+                if (detailSubQuestionId is null)
+                {
+                    <PreviewListenGroup Tags="@tags" AudioFileName="@detailData.AudioUrl"
+                        Passage="@detailData.ArticleContent" Images="@detailData.Images"
+                        SubQuestions="@(new List<PreviewListenGroup.SubQuestionData>())" />
+                    @RenderSubIndexCards(detailData.ListenGroupSubQuestions.Select(s => (s.Id, s.Stem)).ToList())
+                }
+                else
+                {
+                    var focusIdx = detailData.ListenGroupSubQuestions.FindIndex(s => s.Id == detailSubQuestionId);
+                    @RenderBackButton
+                    if (focusIdx >= 0)
+                    {
+                        var focus = detailData.ListenGroupSubQuestions[focusIdx];
+                        <PreviewListenGroup Tags="@tags" AudioFileName="@detailData.AudioUrl"
+                            Passage="@detailData.ArticleContent" Images="@detailData.Images"
+                            StartIndex="@focusIdx"
+                            SubQuestions="@(new List<PreviewListenGroup.SubQuestionData> {
+                                new PreviewListenGroup.SubQuestionData {
+                                    Level           = QuestionConstants.ListenLevelLabels.GetValueOrDefault(focus.FixedDifficulty, ""),
+                                    CoreAbility     = QuestionConstants.DecodeSubCoreAbility(focus.CoreAbility, QuestionTypeCodes.ListenGroup),
+                                    DetailIndicator = QuestionConstants.DecodeSubIndicator(focus.DetailIndicator, QuestionTypeCodes.ListenGroup),
+                                    Stem = focus.Stem, Options = focus.Options, Answer = focus.Answer
+                                }
+                            })" />
+                        @RenderSubAnalysisSection(focus.Analysis, focusIdx)
+                    }
+                    else
+                    {
+                        <div class="bg-white rounded-xl border border-dashed border-terracotta/30 p-6 text-center text-sm text-terracotta font-sans">
+                            <i class="fa-solid fa-circle-exclamation mr-1"></i>找不到該子題（可能已被刪除）
+                        </div>
+                    }
+                }
                 break;
         }
     };
+
+    /// <summary>「返回母題」按鈕（子題聚焦模式頂部）— 切回母題模式並隱藏該子題的劃記。</summary>
+    private RenderFragment RenderBackButton => __builder =>
+    {
+        <div class="mb-3">
+            <button type="button" @onclick="@(() => SwitchSubUnitAsync(null))"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold text-slate-main hover:border-morandi hover:text-morandi transition focus:outline-none cursor-pointer">
+                <i class="fa-solid fa-chevron-left"></i> 返回母題
+            </button>
+        </div>
+    };
+
+    /// <summary>
+    /// 子題索引卡清單（母題模式專用）：點擊任一卡片切換到對應子題聚焦模式。
+    /// 與 ReviewQuestionDisplay.RenderSubIndexCard 視覺語彙一致（左側題號膠囊 + 右側摘要 + 箭頭）。
+    /// </summary>
+    private RenderFragment RenderSubIndexCards(List<(int Id, string Stem)> subs) => __builder =>
+    {
+        if (subs.Count == 0)
+        {
+            <div class="mt-4 bg-white rounded-xl border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400 italic font-sans">
+                尚未新增子題
+            </div>
+            return;
+        }
+        <div class="mt-4 space-y-2">
+            <p class="text-xs font-bold text-morandi mb-2 uppercase tracking-wider">
+                <i class="fa-solid fa-list-ol mr-1"></i> 子題清單（點擊檢視）
+            </p>
+            @for (var i = 0; i < subs.Count; i++)
+            {
+                var idx = i;
+                var sub = subs[idx];
+                var snippet = SnippetOfHtml(sub.Stem);
+                <button type="button" @onclick="@(() => SwitchSubUnitAsync(sub.Id))"
+                        class="w-full text-left bg-white rounded-lg shadow-sm border border-gray-200 hover:border-morandi hover:shadow-md transition group flex items-stretch overflow-hidden focus:outline-none cursor-pointer">
+                    <div class="w-12 flex-shrink-0 bg-gradient-to-b from-morandi/15 to-morandi/5 border-r border-morandi/15 flex flex-col items-center justify-center py-2 font-serif">
+                        <span class="text-xs text-morandi/70 font-bold tracking-wider font-sans">第</span>
+                        <span class="text-lg font-black text-morandi leading-none my-0.5">@(idx + 1)</span>
+                        <span class="text-xs text-morandi/70 font-bold tracking-wider font-sans">題</span>
+                    </div>
+                    <div class="flex-1 min-w-0 px-3 py-2 flex items-center gap-2">
+                        <div class="flex-1 min-w-0">
+                            <div class="text-xs text-gray-400 mb-0.5 font-sans">點此進入子題</div>
+                            <div class="text-sm text-gray-700 truncate" title="@snippet">
+                                @(string.IsNullOrEmpty(snippet) ? "（尚未填寫題幹）" : snippet)
+                            </div>
+                        </div>
+                        <i class="fa-solid fa-arrow-right text-gray-300 group-hover:text-morandi group-hover:translate-x-0.5 transition"></i>
+                    </div>
+                </button>
+            }
+        </div>
+    };
+
+    /// <summary>HTML 字串擷取前 N 字（去標籤）— 子題索引卡摘要用。</summary>
+    private static string SnippetOfHtml(string? html, int max = 80)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return "";
+        var text = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]*>", "").Trim();
+        return text.Length <= max ? text : text[..max] + "…";
+    }
+
+    /// <summary>判斷 HTML 字串是否有實質內容（去標籤後非空，或包含圖片）。</summary>
+    private static bool HasContent(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return false;
+        var stripped = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]*>", "").Trim();
+        return !string.IsNullOrEmpty(stripped) || html.Contains("<img");
+    }
+
+    /// <summary>
+    /// 非題組類 / 題組類母題模式的「審題輔助資訊」摺疊區（試題解析 / 批閱說明）。
+    /// 視覺與 ReviewQuestionDisplay.RenderAnalysisSection 對齊（amber 配色、details 預設展開）。
+    /// data-annot-target 用 "analysis" / "gradingNote"，對齊審題端劃記容器命名。
+    /// </summary>
+    private RenderFragment RenderAnalysisSection => __builder =>
+    {
+        if (detailData is null || detailItem is null) return;
+
+        var isLongText = detailItem.TypeKey == QuestionTypeCodes.LongText;
+        var content    = isLongText ? detailData.GradingNote : detailData.Analysis;
+        var label      = isLongText ? "批閱說明" : "試題解析";
+        var icon       = isLongText ? "fa-list-check" : "fa-lightbulb";
+        var fieldKey   = isLongText ? "gradingNote" : "analysis";
+
+        if (!HasContent(content)) return;
+
+        <details open class="bg-white rounded-xl shadow-sm border border-amber-100 overflow-hidden mt-4">
+            <summary class="px-5 py-3 cursor-pointer text-xs font-bold text-amber-700 flex items-center gap-1.5 hover:bg-amber-50/60 transition list-none select-none">
+                <i class="fa-solid fa-lock text-amber-500 text-xs"></i>
+                <span>審題輔助資訊（@label）</span>
+                <i class="fa-solid fa-chevron-down ml-auto text-xs text-amber-400"></i>
+            </summary>
+            <div class="px-5 pb-5 pt-1">
+                <div class="pt-3 mt-3 border-t border-amber-100">
+                    <p class="text-xs font-bold text-amber-600 mb-2 tracking-wider">
+                        <i class="fa-solid @icon mr-1"></i> @label
+                    </p>
+                    <div class="pl-3 border-l-2 border-amber-200">
+                        <div class="prose prose-sm max-w-none font-serif text-sm leading-relaxed text-gray-700" data-annot-target="@fieldKey">
+                            @((MarkupString)content!)
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </details>
+    };
+
+    /// <summary>
+    /// 題組類子題聚焦模式的「子題試題解析」摺疊區。
+    /// data-annot-target 用 "subAnalysis.{idx}"，對齊審題端劃記容器命名。
+    /// </summary>
+    private RenderFragment RenderSubAnalysisSection(string? content, int subIdx) => __builder =>
+    {
+        if (!HasContent(content)) return;
+        var fieldKey = $"subAnalysis.{subIdx}";
+        <details open class="bg-white rounded-xl shadow-sm border border-amber-100 overflow-hidden mt-4">
+            <summary class="px-5 py-3 cursor-pointer text-xs font-bold text-amber-700 flex items-center gap-1.5 hover:bg-amber-50/60 transition list-none select-none">
+                <i class="fa-solid fa-lock text-amber-500 text-xs"></i>
+                <span>審題輔助資訊（子題試題解析）</span>
+                <i class="fa-solid fa-chevron-down ml-auto text-xs text-amber-400"></i>
+            </summary>
+            <div class="px-5 pb-5 pt-1">
+                <div class="pt-3 mt-3 border-t border-amber-100">
+                    <p class="text-xs font-bold text-amber-600 mb-2 tracking-wider">
+                        <i class="fa-solid fa-lightbulb mr-1"></i> 試題解析
+                    </p>
+                    <div class="pl-3 border-l-2 border-amber-200">
+                        <div class="prose prose-sm max-w-none font-serif text-sm leading-relaxed text-gray-700" data-annot-target="@fieldKey">
+                            @((MarkupString)content!)
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </details>
+    };
+
+    /// <summary>
+    /// 取得當前聚焦子題在母題子題列表中的順序號（1-based）。
+    /// 用 list index + 1，與 DB MT_SubQuestions.SortOrder 對齊（list 由 Service 端依 SortOrder 排序載入）。
+    /// 母題模式 / detailData 尚未載入時回 null。
+    /// </summary>
+    private int? GetFocusSubNumber()
+    {
+        if (detailData is null || detailItem is null || detailSubQuestionId is null) return null;
+        var idx = detailItem.TypeKey switch
+        {
+            QuestionTypeCodes.ReadGroup   => detailData.ReadSubQuestions.FindIndex(s => s.Id == detailSubQuestionId),
+            QuestionTypeCodes.ShortGroup  => detailData.ShortSubQuestions.FindIndex(s => s.Id == detailSubQuestionId),
+            QuestionTypeCodes.ListenGroup => detailData.ListenGroupSubQuestions.FindIndex(s => s.Id == detailSubQuestionId),
+            _ => -1
+        };
+        return idx >= 0 ? idx + 1 : null;
+    }
+
+    /// <summary>SlideOver 內題號 div / Title 共用：母題模式回原碼、子題模式回「母題碼-NN」。</summary>
+    private string FormattedDetailCode
+    {
+        get
+        {
+            var baseCode = detailItem?.QuestionCode ?? "";
+            if (string.IsNullOrEmpty(baseCode)) return "";
+            return GetFocusSubNumber() is int n ? $"{baseCode}-{n:00}" : baseCode;
+        }
+    }
+
+    /// <summary>SlideOver Title：computed，自動套用子題編號（- detailData 尚未載入時退回母題碼）。</summary>
+    private string CurrentModalTitle
+        => detailItem is null ? "試題詳情" : $"試題詳情 — {FormattedDetailCode}";
+
+    /// <summary>
+    /// SlideOver 內切換子題單元（不關閉 Modal）：
+    ///   subId=null  → 切回母題模式（顯示文章/語音 + 子題索引卡）
+    ///   subId≠null  → 切到該子題聚焦模式（顯示文章/語音作上下文 + 單一子題）
+    /// 同時重抓對應單元的劃記評語清單；清空螢光筆（含 snapshot），避免殘留。
+    /// </summary>
+    private async Task SwitchSubUnitAsync(int? subId)
+    {
+        if (detailItem is null) return;
+        detailSubQuestionId = subId;
+        @* modalTitle / 題號 div 走 computed property，本方法不再手動賦值 *@
+
+        detailAnnotations = new();
+        pinnedAnnotationId = null;
+        try { await JS.InvokeVoidAsync("annotation.clearAll"); } catch { }
+        StateHasChanged();
+
+        detailAnnotations = await OverviewService.GetAnnotationsForUnitAsync(detailItem.Id, subId);
+        StateHasChanged();
+    }
 }

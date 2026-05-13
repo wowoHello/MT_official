@@ -15,7 +15,7 @@
         </p>
     }
     <div class="pl-5 border-l-2 border-stone-300/70 py-1">
-        <div class="prose prose-base max-w-none leading-loose text-gray-800 font-serif">
+        <div class="prose prose-base max-w-none leading-loose text-gray-800 font-serif" data-annot-target="@FieldKey">
             @if (HasContent(Content))
             {
                 @((MarkupString)Content)
@@ -36,6 +36,12 @@
 
     /// <summary>文章附圖（已過篩，由父層提供，本元件不做 FieldType 篩選）。</summary>
     [Parameter] public List<QuestionImage>? Images { get; set; }
+
+    /// <summary>
+    /// 審題劃記容器識別碼（給 annotation.js 用）；null = 不掛屬性，瀏覽器忽略 data-annot-target="" 不影響任何渲染。
+    /// 一般為 "article"；其他場景無需特別設定。
+    /// </summary>
+    [Parameter] public string? FieldKey { get; set; }
 
     private bool HasContent(string? html)
     {

@@ -48,7 +48,9 @@
      * @param {{readOnly?: boolean}=} options 修題端 readOnly=true 時跳過選取監聽（命題者不能加註）
      */
     function init(dotnetRef, options) {
-        STATE.dotnetRef = dotnetRef;
+        // dotnetRef 允許為 null —— 純唯讀模式（如命題總覽）不需要 .NET 回呼；
+        // 若非 readOnly 卻沒給 dotnetRef，後續 _onFloatBtnClick 內已有 STATE.dotnetRef 防護。
+        STATE.dotnetRef = dotnetRef || null;
         STATE.readOnly = !!(options && options.readOnly);
         if (!STATE.readOnly) _createFloatButton();
         _startObserver();   // ← 啟動 MutationObserver，監聽 Blazor 重 render 沖掉 <mark> 的事件，自動 re-wrap
@@ -187,7 +189,34 @@
         probe();
     }
 
-    window.annotation = { init, dispose, renderHighlights, clearHighlights, deferredRender };
+    /**
+     * 將指定 annotation 的 <mark> 元素 scroll 進視窗中央。
+     * 給 Overview 卡片 hover 時用：先 renderHighlights 後呼叫此 API，畫面直接帶到劃記位置。
+     * @returns {boolean} 找到並 scroll 回 true、找不到回 false
+     */
+    function scrollToAnnotation(annotId) {
+        const mark = document.querySelector(`mark.annot[data-annot-id="${annotId}"]`);
+        if (!mark) return false;
+        mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return true;
+    }
+
+    /**
+     * 清掉所有高亮 + 同時清空 snapshot — 避免 MutationObserver 偵測到 mark 數量不足，自動把 mark wrap 回去。
+     * Overview hover-leave 時用：使用者把滑鼠移出卡片，螢光筆應徹底消失而非 50ms 後被 _rewrapMissing 補回。
+     * Reviews 端維持用 clearHighlights，保留 Blazor 重 render 時的自動補回行為。
+     */
+    function clearAll() {
+        STATE.wrapBusy++;   // 防 _onMutations 在我們清空 snapshot 之前觸發 _rewrapMissing
+        try {
+            clearHighlights();
+            STATE.snapshot.clear();
+        } finally {
+            STATE.wrapBusy--;
+        }
+    }
+
+    window.annotation = { init, dispose, renderHighlights, clearHighlights, clearAll, deferredRender, scrollToAnnotation };
 
     // ============================================================
     //  MutationObserver — 解 Blazor 重 render 沖掉 <mark> 的根本問題
