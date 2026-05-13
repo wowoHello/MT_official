@@ -51,7 +51,7 @@
                         var delay = index * 50;
 
                         <div class="bg-white cursor-pointer group menu-card relative flex min-h-[170px] flex-col overflow-hidden rounded-xl p-5 shadow-sm transition-all duration-300"
-                            style="@(isReady ? $"animation: fadeIn 0.4s ease-out {delay}ms both;" : "opacity: 0;")"
+                            style="animation: fadeIn 0.4s ease-out @(delay)ms both;"
                             @onclick="() => NavigateToModuleAsync(module)">
 
                             <div class="w-14 h-14 rounded-xl flex items-center justify-center text-3xl mb-4 @module.BgColorClass @module.ColorClass group-hover:scale-110 transition-transform">
@@ -272,7 +272,6 @@
     // ================================================================
 
     private string currentDateDisplay = "";
-    private bool isReady;
     private List<AnnouncementListItem> announcements = [];
     private List<UrgentAlertItem> urgentAlerts = [];
     private AnnouncementListItem? selectedAnnouncement;
@@ -305,16 +304,6 @@
             previousProjectId = projectId;
             hasLoadedHomeData = true;
             await LoadHomeDataAsync();
-        }
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender)
-        {
-            await Task.Delay(100);
-            isReady = true;
-            StateHasChanged();
         }
     }
 

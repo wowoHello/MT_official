@@ -245,9 +245,26 @@
                             <tbody>
                                 @foreach (var item in listResult.Items)
                                 {
-                                    <tr @onclick="() => OpenRowAsync(item.Id, item.Status)"
-                                        class="border-b border-gray-100 relative hover:z-10 hover:bg-blue-50/40 hover:shadow-[inset_4px_0_0_var(--color-morandi),0_6px_16px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer group">
-                                        <td class="px-4 py-3 font-bold text-slate-main group-hover:text-morandi whitespace-nowrap transition-colors">@item.QuestionCode</td>
+                                    @* Stage B-4-2：revision tab 拆 N+1 列，子題列加左 border 視覺縮排 + 第 N 子題 badge *@
+                                    var isSubRow = item.SubQuestionId is not null;
+                                    var rowExtraClass = isSubRow ? "bg-morandi/2" : "";
+                                    <tr @onclick="() => OpenRowAsync(item.Id, item.Status, item.SubQuestionId)"
+                                        class="border-b border-gray-100 relative hover:z-10 hover:bg-blue-50/40 hover:shadow-[inset_4px_0_0_var(--color-morandi),0_6px_16px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer group @rowExtraClass">
+                                        <td class="px-4 py-3 font-bold text-slate-main group-hover:text-morandi whitespace-nowrap transition-colors">
+                                            @if (isSubRow)
+                                            {
+                                                @* 子題列：以 ↳ 視覺縮排表達層級，題號加 ".N" 子題索引（SortOrder 從 0 起算，呈現 +1） *@
+                                                <span class="text-gray-400 mr-1">↳</span>
+                                                <span class="text-gray-500">@item.QuestionCode</span>
+                                                <span class="ml-1 inline-block px-1.5 py-0.5 bg-morandi/15 text-morandi rounded text-xs font-bold border border-morandi/25">
+                                                    第 @((item.SubSortOrder ?? 0) + 1) 子題
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                @item.QuestionCode
+                                            }
+                                        </td>
                                         <td class="px-4 py-3 whitespace-nowrap">
                                             <span class="inline-block px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-bold border border-gray-200">
                                                 @QuestionConstants.TypeLabels.GetValueOrDefault(item.TypeKey, "未知")
@@ -262,8 +279,9 @@
                                         </td>
                                         <td class="px-4 py-3 max-w-md">
                                             <div class="text-gray-700 truncate flex items-center gap-2" title="@StripHtml(item.SummaryHtml)">
-                                                @if (item.SubQuestionCount > 0)
+                                                @if (item.SubQuestionCount > 0 && !isSubRow)
                                                 {
+                                                    @* 母題列才顯示「N 子題」總計徽章；子題列本身不再重複 *@
                                                     <span class="inline-flex items-center px-2 py-0.5 bg-morandi/10 text-morandi rounded text-xs font-bold border border-morandi/20 whitespace-nowrap shrink-0">
                                                         @item.SubQuestionCount 子題
                                                     </span>
@@ -277,12 +295,13 @@
                                         <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">@item.UpdatedAt.ToString("yyyy/MM/dd HH:mm")</td>
                                         <td class="px-4 py-3 text-center whitespace-nowrap" @onclick:stopPropagation="true">
                                             <div class="inline-flex items-center gap-3">
-                                                <button @onclick="() => OpenRowAsync(item.Id, item.Status)"
+                                                <button @onclick="() => OpenRowAsync(item.Id, item.Status, item.SubQuestionId)"
                                                     class="text-morandi hover:underline text-xs font-bold cursor-pointer focus:outline-none">
                                                     <i class="fa-solid @RowActionIcon(item) mr-0.5"></i> @RowActionLabel(item)
                                                 </button>
-                                                @if (item.Status == QuestionStatus.Draft && !IsCompositionPhaseClosed)
+                                                @if (item.Status == QuestionStatus.Draft && !IsCompositionPhaseClosed && !isSubRow)
                                                 {
+                                                    @* 草稿刪除按鈕只在母題列顯示 — 子題不能單獨軟刪 *@
                                                     <button @onclick="() => DeleteAsync(item.Id, item.QuestionCode)"
                                                         title="刪除草稿"
                                                         class="text-terracotta hover:text-red-600 text-xs font-bold cursor-pointer focus:outline-none">
@@ -420,9 +439,10 @@
     </ChildContent>
 </CustomModal>
 
-<!-- Plan_010：審修作業區「修題」Slide-Over -->
+<!-- Plan_010 + Stage B-4-2：審修作業區「修題」Slide-Over，支援母題列 / 子題列拆分 -->
 <RevisionSlideOver @bind-IsVisible="showRevisionSlideOver"
                    QuestionId="@revisionQuestionId"
+                   SubQuestionId="@revisionSubQuestionId"
                    CurrentUserId="@(currentUserId ?? 0)"
                    OnSaved="OnRevisionSavedAsync" />
 
@@ -488,6 +508,8 @@
     // Plan_010：審修作業區的修題 Slide-Over
     private bool showRevisionSlideOver = false;
     private int? revisionQuestionId;
+    // Stage B-4-2：開啟修題 Slide-Over 時帶的子題單元 Id（NULL = 母題列）
+    private int? revisionSubQuestionId;
 
     // 預覽 Modal
     private bool showPreviewModal = false;
@@ -905,16 +927,19 @@
     /// 列點/按鈕分流：
     /// - 審修作業區：一律開 RevisionSlideOver（鎖定階段唯讀檢視 + 即時追蹤評語；修題階段可編輯）
     /// - 命題作業區 / 審核結果與歷史：沿用 OpenEditAsync 命題 Modal（含唯讀模式）
+    /// Stage B-4-2：subQuestionId 用於題組類子題列拆分 — 母題列傳 NULL、子題列傳 sub.Id。
     /// </summary>
-    private async Task OpenRowAsync(int questionId, byte status)
+    private async Task OpenRowAsync(int questionId, byte status, int? subQuestionId = null)
     {
         if (currentTab == "revision")
         {
-            revisionQuestionId   = questionId;
-            showRevisionSlideOver = true;
+            revisionQuestionId    = questionId;
+            revisionSubQuestionId = subQuestionId;
+            showRevisionSlideOver  = true;
             return;
         }
 
+        // 命題 / 歷史 Tab 仍是母題層級的命題 Modal（子題只在 revision tab 拆列）
         await OpenEditAsync(questionId);
     }
 

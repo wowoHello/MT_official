@@ -8,21 +8,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="@navigationManager.BaseUri" />
     <ResourcePreloader />
-    <!-- <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" /> -->    
-    <!-- <link rel="stylesheet" href="@Assets["MT.styles.css"]" /> -->
     <ImportMap />
     <link rel="stylesheet" href="@Assets["css/tailwind.css"]" />
     <link rel="icon" type="image/png" href="@Assets["img/pencil.png"]" />
-    <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
-    <!-- FontAwesome for Icons -->
     <link rel="stylesheet" href="@Assets["css/all.min.css"]" />
-    <!-- SweetAlert2 for Alerts -->
-    <script src="@Assets["js/sweetalert2@11.js"]"></script>
-    <!-- Quill for Editor -->
     <link rel="stylesheet" href="@Assets["css/quill.snow.css"]" />
     <link rel="stylesheet" href="@Assets["css/app.css"]" />
-    <script src="@Assets["js/quill.js"]"></script>
+    <script src="@Assets["js/sweetalert2@11.js"]" defer></script>
+    <script src="@Assets["js/quill.js"]" defer></script>
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 
@@ -30,11 +24,11 @@
     <Routes @rendermode="InteractiveServer" />
     <ReconnectModal />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
-    <script src="@Assets["js/app.js"]"></script>
-    <script src="@Assets["js/quill-interop.js"]"></script>
-    <script src="@Assets["js/annotation.js"]"></script>
-    <script src="@Assets["js/apexcharts.min.js"]"></script>
-    <script src="@Assets["js/apex-interop.js"]"></script>
+    <script src="@Assets["js/app.js"]" defer></script>
+    <script src="@Assets["js/quill-interop.js"]" defer></script>
+    <script src="@Assets["js/annotation.js"]" defer></script>
+    <script src="@Assets["js/apexcharts.min.js"]" defer></script>
+    <script src="@Assets["js/apex-interop.js"]" defer></script>
 </body>
 
 </html>

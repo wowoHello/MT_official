@@ -574,6 +574,16 @@ public class QuestionListItem
     public string CreatorName { get; set; } = "";   // 命題教師顯示名稱（Overview 用，CwtList 自家題目不需要）
 
     /// <summary>
+    /// Stage B-4-2：子題單元 Id。
+    /// NULL = 母題列（單題或題組類母題單元）；
+    /// 非 NULL = 該子題單元列（僅 revision tab 拆 N+1 列時有值），此時 Status 來自 MT_SubQuestions.Status。
+    /// </summary>
+    public int? SubQuestionId { get; set; }
+
+    /// <summary>子題列的 SortOrder（給排序與「第 N 子題」標籤用）；母題列為 NULL。</summary>
+    public int? SubSortOrder { get; set; }
+
+    /// <summary>
     /// Plan_010：當前修題階段（4/6/8）內，本人是否已寫過修題說明。
     /// 只有 Status 對齊修題階段時才有意義；其他狀態恆為 false。
     /// </summary>
@@ -588,16 +598,23 @@ public class QuestionListItem
 public class RevisionSlideOverData
 {
     public QuestionFormData Question { get; set; } = new();
-    public List<ReviewCommentEntry> Comments { get; set; } = [];   // 跨階段審題意見（匿名化）
-    public List<RevisionReplyEntry> MyReplies { get; set; } = []; // 自己歷次修題說明
+
+    /// <summary>
+    /// Stage B-4-2：當前修題單元 — NULL = 母題單元、非 NULL = 該子題單元。
+    /// 用於 UI 顯示「正在修第 N 子題」+ SaveRevisionAsync 寫回時定位 RevisionReplies。
+    /// </summary>
+    public int? SubQuestionId { get; set; }
+
+    public List<ReviewCommentEntry> Comments { get; set; } = [];   // 跨階段審題意見（匿名化）— Stage B-4-2 已過濾為「該單元」的意見
+    public List<RevisionReplyEntry> MyReplies { get; set; } = []; // 自己歷次修題說明 — Stage B-4-2 已過濾為「該單元」
     public byte CurrentPhaseCode { get; set; }                     // 4=互修 / 6=專修 / 8=總修；0=非修題期
     public DateTime? PhaseEndDate { get; set; }
     public string CurrentDraftContent { get; set; } = "";          // 當前階段最新一筆 reply（編輯時帶入）
     public bool HasReplied { get; set; }                            // false=未修題、true=已修題
-    public int FinalReturnCount { get; set; }                       // 總審退回次數（給總修階段的 [送出再審] 用）
-    public byte QStatus { get; set; }                                // 題目當前 Status（4/6/8 才能修）
+    public int FinalReturnCount { get; set; }                       // 該單元總審退回次數（Stage B-4-2 按單元計）
+    public byte QStatus { get; set; }                                // 該單元當前 Status（4/6/8 才能修；母題=MT_Questions.Status / 子題=MT_SubQuestions.Status）
 
-    /// <summary>修題期間是否仍開放編輯（PhaseCode 對齊 + Status 對齊）。前端用以決定 fieldset disabled。</summary>
+    /// <summary>修題期間是否仍開放編輯（PhaseCode 對齊 + 該單元 Status 對齊）。前端用以決定 fieldset disabled。</summary>
     public bool IsEditable => CurrentPhaseCode switch
     {
         4 => QStatus == 4,
@@ -628,6 +645,15 @@ public class RevisionReplyEntry
 public class SaveRevisionRequest
 {
     public int QuestionId { get; set; }
+
+    /// <summary>
+    /// Stage B-4-2：當前修題單元 — NULL = 母題單元、非 NULL = 該子題單元。
+    /// SaveRevisionAsync 用此欄位決定：
+    ///   1) Status 檢查的對象（母題用 MT_Questions.Status；子題用 MT_SubQuestions.Status）
+    ///   2) MT_RevisionReplies 寫入時的 SubQuestionId 欄位值
+    /// </summary>
+    public int? SubQuestionId { get; set; }
+
     public QuestionFormData FormData { get; set; } = new();
     public string RevisionNote { get; set; } = "";
 }

@@ -17,9 +17,9 @@
 
 // ============================================================
 //  1. SweetAlert2 對話框
-//     兩套 API 並存（因歷史呼叫端不同，保留以避免破壞既有頁面）：
-//       - swalInterop.fire / .confirm / .fireToast：泛用 swal 包裝
-//       - swalConfirm / swalToast：較新、命名更直白的快捷
+//     兩套 API 並存，呼叫端各取所需：
+//       - swalInterop.fire / .confirm / .fireToast：泛用 swal 包裝（MainLayout、多數頁面）
+//       - swalConfirm / swalToast：扁平命名，Roles、Teachers、Announcements 使用
 // ============================================================
 
 window.swalInterop = {

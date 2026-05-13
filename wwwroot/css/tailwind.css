@@ -1585,6 +1585,12 @@
       border-color: color-mix(in oklab, var(--color-morandi) 20%, transparent);
     }
   }
+  .border-morandi\/25 {
+    border-color: color-mix(in srgb, #6B8EAD 25%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--color-morandi) 25%, transparent);
+    }
+  }
   .border-morandi\/30 {
     border-color: color-mix(in srgb, #6B8EAD 30%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
@@ -1925,6 +1931,12 @@
     background-color: color-mix(in srgb, #CF7777 10%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--color-morandi-red) 10%, transparent);
+    }
+  }
+  .bg-morandi\/2 {
+    background-color: color-mix(in srgb, #6B8EAD 2%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-morandi) 2%, transparent);
     }
   }
   .bg-morandi\/5 {
@@ -4800,19 +4812,6 @@ html {
   ::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
   }
-  .custom-scroll::-webkit-scrollbar {
-    width: 6px;
-  }
-  .custom-scroll::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .custom-scroll::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
-    border-radius: 4px;
-  }
-  .custom-scroll::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
-  }
   .menu-card {
     transition: all 0.2s ease;
     border: 2px solid transparent;
@@ -4820,16 +4819,6 @@ html {
   .menu-card:hover {
     border-color: var(--color-morandi);
     box-shadow: 0 10px 25px -5px rgba(107, 142, 173, 0.2);
-  }
-  .stat-card {
-    background: #ffffff;
-    border: 1px solid #f1f5f9;
-    transition: all 0.2s;
-  }
-  .stat-card:hover {
-    box-shadow: 0 10px 15px -3px rgba(107, 142, 173, 0.15);
-    border-color: #e2e8f0;
-    transform: translateY(-2px);
   }
   mark.annot {
     background: transparent;
@@ -4868,13 +4857,6 @@ html {
   .annot-float-btn:hover {
     background-color: #587a99 !important;
     transform: translateY(-1px);
-  }
-}
-@media (min-width: 1024px) {
-  .sticky-sidebar {
-    position: sticky;
-    top: 5rem;
-    max-height: calc(100vh - 6rem);
   }
 }
 @keyframes modalIn {

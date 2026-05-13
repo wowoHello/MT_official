@@ -34,17 +34,11 @@ html { font-size: 120%; }
         border: 1px solid rgba(255, 255, 255, 0.4);
     }
     
-    /* Custom scrollbar */
+    /* 全站捲軸樣式（.custom-scroll 的客製版定義於 app.css） */
     ::-webkit-scrollbar { width: 8px; }
     ::-webkit-scrollbar-track { background: #f1f1f1; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
-    /* Custom scrollbar (narrow variant for sidebar) */
-    .custom-scroll::-webkit-scrollbar { width: 6px; }
-    .custom-scroll::-webkit-scrollbar-track { background: transparent; }
-    .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-    .custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
     /* Menu Card Hover */
     .menu-card {
@@ -54,18 +48,6 @@ html { font-size: 120%; }
     .menu-card:hover {
         border-color: var(--color-morandi);
         box-shadow: 0 10px 25px -5px rgba(107, 142, 173, 0.2);
-    }
-
-    /* Stat Card (for dashboard) */
-    .stat-card {
-        background: #ffffff;
-        border: 1px solid #f1f5f9;
-        transition: all 0.2s;
-    }
-    .stat-card:hover {
-        box-shadow: 0 10px 15px -3px rgba(107, 142, 173, 0.15);
-        border-color: #e2e8f0;
-        transform: translateY(-2px);
     }
 
     /* ===== 審題劃記評語 (annotation) — 由 annotation.js 動態插入 <mark> ===== */
@@ -112,15 +94,6 @@ html { font-size: 120%; }
     .annot-float-btn:hover {
         background-color: #587a99 !important;
         transform: translateY(-1px);
-    }
-}
-
-/* Sidebar Sticky */
-@media (min-width: 1024px) {
-    .sticky-sidebar {
-        position: sticky;
-        top: 5rem;
-        max-height: calc(100vh - 6rem);
     }
 }
 

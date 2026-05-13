@@ -451,6 +451,8 @@
             Logger.LogInformation("讀取 storage Key={Key} Success={Success} Value={Value}",
                 ProjectStorageKey, stored.Success, stored.Success ? stored.Value : -1);
 
+            // 標記 storage 是否已是有效紀錄；若是則跳過後續重寫（省一次 JS Interop）
+            var storedIsValid = false;
             if (stored.Success)
             {
                 var match = availableProjects.FirstOrDefault(p => p.Id == stored.Value);
@@ -467,15 +469,16 @@
                     // 不會套 fallback），所以這裡可以直接覆寫
                     Logger.LogInformation("還原梯次成功 ProjectId={Id}", match.Id);
                     currentProject = match;
+                    storedIsValid = true;
                 }
             }
 
             currentProject ??= GetDefaultProject();
 
-            // 把首次自動挑的（或還原後 fallback）梯次也鎖進 storage，
-            // 避免下次登入又跑一次 GetDefaultProject 重算（GetDefaultProject 結果會隨著
-            // 「最新年度梯次」變化而改變，造成「每次登入梯次都不一樣」的飄移感）
-            if (currentProject is not null)
+            // 僅在 storage 失效或無紀錄時寫入，避免每次 F5 都做一次冗餘 Set。
+            // GetDefaultProject 結果會隨「最新年度梯次」變化而改變，因此 fallback 後必須鎖進 storage，
+            // 避免造成「每次登入梯次都不一樣」的飄移感。
+            if (!storedIsValid && currentProject is not null)
             {
                 await PersistSelectedProjectAsync(currentProject.Id);
             }

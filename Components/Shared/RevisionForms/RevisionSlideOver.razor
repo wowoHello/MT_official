@@ -41,6 +41,13 @@
                     else if (data is not null)
                     {
                         <span class="font-black text-slate-main text-base shrink-0">@data.Question.QuestionCode</span>
+                        @if (data.SubQuestionId is not null)
+                        {
+                            @* Stage B-4-2：子題單元徽章 — 取該子題在母題裡的順序索引（找不到時直接顯示 sub.Id） *@
+                            <span class="px-2.5 py-0.5 bg-morandi/15 text-morandi rounded-md text-xs font-bold border border-morandi/30 shrink-0">
+                                <i class="fa-solid fa-list-ol mr-1"></i> 第 @SubLabelNumber 子題
+                            </span>
+                        }
                         <span class="px-2.5 py-0.5 bg-gray-100 text-gray-700 rounded-md text-xs font-bold border border-gray-200 shrink-0">
                             @QuestionConstants.TypeLabels.GetValueOrDefault(data.Question.QuestionType, "未知題型")
                         </span>
@@ -342,6 +349,13 @@
     /// <summary>要開啟的題目 Id（NULL → 不載入；切換為非 null 才觸發 Load）</summary>
     [Parameter] public int? QuestionId { get; set; }
 
+    /// <summary>
+    /// 要開啟的子題單元 Id（Stage B-4-2）。
+    /// NULL = 母題單元（單題題型或題組類母題列）；
+    /// 非 NULL = 該子題單元，Status / IsEditable / 修題說明都會以該子題為對象。
+    /// </summary>
+    [Parameter] public int? SubQuestionId { get; set; }
+
     /// <summary>當前登入者 Id</summary>
     [Parameter, EditorRequired] public int CurrentUserId { get; set; }
 
@@ -352,6 +366,7 @@
     private bool isLoading;
     private string? loadError;
     private int? loadedQuestionId;
+    private int? loadedSubQuestionId;
 
     private bool sidebarCollapsed;
     private bool isSaving;
@@ -388,13 +403,15 @@
     protected override async Task OnParametersSetAsync()
     {
         if (!IsVisible || QuestionId is null) return;
-        if (loadedQuestionId == QuestionId) return;
+        // Stage B-4-2：同題不同單元也要重撈（QuestionId 不變但 SubQuestionId 切換時）
+        if (loadedQuestionId == QuestionId && loadedSubQuestionId == SubQuestionId) return;
 
-        loadedQuestionId = QuestionId;
-        await LoadAsync(QuestionId.Value);
+        loadedQuestionId    = QuestionId;
+        loadedSubQuestionId = SubQuestionId;
+        await LoadAsync(QuestionId.Value, SubQuestionId);
     }
 
-    private async Task LoadAsync(int questionId)
+    private async Task LoadAsync(int questionId, int? subQuestionId)
     {
         isLoading = true;
         loadError = null;
@@ -405,7 +422,7 @@
         invalidFields.Clear();
         try
         {
-            data = await QuestionService.GetRevisionDataAsync(questionId, CurrentUserId);
+            data = await QuestionService.GetRevisionDataAsync(questionId, CurrentUserId, subQuestionId);
             if (data is null)
             {
                 loadError = "找不到此題目，可能已被刪除。";
@@ -415,8 +432,8 @@
 
             // 跨 stage 撈該單元（QuestionId + SubQuestionId）的所有劃記
             // 修題期間命題者要面對所有審題者的意見彙整，所以不限 stage
-            // 此處 SubQuestionId 從 data.Question 推導（修題現階段 P-4 預設母題單元；題組類後續延伸再細分）
-            annotations = await AnnotationService.GetByQuestionUnitAsync(data.Question.Id, subQuestionId: null);
+            // Stage B-4-2：subQuestionId 直接帶入，子題單元只看自己的劃記
+            annotations = await AnnotationService.GetByQuestionUnitAsync(data.Question.Id, subQuestionId);
         }
         catch (Exception ex)
         {
@@ -618,9 +635,10 @@
         {
             var ok = await QuestionService.SaveRevisionAsync(new SaveRevisionRequest
             {
-                QuestionId   = data.Question.Id,
-                FormData     = data.Question,
-                RevisionNote = revisionNote
+                QuestionId    = data.Question.Id,
+                SubQuestionId = data.SubQuestionId,   // Stage B-4-2：母題單元 NULL / 子題單元帶 sub.Id
+                FormData      = data.Question,
+                RevisionNote  = revisionNote
             }, CurrentUserId);
 
             if (!ok)
@@ -680,9 +698,10 @@
             // 1. 先存修題內容（題目本體 + 修題說明）；Status 維持 8
             var saveOk = await QuestionService.SaveRevisionAsync(new SaveRevisionRequest
             {
-                QuestionId   = data.Question.Id,
-                FormData     = data.Question,
-                RevisionNote = revisionNote
+                QuestionId    = data.Question.Id,
+                SubQuestionId = data.SubQuestionId,   // Stage B-4-2：母題單元 NULL / 子題單元帶 sub.Id
+                FormData      = data.Question,
+                RevisionNote  = revisionNote
             }, CurrentUserId);
             if (!saveOk)
             {
@@ -691,7 +710,8 @@
             }
 
             // 2. Status 8 → 7、INSERT 新 Stage=3 Pending Assignment、AuditLog
-            var resubmitOk = await QuestionService.ResubmitAfterFinalEditingAsync(data.Question.Id, CurrentUserId);
+            //    Stage B-4-2：帶該單元 SubQuestionId 上去，避免一次處理整題所有單元
+            var resubmitOk = await QuestionService.ResubmitAfterFinalEditingAsync(data.Question.Id, CurrentUserId, data.SubQuestionId);
             if (!resubmitOk)
             {
                 await ShowToastAsync("error", "送審失敗，題目狀態可能已變動");
@@ -843,6 +863,27 @@
     private string DifficultyLabel => data?.Question.Difficulty is null
         ? ""
         : QuestionConstants.DifficultyLabels.GetValueOrDefault(data.Question.Difficulty.Value, "");
+
+    /// <summary>
+    /// Stage B-4-2：子題單元徽章顯示用 — 找出 data.SubQuestionId 在當前題型的子題清單中的位置（+1 起算）。
+    /// 找不到時顯示 sub.Id 作為 fallback，避免 0/「找不到」造成困惑。
+    /// </summary>
+    private string SubLabelNumber
+    {
+        get
+        {
+            if (data?.SubQuestionId is null) return "";
+            var subId = data.SubQuestionId.Value;
+            int idx = data.Question.QuestionType switch
+            {
+                QuestionTypeCodes.ReadGroup    => data.Question.ReadSubQuestions.FindIndex(s => s.Id == subId),
+                QuestionTypeCodes.ShortGroup   => data.Question.ShortSubQuestions.FindIndex(s => s.Id == subId),
+                QuestionTypeCodes.ListenGroup  => data.Question.ListenGroupSubQuestions.FindIndex(s => s.Id == subId),
+                _                              => -1
+            };
+            return idx >= 0 ? (idx + 1).ToString() : $"#{subId}";
+        }
+    }
 
     private int? DaysLeft
     {

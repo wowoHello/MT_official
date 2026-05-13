@@ -32,9 +32,6 @@ public interface IReviewService
     /// </summary>
     Task<ReviewModalData?> GetModalDataAsync(int questionId, int? subQuestionId, int currentUserId);
 
-    /// <summary>當前專案是否已進入互審以後階段（用 MT_ReviewAssignments 是否有紀錄判斷）</summary>
-    Task<bool> HasAnyAssignmentAsync(int projectId);
-
     /// <summary>
     /// 取得指定題目的審題歷程（管理員監控用，不匿名）。
     /// 內部複用 LoadHistoryAsync —— 避免在 OverviewService 重寫 union 三個來源的 SQL。
@@ -269,17 +266,6 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             FinalStatus    = r.FinalStatus,
             FinalDecidedAt = r.FinalDecidedAt
         }).ToList();
-    }
-
-    public async Task<bool> HasAnyAssignmentAsync(int projectId)
-    {
-        const string sql = """
-            SELECT TOP 1 1 FROM dbo.MT_ReviewAssignments WHERE ProjectId = @ProjectId;
-            """;
-
-        using var conn = _db.CreateConnection();
-        var hit = await conn.ExecuteScalarAsync<int?>(sql, new { ProjectId = projectId });
-        return hit.HasValue;
     }
 
     public async Task<List<ReviewHistoryEntry>> GetHistoryByQuestionIdAsync(int questionId)
@@ -635,76 +621,81 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 """;
             var currentPhaseCode = await conn.ExecuteScalarAsync<byte?>(phaseSql, new { meta.ProjectId }, tx);
 
-            // 6. 依「階段 + PhaseCode + 決策」計算題目應切換到的新狀態（null 代表不變或交給後續邏輯）
-            byte? oldQuestionStatus = null;
-            byte? newQuestionStatus = MapDecisionToQuestionStatus(meta.Stage, req.Decision, currentPhaseCode);
+            // 6. 依「階段 + PhaseCode + 決策」計算「該單元」應切換到的新狀態（null = 不變或交由後續邏輯處理）
+            //    Stage B-4：MapDecisionToQuestionStatus 的回傳值對母題與子題皆適用，差別只在「寫入哪張表」
+            byte? oldUnitStatus = null;
+            byte? newUnitStatus = MapDecisionToQuestionStatus(meta.Stage, req.Decision, currentPhaseCode);
 
-            // 6-1. 第 3 輪 Reject 偵測：PhaseCode=8 + Final + Reject + 該題已退回 ≥2 次 → Rejected(10)
-            //      ReturnCount=2 表示已退回 2 次（老師已修兩輪）；本次 Reject 等同第 3 輪終結
-            if (newQuestionStatus is null
+            // 6-1. 第 3 輪 Reject 偵測：PhaseCode=8 + Final + Reject + 該「單元」已退回 ≥2 次 → Rejected(10)
+            //      Stage B-4：退回計次按單元獨立 — 比對 (QuestionId, SubQuestionId) 兩欄
+            if (newUnitStatus is null
                 && currentPhaseCode == 8
                 && meta.Stage == (byte)ReviewStage.Final
                 && req.Decision == ReviewDecision.Reject)
             {
                 var existingReturnCount = await conn.ExecuteScalarAsync<int?>(
-                    "SELECT TOP 1 ReturnCount FROM dbo.MT_ReviewReturnCounts WHERE QuestionId = @Id ORDER BY Id DESC;",
-                    new { Id = meta.QuestionId }, tx) ?? 0;
+                    """
+                    SELECT TOP 1 ReturnCount
+                    FROM dbo.MT_ReviewReturnCounts
+                    WHERE QuestionId = @Id
+                      AND ISNULL(SubQuestionId, -1) = ISNULL(@SubId, -1)
+                    ORDER BY Id DESC;
+                    """,
+                    new { Id = meta.QuestionId, SubId = meta.SubQuestionId }, tx) ?? 0;
 
                 if (existingReturnCount >= 2)
                 {
-                    newQuestionStatus = QuestionStatus.Rejected;   // 10
+                    newUnitStatus = QuestionStatus.Rejected;   // 10
                 }
             }
 
-            if (newQuestionStatus is not null)
+            // 6-2. 寫入該單元的 Status：母題 → MT_Questions / 子題 → MT_SubQuestions
+            //      Stage B-4：每單元獨立流轉，互不影響；不再做「母題 Reject → 子題級聯」（已移除）
+            //      → 結案時才依母題狀態做最終處置（B-4-3 範圍）
+            if (newUnitStatus is not null)
             {
-                oldQuestionStatus = await conn.ExecuteScalarAsync<byte?>(
-                    "SELECT Status FROM dbo.MT_Questions WHERE Id = @Id",
-                    new { Id = meta.QuestionId }, tx);
-
-                // 審題決策僅更新 Status，不動 UpdatedAt（UpdatedAt 語意保留給命題老師實際編輯內容的時刻）
-                await conn.ExecuteAsync(
-                    "UPDATE dbo.MT_Questions SET Status = @Status WHERE Id = @Id;",
-                    new { Id = meta.QuestionId, Status = newQuestionStatus.Value }, tx);
-            }
-
-            // 6-2. 級聯淘汰：母題在總審被判 Rejected(10) → 同題組所有未決策子題自動標記不採用
-            //      設計規則「母題不採用 → 子題全部連帶淘汰」單向級聯（子題不採用不影響母題）。
-            //      僅覆蓋 Decision IS NULL 的子題列，保留審題委員已輸入的人工決策做為稽核紀錄。
-            var cascadedSubCount = 0;
-            if (newQuestionStatus == QuestionStatus.Rejected
-                && meta.Stage == (byte)ReviewStage.Final
-                && meta.SubQuestionId is null)
-            {
-                const string cascadeSql = """
-                    UPDATE dbo.MT_ReviewAssignments
-                    SET Decision     = @Decision,
-                        ReviewStatus = @Completed,
-                        DecidedAt    = SYSDATETIME()
-                    WHERE QuestionId    = @QuestionId
-                      AND SubQuestionId IS NOT NULL
-                      AND ReviewStage   = @Stage
-                      AND Decision      IS NULL;
-                    """;
-                cascadedSubCount = await conn.ExecuteAsync(cascadeSql, new
+                if (meta.SubQuestionId is null)
                 {
-                    QuestionId = meta.QuestionId,
-                    Stage      = (byte)ReviewStage.Final,
-                    Decision   = (byte)ReviewDecision.Reject,
-                    Completed  = (byte)ReviewTaskStatus.Completed
-                }, tx);
+                    // 母題單元 → 寫 MT_Questions.Status
+                    // 審題決策僅更新 Status，不動 UpdatedAt（UpdatedAt 語意保留給命題老師實際編輯內容的時刻）
+                    oldUnitStatus = await conn.ExecuteScalarAsync<byte?>(
+                        "SELECT Status FROM dbo.MT_Questions WHERE Id = @Id;",
+                        new { Id = meta.QuestionId }, tx);
+
+                    await conn.ExecuteAsync(
+                        "UPDATE dbo.MT_Questions SET Status = @Status WHERE Id = @Id;",
+                        new { Id = meta.QuestionId, Status = newUnitStatus.Value }, tx);
+                }
+                else
+                {
+                    // 子題單元 → 寫 MT_SubQuestions.Status
+                    // 狀態落定為 Adopted(9) / Rejected(10) / Archived(12) 時同時寫 DecidedAt
+                    oldUnitStatus = await conn.ExecuteScalarAsync<byte?>(
+                        "SELECT Status FROM dbo.MT_SubQuestions WHERE Id = @Id;",
+                        new { Id = meta.SubQuestionId.Value }, tx);
+
+                    await conn.ExecuteAsync(
+                        """
+                        UPDATE dbo.MT_SubQuestions
+                        SET Status    = @Status,
+                            DecidedAt = CASE WHEN @Status IN (9, 10, 12) THEN SYSDATETIME() ELSE DecidedAt END
+                        WHERE Id = @Id;
+                        """,
+                        new { Id = meta.SubQuestionId.Value, Status = newUnitStatus.Value }, tx);
+                }
             }
 
-            // 7. 總召「改後再審」或「不採用」→ 累加退回計數（達 2 次自動解鎖總召自編）
+            // 7. 總召「改後再審」或「不採用」→ 累加退回計數（達 2 次解鎖總召自編）
+            //    Stage B-4：按單元獨立計次 — 母題與每子題分別累計，互不影響第 3 輪解鎖判定
             //    再次決策時不重複加，避免使用者「Revise → Approve → Revise」誤計多次
             //    Reject 同樣計入：退回次數涵蓋所有「不採用→交回修改」情境
             if (!isResubmit && meta.Stage == (byte)ReviewStage.Final &&
                 (req.Decision == ReviewDecision.Revise || req.Decision == ReviewDecision.Reject))
             {
-                await BumpReturnCountAsync(conn, tx, meta.QuestionId, operatorUserId);
+                await BumpReturnCountAsync(conn, tx, meta.QuestionId, meta.SubQuestionId, operatorUserId);
             }
 
-            // 8. 寫稽核（帶狀態快照，方便日後追溯）
+            // 8. 寫稽核（帶單元層級的狀態快照，方便日後追溯）
             const string auditSql = """
                 INSERT INTO dbo.MT_AuditLogs
                     (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
@@ -718,14 +709,17 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 Action     = AuditLogAction.Modify,
                 TargetType = AuditLogTargetType.Reviews,
                 TargetId   = meta.QuestionId,
-                OldValue   = oldQuestionStatus is null ? null : System.Text.Json.JsonSerializer.Serialize(new { QuestionStatus = oldQuestionStatus.Value }),
+                OldValue   = oldUnitStatus is null ? null : System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    UnitStatus    = oldUnitStatus.Value,
+                    SubQuestionId = meta.SubQuestionId
+                }),
                 NewValue   = System.Text.Json.JsonSerializer.Serialize(new
                 {
-                    Stage              = meta.Stage,
-                    SubQuestionId      = meta.SubQuestionId,
-                    Decision           = (byte)req.Decision,
-                    QuestionStatus     = newQuestionStatus,
-                    CascadedSubCount   = cascadedSubCount > 0 ? cascadedSubCount : (int?)null
+                    Stage         = meta.Stage,
+                    SubQuestionId = meta.SubQuestionId,
+                    Decision      = (byte)req.Decision,
+                    UnitStatus    = newUnitStatus
                 })
             }, tx);
 
@@ -786,23 +780,34 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     ///   第 2 次退回：老師可修，再送審；ReturnCount=2（UI 顯示「下次解鎖」警示）
     ///   第 3 次退回：ReturnCount=3 → 解鎖總召自編（第 3 次由總召親自定奪，不再退回老師）
     /// MERGE + HOLDLOCK 確保並發安全。
+    ///
+    /// Stage B-4：subQuestionId 區分母題層級與子題層級各自計次。
+    ///   NULL = 母題單元；非 NULL = 該子題單元（每子題各自累計 → 各自達 2 次後解鎖總召自改）
+    /// MERGE 比對 (QuestionId, SubQuestionId) 用 ISNULL(-1) 處理 NULL-safe equality。
     /// </summary>
     private static async Task BumpReturnCountAsync(
-        IDbConnection conn, IDbTransaction tx, int questionId, int finalReviewerId)
+        IDbConnection conn, IDbTransaction tx, int questionId, int? subQuestionId, int finalReviewerId)
     {
         const string sql = """
             MERGE dbo.MT_ReviewReturnCounts WITH (HOLDLOCK) AS target
-            USING (VALUES (@QuestionId, @FinalReviewerId)) AS src(QuestionId, FinalReviewerId)
+            USING (VALUES (@QuestionId, @SubQuestionId, @FinalReviewerId))
+                  AS src(QuestionId, SubQuestionId, FinalReviewerId)
                 ON target.QuestionId = src.QuestionId
+                   AND ISNULL(target.SubQuestionId, -1) = ISNULL(src.SubQuestionId, -1)
             WHEN MATCHED THEN
                 UPDATE SET ReturnCount = target.ReturnCount + 1,
                            CanEditByReviewer = CASE WHEN target.ReturnCount + 1 >= 3 THEN 1 ELSE 0 END
             WHEN NOT MATCHED THEN
-                INSERT (QuestionId, FinalReviewerId, ReturnCount, CanEditByReviewer)
-                VALUES (@QuestionId, @FinalReviewerId, 1, 0);
+                INSERT (QuestionId, SubQuestionId, FinalReviewerId, ReturnCount, CanEditByReviewer)
+                VALUES (@QuestionId, @SubQuestionId, @FinalReviewerId, 1, 0);
             """;
 
-        await conn.ExecuteAsync(sql, new { QuestionId = questionId, FinalReviewerId = finalReviewerId }, tx);
+        await conn.ExecuteAsync(sql, new
+        {
+            QuestionId      = questionId,
+            SubQuestionId   = subQuestionId,
+            FinalReviewerId = finalReviewerId
+        }, tx);
     }
 
     // ====================================================================
@@ -823,12 +828,15 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         try
         {
             // 1. 驗證 Assignment 屬於此使用者、Stage=Final、題目 Id 一致（防禦性雙重確認）
-            //    SubQuestionId 用於判定本列是母題（NULL）還是子題（決定是否觸發級聯）
+            //    SubQuestionId 用於判定本列是母題（NULL）還是子題單元 — Stage B-4 各單元獨立決策
+            //    ReturnCount JOIN 需按單元別匹配：母題對母題列、子題對子題列（ISNULL(-1) NULL-safe）
             const string fetchAssignSql = """
                 SELECT ra.Id, ra.ProjectId, ra.QuestionId, ra.SubQuestionId, ra.ReviewStage AS Stage, rc.CanEditByReviewer
                 FROM dbo.MT_ReviewAssignments ra
-                LEFT JOIN dbo.MT_ReviewReturnCounts rc ON rc.QuestionId = ra.QuestionId
-                WHERE ra.Id       = @AssignmentId
+                LEFT JOIN dbo.MT_ReviewReturnCounts rc
+                    ON rc.QuestionId = ra.QuestionId
+                   AND ISNULL(rc.SubQuestionId, -1) = ISNULL(ra.SubQuestionId, -1)
+                WHERE ra.Id          = @AssignmentId
                   AND ra.ReviewerId  = @ReviewerId
                   AND ra.QuestionId  = @QuestionId
                 ORDER BY rc.Id DESC;
@@ -852,26 +860,37 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             if (!assign.CanEditByReviewer)
                 throw new InvalidOperationException("此題目尚未達到總召代修解鎖條件（需退回 3 次）。");
 
-            // 2. 讀取題目舊狀態
-            var oldStatus = await conn.ExecuteScalarAsync<byte?>(
-                "SELECT Status FROM dbo.MT_Questions WHERE Id = @Id AND IsDeleted = 0;",
-                new { Id = req.QuestionId }, tx);
-            if (oldStatus is null)
+            // 2. 讀取「該單元」舊狀態 — Stage B-4 按 SubQuestionId 路由：母題讀 MT_Questions / 子題讀 MT_SubQuestions
+            byte? oldUnitStatus;
+            if (assign.SubQuestionId is null)
+            {
+                oldUnitStatus = await conn.ExecuteScalarAsync<byte?>(
+                    "SELECT Status FROM dbo.MT_Questions WHERE Id = @Id AND IsDeleted = 0;",
+                    new { Id = req.QuestionId }, tx);
+            }
+            else
+            {
+                oldUnitStatus = await conn.ExecuteScalarAsync<byte?>(
+                    "SELECT Status FROM dbo.MT_SubQuestions WHERE Id = @Id;",
+                    new { Id = assign.SubQuestionId.Value }, tx);
+            }
+            if (oldUnitStatus is null)
             {
                 tx.Rollback();
                 return false;
             }
 
-            // 3. 決策對應的新題目狀態
-            var newQuestionStatus = req.Decision == ReviewDecision.Approve
+            // 3. 決策對應的新單元狀態
+            var newUnitStatus = req.Decision == ReviewDecision.Approve
                 ? QuestionStatus.Adopted    // 9
                 : QuestionStatus.Rejected;  // 10
 
-            // 4. UPDATE 題目所有欄位 + Status + UpdatedAt（同 QuestionService.UpdateAsync 的 updateSql）
+            // 4. UPDATE 題目所有欄位（不含 Status，Status 由步驟 4.5 按單元別寫入）
+            //    Stage B-4-1：Modal 在 B-4-2 完成前仍會傳全部欄位，先保留全量 UPSERT 兼容；
+            //    B-4-2 完成後 UI 會限制只能編當前單元，內容差異自然只發生在該單元。
             const string updateSql = """
                 UPDATE dbo.MT_Questions SET
                     QuestionTypeId  = @TypeId,
-                    Status          = @Status,
                     Level           = @Level,
                     Difficulty      = @Difficulty,
                     Stem            = @Stem,
@@ -902,7 +921,6 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             {
                 Id             = req.QuestionId,
                 TypeId         = typeId,
-                Status         = newQuestionStatus,
                 f.Level,
                 f.Difficulty,
                 Stem           = NullIfEmpty(f.Stem),
@@ -927,6 +945,26 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             }, tx);
 
             if (affected == 0) { tx.Rollback(); return false; }
+
+            // 4.5 Status 寫入「該單元」對應的表 — Stage B-4：母題 → MT_Questions / 子題 → MT_SubQuestions
+            if (assign.SubQuestionId is null)
+            {
+                await conn.ExecuteAsync(
+                    "UPDATE dbo.MT_Questions SET Status = @Status WHERE Id = @Id;",
+                    new { Id = req.QuestionId, Status = newUnitStatus }, tx);
+            }
+            else
+            {
+                // 子題：DecidedAt 同時寫入（落定為 9/10/12 才寫）
+                await conn.ExecuteAsync(
+                    """
+                    UPDATE dbo.MT_SubQuestions
+                    SET Status    = @Status,
+                        DecidedAt = CASE WHEN @Status IN (9, 10, 12) THEN SYSDATETIME() ELSE DecidedAt END
+                    WHERE Id = @Id;
+                    """,
+                    new { Id = assign.SubQuestionId.Value, Status = newUnitStatus }, tx);
+            }
 
             // 5. 子題 UPSERT（使用 QuestionService 的靜態 helper 複製不到，此處內聯子題處理）
             //    總召代修非題組題型較多（Single/Listen），子題邏輯保守：若 formData 含子題清單則 UPSERT
@@ -959,31 +997,10 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 Completed    = (byte)ReviewTaskStatus.Completed
             }, tx);
 
-            // 6.5 級聯淘汰：總召代修後若母題判 Reject → 同題組所有未決策子題自動標記不採用
-            //     對應規則同 SubmitDecisionAsync 第 6-2 步，僅覆蓋 Decision IS NULL 的列。
-            var cascadedSubCount = 0;
-            if (req.Decision == ReviewDecision.Reject && assign.SubQuestionId is null)
-            {
-                const string cascadeSql = """
-                    UPDATE dbo.MT_ReviewAssignments
-                    SET Decision     = @Decision,
-                        ReviewStatus = @Completed,
-                        DecidedAt    = SYSDATETIME()
-                    WHERE QuestionId    = @QuestionId
-                      AND SubQuestionId IS NOT NULL
-                      AND ReviewStage   = @Stage
-                      AND Decision      IS NULL;
-                    """;
-                cascadedSubCount = await conn.ExecuteAsync(cascadeSql, new
-                {
-                    QuestionId = req.QuestionId,
-                    Stage      = (byte)ReviewStage.Final,
-                    Decision   = (byte)ReviewDecision.Reject,
-                    Completed  = (byte)ReviewTaskStatus.Completed
-                }, tx);
-            }
+            // 6.5 級聯淘汰 — Stage B-4：移除母題 Reject → 子題級聯（按 Q3 拍板每單元獨立決策）。
+            //     結案時才依母題狀態做最終處置（B-4-3 範圍：母題 Reject → 整題組丟棄）。
 
-            // 7. AuditLog：FinalReviewerEdit（題目層級）
+            // 7. AuditLog：FinalReviewerEdit（題目層級） — 帶上「該單元」狀態快照
             const string auditSql = """
                 INSERT INTO dbo.MT_AuditLogs
                     (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
@@ -997,11 +1014,16 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 Action     = AuditLogAction.Modify,
                 TargetType = AuditLogTargetType.Questions,
                 TargetId   = req.QuestionId,
-                OldValue   = System.Text.Json.JsonSerializer.Serialize(new { Status = oldStatus.Value }),
+                OldValue   = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    UnitStatus    = oldUnitStatus.Value,
+                    SubQuestionId = assign.SubQuestionId
+                }),
                 NewValue   = System.Text.Json.JsonSerializer.Serialize(new
                 {
                     Reason        = "FinalReviewerEdit",
-                    Status        = (byte)newQuestionStatus,
+                    UnitStatus    = (byte)newUnitStatus,
+                    SubQuestionId = assign.SubQuestionId,
                     QuestionType  = f.QuestionType
                 })
             }, tx);
@@ -1017,12 +1039,11 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 OldValue   = (string?)null,
                 NewValue   = System.Text.Json.JsonSerializer.Serialize(new
                 {
-                    Reason           = "FinalDecision",
-                    Stage            = (byte)ReviewStage.Final,
-                    SubQuestionId    = assign.SubQuestionId,
-                    Decision         = (byte)req.Decision,
-                    QuestionStatus   = (byte)newQuestionStatus,
-                    CascadedSubCount = cascadedSubCount > 0 ? cascadedSubCount : (int?)null
+                    Reason        = "FinalDecision",
+                    Stage         = (byte)ReviewStage.Final,
+                    SubQuestionId = assign.SubQuestionId,
+                    Decision      = (byte)req.Decision,
+                    UnitStatus    = (byte)newUnitStatus
                 })
             }, tx);
 

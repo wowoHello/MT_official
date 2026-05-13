@@ -83,9 +83,6 @@ public class DashboardKpiDto
         : 0;
 
     // ── 卡片 3：各階段審題 ──────────────────────────────────────
-    /// <summary>STATUS IN (2,3,4,5,6,7,8) 且 IsDeleted = 0 的總數（送審至總審修題，尚未判決）。</summary>
-    public int InReviewCount { get; set; }
-
     /// <summary>卡片 3 Footer 的狀態類型，控制顏色與文案。</summary>
     public PhaseStatusType PhaseStatusType { get; set; } = PhaseStatusType.NoProject;
 
@@ -130,19 +127,6 @@ public class DashboardKpiDto
     /// 非修題階段時為 0。
     /// </summary>
     public int RevisionTotalCount { get; set; }
-
-    // ── 卡片 4：退回修題 ────────────────────────────────────────
-    /// <summary>STATUS IN (4,6,8)（互審修題中、專審修題中、總審修題中）合計。</summary>
-    public int ReturnEditCount { get; set; }
-
-    /// <summary>互審修題中（Status=4）數量。</summary>
-    public int PeerEditCount { get; set; }
-
-    /// <summary>專審修題中（Status=6）數量。</summary>
-    public int ExpertEditCount { get; set; }
-
-    /// <summary>總審修題中（Status=8）數量。</summary>
-    public int FinalEditCount { get; set; }
 
     // ── 圖表區資料 ───────────────────────────────────────────────
     /// <summary>圖表 1：各題型缺口達成率（7 筆，LEFT JOIN 保證即使無資料仍回傳）。</summary>

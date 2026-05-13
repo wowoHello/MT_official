@@ -18,7 +18,6 @@ public interface IQuestionService
     Task<QuestionFormData?> GetByIdAsync(int questionId);
     Task<QuestionListResult> ListAsync(QuestionListFilter filter);
     Task<bool> SoftDeleteAsync(int questionId, int operatorUserId);
-    Task<bool> SubmitForReviewAsync(int questionId, int operatorUserId);
     Task<bool> RestoreAsync(int questionId, int operatorUserId);
 
     // P4 新增：列表頁統計卡片用（依 status 分桶計數）
@@ -33,18 +32,19 @@ public interface IQuestionService
 
     // Plan_008：命題階段結束後的批次轉換與互審分配（Idempotent）
     Task<DateTime?> GetCompositionPhaseEndAsync(int projectId);
-    Task<bool> IsCompositionPhaseClosedAsync(int projectId);
     Task<int> EnsureCompositionPhaseClosedAsync(int projectId);
 
     // Plan_010：審修作業區「修題」Slide-Over 後端
-    Task<RevisionSlideOverData?> GetRevisionDataAsync(int questionId, int currentUserId);
+    // Stage B-4-2：subQuestionId=null → 母題單元；非 null → 該子題單元（Status / ReturnCount / Replies 皆以該單元為對象）
+    Task<RevisionSlideOverData?> GetRevisionDataAsync(int questionId, int currentUserId, int? subQuestionId = null);
     Task<bool> SaveRevisionAsync(SaveRevisionRequest req, int operatorUserId);
 
     /// <summary>
     /// 總審修題「完成送審」：將 Status 8 → 7，為 Stage=3 既有審題者 INSERT 新一筆 Pending Assignment
-    /// （保留歷次決策歷程），並寫稽核。回傳 false 表示題目當前不是 FinalEditing 狀態。
+    /// （保留歷次決策歷程），並寫稽核。回傳 false 表示該單元當前不是 FinalEditing 狀態。
+    /// Stage B-4-2：subQuestionId=null → 母題單元送審；非 null → 該子題單元獨立送審（其他單元不動）。
     /// </summary>
-    Task<bool> ResubmitAfterFinalEditingAsync(int questionId, int userId);
+    Task<bool> ResubmitAfterFinalEditingAsync(int questionId, int userId, int? subQuestionId = null);
 
     /// <summary>
     /// 依當前梯次階段，批次升級題目 Status + 階段需要的審題分配（Idempotent，可重複呼叫）。
@@ -129,15 +129,6 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
         using var conn = _db.CreateConnection();
         return await conn.ExecuteScalarAsync<DateTime?>(sql, new { ProjectId = projectId });
-    }
-
-    /// <summary>
-    /// 命題階段是否已結束（EndDate &lt; 今日）。
-    /// </summary>
-    public async Task<bool> IsCompositionPhaseClosedAsync(int projectId)
-    {
-        var endDate = await GetCompositionPhaseEndAsync(projectId);
-        return endDate.HasValue && endDate.Value.Date < DateTime.Today;
     }
 
     /// <summary>
@@ -382,6 +373,16 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
     /// </summary>
     public async Task<QuestionFormData?> GetByIdAsync(int questionId)
     {
+        using var conn = _db.CreateConnection();
+        return await LoadFormDataAsync(conn, questionId);
+    }
+
+    /// <summary>
+    /// 載入題目完整 FormData 的內部實作（共用 IDbConnection，方便呼叫端在同一連線上做後續查詢）。
+    /// 由 GetByIdAsync 與 GetRevisionDataAsync 共用，避免後者開兩條連線。
+    /// </summary>
+    private static async Task<QuestionFormData?> LoadFormDataAsync(IDbConnection conn, int questionId)
+    {
         const string masterSql = """
             SELECT
                 Id, QuestionCode, QuestionTypeId, Status, Level, Difficulty,
@@ -404,8 +405,6 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             WHERE ParentQuestionId = @Id AND IsDeleted = 0
             ORDER BY SortOrder;
             """;
-
-        using var conn = _db.CreateConnection();
 
         var master = await conn.QueryFirstOrDefaultAsync<QuestionRowDto>(masterSql, new { Id = questionId });
         if (master is null) return null;
@@ -550,42 +549,91 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             ? "AND (@Keyword IS NULL OR q.Stem LIKE '%' + @Keyword + '%' OR q.QuestionCode LIKE '%' + @Keyword + '%' OR u.DisplayName LIKE '%' + @Keyword + '%')"
             : "AND (@Keyword IS NULL OR q.Stem LIKE '%' + @Keyword + '%' OR q.QuestionCode LIKE '%' + @Keyword + '%')";
 
-        // count 查詢需要 JOIN MT_Users 才能比對姓名；CwtList/Reviews 不需要 JOIN（效能最佳）
-        var countJoin = filter.SearchCreatorName ? "LEFT JOIN dbo.MT_Users u ON u.Id = q.CreatorId" : "";
+        // Stage B-4-2：revision tab 拆 N+1 列 — 母題列 + 每子題列各一筆，使用 UNION ALL。
+        //   其他 Tab（compose / history / Overview）仍走原本「每題一列」邏輯，UNION 子題分支不啟用。
+        //   啟用條件：filter.Tab == "revision"（其他 caller 預設不啟用，保留原相容性）。
+        var includeSubRows = filter.Tab == "revision";
 
-        // Plan_012 + Plan_013：HasReplied 條件 — 僅在 @HasReplied 非 null 時生效；
-        // 條件意義：題目 Status∈{4,6,8} 且本人在「本輪」當前 Stage 是否已寫過 MT_RevisionReplies
-        // Plan_013：只看本輪（CreatedAt > 上次總審退回時間 MAX DecidedAt），舊輪 reply 不算
-        const string repliedClause = """
+        // 子題列 status 過濾（subRows 用）— 採用 sq.Status，與母題列共用 @Statuses 參數
+        // 子題的「HasRepliedThisStage」需要 JOIN MT_RevisionReplies 並比對 SubQuestionId
+        // Plan_012 + Plan_013：HasReplied 條件 — 僅在 @HasReplied 非 null 時生效。
+        // 條件意義：當前單元 Status∈{4,6,8} 且本人在「本輪」當前 Stage 是否已寫過 MT_RevisionReplies。
+        // Plan_013：只看本輪（CreatedAt > 上次總審退回時間 MAX DecidedAt），舊輪 reply 不算。
+        // Stage B-4-2：RevisionReplies 也以 SubQuestionId NULL-safe 比對（母題對 NULL、子題對自身 Id）
+        string MakeRepliedClause(string statusExpr, string subIdExpr) => $"""
               AND (@HasReplied IS NULL OR
-                   (q.Status IN (4, 6, 8) AND
+                   ({statusExpr} IN (4, 6, 8) AND
                     @HasReplied = CAST(CASE WHEN EXISTS (
                         SELECT 1 FROM dbo.MT_RevisionReplies rr
                         WHERE rr.QuestionId = q.Id
+                          AND ISNULL(rr.SubQuestionId, -1) = ISNULL({subIdExpr}, -1)
                           AND rr.UserId     = q.CreatorId
-                          AND rr.Stage      = q.Status
+                          AND rr.Stage      = {statusExpr}
                           AND rr.CreatedAt > ISNULL((SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)), '1900-01-01')
                     ) THEN 1 ELSE 0 END AS BIT)))
             """;
 
-        var countSql = $"""
-            SELECT COUNT(*)
-            FROM dbo.MT_Questions q
-            {countJoin}
-            WHERE q.ProjectId = @ProjectId
-              {deletedClauseQ}
-              AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
-              {(statuses.Length > 0 ? "AND q.Status IN @Statuses" : "")}
-              AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
-              AND (@Level IS NULL OR q.Level = @Level)
-              {keywordClause}
-              {repliedClause};
-            """;
+        var repliedClauseMaster = MakeRepliedClause("q.Status", "CAST(NULL AS INT)");
+        var repliedClauseSub    = MakeRepliedClause("sq.Status", "sq.Id");
 
-        // Plan_010 + Plan_013：HasRepliedThisStage —— 同題 + 同 UserId（= q.CreatorId）+ Stage 對齊 q.Status
-        // 4=互修 / 6=專修 / 8=總修；其它狀態 q.Status≠4/6/8，子查詢自然 0 筆，HasReplied=0
-        // Plan_013：只看本輪（CreatedAt > 上次總審退回時間 MAX DecidedAt），舊輪 reply 不算
-        var listSql = $"""
+        // count 查詢 — revision tab 用 UNION ALL（母題 + 子題分別計數）
+        // 其他 Tab：原本的 master-only count
+        string countJoin = filter.SearchCreatorName ? "LEFT JOIN dbo.MT_Users u ON u.Id = q.CreatorId" : "";
+
+        string countSql;
+        if (includeSubRows)
+        {
+            countSql = $"""
+                WITH combined AS (
+                    SELECT q.Id AS QId, CAST(NULL AS INT) AS SubId
+                    FROM dbo.MT_Questions q
+                    {countJoin}
+                    WHERE q.ProjectId = @ProjectId
+                      {deletedClauseQ}
+                      AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
+                      {(statuses.Length > 0 ? "AND q.Status IN @Statuses" : "")}
+                      AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
+                      AND (@Level IS NULL OR q.Level = @Level)
+                      {keywordClause}
+                      {repliedClauseMaster}
+
+                    UNION ALL
+
+                    SELECT q.Id AS QId, sq.Id AS SubId
+                    FROM dbo.MT_SubQuestions sq
+                    INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                    {countJoin}
+                    WHERE q.ProjectId = @ProjectId
+                      {deletedClauseQ}
+                      AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
+                      {(statuses.Length > 0 ? "AND sq.Status IN @Statuses" : "")}
+                      AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
+                      AND (@Level IS NULL OR q.Level = @Level)
+                      AND (@Keyword IS NULL OR sq.Stem LIKE '%' + @Keyword + '%' OR q.QuestionCode LIKE '%' + @Keyword + '%')
+                      {repliedClauseSub}
+                )
+                SELECT COUNT(*) FROM combined;
+                """;
+        }
+        else
+        {
+            countSql = $"""
+                SELECT COUNT(*)
+                FROM dbo.MT_Questions q
+                {countJoin}
+                WHERE q.ProjectId = @ProjectId
+                  {deletedClauseQ}
+                  AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
+                  {(statuses.Length > 0 ? "AND q.Status IN @Statuses" : "")}
+                  AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
+                  AND (@Level IS NULL OR q.Level = @Level)
+                  {keywordClause}
+                  {repliedClauseMaster};
+                """;
+        }
+
+        // 母題列 SELECT（兩種模式共用）— SubQuestionId / SubSortOrder 為 NULL
+        string masterSelectSql = $"""
             SELECT
                 q.Id, q.QuestionCode,
                 q.QuestionTypeId AS TypeId,
@@ -595,16 +643,19 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 q.CreatedAt, q.UpdatedAt,
                 q.IsDeleted,
                 (SELECT COUNT(*) FROM dbo.MT_SubQuestions sq
-                 WHERE sq.ParentQuestionId = q.Id AND sq.IsDeleted = 0) AS SubQuestionCount,
+                 WHERE sq.ParentQuestionId = q.Id) AS SubQuestionCount,
                 ISNULL(u.DisplayName, '') AS CreatorName,
                 CAST(CASE WHEN EXISTS (
                     SELECT 1 FROM dbo.MT_RevisionReplies rr
                     WHERE rr.QuestionId = q.Id
+                      AND rr.SubQuestionId IS NULL
                       AND rr.UserId     = q.CreatorId
                       AND rr.Stage      = q.Status
                       AND q.Status IN (4, 6, 8)
                       AND rr.CreatedAt > ISNULL((SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)), '1900-01-01')
-                ) THEN 1 ELSE 0 END AS BIT) AS HasRepliedThisStage
+                ) THEN 1 ELSE 0 END AS BIT) AS HasRepliedThisStage,
+                CAST(NULL AS INT) AS SubQuestionId,
+                CAST(NULL AS INT) AS SubSortOrder
             FROM dbo.MT_Questions q
             LEFT JOIN dbo.MT_Users u ON u.Id = q.CreatorId
             WHERE q.ProjectId = @ProjectId
@@ -614,17 +665,83 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
               AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
               AND (@Level IS NULL OR q.Level = @Level)
               {keywordClause}
-              {repliedClause}
-            ORDER BY
-                CASE WHEN q.Status = 0 THEN 0
-                     WHEN q.Status = 1 THEN 1
-                     ELSE 2 END,
-                q.Id ASC
-            OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
+              {repliedClauseMaster}
             """;
 
+        // 子題列 SELECT（僅 revision tab 啟用）
+        string subSelectSql = $"""
+            SELECT
+                q.Id, q.QuestionCode,
+                q.QuestionTypeId AS TypeId,
+                q.Level,
+                COALESCE(sq.FixedDifficulty, q.Difficulty) AS Difficulty,
+                sq.Status,
+                sq.Stem AS SummaryHtml,
+                q.CreatedAt, q.UpdatedAt,
+                q.IsDeleted,
+                0 AS SubQuestionCount,
+                ISNULL(u.DisplayName, '') AS CreatorName,
+                CAST(CASE WHEN EXISTS (
+                    SELECT 1 FROM dbo.MT_RevisionReplies rr
+                    WHERE rr.QuestionId    = q.Id
+                      AND rr.SubQuestionId = sq.Id
+                      AND rr.UserId        = q.CreatorId
+                      AND rr.Stage         = sq.Status
+                      AND sq.Status IN (4, 6, 8)
+                      AND rr.CreatedAt > ISNULL((SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)), '1900-01-01')
+                ) THEN 1 ELSE 0 END AS BIT) AS HasRepliedThisStage,
+                sq.Id        AS SubQuestionId,
+                sq.SortOrder AS SubSortOrder
+            FROM dbo.MT_SubQuestions sq
+            INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+            LEFT JOIN dbo.MT_Users u ON u.Id = q.CreatorId
+            WHERE q.ProjectId = @ProjectId
+              {deletedClauseQ}
+              AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
+              {(statuses.Length > 0 ? "AND sq.Status IN @Statuses" : "")}
+              AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
+              AND (@Level IS NULL OR q.Level = @Level)
+              AND (@Keyword IS NULL OR sq.Stem LIKE '%' + @Keyword + '%' OR q.QuestionCode LIKE '%' + @Keyword + '%')
+              {repliedClauseSub}
+            """;
+
+        // 列出 SQL：revision tab 用 UNION ALL；其他 Tab master-only
+        // ORDER BY：先 Status 0/1 優先（保留現有命題作業區排序意圖），再 Id；
+        // SubSortOrder=NULL（母題）排前面，子題依 SortOrder 接在母題後（CASE 處理 NULL → -1）
+        string listSql;
+        if (includeSubRows)
+        {
+            listSql = $"""
+                WITH combined AS (
+                    {masterSelectSql}
+                    UNION ALL
+                    {subSelectSql}
+                )
+                SELECT * FROM combined
+                ORDER BY
+                    CASE WHEN Status = 0 THEN 0
+                         WHEN Status = 1 THEN 1
+                         ELSE 2 END,
+                    Id ASC,
+                    ISNULL(SubSortOrder, -1) ASC
+                OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
+                """;
+        }
+        else
+        {
+            listSql = $"""
+                {masterSelectSql}
+                ORDER BY
+                    CASE WHEN q.Status = 0 THEN 0
+                         WHEN q.Status = 1 THEN 1
+                         ELSE 2 END,
+                    q.Id ASC
+                OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
+                """;
+        }
+
         using var conn = _db.CreateConnection();
-         var total = await conn.ExecuteScalarAsync<int>(countSql, args);
+        var total = await conn.ExecuteScalarAsync<int>(countSql, args);
         var rows  = (await conn.QueryAsync<QuestionListRowDto>(listSql, args)).AsList();
 
         return new QuestionListResult
@@ -646,7 +763,9 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 IsDeleted        = r.IsDeleted,
                 SubQuestionCount = r.SubQuestionCount,
                 CreatorName      = r.CreatorName ?? "",
-                HasRepliedThisStage = r.HasRepliedThisStage
+                HasRepliedThisStage = r.HasRepliedThisStage,
+                SubQuestionId    = r.SubQuestionId,
+                SubSortOrder     = r.SubSortOrder
             }).ToList()
         };
     }
@@ -751,49 +870,6 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             await WriteAuditLogAsync(conn, tx, operatorUserId, projectId.Value,
                 AuditLogAction.Delete, questionId,
                 oldValue: null, newValue: null);
-
-            tx.Commit();
-            return true;
-        }
-        catch
-        {
-            tx.Rollback();
-            throw;
-        }
-    }
-
-    /// <summary>命題送審（僅命題完成可送審；status 1 → 2）。回傳是否成功。</summary>
-    public async Task<bool> SubmitForReviewAsync(int questionId, int operatorUserId)
-    {
-        using var conn = _db.CreateConnection();
-        conn.Open();
-        using var tx = conn.BeginTransaction();
-        try
-        {
-            // 1. 讀 ProjectId（順便驗證題目存在、未刪、為命題完成）
-            var projectId = await conn.QueryFirstOrDefaultAsync<int?>(
-                "SELECT ProjectId FROM dbo.MT_Questions WHERE Id = @Id AND IsDeleted = 0 AND Status = @Completed",
-                new { Id = questionId, Completed = QuestionStatus.Completed }, tx);
-
-            if (projectId is null)
-            {
-                tx.Rollback();
-                return false;
-            }
-
-            // 2. 狀態 1 → 2（僅改 Status；UpdatedAt 語意保留給命題老師實際編輯內容的時刻）
-            await conn.ExecuteAsync("""
-                UPDATE dbo.MT_Questions
-                SET Status = @Submitted
-                WHERE Id = @Id;
-                """,
-                new { Id = questionId, Submitted = QuestionStatus.Submitted }, tx);
-
-            // 3. 系統稽核：送審
-            await WriteAuditLogAsync(conn, tx, operatorUserId, projectId.Value,
-                AuditLogAction.Modify, questionId,
-                oldValue: new { Status = QuestionStatus.Completed },
-                newValue: new { Status = QuestionStatus.Submitted });
 
             tx.Commit();
             return true;
@@ -1118,6 +1194,24 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                         Froms     = fromStatuses.Select(b => (int)b).ToList()
                     }, tx);
 
+                // 4.5 Stage B-4：題組類子題的 Status 同步升級（透過 ParentQuestionId JOIN 帶 ProjectId）
+                //     已決策落定（>= Adopted/9）的子題自動被 fromStatuses 過濾掉，不會被回升
+                await conn.ExecuteAsync("""
+                    UPDATE sq
+                    SET sq.Status = @ToStatus
+                    FROM dbo.MT_SubQuestions sq
+                    INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                    WHERE q.ProjectId = @ProjectId
+                      AND q.IsDeleted = 0
+                      AND sq.Status IN @Froms;
+                    """,
+                    new
+                    {
+                        ProjectId = projectId,
+                        ToStatus  = toStatus,
+                        Froms     = fromStatuses.Select(b => (int)b).ToList()
+                    }, tx);
+
                 // 5. 逐筆 AuditLog（UserId=NULL 表系統批次）
                 const string auditSql = """
                     INSERT INTO dbo.MT_AuditLogs
@@ -1182,9 +1276,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         using var tx = conn.BeginTransaction(IsolationLevel.Serializable);
         try
         {
-            // 1. 撈出本次將升級的題目：Status=7 且非 resubmit 過
-            //    （無 Stage=3 Assignment 的孤兒也涵蓋於此 — NOT EXISTS 的兩個 row 都找不到 → 條件成立）
-            const string candidatesSql = """
+            // 1-A. 撈出母題單元候選：Question.Status=7 且該母題單元 (Q, Sub=NULL) 沒有 resubmit Pending
+            //      NOT EXISTS 兩個 row 都找不到的「孤兒」（無 Stage=3 Assignment）也涵蓋於此 → 條件成立。
+            //      Stage B-4：NULL-safe 比對 SubQuestionId 確保此 NOT EXISTS 只看母題的 assignment 紀錄。
+            const string masterCandidatesSql = """
                 SELECT q.Id
                 FROM dbo.MT_Questions q
                 WHERE q.ProjectId = @ProjectId
@@ -1194,41 +1289,92 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                       SELECT 1
                       FROM dbo.MT_ReviewAssignments p
                       INNER JOIN dbo.MT_ReviewAssignments c
-                          ON c.QuestionId  = p.QuestionId
-                         AND c.ReviewerId  = p.ReviewerId
-                         AND c.ReviewStage = p.ReviewStage
-                      WHERE p.QuestionId   = q.Id
-                        AND p.ReviewStage  = 3
-                        AND p.ReviewStatus = 0   -- Pending（resubmit 後新增的待審 row）
-                        AND c.ReviewStatus = 2   -- Completed（先前已決策的歷史 row）
-                        AND p.CreatedAt    > c.CreatedAt
+                          ON c.QuestionId    = p.QuestionId
+                         AND ISNULL(c.SubQuestionId, -1) = ISNULL(p.SubQuestionId, -1)
+                         AND c.ReviewerId    = p.ReviewerId
+                         AND c.ReviewStage   = p.ReviewStage
+                      WHERE p.QuestionId    = q.Id
+                        AND p.SubQuestionId IS NULL   -- 只看母題單元的 assignment
+                        AND p.ReviewStage   = 3
+                        AND p.ReviewStatus  = 0       -- Pending（resubmit 後新增的待審 row）
+                        AND c.ReviewStatus  = 2       -- Completed（先前已決策的歷史 row）
+                        AND p.CreatedAt     > c.CreatedAt
                   );
                 """;
 
-            var ids = (await conn.QueryAsync<int>(candidatesSql, new
+            var masterIds = (await conn.QueryAsync<int>(masterCandidatesSql, new
             {
                 ProjectId      = projectId,
                 FinalReviewing = (int)QuestionStatus.FinalReviewing
             }, tx)).ToList();
 
-            if (ids.Count == 0)
+            // 1-B. 撈出子題單元候選：MT_SubQuestions.Status=7 且該子題單元 (Q, Sub=subId) 沒有 resubmit Pending
+            //      Stage B-4：每個子題各自獨立判斷，與母題互不影響
+            const string subCandidatesSql = """
+                SELECT sq.Id
+                FROM dbo.MT_SubQuestions sq
+                INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                WHERE q.ProjectId  = @ProjectId
+                  AND q.IsDeleted  = 0
+                  AND sq.Status    = @FinalReviewing
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM dbo.MT_ReviewAssignments p
+                      INNER JOIN dbo.MT_ReviewAssignments c
+                          ON c.QuestionId    = p.QuestionId
+                         AND ISNULL(c.SubQuestionId, -1) = ISNULL(p.SubQuestionId, -1)
+                         AND c.ReviewerId    = p.ReviewerId
+                         AND c.ReviewStage   = p.ReviewStage
+                      WHERE p.QuestionId    = sq.ParentQuestionId
+                        AND p.SubQuestionId = sq.Id    -- 只看本子題單元的 assignment
+                        AND p.ReviewStage   = 3
+                        AND p.ReviewStatus  = 0
+                        AND c.ReviewStatus  = 2
+                        AND p.CreatedAt     > c.CreatedAt
+                  );
+                """;
+
+            var subIds = (await conn.QueryAsync<int>(subCandidatesSql, new
+            {
+                ProjectId      = projectId,
+                FinalReviewing = (int)QuestionStatus.FinalReviewing
+            }, tx)).ToList();
+
+            if (masterIds.Count == 0 && subIds.Count == 0)
             {
                 tx.Commit();
                 return 0;
             }
 
-            // 2. 批次 UPDATE → FinalEditing(8)
-            await conn.ExecuteAsync("""
-                UPDATE dbo.MT_Questions
-                SET Status = @FinalEditing
-                WHERE Id IN @Ids;
-                """, new
+            // 2-A. 批次 UPDATE 母題 → FinalEditing(8)
+            if (masterIds.Count > 0)
             {
-                FinalEditing = (int)QuestionStatus.FinalEditing,
-                Ids          = ids
-            }, tx);
+                await conn.ExecuteAsync("""
+                    UPDATE dbo.MT_Questions
+                    SET Status = @FinalEditing
+                    WHERE Id IN @Ids;
+                    """, new
+                {
+                    FinalEditing = (int)QuestionStatus.FinalEditing,
+                    Ids          = masterIds
+                }, tx);
+            }
 
-            // 3. 批次 AuditLog（UserId=NULL 表系統批次）
+            // 2-B. 批次 UPDATE 子題 → FinalEditing(8)
+            if (subIds.Count > 0)
+            {
+                await conn.ExecuteAsync("""
+                    UPDATE dbo.MT_SubQuestions
+                    SET Status = @FinalEditing
+                    WHERE Id IN @Ids;
+                    """, new
+                {
+                    FinalEditing = (int)QuestionStatus.FinalEditing,
+                    Ids          = subIds
+                }, tx);
+            }
+
+            // 3. 批次 AuditLog（UserId=NULL 表系統批次）— TargetId 用 母題 Id，SubQuestionId 寫 payload
             const string auditSql = """
                 INSERT INTO dbo.MT_AuditLogs
                     (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
@@ -1236,7 +1382,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                     (NULL, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
                 """;
 
-            foreach (var qid in ids)
+            foreach (var qid in masterIds)
             {
                 await conn.ExecuteAsync(auditSql, new
                 {
@@ -1244,13 +1390,36 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                     Action     = AuditLogAction.Modify,
                     TargetType = AuditLogTargetType.Questions,
                     TargetId   = qid,
-                    OldValue   = JsonSerializer.Serialize(new { Status = QuestionStatus.FinalReviewing }),
-                    NewValue   = JsonSerializer.Serialize(new { Status = QuestionStatus.FinalEditing, Reason = "FinalEditingPhaseStart" })
+                    OldValue   = JsonSerializer.Serialize(new { UnitStatus = QuestionStatus.FinalReviewing, SubQuestionId = (int?)null }),
+                    NewValue   = JsonSerializer.Serialize(new { UnitStatus = QuestionStatus.FinalEditing,   SubQuestionId = (int?)null, Reason = "FinalEditingPhaseStart" })
                 }, tx);
             }
 
+            // 子題的稽核：TargetId 用母題 Id（與審題級稽核一致），透過 SubQuestionId 區分單元
+            //   先撈每個 sub 對應的 ParentQuestionId 一次性映射，避免 N 次往返
+            if (subIds.Count > 0)
+            {
+                var subToParent = (await conn.QueryAsync<(int Id, int ParentQuestionId)>(
+                    "SELECT Id, ParentQuestionId FROM dbo.MT_SubQuestions WHERE Id IN @Ids;",
+                    new { Ids = subIds }, tx)).ToDictionary(r => r.Id, r => r.ParentQuestionId);
+
+                foreach (var sid in subIds)
+                {
+                    if (!subToParent.TryGetValue(sid, out var parentId)) continue;
+                    await conn.ExecuteAsync(auditSql, new
+                    {
+                        ProjectId  = projectId,
+                        Action     = AuditLogAction.Modify,
+                        TargetType = AuditLogTargetType.Questions,
+                        TargetId   = parentId,
+                        OldValue   = JsonSerializer.Serialize(new { UnitStatus = QuestionStatus.FinalReviewing, SubQuestionId = (int?)sid }),
+                        NewValue   = JsonSerializer.Serialize(new { UnitStatus = QuestionStatus.FinalEditing,   SubQuestionId = (int?)sid, Reason = "FinalEditingPhaseStart" })
+                    }, tx);
+                }
+            }
+
             tx.Commit();
-            return ids.Count;
+            return masterIds.Count + subIds.Count;
         }
         catch
         {
@@ -1262,25 +1431,66 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
     // ====================================================================
     //  總審修題「完成送審」：Status 8 → 7 + 為 Stage=3 既有 Reviewer INSERT 新 Pending row
     //  保留歷次決策歷程（不刪舊 Assignment 紀錄；走 INSERT 形成多輪審題軌跡）
+    //
+    //  Stage B-4-2：subQuestionId 用於限定送審範圍 —
+    //    NULL → 仍按舊行為（所有處於 FinalEditing 的單元一併送審）；
+    //    非 NULL → 只送該子題單元（其他單元維持當前狀態）。
+    //  CwtList 拆 N+1 列後，使用者按「完成送審」是針對該行所屬單元，要傳對應的 SubQuestionId。
     // ====================================================================
-    public async Task<bool> ResubmitAfterFinalEditingAsync(int questionId, int userId)
+    public async Task<bool> ResubmitAfterFinalEditingAsync(int questionId, int userId, int? subQuestionId = null)
     {
         using var conn = _db.CreateConnection();
         conn.Open();
 
-        // 守門：必須是 FinalEditing(8) 才能送審；其他狀態回 false 由 caller toast 提示
-        var status = await conn.ExecuteScalarAsync<byte?>(
-            "SELECT Status FROM dbo.MT_Questions WHERE Id = @Id AND IsDeleted = 0;",
-            new { Id = questionId });
-        if (status != QuestionStatus.FinalEditing) return false;
+        // 守門：該「目標單元」必須處於 FinalEditing(8) 才能送審
+        //   母題單元 → MT_Questions.Status == 8
+        //   子題單元 → MT_SubQuestions.Status == 8
+        int hasEditingUnit;
+        if (subQuestionId is null)
+        {
+            hasEditingUnit = await conn.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM dbo.MT_Questions WHERE Id = @Id AND IsDeleted = 0 AND Status = @Edit;",
+                new { Id = questionId, Edit = (int)QuestionStatus.FinalEditing });
+        }
+        else
+        {
+            hasEditingUnit = await conn.ExecuteScalarAsync<int>(
+                """
+                SELECT COUNT(*) FROM dbo.MT_SubQuestions sq
+                INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                WHERE sq.Id = @SubId AND q.IsDeleted = 0 AND sq.Status = @Edit;
+                """,
+                new { SubId = subQuestionId.Value, Edit = (int)QuestionStatus.FinalEditing });
+        }
+        if (hasEditingUnit == 0) return false;
 
         using var tx = conn.BeginTransaction(IsolationLevel.Serializable);
         try
         {
-            // 1. Status 8 → 7
-            await conn.ExecuteAsync(
-                "UPDATE dbo.MT_Questions SET Status = @Final WHERE Id = @Id;",
-                new { Id = questionId, Final = QuestionStatus.FinalReviewing }, tx);
+            // 1. 該單元 Status 8 → 7
+            //   母題單元 → MT_Questions / 子題單元 → MT_SubQuestions
+            if (subQuestionId is null)
+            {
+                await conn.ExecuteAsync(
+                    "UPDATE dbo.MT_Questions SET Status = @Final WHERE Id = @Id AND Status = @Edit;",
+                    new
+                    {
+                        Id    = questionId,
+                        Final = QuestionStatus.FinalReviewing,
+                        Edit  = QuestionStatus.FinalEditing
+                    }, tx);
+            }
+            else
+            {
+                await conn.ExecuteAsync(
+                    "UPDATE dbo.MT_SubQuestions SET Status = @Final WHERE Id = @SubId AND Status = @Edit;",
+                    new
+                    {
+                        SubId = subQuestionId.Value,
+                        Final = QuestionStatus.FinalReviewing,
+                        Edit  = QuestionStatus.FinalEditing
+                    }, tx);
+            }
 
             // 2. 取該題 Stage=3 所有 ReviewerId（distinct，跨多輪保留全部歷史審題者）
             //    題組綁定下整題同 ReviewerId，DISTINCT 後一般只剩 1 筆
@@ -1288,24 +1498,11 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 "SELECT DISTINCT ReviewerId FROM dbo.MT_ReviewAssignments WHERE QuestionId = @Id AND ReviewStage = 3;",
                 new { Id = questionId }, tx)).AsList();
 
-            // 2.5 找「需重派的審題單元」：母題 + 各子題分別判定，
-            //     僅當最新一筆 Stage=3 Decision != Approve(1) 才需重派。
-            //     PARTITION BY SubQuestionId：SQL Server 將 NULL 視為相等，母題 NULL 列自成一組。
-            //     回傳 List<int?>：NULL = 母題單元，非 NULL = 子題 Id。
-            var unitsToReassign = (await conn.QueryAsync<int?>(
-                """
-                WITH latest AS (
-                    SELECT SubQuestionId, Decision,
-                           ROW_NUMBER() OVER (PARTITION BY SubQuestionId ORDER BY Id DESC) AS rn
-                    FROM dbo.MT_ReviewAssignments
-                    WHERE QuestionId = @Id AND ReviewStage = 3
-                )
-                SELECT SubQuestionId
-                FROM latest
-                WHERE rn = 1
-                  AND (Decision IS NULL OR Decision <> 1);  -- 1=Approve；其餘（Revise/Reject/未完成）皆需重派
-                """,
-                new { Id = questionId }, tx)).AsList();
+            // 2.5 找「需重派的審題單元」— Stage B-4-2 限縮為「該目標單元」
+            //     母題單元送審：unitsToReassign = [null]（只重派母題）
+            //     子題單元送審：unitsToReassign = [subId]（只重派該子題）
+            //     再用同樣的 NOT EXISTS 規則避免重複 INSERT（idempotent）
+            var unitsToReassign = new List<int?> { subQuestionId };
 
             // 3. 為每位 reviewer × 每個待重派單元 INSERT 新一筆 Pending(0)
             //    既有 row 不動（保留 Decision/Comment/DecidedAt 歷程）
@@ -1334,7 +1531,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 }
             }
 
-            // 4. AuditLog（題目層級）
+            // 4. AuditLog（題目層級）— 帶上 SubQuestionId 供事後追溯哪個單元送審
             await conn.ExecuteAsync("""
                 INSERT INTO dbo.MT_AuditLogs
                     (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
@@ -1347,8 +1544,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                     Action     = AuditLogAction.Modify,
                     TargetType = AuditLogTargetType.Questions,
                     TargetId   = questionId,
-                    OldValue   = JsonSerializer.Serialize(new { Status = (byte)QuestionStatus.FinalEditing }),
-                    NewValue   = JsonSerializer.Serialize(new { Status = (byte)QuestionStatus.FinalReviewing, Reason = "FinalEditingResubmit" })
+                    OldValue   = JsonSerializer.Serialize(new { UnitStatus = (byte)QuestionStatus.FinalEditing,    SubQuestionId = subQuestionId }),
+                    NewValue   = JsonSerializer.Serialize(new { UnitStatus = (byte)QuestionStatus.FinalReviewing,  SubQuestionId = subQuestionId, Reason = "FinalEditingResubmit" })
                 }, tx);
 
             tx.Commit();
@@ -1702,21 +1899,45 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
     /// 一次撈齊修題 Slide-Over 所需資料（題目、跨階段意見、自己歷次修題說明、當前階段、退回計數）。
     /// 題目找不到或已軟刪 → 回 null。
     /// </summary>
-    public async Task<RevisionSlideOverData?> GetRevisionDataAsync(int questionId, int currentUserId)
+    public async Task<RevisionSlideOverData?> GetRevisionDataAsync(int questionId, int currentUserId, int? subQuestionId = null)
     {
-        // 1. 題目本體（沿用 GetByIdAsync 邏輯但合併進來省一次連線）
-        var question = await GetByIdAsync(questionId);
-        if (question is null) return null;
-
         using var conn = _db.CreateConnection();
 
-        // 2. 取題目當前 Status / ProjectId（IsDeleted 排除）
-        var meta = await conn.QueryFirstOrDefaultAsync<(byte Status, int ProjectId)>(
-            "SELECT Status, ProjectId FROM dbo.MT_Questions WHERE Id = @Id AND IsDeleted = 0",
-            new { Id = questionId });
-        if (meta.ProjectId == 0) return null;
+        // 1. 題目本體（共用同一條 connection，避免兩次往返）
+        var question = await LoadFormDataAsync(conn, questionId);
+        if (question is null) return null;
+
+        // 2. 取「該單元」當前 Status / ProjectId
+        //    Stage B-4-2：母題單元 → MT_Questions.Status；子題單元 → MT_SubQuestions.Status
+        //    ProjectId 永遠從母題取（子題沒有 ProjectId 欄位）
+        byte unitStatus;
+        int projectId;
+        if (subQuestionId is null)
+        {
+            var meta = await conn.QueryFirstOrDefaultAsync<(byte Status, int ProjectId)>(
+                "SELECT Status, ProjectId FROM dbo.MT_Questions WHERE Id = @Id AND IsDeleted = 0;",
+                new { Id = questionId });
+            if (meta.ProjectId == 0) return null;
+            unitStatus = meta.Status;
+            projectId  = meta.ProjectId;
+        }
+        else
+        {
+            var subMeta = await conn.QueryFirstOrDefaultAsync<(byte Status, int ProjectId)>(
+                """
+                SELECT sq.Status, q.ProjectId
+                FROM dbo.MT_SubQuestions sq
+                INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                WHERE sq.Id = @SubId AND q.IsDeleted = 0;
+                """,
+                new { SubId = subQuestionId.Value });
+            if (subMeta.ProjectId == 0) return null;
+            unitStatus = subMeta.Status;
+            projectId  = subMeta.ProjectId;
+        }
 
         // 3. 跨階段審題意見（匿名化：同階段內依 DecidedAt 排序給 A/B/C）
+        //    Stage B-4-2：依 SubQuestionId NULL-safe 過濾 — 母題單元只看母題意見、子題單元只看自己的意見
         const string commentSql = """
             SELECT Stage, Comment, DecidedAt, AnonIndex
             FROM (
@@ -1728,13 +1949,14 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                                        ORDER BY ra.DecidedAt, ra.Id) AS AnonIndex
                 FROM dbo.MT_ReviewAssignments ra
                 WHERE ra.QuestionId = @Id
+                  AND ISNULL(ra.SubQuestionId, -1) = ISNULL(@SubId, -1)
                   AND ra.Comment IS NOT NULL
                   AND LEN(ra.Comment) > 0
             ) t
             ORDER BY Stage, DecidedAt;
             """;
         var commentRows = (await conn.QueryAsync<(byte Stage, string Comment, DateTime DecidedAt, int AnonIndex)>(
-            commentSql, new { Id = questionId })).AsList();
+            commentSql, new { Id = questionId, SubId = subQuestionId })).AsList();
 
         var comments = commentRows.Select(r => new ReviewCommentEntry
         {
@@ -1745,14 +1967,17 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         }).ToList();
 
         // 4. 自己歷次修題說明（Plan_014：列表最新在最上）
+        //    Stage B-4-2：依 SubQuestionId NULL-safe 過濾
         const string mySql = """
             SELECT Stage, Content, CreatedAt
             FROM dbo.MT_RevisionReplies
-            WHERE QuestionId = @Id AND UserId = @UserId
+            WHERE QuestionId = @Id
+              AND ISNULL(SubQuestionId, -1) = ISNULL(@SubId, -1)
+              AND UserId = @UserId
             ORDER BY CreatedAt DESC;
             """;
         var myReplies = (await conn.QueryAsync<RevisionReplyEntry>(
-            mySql, new { Id = questionId, UserId = currentUserId })).AsList();
+            mySql, new { Id = questionId, SubId = subQuestionId, UserId = currentUserId })).AsList();
 
         // 5. 當前進行中階段（無 → null）
         var phaseRow = await conn.QueryFirstOrDefaultAsync<(byte PhaseCode, DateTime EndDate)>(
@@ -1763,23 +1988,30 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
               AND PhaseCode > 1
               AND CAST(GETDATE() AS DATE) BETWEEN StartDate AND EndDate
             ORDER BY SortOrder;
-            """, new { ProjectId = meta.ProjectId });
+            """, new { ProjectId = projectId });
 
         // 6. 總審退回次數（給總修階段的 [送出再審] 用）
+        //    Stage B-4-2：按單元計次（NULL-safe 比對 SubQuestionId）
         var returnCount = await conn.ExecuteScalarAsync<int?>(
-            "SELECT TOP 1 ReturnCount FROM dbo.MT_ReviewReturnCounts WHERE QuestionId = @Id",
-            new { Id = questionId }) ?? 0;
+            """
+            SELECT TOP 1 ReturnCount FROM dbo.MT_ReviewReturnCounts
+            WHERE QuestionId = @Id
+              AND ISNULL(SubQuestionId, -1) = ISNULL(@SubId, -1)
+            ORDER BY Id DESC;
+            """,
+            new { Id = questionId, SubId = subQuestionId }) ?? 0;
 
-        // Plan_013：本輪起點時間 — 上次總審退回時間（MAX DecidedAt for ReviewStage=3 且 Decision IN (2,3)）
+        // Plan_013 + Stage B-4-2：本輪起點時間 — 上次「該單元」總審退回時間
         // 沒有任何總審退回紀錄時 fallback 為 1900-01-01（等同於不過濾，全部 reply 視為本輪）
         var roundStartedAt = await conn.ExecuteScalarAsync<DateTime?>(
             """
             SELECT MAX(DecidedAt)
             FROM dbo.MT_ReviewAssignments
             WHERE QuestionId = @Id
+              AND ISNULL(SubQuestionId, -1) = ISNULL(@SubId, -1)
               AND ReviewStage = 3
               AND Decision IN (2, 3);
-            """, new { Id = questionId }) ?? new DateTime(1900, 1, 1);
+            """, new { Id = questionId, SubId = subQuestionId }) ?? new DateTime(1900, 1, 1);
 
         // 7. 當前階段最新一筆「本輪」reply（CreatedAt > roundStartedAt 才算本輪；舊輪不取）
         var draft = myReplies
@@ -1790,6 +2022,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         return new RevisionSlideOverData
         {
             Question            = question,
+            SubQuestionId       = subQuestionId,
             Comments            = comments,
             MyReplies           = myReplies,
             CurrentPhaseCode    = phaseRow.PhaseCode,
@@ -1798,7 +2031,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             // Plan_013：HasReplied 只看本輪（CreatedAt > roundStartedAt）
             HasReplied          = myReplies.Any(r => r.Stage == phaseRow.PhaseCode && r.CreatedAt > roundStartedAt),
             FinalReturnCount    = returnCount,
-            QStatus             = meta.Status
+            QStatus             = unitStatus   // Stage B-4-2：母題 = MT_Questions.Status / 子題 = MT_SubQuestions.Status
         };
     }
 
@@ -1823,18 +2056,40 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         using var tx = conn.BeginTransaction(IsolationLevel.Serializable);
         try
         {
-            // 1. 取題目當前 Status / ProjectId
-            var meta = await conn.QueryFirstOrDefaultAsync<QuestionMetaDto>(
-                "SELECT Status, ProjectId FROM dbo.MT_Questions WHERE Id = @Id AND IsDeleted = 0",
-                new { Id = req.QuestionId }, tx);
-            if (meta is null) return false;
+            // 1. 取「該單元」當前 Status / ProjectId
+            //    Stage B-4-2：母題單元 → MT_Questions.Status；子題單元 → MT_SubQuestions.Status
+            byte unitStatus;
+            int projectId;
+            if (req.SubQuestionId is null)
+            {
+                var meta = await conn.QueryFirstOrDefaultAsync<QuestionMetaDto>(
+                    "SELECT Status, ProjectId FROM dbo.MT_Questions WHERE Id = @Id AND IsDeleted = 0;",
+                    new { Id = req.QuestionId }, tx);
+                if (meta is null) return false;
+                unitStatus = meta.Status;
+                projectId  = meta.ProjectId;
+            }
+            else
+            {
+                var subMeta = await conn.QueryFirstOrDefaultAsync<QuestionMetaDto>(
+                    """
+                    SELECT sq.Status, q.ProjectId
+                    FROM dbo.MT_SubQuestions sq
+                    INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                    WHERE sq.Id = @SubId AND q.IsDeleted = 0;
+                    """,
+                    new { SubId = req.SubQuestionId.Value }, tx);
+                if (subMeta is null) return false;
+                unitStatus = subMeta.Status;
+                projectId  = subMeta.ProjectId;
+            }
 
-            // 2. Status 必須在修題狀態（4/6/8）；階段必須對齊
-            if (meta.Status is not (QuestionStatus.PeerEditing or QuestionStatus.ExpertEditing or QuestionStatus.FinalEditing))
-                throw new InvalidOperationException("題目目前不在修題狀態，無法儲存修題。");
+            // 2. 該單元 Status 必須在修題狀態（4/6/8）；階段必須對齊
+            if (unitStatus is not (QuestionStatus.PeerEditing or QuestionStatus.ExpertEditing or QuestionStatus.FinalEditing))
+                throw new InvalidOperationException("該單元目前不在修題狀態，無法儲存修題。");
 
-            var phaseCode = await GetCurrentPhaseCodeInTxAsync(conn, tx, meta.ProjectId);
-            var requiredPhase = (byte)meta.Status;   // PeerEditing=4 / ExpertEditing=6 / FinalEditing=8
+            var phaseCode = await GetCurrentPhaseCodeInTxAsync(conn, tx, projectId);
+            var requiredPhase = unitStatus;   // PeerEditing=4 / ExpertEditing=6 / FinalEditing=8
             if (phaseCode != requiredPhase)
                 throw new InvalidOperationException("修題期間已結束，無法儲存變更。");
 
@@ -1896,7 +2151,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             }, tx);
 
             // 4. UPSERT 子題
-            await UpsertSubQuestionsAsync(conn, tx, req.QuestionId, req.FormData, operatorUserId, meta.ProjectId);
+            await UpsertSubQuestionsAsync(conn, tx, req.QuestionId, req.FormData, operatorUserId, projectId);
 
             // 4.5 附圖：DELETE + INSERT 全量覆寫（母題層 + 子題層，與 UpdateAsync 邏輯一致）
             await QuestionImagePersistence.UpsertMasterAsync(conn, tx, req.QuestionId, req.FormData.Images);
@@ -1906,23 +2161,25 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             //    Plan_014：總修階段（Stage=8）允許跨輪多次回覆，每輪退回後重新送出都產生新 row
             //    判別「本輪 reply」靠 CreatedAt > 上次總審退回 DecidedAt（見 ListAsync / GetRevisionDataAsync 等處）
             //    Stage=4/6 線性單輪，append-only 等同每題每階段最多一筆，行為不變
+            //    Stage B-4-2：依 SubQuestionId 寫入（母題單元 = NULL；子題單元 = sub.Id）
             const string insertReplySql = """
-                INSERT INTO dbo.MT_RevisionReplies (QuestionId, UserId, Stage, Content, CreatedAt)
-                VALUES (@Qid, @Uid, @Stage, @Content, SYSDATETIME());
+                INSERT INTO dbo.MT_RevisionReplies (QuestionId, SubQuestionId, UserId, Stage, Content, CreatedAt)
+                VALUES (@Qid, @SubId, @Uid, @Stage, @Content, SYSDATETIME());
                 """;
             await conn.ExecuteAsync(insertReplySql, new
             {
                 Qid     = req.QuestionId,
+                SubId   = req.SubQuestionId,
                 Uid     = operatorUserId,
                 Stage   = phaseCode,
                 Content = req.RevisionNote
             }, tx);
 
-            // 6. AuditLog
-            await WriteAuditLogAsync(conn, tx, operatorUserId, meta.ProjectId,
+            // 6. AuditLog — Stage B-4-2：帶 SubQuestionId 供事後追溯哪個單元被修
+            await WriteAuditLogAsync(conn, tx, operatorUserId, projectId,
                 AuditLogAction.Modify, req.QuestionId,
-                oldValue: new { Status = meta.Status },
-                newValue: new { Status = meta.Status, Reason = "Revision", Stage = phaseCode });
+                oldValue: new { UnitStatus = unitStatus, SubQuestionId = req.SubQuestionId },
+                newValue: new { UnitStatus = unitStatus, SubQuestionId = req.SubQuestionId, Reason = "Revision", Stage = phaseCode });
 
             tx.Commit();
             return true;
@@ -2420,5 +2677,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         public int SubQuestionCount { get; set; }
         public string? CreatorName { get; set; }
         public bool HasRepliedThisStage { get; set; }
+        // Stage B-4-2：revision tab 子題列拆分用；母題列為 NULL
+        public int? SubQuestionId { get; set; }
+        public int? SubSortOrder { get; set; }
     }
 }

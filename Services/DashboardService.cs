@@ -59,16 +59,11 @@ public class DashboardService : IDashboardService
         // ──────────────────────────────────────────────────────────────
         // 2. 各題目狀態計數（一次掃表，按 Status 分組）
         //    IsDeleted = 0：只計算未軟刪除的題目
-        //    Status 採用 = 9；審修中 = 2~8；退回修題 = 4,6,8
+        //    僅統計卡片 2「採用」需要的欄位；其餘修題/審題進度由 sqlStatusBased + 修題 SQL 分別處理
         // ──────────────────────────────────────────────────────────────
         const string sqlStatusCounts = """
             SELECT
-                SUM(CASE WHEN Status IN (9, 12)                    THEN 1 ELSE 0 END) AS AdoptedCount,
-                SUM(CASE WHEN Status BETWEEN 2 AND 8              THEN 1 ELSE 0 END) AS InReviewCount,
-                SUM(CASE WHEN Status IN (4, 6, 8)                 THEN 1 ELSE 0 END) AS ReturnEditCount,
-                SUM(CASE WHEN Status = 4                          THEN 1 ELSE 0 END) AS PeerEditCount,
-                SUM(CASE WHEN Status = 6                          THEN 1 ELSE 0 END) AS ExpertEditCount,
-                SUM(CASE WHEN Status = 8                          THEN 1 ELSE 0 END) AS FinalEditCount
+                SUM(CASE WHEN Status IN (9, 12) THEN 1 ELSE 0 END) AS AdoptedCount
             FROM dbo.MT_Questions
             WHERE ProjectId = @pid AND IsDeleted = 0
             """;
@@ -360,13 +355,12 @@ public class DashboardService : IDashboardService
 
         // ──────────────────────────────────────────────────────────────
         // 5b. 卡片 3 審題進度（依當前 PhaseCode 對應 ReviewStage）
-        //     僅在 PhaseCode ∈ {2,4,6} 時下 SQL，避免不必要查詢
+        //     直接共用第 1 步 currentPhaseForChart 結果，避免重複查 MT_ProjectPhases
         // ──────────────────────────────────────────────────────────────
-        var currentPhaseCode = await GetCurrentPhaseCodeAsync(conn, projectId);
         var (reviewLabel, reviewedCount, reviewTotalCount) =
-            await GetReviewProgressAsync(conn, projectId, currentPhaseCode);
+            await GetReviewProgressAsync(conn, projectId, currentPhaseForChart);
         var (revisionLabel, revisedCount, revisionTotalCount) =
-            await GetRevisionProgressAsync(conn, projectId, currentPhaseCode);
+            await GetRevisionProgressAsync(conn, projectId, currentPhaseForChart);
 
         // 已結案專案：覆蓋審/修題階段判定為 Closed（即使中途結案也顯示為「已結案」）
         if (projectStatus == 2)
@@ -383,7 +377,7 @@ public class DashboardService : IDashboardService
         // 6. 逾期與緊急待辦 Top 5
         //    需在 achievementRows 產出後才可呼叫（TypeShortage 依賴達成率資料）
         // ──────────────────────────────────────────────────────────────
-        var urgentItems = await BuildUrgentItemsAsync(conn, projectId, achievementRows);
+        var urgentItems = await BuildUrgentItemsAsync(conn, projectId, achievementRows, currentPhaseForChart);
 
         // ──────────────────────────────────────────────────────────────
         // 組裝 DTO（LOG 已獨立至 GetAuditLogsAsync，此處不再帶入）
@@ -393,11 +387,6 @@ public class DashboardService : IDashboardService
             TotalTarget         = targetRows.Sum(r => r.TargetCount),
             TargetBreakdown     = targetRows,
             AdoptedCount        = counts?.AdoptedCount    ?? 0,
-            InReviewCount       = counts?.InReviewCount   ?? 0,
-            ReturnEditCount     = counts?.ReturnEditCount ?? 0,
-            PeerEditCount       = counts?.PeerEditCount   ?? 0,
-            ExpertEditCount     = counts?.ExpertEditCount ?? 0,
-            FinalEditCount      = counts?.FinalEditCount  ?? 0,
             PhaseStatusType     = phaseStatusType,
             PhaseStatusText     = phaseStatusText,
             PhaseDaysRemaining  = phaseDaysRemaining,
@@ -572,14 +561,10 @@ public class DashboardService : IDashboardService
     private async Task<List<DashboardUrgentItem>> BuildUrgentItemsAsync(
         System.Data.IDbConnection conn,
         int projectId,
-        List<DashboardAchievementItem> achievement)
+        List<DashboardAchievementItem> achievement,
+        int? currentPhaseCode)
     {
         var items = new List<DashboardUrgentItem>();
-
-        // ── 1. 取得「當前 PhaseCode」：StartDate ≤ 今天，取最大的 ──────
-        // 此處無法直接共用 GetKpiAsync 中查過的 currentPhaseCode（避免方法簽名擴張），
-        // 重新查詢一次，成本極低（< 5ms）。
-        var currentPhaseCode = await GetCurrentPhaseCodeAsync(conn, projectId);
 
         // ── 2. 撈各 Status 計數，供階段抑制邏輯使用（一次查詢）─────────
         const string sqlStatusCounts2 = """
@@ -1369,12 +1354,7 @@ public class DashboardService : IDashboardService
 
     private sealed class StatusCountRow
     {
-        public int AdoptedCount    { get; init; }
-        public int InReviewCount   { get; init; }
-        public int ReturnEditCount { get; init; }
-        public int PeerEditCount   { get; init; }
-        public int ExpertEditCount { get; init; }
-        public int FinalEditCount  { get; init; }
+        public int AdoptedCount { get; init; }
     }
 
     /// <summary>卡片 3 審題進度查詢結果列。</summary>

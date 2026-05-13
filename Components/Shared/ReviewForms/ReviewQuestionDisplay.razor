@@ -374,7 +374,8 @@
             .OrderBy(i => i.SortOrder).ToList();
 
         @RenderMasterCard("fa-book-open", IsMasterMode ? "閱讀文章" : "閱讀文章（上下文參考）", @<text>
-            <div class="prose prose-base max-w-none font-serif leading-relaxed text-gray-900" data-annot-target="article">
+            @* 母題內容只在母題表單可劃記；子題表單僅作上下文參考，不接劃記 *@
+            <div class="prose prose-base max-w-none font-serif leading-relaxed text-gray-900" data-annot-target="@(IsMasterMode ? "article" : null)">
                 @if (HasContent(Question.ArticleContent))
                 {
                     @((MarkupString)Question.ArticleContent!)
@@ -445,7 +446,8 @@
             .OrderBy(i => i.SortOrder).ToList();
 
         @RenderMasterCard("fa-feather-pointed", IsMasterMode ? "短文文章" : "短文文章（上下文參考）", @<text>
-            <div class="prose prose-base max-w-none font-serif leading-relaxed text-gray-900">
+            @* 母題內容只在母題表單可劃記；子題表單僅作上下文參考，不接劃記 *@
+            <div class="prose prose-base max-w-none font-serif leading-relaxed text-gray-900" data-annot-target="@(IsMasterMode ? "article" : null)">
                 @if (HasContent(Question.ArticleContent))
                 {
                     @((MarkupString)Question.ArticleContent!)
@@ -534,7 +536,8 @@
                         <i class="fa-solid fa-chevron-down ml-auto text-xs text-amber-500"></i>
                     </summary>
                     <div class="px-4 pb-3 pt-1">
-                        <div class="prose prose-sm max-w-none leading-relaxed text-gray-700 font-serif">
+                        @* 母題語音內容只在母題表單可劃記；子題表單僅作上下文參考 *@
+                        <div class="prose prose-sm max-w-none leading-relaxed text-gray-700 font-serif" data-annot-target="@(IsMasterMode ? "article" : null)">
                             @((MarkupString)Question.ArticleContent!)
                         </div>
                     </div>

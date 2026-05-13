@@ -180,9 +180,6 @@ public enum ProjectLifecycleStatus : byte
 
 public static class ProjectStatusHelper
 {
-    public static ProjectLifecycleStatus Resolve(DateTime startDate, DateTime? closedAt)
-        => Resolve(startDate, null, closedAt, null);
-
     public static ProjectLifecycleStatus Resolve(DateTime startDate, DateTime? endDate, DateTime? closedAt)
         => Resolve(startDate, endDate, closedAt, null);
 

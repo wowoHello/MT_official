@@ -373,10 +373,15 @@ public class ProjectService : IProjectService
     /// 結案入庫：標記梯次為結案，並批次更新該梯次內所有未刪除題目的狀態。
     /// 邏輯（同一 Serializable transaction 內原子提交）：
     ///   1. MT_Projects.ClosedAt 設為現在時間（已結案者直接拋例外）
-    ///   2. Status = 9 (採用)        → Status = 12 (結案入庫 / Archived)
-    ///   3. Status ∉ {9, 11, 12} 且 IsDeleted = 0 → Status = 11 (結案未採用 / ClosedNotAdopted)
-    ///   4. 寫一筆 MT_AuditLogs（Action = Update / Target = Projects）
+    ///   2. 母題 Status = 9 (採用)        → 12 (結案入庫 / Archived)
+    ///   3. 母題 Status ∉ {9, 11, 12} 且 IsDeleted = 0 → 11 (結案未採用 / ClosedNotAdopted)
+    ///   ── Stage B-4-3：子題各自獨立結案 ──
+    ///   4. 子題（母題已升 12=Archived）：子題 Status = 9 → 12（採用子題保留入庫）
+    ///   5. 子題其餘非結案者一律 → 11（含母題已結案未採用的全部子題，及母題已結案但子題未採用者）
+    ///   6. 寫一筆 MT_AuditLogs（Action = Update / Target = Projects）
     /// 任何一步失敗整批 rollback；成功後 SignalR 廣播 ProjectChanged。
+    ///
+    /// 落實 Plan_022 Q2 規則：母題採用 → 只入採用子題；母題不採用 → 整題組（含子題）全丟棄。
     /// </summary>
     public async Task CloseProjectAsync(int projectId, int closedBy)
     {
@@ -403,7 +408,7 @@ public class ProjectService : IProjectService
                 throw new InvalidOperationException("專案已結案或不存在，無法重複結案。");
             }
 
-            // 2a) 採用題目升為「結案入庫」(Status = 12，原 13 前移)
+            // 2a) 採用母題升為「結案入庫」(Archived = 12)
             const string archiveSql = """
                 UPDATE dbo.MT_Questions
                 SET Status = 12,
@@ -414,7 +419,7 @@ public class ProjectService : IProjectService
                 """;
             await conn.ExecuteAsync(archiveSql, new { ProjectId = projectId }, trans);
 
-            // 2b) 其餘非採用、非已結案題目改為「結案未採用」(Status = 11，原 12 前移)
+            // 2b) 其餘非採用、非已結案母題改為「結案未採用」(ClosedNotAdopted = 11)
             const string updateQuestionsSql = """
                 UPDATE dbo.MT_Questions
                 SET Status = 11,
@@ -423,10 +428,44 @@ public class ProjectService : IProjectService
                   AND IsDeleted = 0
                   AND Status NOT IN (9, 11, 12);
                 """;
-
             await conn.ExecuteAsync(updateQuestionsSql, new { ProjectId = projectId }, trans);
 
-            // 3) 稽核紀錄（全站活動：ProjectId 留 NULL）
+            // ── Stage B-4-3：子題各自獨立結案 ──
+            // 規則彙整：
+            //   母題 Archived(12) + 子題 Adopted(9)         → 子題 Archived(12)（採用入庫）
+            //   母題 Archived(12) + 子題 != Adopted         → 子題 ClosedNotAdopted(11)
+            //   母題 ClosedNotAdopted(11)                    → 所有子題 ClosedNotAdopted(11)（整題組丟棄）
+            // 兩個 UPDATE 完成上述邏輯（先取採用，後一律降 11）
+
+            // 3a) 採用子題且母題也採用 → 升 12，並寫 DecidedAt
+            const string archiveSubSql = """
+                UPDATE sq
+                SET sq.Status    = 12,
+                    sq.DecidedAt = CASE WHEN sq.DecidedAt IS NULL THEN SYSDATETIME() ELSE sq.DecidedAt END
+                FROM dbo.MT_SubQuestions sq
+                INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                WHERE q.ProjectId = @ProjectId
+                  AND q.IsDeleted = 0
+                  AND q.Status    = 12   -- 母題剛升 Archived
+                  AND sq.Status   = 9;   -- 該子題自身為 Adopted
+                """;
+            await conn.ExecuteAsync(archiveSubSql, new { ProjectId = projectId }, trans);
+
+            // 3b) 其餘子題（含「母題不採用」的全部子題、及「母題採用但子題未採用」的子題）
+            //     一律 → 11（ClosedNotAdopted），並寫 DecidedAt
+            const string closedNotAdoptedSubSql = """
+                UPDATE sq
+                SET sq.Status    = 11,
+                    sq.DecidedAt = CASE WHEN sq.DecidedAt IS NULL THEN SYSDATETIME() ELSE sq.DecidedAt END
+                FROM dbo.MT_SubQuestions sq
+                INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                WHERE q.ProjectId = @ProjectId
+                  AND q.IsDeleted = 0
+                  AND sq.Status NOT IN (11, 12);
+                """;
+            await conn.ExecuteAsync(closedNotAdoptedSubSql, new { ProjectId = projectId }, trans);
+
+            // 4) 稽核紀錄（全站活動：ProjectId 留 NULL）
             const string auditSql = """
                 INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, NewValue, IpAddress)
                 VALUES (@UserId, @Action, @TargetType, @TargetId, @NewValue, @IpAddress);
