@@ -356,6 +356,14 @@
     /// <summary>已嘗試從 ProtectedLocalStorage 還原梯次的旗標，避免 OnAfterRenderAsync 重複觸發。</summary>
     private bool hasRestoredProjectFromStorage;
 
+    /// <summary>
+    /// OnInitializedAsync 是否整段跑完。用來擋住 race condition：
+    /// OnAfterRenderAsync 可能在 OnInitializedAsync 的 await 期間就先觸發，
+    /// 此時若直接設 hasRestoredProjectFromStorage = true 並早退，會讓 ReloadVisibleProjectsAsync
+    /// 誤以為「storage 已試過」而提前 fallback 到 GetDefaultProject，造成梯次飄移到非預期項目。
+    /// </summary>
+    private bool isInitializationComplete;
+
     /// <summary>App 準備完成旗標：SignalR 連上 + Storage 還原完畢後設為 true，
     /// 觸發 AppLoadingSplash 淡出。預設 false 確保 prerender 階段就遮住閃爍。</summary>
     private bool isAppReady;
@@ -384,35 +392,51 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var authState = await AuthState;
-        var user = authState.User;
-
-        userName = user.FindFirst("DisplayName")?.Value
-            ?? user.Identity?.Name
-            ?? string.Empty;
-
-        var userIdText = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-        if (!int.TryParse(userIdText, out var userId))
+        try
         {
-            return;
+            var authState = await AuthState;
+            var user = authState.User;
+
+            userName = user.FindFirst("DisplayName")?.Value
+                ?? user.Identity?.Name
+                ?? string.Empty;
+
+            var userIdText = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (!int.TryParse(userIdText, out var userId))
+            {
+                return;
+            }
+
+            currentUserId = userId;
+
+            await ReloadVisibleProjectsAsync();
+            await InitializeHubConnectionAsync();
+
+            // 訂閱導航事件，後續每次路由變更時檢查模組存取權限
+            Navigation.LocationChanged += OnLocationChanged;
         }
-
-        currentUserId = userId;
-
-        await ReloadVisibleProjectsAsync();
-        await InitializeHubConnectionAsync();
-
-        // 訂閱導航事件，後續每次路由變更時檢查模組存取權限
-        Navigation.LocationChanged += OnLocationChanged;
+        finally
+        {
+            // 不論成功失敗、不論 early return，都要把旗標設好，
+            // OnAfterRenderAsync 才能在下一輪 render 確定 init 已結束、可以安全讀 storage。
+            isInitializationComplete = true;
+        }
     }
 
-    /// <summary>首次渲染後嘗試從 ProtectedLocalStorage 還原上次選的梯次。
+    /// <summary>OnInitializedAsync 完整跑完後，從 ProtectedLocalStorage 還原上次選的梯次。
     /// 為何放在 OnAfterRenderAsync：ProtectedBrowserStorage 依賴 JS Interop，
     /// 在 OnInitializedAsync 的 prerender 階段呼叫會拋 InvalidOperationException。
+    ///
+    /// ⚠️ 不使用 firstRender 當閘門：First Render 會在 OnInitializedAsync 第一個 await yield 時就觸發，
+    /// 此時 availableProjects 還是空的，會把 storage 紀錄當作「梯次已不存在」誤清掉。
+    /// 改用 isInitializationComplete 確保 OnInitializedAsync 整段跑完才動。
+    ///
     /// 還原完成（成功、失敗、無紀錄皆算）後將 isAppReady 設為 true 觸發 splash 淡出。</summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || hasRestoredProjectFromStorage) return;
+        if (hasRestoredProjectFromStorage) return;
+        if (!isInitializationComplete) return;   // init 還沒跑完先放著，下次 render 再進來
+
         hasRestoredProjectFromStorage = true;
 
         try
@@ -430,24 +454,31 @@
             if (stored.Success)
             {
                 var match = availableProjects.FirstOrDefault(p => p.Id == stored.Value);
-                // 上次選的梯次已被刪除/結案/無權限 → 清掉過期紀錄，稍後改走 fallback
                 if (match is null)
                 {
+                    // 上次選的梯次已被刪除/結案/無權限 → 清掉過期紀錄，稍後改走 fallback
                     Logger.LogInformation("storage 紀錄的梯次 Id={Id} 已不在可見清單，清除紀錄", stored.Value);
                     await ProtectedLocalStorage.DeleteAsync(ProjectStorageKey);
                 }
-                else if (currentProject?.Id != match.Id)
-                {
-                    Logger.LogInformation("還原梯次成功 從={Old} 還原為={New}", currentProject?.Id, match.Id);
-                    currentProject = match;
-                }
                 else
                 {
-                    Logger.LogInformation("storage 還原結果與目前梯次相同 Id={Id}，跳過切換", match.Id);
+                    // OnAfterRenderAsync 一生只跑一次，此時 currentProject 必為 null（OnInitializedAsync
+                    // 跑完 ReloadVisibleProjectsAsync 時 hasRestoredProjectFromStorage 還是 false，
+                    // 不會套 fallback），所以這裡可以直接覆寫
+                    Logger.LogInformation("還原梯次成功 ProjectId={Id}", match.Id);
+                    currentProject = match;
                 }
             }
 
             currentProject ??= GetDefaultProject();
+
+            // 把首次自動挑的（或還原後 fallback）梯次也鎖進 storage，
+            // 避免下次登入又跑一次 GetDefaultProject 重算（GetDefaultProject 結果會隨著
+            // 「最新年度梯次」變化而改變，造成「每次登入梯次都不一樣」的飄移感）
+            if (currentProject is not null)
+            {
+                await PersistSelectedProjectAsync(currentProject.Id);
+            }
 
             // 不論 currentProject 是否為 null 都要重載模組權限：
             // 系統管理員等內部身分即便沒參與任何梯次，仍應依 MT_Users.RoleId 判定後台卡片。
@@ -797,6 +828,7 @@
         }
 
         var previousProjectId = currentProject?.Id;
+        var previousProjectDisplayName = currentProject?.DisplayName;   // 靜默回退提示用
 
         try
         {
@@ -808,17 +840,33 @@
 
             // 首次載入先不要急著套 fallback，等 OnAfterRenderAsync 從 storage 還原完再決定，
             // 才不會在 F5 時先跳到第一筆梯次，之後又被改回來。
+            var silentlyFellBack = false;
             if (currentProject is null && hasRestoredProjectFromStorage)
             {
                 currentProject = GetDefaultProject();
+                // 原本有選定梯次、reload 後找不到（被刪除/結案/權限調整）→ 才算靜默回退
+                silentlyFellBack = previousProjectId.HasValue;
             }
 
-            // Home 會用 ModuleCards == null 判斷「尚在載入」；不論有無梯次都呼叫一次，
-            // 讓 RoleService 用「系統角色 ∪ 梯次角色」的聯集判定（projectId=null 時退化成只看系統角色），
-            // 才能讓系統管理員等內部身分在無梯次時仍看得到後台卡片。
-            if (moduleCards is null || previousProjectId != currentProject?.Id)
+            // 初次載入階段（hasRestoredProjectFromStorage=false）跳過 moduleCards reload，
+            // 留給 OnAfterRenderAsync 還原 currentProject 後再載一次，避免外部使用者在
+            // projectId=null 下載入到「全空權限」造成 Home 閃過空狀態。
+            // SignalR 推播時 hasRestoredProjectFromStorage 已是 true，照舊判斷。
+            if (hasRestoredProjectFromStorage && (moduleCards is null || previousProjectId != currentProject?.Id))
             {
                 await ReloadModuleCardsAsync();
+            }
+
+            // 靜默回退時主動提示使用者並更新 storage，避免畫面突然跳到另一個梯次無感
+            if (silentlyFellBack && currentProject is not null)
+            {
+                await PersistSelectedProjectAsync(currentProject.Id);
+                _ = JS.InvokeVoidAsync(
+                    "swalInterop.fireToast",
+                    "warning",
+                    "原梯次已不可見",
+                    $"「{previousProjectDisplayName}」已被結案或移除，已自動切換到「{currentProject.DisplayName}」",
+                    3500);
             }
         }
         catch (Exception ex)

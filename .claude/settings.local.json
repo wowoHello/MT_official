@@ -18,7 +18,8 @@
       "Bash(cp \"D:\\\\IISWebSize\\\\MT\\\\.claude\\\\tmp\\\\new_db.md\" \"D:\\\\jay_liu\\\\Desktop\\\\命題系統相關\\\\new_db.md\")",
       "Read(//d/jay_liu/Desktop/命題系統相關/**)",
       "Bash(node *)",
-      "Bash(python \"D:/IISWebSize/MT/.claude/skills/ui-ux-pro-max/scripts/search.py\" \"empty state form field minimal subtle attachment\" --domain ux -n 8)"
+      "Bash(python \"D:/IISWebSize/MT/.claude/skills/ui-ux-pro-max/scripts/search.py\" \"empty state form field minimal subtle attachment\" --domain ux -n 8)",
+      "PowerShell(Get-ChildItem \"D:\\\\IISWebSize\\\\MT\\\\.claude\\\\agent-memory\\\\cwtlist-razor-architect\\\\\" -Name; \"---\"; Get-ChildItem \"D:\\\\MTrefer\\\\Task\\\\CwtList\\\\\" -Name | Select-Object -Last 30)"
     ]
   }
 }

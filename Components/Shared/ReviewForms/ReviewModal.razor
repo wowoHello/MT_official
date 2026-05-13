@@ -4,7 +4,9 @@
 @*  結構：Header（h-16）+ Body（左 70% 題目 + 右 30% 操作）+ Footer（決策列） *@
 @*  Phase 3.2：題目展示 OK；操作區 / 決策列待 3.3 / 3.5 補上。                *@
 @* ====================================================================== *@
+@implements IAsyncDisposable
 @inject IReviewService ReviewService
+@inject IAnnotationService AnnotationService
 @inject IJSRuntime JS
 
 @if (IsVisible)
@@ -121,7 +123,58 @@
                 }
                 else if (data is not null)
                 {
-                    <ReviewQuestionDisplay Question="@data.Question" CreatorName="@data.CreatorName" />
+                    <ReviewQuestionDisplay Question="@data.Question"
+                                           CreatorName="@data.CreatorName"
+                                           SubQuestionId="@currentSubId"
+                                           SiblingUnits="@data.SiblingUnits"
+                                           OnSubUnitClick="@SwitchSubUnitAsync" />
+                }
+
+                @* ========================================================== *@
+                @*  新增劃記評語對話框（fixed center modal，覆蓋整個 ReviewModal）  *@
+                @*  使用者選文字 → 浮層按鈕 → JS 回呼 OnAnnotationRequested → 顯示此對話框 *@
+                @* ========================================================== *@
+                @if (showAnnotDialog)
+                {
+                    <div class="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4"
+                         @onclick="CancelAnnotationDialog">
+                        <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden" @onclick:stopPropagation="true">
+                            <div class="px-5 py-3 border-b border-gray-200 bg-morandi/8 flex items-center gap-2">
+                                <i class="fa-solid fa-pen-to-square text-morandi"></i>
+                                <span class="font-bold text-slate-main text-sm">針對選取文字加註評語</span>
+                                <button type="button" @onclick="CancelAnnotationDialog"
+                                        class="ml-auto text-gray-400 hover:text-terracotta text-lg cursor-pointer focus:outline-none">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                            <div class="p-5 space-y-3">
+                                <div class="text-xs text-gray-500">選取的文字：</div>
+                                <div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-gray-800 font-serif leading-relaxed max-h-32 overflow-y-auto">
+                                    「@pendingAnnotation?.SelectedText」
+                                </div>
+                                <textarea @bind="annotCommentDraft"
+                                          @bind:event="oninput"
+                                          placeholder="輸入針對此段文字的評語（必填）"
+                                          spellcheck="false"
+                                          class="w-full h-28 px-3 py-2 text-sm leading-relaxed text-slate-main border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-morandi focus:border-morandi resize-none"></textarea>
+                            </div>
+                            <div class="px-5 py-3 border-t border-gray-100 bg-gray-50/50 flex items-center justify-end gap-2">
+                                <button type="button" @onclick="CancelAnnotationDialog"
+                                        class="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-100 text-gray-600 font-medium cursor-pointer focus:outline-none">
+                                    取消
+                                </button>
+                                <button type="button" @onclick="SaveAnnotationAsync"
+                                        disabled="@(string.IsNullOrWhiteSpace(annotCommentDraft) || isSavingAnnotation)"
+                                        class="px-5 py-1.5 bg-morandi hover:bg-[#587a99] text-white rounded-lg font-bold text-sm transition cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
+                                    @if (isSavingAnnotation)
+                                    {
+                                        <i class="fa-solid fa-spinner fa-spin mr-1"></i>
+                                    }
+                                    <span>儲存劃記</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 }
             </div>
 
@@ -147,7 +200,10 @@
                                        IsReadOnly="@isActionReadOnly"
                                        LockReason="@lockReason"
                                        History="@data.History"
-                                       SimilarQuestions="@data.SimilarQuestions" />
+                                       SimilarQuestions="@data.SimilarQuestions"
+                                       Annotations="@annotations"
+                                       CurrentUserId="@CurrentUserId"
+                                       OnAnnotationDeleted="OnAnnotationDeletedAsync" />
                 }
                 else
                 {
@@ -192,6 +248,12 @@
     /// <summary>要開啟的題目 Id（NULL 時不載入；切換到非 null 才觸發 Load）</summary>
     [Parameter] public int? QuestionId { get; set; }
 
+    /// <summary>
+    /// 要開啟的子題 Id（題組類用）；NULL = 開啟母題單元；非 NULL = 開啟該子題單元。
+    /// 與 QuestionId 一起決定載入哪個審題單元，並由 ReviewQuestionDisplay 切換顯示模式。
+    /// </summary>
+    [Parameter] public int? SubQuestionId { get; set; }
+
     /// <summary>當前登入者 Id（用於撈自己的 Assignment / 決策權限判斷）</summary>
     [Parameter, EditorRequired] public int CurrentUserId { get; set; }
 
@@ -223,6 +285,172 @@
     private bool isLoading;
     private string? loadError;
     private int? loadedQuestionId;
+    private int? loadedSubQuestionId;   // 與 loadedQuestionId 一起判定是否需要 re-load（換單元也要重撈）
+
+    /// <summary>
+    /// Modal 開啟期間使用者實際看到的子題單元 — 從 Parameter SubQuestionId 初始化，
+    /// 但使用者在母題列點擊「子題索引卡」後切換到的子題，此本地狀態維持到 Modal 關閉，
+    /// 不會被父層 Parameter 覆蓋（避免父層 re-render 把使用者切到的子題打回原點）。
+    /// </summary>
+    private int? currentSubId;
+
+    // ====================================================================
+    //  劃記評語（Annotation）狀態與 JS interop
+    // ====================================================================
+
+    /// <summary>當前單元的劃記評語清單；隨 (QuestionId, currentSubId) 切換重撈</summary>
+    private List<ReviewAnnotation> annotations = new();
+
+    /// <summary>annotation.js 回呼用的 .NET 物件參考（每個 Modal 實例獨立）</summary>
+    private DotNetObjectReference<ReviewModal>? annotSelfRef;
+
+    /// <summary>annotation.js 是否已初始化（避免 Modal 多次打開時重複 init）</summary>
+    private bool annotJsInited;
+
+    // 新增劃記對話框狀態
+    private bool showAnnotDialog;
+    private bool isSavingAnnotation;
+    private AnnotationRequestPayload? pendingAnnotation;
+    private string annotCommentDraft = string.Empty;
+
+    /// <summary>JS 端傳來的選取資訊（與 annotation.js 內 payload 結構對應）</summary>
+    public class AnnotationRequestPayload
+    {
+        public string FieldKey { get; set; } = "";
+        public int AnchorStart { get; set; }
+        public int AnchorEnd { get; set; }
+        public string SelectedText { get; set; } = "";
+    }
+
+    /// <summary>JS 端浮層按鈕點擊後回呼 — 開「新增評語」對話框</summary>
+    [JSInvokable]
+    public Task OnAnnotationRequested(AnnotationRequestPayload payload)
+    {
+        // 若 Modal 為唯讀（如階段結束、已決策），不允許新增劃記
+        if (data?.MyAssignment is null || IsHistoricalAssignment) return Task.CompletedTask;
+        if ((data.MyAssignment?.IsCompleted ?? false)) return Task.CompletedTask;
+
+        pendingAnnotation  = payload;
+        annotCommentDraft  = string.Empty;
+        showAnnotDialog    = true;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private void CancelAnnotationDialog()
+    {
+        showAnnotDialog   = false;
+        pendingAnnotation = null;
+        annotCommentDraft = string.Empty;
+    }
+
+    private async Task SaveAnnotationAsync()
+    {
+        if (pendingAnnotation is null || data?.MyAssignment is null) return;
+        var comment = (annotCommentDraft ?? string.Empty).Trim();
+        if (comment.Length == 0 || isSavingAnnotation) return;
+
+        isSavingAnnotation = true;
+        try
+        {
+            var newId = await AnnotationService.CreateAsync(new SaveAnnotationRequest
+            {
+                AssignmentId = data.MyAssignment.Id,
+                FieldKey     = pendingAnnotation.FieldKey,
+                AnchorStart  = pendingAnnotation.AnchorStart,
+                AnchorEnd    = pendingAnnotation.AnchorEnd,
+                SelectedText = pendingAnnotation.SelectedText,
+                Comment      = comment
+            }, CurrentUserId);
+
+            if (newId > 0)
+            {
+                CancelAnnotationDialog();
+                await ReloadAnnotationsAsync();
+                await ShowToastAsync("success", "劃記評語已新增");
+            }
+            else
+            {
+                await ShowToastAsync("error", "劃記新增失敗（可能權限不足）");
+            }
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync("error", $"劃記新增失敗：{ex.Message}");
+        }
+        finally
+        {
+            isSavingAnnotation = false;
+        }
+    }
+
+    private async Task OnAnnotationDeletedAsync(int annotationId)
+    {
+        if (data?.MyAssignment is null) return;
+        try
+        {
+            var ok = await AnnotationService.DeleteAsync(annotationId, CurrentUserId);
+            if (ok)
+            {
+                await ReloadAnnotationsAsync();
+                await ShowToastAsync("success", "劃記已刪除");
+            }
+            else
+            {
+                await ShowToastAsync("warning", "無法刪除（可能已被命題者回應或非本人劃記）");
+            }
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync("error", $"刪除失敗：{ex.Message}");
+        }
+    }
+
+    /// <summary>重撈當前單元 annotations + 觸發 JS renderHighlights</summary>
+    private async Task ReloadAnnotationsAsync()
+    {
+        if (data?.MyAssignment is null) { annotations = new(); return; }
+        annotations = await AnnotationService.GetByAssignmentAsync(data.MyAssignment.Id);
+        StateHasChanged();
+        await PushHighlightsToJsAsync();
+    }
+
+    /// <summary>把 annotations 序列化為 JS 端期望的 camelCase 物件丟過去 render</summary>
+    private async Task PushHighlightsToJsAsync()
+    {
+        if (!annotJsInited) return;
+        var payload = annotations.Select(a => new
+        {
+            id            = a.Id,
+            fieldKey      = a.FieldKey,
+            anchorStart   = a.AnchorStart,
+            anchorEnd     = a.AnchorEnd,
+            selectedText  = a.SelectedText,
+            comment       = a.Comment,
+            responseState = a.ResponseState is null ? (byte?)null : (byte)a.ResponseState.Value
+        }).ToArray();
+        try
+        {
+            // ⚠️ params object?[] 陷阱：anonymous[] 共變性會被當 params 陣列「展開」成多個 JS args。
+            // 必須轉 (object) 強制包裝，JS 端才會收到整個 array 而不是被攤平。
+            // deferredRender 內部有 retry：等 DOM 容器就位才正式 wrap，避免 OnAfterRender 早於子元件 render 的 race
+            await JS.InvokeVoidAsync("annotation.deferredRender", (object)payload);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[annotation] deferredRender failed: {ex.Message}");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (annotJsInited)
+        {
+            try { await JS.InvokeVoidAsync("annotation.dispose"); }
+            catch { /* JS context 已關 */ }
+        }
+        annotSelfRef?.Dispose();
+    }
 
     /// <summary>
     /// 意見草稿（雙向綁定到 ReviewActionPanel）。
@@ -396,25 +624,49 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        // 只在 IsVisible=true 且 QuestionId 切換時才重新載入
+        // 只在 IsVisible=true 且 QuestionId 切換時才重新載入；
+        // 同題下切換子題單元由 SwitchSubUnitAsync 內部負責，不走 OnParametersSetAsync。
+        // 父層 SubQuestionId 變化（只在「開新題」時才會跨 Modal 改變）會帶動 currentSubId 重設。
         if (!IsVisible || QuestionId is null) return;
         if (loadedQuestionId == QuestionId) return;
 
-        loadedQuestionId = QuestionId;
-        await LoadAsync(QuestionId.Value);
+        loadedQuestionId    = QuestionId;
+        currentSubId        = SubQuestionId;   // 開啟新題目時用父層指定的單元初始化
+        loadedSubQuestionId = currentSubId;
+        await LoadAsync(QuestionId.Value, currentSubId);
     }
 
-    private async Task LoadAsync(int questionId)
+    /// <summary>
+    /// 在 Modal 內切換到不同的審題單元（母題索引卡點擊子題、或子題之間互跳）。
+    /// 不關閉 Modal、不通知父層；只重撈該單元資料。
+    /// </summary>
+    public async Task SwitchSubUnitAsync(int? subQuestionId)
+    {
+        if (QuestionId is null) return;
+        if (currentSubId == subQuestionId) return;   // 已是該單元，不重撈
+        currentSubId        = subQuestionId;
+        loadedSubQuestionId = currentSubId;
+        await LoadAsync(QuestionId.Value, currentSubId);
+    }
+
+    private async Task LoadAsync(int questionId, int? subQuestionId)
     {
         isLoading = true;
         loadError = null;
         data = null;
         commentDraft = string.Empty;
+        annotations = new();
         try
         {
-            data = await ReviewService.GetModalDataAsync(questionId, CurrentUserId);
-            if (data is null) loadError = "找不到此題目，可能已被刪除。";
-            else commentDraft = data.MyAssignment?.Comment ?? string.Empty;
+            data = await ReviewService.GetModalDataAsync(questionId, subQuestionId, CurrentUserId);
+            if (data is null) { loadError = "找不到此題目，可能已被刪除。"; return; }
+            commentDraft = data.MyAssignment?.Comment ?? string.Empty;
+
+            // 載入該單元的劃記評語（只看自己 stage 自己劃的；無 Assignment 則自然空）
+            if (data.MyAssignment is not null)
+            {
+                annotations = await AnnotationService.GetByAssignmentAsync(data.MyAssignment.Id);
+            }
         }
         catch (Exception ex)
         {
@@ -424,6 +676,33 @@
         {
             isLoading = false;
         }
+    }
+
+    /// <summary>
+    /// 首次渲染後初始化 annotation.js（綁全域 selection 監聽 + 建浮層按鈕）。
+    /// 之後每次 LoadAsync 完成、DOM 更新後 push 一次 highlights。
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!IsVisible || data is null) return;
+
+        if (!annotJsInited)
+        {
+            annotSelfRef ??= DotNetObjectReference.Create(this);
+            try
+            {
+                await JS.InvokeVoidAsync("annotation.init", annotSelfRef);
+                annotJsInited = true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[annotation] init failed: {ex.Message}");
+                return;
+            }
+        }
+
+        // 每次 render（含子題切換、annotations 變動）都重畫 highlights
+        await PushHighlightsToJsAsync();
     }
 
     private string LevelLabel => data?.Question switch
@@ -467,7 +746,9 @@
     {
         // 不直接寫 IsVisible — 它是 [Parameter]，下次 OnParametersSetAsync 會被父層覆蓋。
         // 唯一可信賴的關閉路徑：通知父層 → 父層更新 state → 父層 re-render 把 IsVisible 變回 false
-        loadedQuestionId = null;   // 下次再開同題時強制重撈最新狀態
+        loadedQuestionId    = null;   // 下次再開同題時強制重撈最新狀態
+        loadedSubQuestionId = null;
+        currentSubId        = null;
         data = null;
         commentDraft = string.Empty;
         await IsVisibleChanged.InvokeAsync(false);

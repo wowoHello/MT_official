@@ -398,7 +398,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             SELECT Id, ParentQuestionId, SortOrder,
                    Stem, CorrectAnswer,
                    OptionA, OptionB, OptionC, OptionD,
-                   Analysis, CoreAbility, Indicator, FixedDifficulty
+                   Analysis, CoreAbility, Indicator, FixedDifficulty,
+                   Status, SubmittedAt, DecidedAt
             FROM dbo.MT_SubQuestions
             WHERE ParentQuestionId = @Id AND IsDeleted = 0
             ORDER BY SortOrder;
@@ -453,11 +454,14 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 ? [new()]
                 : subRows.Select(r => new SubQuestionChoice
                 {
-                    Id       = r.Id,
-                    Stem     = r.Stem ?? "",
-                    Options  = [r.OptionA ?? "", r.OptionB ?? "", r.OptionC ?? "", r.OptionD ?? ""],
-                    Answer   = r.CorrectAnswer ?? "",
-                    Analysis = r.Analysis ?? ""
+                    Id          = r.Id,
+                    Stem        = r.Stem ?? "",
+                    Options     = [r.OptionA ?? "", r.OptionB ?? "", r.OptionC ?? "", r.OptionD ?? ""],
+                    Answer      = r.CorrectAnswer ?? "",
+                    Analysis    = r.Analysis ?? "",
+                    Status      = r.Status,
+                    SubmittedAt = r.SubmittedAt,
+                    DecidedAt   = r.DecidedAt
                 }).ToList();
         }
         else if (data.QuestionType == QuestionTypeCodes.ShortGroup)
@@ -470,7 +474,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                     Stem        = r.Stem ?? "",
                     CoreAbility = r.CoreAbility,
                     Indicator   = r.Indicator,
-                    Analysis    = r.Analysis ?? ""
+                    Analysis    = r.Analysis ?? "",
+                    Status      = r.Status,
+                    SubmittedAt = r.SubmittedAt,
+                    DecidedAt   = r.DecidedAt
                 }).ToList();
         }
         else // ListenGroup（固定 2 子題）
@@ -485,7 +492,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                     Answer          = r.CorrectAnswer ?? "",
                     Analysis        = r.Analysis ?? "",
                     CoreAbility     = r.CoreAbility,
-                    DetailIndicator = r.Indicator
+                    DetailIndicator = r.Indicator,
+                    Status          = r.Status,
+                    SubmittedAt     = r.SubmittedAt,
+                    DecidedAt       = r.DecidedAt
                 }).ToList()
                 : [new() { FixedDifficulty = 3 }, new() { FixedDifficulty = 4 }];
         }
@@ -580,7 +590,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 q.Id, q.QuestionCode,
                 q.QuestionTypeId AS TypeId,
                 q.Level, q.Difficulty, q.Status,
-                q.Stem AS SummaryHtml,
+                -- 題組類（3=閱讀, 5=短文, 7=聽力題組）母題不寫 Stem，改用 ArticleContent 當摘要
+                CASE WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent ELSE q.Stem END AS SummaryHtml,
                 q.CreatedAt, q.UpdatedAt,
                 q.IsDeleted,
                 (SELECT COUNT(*) FROM dbo.MT_SubQuestions sq
@@ -926,9 +937,11 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             }
 
             // 6. 撈該專案所有 ReviewStage=1 既有 (QuestionId, ReviewerId) 防重複
+            //    題組綁定下，同 QuestionId 不同 SubQuestionId 必為同 ReviewerId，故 tuple 仍以「題目層」為比對單位。
+            //    Distinct 過濾掉題組子題列，確保 set 大小 = 已分配題目數。
             var existingPairs = (await conn.QueryAsync<(int QuestionId, int ReviewerId)>(
                 """
-                SELECT QuestionId, ReviewerId
+                SELECT DISTINCT QuestionId, ReviewerId
                 FROM dbo.MT_ReviewAssignments
                 WHERE ProjectId = @ProjectId AND ReviewStage = 1;
                 """,
@@ -936,14 +949,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 .Select(x => (x.QuestionId, x.ReviewerId))
                 .ToHashSet();
 
-            // 7. 逐題分配：選擇「負載最低 + ≠ Creator + 該題尚未分配給此人」的審題者
-            const string insertAssignmentSql = """
-                INSERT INTO dbo.MT_ReviewAssignments
-                    (QuestionId, ProjectId, ReviewerId, ReviewStage, ReviewStatus, CreatedAt)
-                VALUES
-                    (@QuestionId, @ProjectId, @ReviewerId, 1, 0, SYSDATETIME());
-                """;
+            // 6.5 撈每個 candidate 的子題 mapping（題組綁定整組分配時使用）
+            var subMap = await LoadSubQuestionMapAsync(conn, tx, candidates.Select(c => c.Id));
 
+            // 7. 逐題分配：選擇「負載最低 + ≠ Creator + 該題尚未分配給此人」的審題者
             const string auditSql = """
                 INSERT INTO dbo.MT_AuditLogs
                     (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
@@ -969,12 +978,12 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                     continue;
                 }
 
-                await conn.ExecuteAsync(insertAssignmentSql, new
-                {
-                    QuestionId = questionId,
-                    ProjectId  = projectId,
-                    ReviewerId = bestReviewer.Value
-                }, tx);
+                // 題組綁定：母題 + 全部子題分給同一 reviewer。回傳 0 代表母題列已存在（視同整組已分配）→ 不寫 audit
+                var subIds = subMap.GetValueOrDefault(questionId, []);
+                var inserted = await InsertGroupAssignmentsAsync(
+                    conn, tx, projectId, questionId, subIds, bestReviewer.Value, reviewStage: 1);
+
+                if (inserted == 0) continue;
 
                 loadCounts[bestReviewer.Value]++;
                 existingPairs.Add((questionId, bestReviewer.Value));
@@ -988,9 +997,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                     OldValue   = JsonSerializer.Serialize(new { Status = QuestionStatus.Completed }),
                     NewValue   = JsonSerializer.Serialize(new
                     {
-                        Status     = QuestionStatus.Submitted,
-                        Reason     = "CompositionPhaseEnded",
-                        ReviewerId = bestReviewer.Value
+                        Status         = QuestionStatus.Submitted,
+                        Reason         = "CompositionPhaseEnded",
+                        ReviewerId     = bestReviewer.Value,
+                        SubUnitCount   = subIds.Count   // 0=非題組；>0=題組類，分配 N+1 個審題單元
                     })
                 }, tx);
 
@@ -1273,23 +1283,43 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 new { Id = questionId, Final = QuestionStatus.FinalReviewing }, tx);
 
             // 2. 取該題 Stage=3 所有 ReviewerId（distinct，跨多輪保留全部歷史審題者）
+            //    題組綁定下整題同 ReviewerId，DISTINCT 後一般只剩 1 筆
             var reviewerIds = (await conn.QueryAsync<int>(
                 "SELECT DISTINCT ReviewerId FROM dbo.MT_ReviewAssignments WHERE QuestionId = @Id AND ReviewStage = 3;",
                 new { Id = questionId }, tx)).AsList();
 
-            // 3. 為每位 reviewer INSERT 新一筆 Pending(0) Assignment — 形成新一輪審題任務
+            // 2.5 找「需重派的審題單元」：母題 + 各子題分別判定，
+            //     僅當最新一筆 Stage=3 Decision != Approve(1) 才需重派。
+            //     PARTITION BY SubQuestionId：SQL Server 將 NULL 視為相等，母題 NULL 列自成一組。
+            //     回傳 List<int?>：NULL = 母題單元，非 NULL = 子題 Id。
+            var unitsToReassign = (await conn.QueryAsync<int?>(
+                """
+                WITH latest AS (
+                    SELECT SubQuestionId, Decision,
+                           ROW_NUMBER() OVER (PARTITION BY SubQuestionId ORDER BY Id DESC) AS rn
+                    FROM dbo.MT_ReviewAssignments
+                    WHERE QuestionId = @Id AND ReviewStage = 3
+                )
+                SELECT SubQuestionId
+                FROM latest
+                WHERE rn = 1
+                  AND (Decision IS NULL OR Decision <> 1);  -- 1=Approve；其餘（Revise/Reject/未完成）皆需重派
+                """,
+                new { Id = questionId }, tx)).AsList();
+
+            // 3. 為每位 reviewer × 每個待重派單元 INSERT 新一筆 Pending(0)
             //    既有 row 不動（保留 Decision/Comment/DecidedAt 歷程）
-            //    Idempotent：若該 (Q, R, Stage=3) 已存在 Pending row（前次 resubmit 殘留 / 重複按）則 skip insert，
-            //    避免撞 UQ_MT_ReviewAssignments_Pending 唯一索引；同時整個 method 重複呼叫不會出錯
+            //    Idempotent：NOT EXISTS 守門，重複呼叫不重插同 (Q, Sub, R, Stage=3, Status=0)
             const string insertSql = """
                 INSERT INTO dbo.MT_ReviewAssignments
-                    (QuestionId, ProjectId, ReviewerId, ReviewStage, ReviewStatus, CreatedAt)
-                SELECT @QuestionId, q.ProjectId, @ReviewerId, 3, 0, SYSDATETIME()
+                    (QuestionId, SubQuestionId, ProjectId, ReviewerId, ReviewStage, ReviewStatus, CreatedAt)
+                SELECT @QuestionId, @SubQuestionId, q.ProjectId, @ReviewerId, 3, 0, SYSDATETIME()
                 FROM dbo.MT_Questions q
                 WHERE q.Id = @QuestionId
                   AND NOT EXISTS (
                       SELECT 1 FROM dbo.MT_ReviewAssignments
                       WHERE QuestionId   = @QuestionId
+                        AND ISNULL(SubQuestionId, -1) = ISNULL(@SubQuestionId, -1)
                         AND ReviewerId   = @ReviewerId
                         AND ReviewStage  = 3
                         AND ReviewStatus = 0
@@ -1297,8 +1327,11 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 """;
             foreach (var reviewerId in reviewerIds)
             {
-                await conn.ExecuteAsync(insertSql,
-                    new { QuestionId = questionId, ReviewerId = reviewerId }, tx);
+                foreach (var subId in unitsToReassign)
+                {
+                    await conn.ExecuteAsync(insertSql,
+                        new { QuestionId = questionId, SubQuestionId = subId, ReviewerId = reviewerId }, tx);
+                }
             }
 
             // 4. AuditLog（題目層級）
@@ -1406,9 +1439,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         }
 
         // 5. 撈既有 (QuestionId, ReviewerId) 防重複
+        //    題組綁定下 SubQuestionId 不同列必為同 ReviewerId，故 DISTINCT 到題目層即可
         var existingPairs = (await conn.QueryAsync<(int QuestionId, int ReviewerId)>(
             """
-            SELECT QuestionId, ReviewerId
+            SELECT DISTINCT QuestionId, ReviewerId
             FROM dbo.MT_ReviewAssignments
             WHERE ProjectId = @ProjectId AND ReviewStage = 2;
             """,
@@ -1416,20 +1450,12 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             .Select(x => (x.QuestionId, x.ReviewerId))
             .ToHashSet();
 
+        // 5.5 撈每題的子題 mapping
+        var subMap = await LoadSubQuestionMapAsync(conn, tx, candidates.Select(c => c.Id));
+
         // 6. 逐題分配：負載最低 + 不為 Creator + 該題尚未分給此人
         //    — 先從 existingPairs 衍生已分配過的 QuestionId 集合，loop 頂部 skip 整題去重
         var existingQuestionIds = existingPairs.Select(p => p.QuestionId).ToHashSet();
-
-        // NOT EXISTS 版 INSERT：雙重保護（C# 層去重 + DB 層 WHERE NOT EXISTS）
-        const string insertSql = """
-            INSERT INTO dbo.MT_ReviewAssignments
-                (QuestionId, ProjectId, ReviewerId, ReviewStage, ReviewStatus, CreatedAt)
-            SELECT @QuestionId, @ProjectId, @ReviewerId, 2, 0, SYSDATETIME()
-            WHERE NOT EXISTS (
-                SELECT 1 FROM dbo.MT_ReviewAssignments
-                WHERE QuestionId = @QuestionId AND ReviewStage = 2
-            );
-            """;
 
         const string auditSql = """
             INSERT INTO dbo.MT_AuditLogs
@@ -1453,12 +1479,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
             if (bestReviewer is null) continue; // 無人可分（所有審題者皆為命題者）
 
-            var inserted = await conn.ExecuteAsync(insertSql, new
-            {
-                QuestionId = questionId,
-                ProjectId  = projectId,
-                ReviewerId = bestReviewer.Value
-            }, tx);
+            // 題組綁定：母題 + 子題全部分給同一 reviewer，逐筆 NOT EXISTS 守門
+            var subIds = subMap.GetValueOrDefault(questionId, []);
+            var inserted = await InsertGroupAssignmentsAsync(
+                conn, tx, projectId, questionId, subIds, bestReviewer.Value, reviewStage: 2);
 
             if (inserted == 0) continue; // NOT EXISTS 攔截（資料庫層去重）
 
@@ -1475,9 +1499,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 OldValue   = JsonSerializer.Serialize(new { ReviewStage = 2, Status = "Pending" }),
                 NewValue   = JsonSerializer.Serialize(new
                 {
-                    ReviewStage = 2,
-                    ReviewerId = bestReviewer.Value,
-                    Reason = "ExpertReviewAssigned"
+                    ReviewStage  = 2,
+                    ReviewerId   = bestReviewer.Value,
+                    Reason       = "ExpertReviewAssigned",
+                    SubUnitCount = subIds.Count
                 })
             }, tx);
         }
@@ -1541,9 +1566,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         }
 
         // 撈 Stage=2 已審過的 (QuestionId, ReviewerId)，作為迴避基準
+        // DISTINCT：題組綁定下同一題會有 N+1 筆同 ReviewerId 紀錄，去重到題目層即可
         var stage2Pairs = (await conn.QueryAsync<(int QuestionId, int ReviewerId)>(
             """
-            SELECT QuestionId, ReviewerId
+            SELECT DISTINCT QuestionId, ReviewerId
             FROM dbo.MT_ReviewAssignments
             WHERE ProjectId = @ProjectId AND ReviewStage = 2;
             """,
@@ -1588,10 +1614,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             if (loadCounts.ContainsKey(rid)) loadCounts[rid] = cnt;
         }
 
-        // 既有 Stage=3 (QuestionId, ReviewerId) 防重
+        // 既有 Stage=3 (QuestionId, ReviewerId) 防重；DISTINCT 到題目層（同上述理由）
         var existingPairs = (await conn.QueryAsync<(int QuestionId, int ReviewerId)>(
             """
-            SELECT QuestionId, ReviewerId
+            SELECT DISTINCT QuestionId, ReviewerId
             FROM dbo.MT_ReviewAssignments
             WHERE ProjectId = @ProjectId AND ReviewStage = 3;
             """,
@@ -1606,29 +1632,16 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         }
 
         // 已分配過 Stage=3 的 QuestionId — loop 頂部 skip 整題去重
-        var existingQuestionIds = existingPairs
-            .Where(p => stage2Pairs.Contains(p) == false || existingPairs.Contains(p))
-            .Select(p => p.QuestionId)
-            .ToHashSet();
-        // 重新取 Stage=3 既有 QuestionId（不含 Stage=2 迴避集合）
-        existingQuestionIds = (await conn.QueryAsync<int>(
+        var existingQuestionIds = (await conn.QueryAsync<int>(
             """
-            SELECT QuestionId
+            SELECT DISTINCT QuestionId
             FROM dbo.MT_ReviewAssignments
             WHERE ProjectId = @ProjectId AND ReviewStage = 3;
             """,
             new { ProjectId = projectId }, tx)).ToHashSet();
 
-        // NOT EXISTS 版 INSERT：雙重保護（C# 層去重 + DB 層 WHERE NOT EXISTS）
-        const string insertSql = """
-            INSERT INTO dbo.MT_ReviewAssignments
-                (QuestionId, ProjectId, ReviewerId, ReviewStage, ReviewStatus, CreatedAt)
-            SELECT @QuestionId, @ProjectId, @ReviewerId, 3, 0, SYSDATETIME()
-            WHERE NOT EXISTS (
-                SELECT 1 FROM dbo.MT_ReviewAssignments
-                WHERE QuestionId = @QuestionId AND ReviewStage = 3
-            );
-            """;
+        // 撈每題的子題 mapping
+        var subMap = await LoadSubQuestionMapAsync(conn, tx, candidates.Select(c => c.Id));
 
         const string auditSql = """
             INSERT INTO dbo.MT_AuditLogs
@@ -1652,12 +1665,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
             if (bestReviewer is null) continue;
 
-            var inserted = await conn.ExecuteAsync(insertSql, new
-            {
-                QuestionId = questionId,
-                ProjectId  = projectId,
-                ReviewerId = bestReviewer.Value
-            }, tx);
+            // 題組綁定：母題 + 子題全部分給同一 reviewer
+            var subIds = subMap.GetValueOrDefault(questionId, []);
+            var inserted = await InsertGroupAssignmentsAsync(
+                conn, tx, projectId, questionId, subIds, bestReviewer.Value, reviewStage: 3);
 
             if (inserted == 0) continue; // NOT EXISTS 攔截（資料庫層去重）
 
@@ -1674,9 +1685,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                 OldValue   = JsonSerializer.Serialize(new { ReviewStage = 3, Status = "Pending" }),
                 NewValue   = JsonSerializer.Serialize(new
                 {
-                    ReviewStage = 3,
-                    ReviewerId  = bestReviewer.Value,
-                    Reason      = "FinalReviewAssigned"
+                    ReviewStage  = 3,
+                    ReviewerId   = bestReviewer.Value,
+                    Reason       = "FinalReviewAssigned",
+                    SubUnitCount = subIds.Count
                 })
             }, tx);
         }
@@ -2178,6 +2190,82 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         return dp;
     }
 
+    // ====================================================================
+    //  Stage B 共用：題組綁定式分配 helper
+    //  - 設計原則：題組（QuestionTypeId 3/5/7）的母題與所有子題綁定給「同一位 reviewer」
+    //  - DB 寫入：1 筆母題（SubQuestionId NULL）+ M 筆子題（SubQuestionId 各自填值），全部同 ReviewerId
+    //  - 決策 / 計次 / 退回則各審題單元獨立（由後續 Modal / Decision 流程處理）
+    // ====================================================================
+
+    /// <summary>
+    /// 批次撈一組母題 Id 的所有子題 Id（依 SortOrder 排序）。
+    /// 非題組題（QuestionTypeId != 3/5/7）不會出現在 MT_SubQuestions，自然回空 list。
+    /// </summary>
+    private static async Task<Dictionary<int, List<int>>> LoadSubQuestionMapAsync(
+        IDbConnection conn, IDbTransaction tx, IEnumerable<int> questionIds)
+    {
+        var ids = questionIds.Distinct().ToList();
+        if (ids.Count == 0) return new Dictionary<int, List<int>>();
+
+        var rows = await conn.QueryAsync<(int ParentQuestionId, int Id)>(
+            """
+            SELECT ParentQuestionId, Id
+            FROM dbo.MT_SubQuestions
+            WHERE ParentQuestionId IN @Ids
+            ORDER BY ParentQuestionId, SortOrder;
+            """,
+            new { Ids = ids }, tx);
+
+        return rows.GroupBy(x => x.ParentQuestionId)
+                   .ToDictionary(g => g.Key, g => g.Select(x => x.Id).ToList());
+    }
+
+    /// <summary>
+    /// 寫入「整組」審題分配（題組綁定）：母題 1 筆 + 子題 N 筆，全部分給同一 reviewer。
+    ///
+    /// 效能：用單一 INSERT…SELECT FROM (VALUES) 一次寫 N+1 筆（取代 N+1 個獨立 round-trip）。
+    /// 防重：每筆都套用 NULL-safe NOT EXISTS（比對 QuestionId + SubQuestionId + Stage），既存列自動跳過。
+    /// 回傳：本次實際新增的筆數（0 = 整組已存在；N+1 = 全新分配；中間值 = crash recovery 補殘缺）。
+    /// </summary>
+    private static async Task<int> InsertGroupAssignmentsAsync(
+        IDbConnection conn, IDbTransaction tx,
+        int projectId, int questionId, IReadOnlyList<int> subQuestionIds,
+        int reviewerId, byte reviewStage)
+    {
+        // 構造 VALUES 列：母題 (NULL) + 各子題 Id
+        // 注意：(VALUES (NULL)) 在 SQL Server 需明確 CAST 否則類型推斷會失敗
+        var valueClauses = new List<string>(subQuestionIds.Count + 1)
+        {
+            "(CAST(NULL AS INT))"
+        };
+        var dp = new DynamicParameters();
+        dp.Add("QuestionId", questionId);
+        dp.Add("ProjectId",  projectId);
+        dp.Add("ReviewerId", reviewerId);
+        dp.Add("Stage",      reviewStage);
+        for (var i = 0; i < subQuestionIds.Count; i++)
+        {
+            valueClauses.Add($"(@Sub{i})");
+            dp.Add($"Sub{i}", subQuestionIds[i]);
+        }
+
+        // src.SubId NULL = 母題、非 NULL = 子題；NULL-safe NOT EXISTS 守門
+        var sql = $"""
+            INSERT INTO dbo.MT_ReviewAssignments
+                (QuestionId, SubQuestionId, ProjectId, ReviewerId, ReviewStage, ReviewStatus, CreatedAt)
+            SELECT @QuestionId, src.SubId, @ProjectId, @ReviewerId, @Stage, 0, SYSDATETIME()
+            FROM (VALUES {string.Join(",", valueClauses)}) AS src(SubId)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM dbo.MT_ReviewAssignments ra
+                WHERE ra.QuestionId   = @QuestionId
+                  AND ISNULL(ra.SubQuestionId, -1) = ISNULL(src.SubId, -1)
+                  AND ra.ReviewStage  = @Stage
+            );
+            """;
+
+        return await conn.ExecuteAsync(sql, dp, tx);
+    }
+
     /// <summary>
     /// 寫入系統稽核 LOG（MT_AuditLogs）。
     /// TargetType 固定為 Questions；oldValue/newValue 以 JSON 序列化僅記關鍵欄位。
@@ -2298,6 +2386,11 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         public byte? CoreAbility { get; set; }
         public byte? Indicator { get; set; }
         public byte? FixedDifficulty { get; set; }
+
+        // Stage A 新增：子題審題單元狀態（與母題對等）
+        public byte Status { get; set; }
+        public DateTime? SubmittedAt { get; set; }
+        public DateTime? DecidedAt { get; set; }
     }
 
     private sealed class QuestionMetaDto

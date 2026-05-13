@@ -80,6 +80,32 @@ public class ReviewModalData
 
     /// <summary>是否已解鎖總召自行修題（總召退回 ≥ 2 次後）</summary>
     public bool CanFinalReviewerEdit { get; set; }
+
+    /// <summary>
+    /// 該題目當前 stage 該使用者擁有的「兄弟單元」清單（含母題與所有子題）。
+    /// 用於母題列顯示「子題索引卡」狀態。
+    /// 非題組類題目此清單僅有 1 筆（母題自身）；外部使用前先判斷 .Count > 1 才需渲染。
+    /// </summary>
+    public List<ReviewSiblingUnit> SiblingUnits { get; set; } = new();
+}
+
+/// <summary>
+/// 同題目同 stage 的兄弟審題單元 — 給母題列子題索引卡使用。
+/// 由 Service 端依當前 Modal 的 stage（從 MyAssignment.Stage 推導）批次撈出。
+/// </summary>
+public class ReviewSiblingUnit
+{
+    public int AssignmentId { get; set; }
+
+    /// <summary>子題 Id；NULL = 母題單元</summary>
+    public int? SubQuestionId { get; set; }
+
+    /// <summary>子題 SortOrder；NULL = 母題單元（顯示為母題）</summary>
+    public int? SortOrder { get; set; }
+
+    public ReviewStage Stage { get; set; }
+    public ReviewTaskStatus Status { get; set; }
+    public ReviewDecision? Decision { get; set; }
 }
 
 /// <summary>當前使用者對某題目的 Assignment 紀錄</summary>
@@ -87,6 +113,8 @@ public class ReviewAssignmentInfo
 {
     public int Id { get; set; }
     public int QuestionId { get; set; }
+    /// <summary>子題 Id；NULL=母題單元、非 NULL=該子題單元（Stage B 新增）</summary>
+    public int? SubQuestionId { get; set; }
     public ReviewStage Stage { get; set; }
     public ReviewTaskStatus Status { get; set; }
     public ReviewDecision? Decision { get; set; }
@@ -139,6 +167,23 @@ public class ReviewListItem
     public int AssignmentId { get; set; }
     public int QuestionId { get; set; }
     public string QuestionCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 子題 Id（NULL=母題列；有值=該母題下某子題列）。
+    /// 對應 MT_ReviewAssignments.SubQuestionId（Stage A 新增的 nullable FK）。
+    /// </summary>
+    public int? SubQuestionId { get; set; }
+
+    /// <summary>子題 SortOrder（NULL=母題列）— 用來組合子題碼。</summary>
+    public int? SubSortOrder { get; set; }
+
+    /// <summary>
+    /// 顯示用編號：母題列回母題碼；子題列回 母題碼-NN。
+    /// 統一在 Model 端產生，避免 Razor 端到處呼叫 QuestionCodeHelper。
+    /// </summary>
+    public string DisplayCode =>
+        SubSortOrder is int so ? QuestionCodeHelper.SubCode(QuestionCode, so) : QuestionCode;
+
     public string TypeKey { get; set; } = string.Empty;
     public byte? Level { get; set; }
     public byte? Difficulty { get; set; }

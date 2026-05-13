@@ -16,9 +16,9 @@ type: project
 Login.razor **不使用 DataAnnotationsValidator**，改用自訂 `Dictionary<string, string> fieldErrors`：
 
 - `SetFieldError(params (string Field, string Message)[] errors)`：清空所有錯誤後重新設定
-- `ClearFieldError(fieldName)`：使用者修改欄位時即時移除單欄錯誤
-- 訊息為空字串時 = 僅顯示紅框，不顯示欄位下方文字（帳密錯誤情境）
-- `BuildLoginInputClass` 根據 `fieldErrors.ContainsKey` 動態切換 `border-red-400` vs `border-gray-300`
+- `ClearFieldError(fieldName)`：使用者修改欄位時即時移除單欄錯誤（只有 Remove 成功才 StateHasChanged）
+- 訊息為空字串時 = 僅顯示紅框，不顯示欄位下方文字（帳密錯誤情境：帳號密碼兩欄皆紅框但無訊息）
+- `BuildLoginInputClass(fieldName, includeLeftIconPadding, extraClasses, fullWidth)` 根據 `fieldErrors.ContainsKey` 動態切換 `border-red-400` vs `border-gray-300`
 
 ## 驗證順序
 
@@ -28,7 +28,7 @@ Login.razor **不使用 DataAnnotationsValidator**，改用自訂 `Dictionary<st
 
 ## 開發模式
 
-- `IsDev = Env.IsDevelopment()`
+- `IsDev = Env.IsDevelopment()`（注入 `IWebHostEnvironment`）
 - 初始化時自動填入：`Username = "jay"`，`Password = "01024304"`，`CaptchaInput = generatedCaptcha`
 - 顯示「開發模式」提示條（emerald 色）
 - 例外錯誤訊息會顯示完整 Exception 類型與訊息（生產環境改為通用文字）
@@ -39,11 +39,15 @@ Login.razor **不使用 DataAnnotationsValidator**，改用自訂 `Dictionary<st
 
 ## 表單模型
 
-`LoginFormModel`（sealed class，定義在 Razor @code 內）：
+`LoginFormModel` 定義在 `Models/AuthModels.cs`（非 Razor 內嵌 class）：
 - `Username`：帳號或信箱（支援兩者）
 - `Password`：密碼
 - `CaptchaInput`：驗證碼輸入
 - `RememberMe`：記住登入，預設 false
+
+首次登入、重設密碼模型也在同一個 `Models/AuthModels.cs` 檔案中：
+- `FirstLoginPasswordFormModel`：NewPassword + ConfirmPassword
+- `ResetPasswordFormModel`：NewPassword + ConfirmPassword
 
 ## 其他 UI 細節
 
@@ -51,3 +55,23 @@ Login.razor **不使用 DataAnnotationsValidator**，改用自訂 `Dictionary<st
 - 密碼眼睛按鈕使用 Font Awesome `fa-eye` / `fa-eye-slash`
 - 資安提示區塊（blue-50）固定顯示在驗證碼下方
 - 頁腳顯示 `@DateTime.Now.Year 全民中文檢定 CWT`
+- 驗證碼圖片尺寸：`h-[42px] w-[140px]`，click 觸發 `RefreshCaptcha()`
+
+## 首次登入強制改密碼（FirstLoginPassword.razor）
+
+- 路由 `/first-login-password`，需已登入（無 `[AllowAnonymous]`，使用 Cookie 驗證身份）
+- 從 `AuthenticationState` 取 `ClaimTypes.NameIdentifier` 得到 userId
+- 呼叫 `ResetService.ChangePasswordAsync(userId, newPassword)`
+- 新舊密碼相同 → `samePasswordError = true` → 欄位下方紅字提示（無 SweetAlert）
+- 密碼長度 < 6 → SweetAlert warning
+- 兩次不一致 → SweetAlert error
+- 成功 → SweetAlert success (timer=1000, showConfirmButton=false) → 等 1100ms → `auth/logout` 強制重新登入
+
+## 重設密碼（ResetPassword.razor）
+
+- 路由 `/resetpassword?token=xxx`，`[AllowAnonymous]`
+- `OnInitializedAsync` 呼叫 `ResetService.ValidateTokenAsync(token)` 驗證 token
+- token 無效 → `OnAfterRenderAsync` 顯示 SweetAlert warning → 導回 `/login`（避免 SSR 期間 JS 呼叫失敗）
+- Token 驗證通過才顯示重設表單
+- `ResetPasswordAsync` 在 Transaction 內再次驗證 token（防止併發）
+- 成功 → SweetAlert success (timer=1000) → 等 1100ms → 導回 `/login`

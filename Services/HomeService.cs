@@ -217,7 +217,6 @@ public class HomeService : IHomeService
                     AlertType = AlertType.PhaseOverdue,
                     Severity = AlertSeverity.Critical,
                     PhaseCode = overdue.PhaseCode,
-                    PhaseName = overdue.PhaseName,
                     DaysLeft = -overdue.DaysOverdue,
                     Title = $"{overdue.PhaseName}已逾期 {overdue.DaysOverdue} 天",
                     Subtitle = "請盡速推進階段時程"
@@ -283,7 +282,6 @@ public class HomeService : IHomeService
             AlertType = AlertType.PhaseCountdown,
             Severity = severity,
             PhaseCode = phase.PhaseCode,
-            PhaseName = phase.PhaseName,
             DaysLeft = phase.DaysLeft,
             Title = $"{phase.PhaseName}{FormatPhaseDeadline(phase.DaysLeft)}",
             Subtitle = "梯次配額已達標"
@@ -320,9 +318,7 @@ public class HomeService : IHomeService
             AlertType = AlertType.AdminSummary,
             Severity = severity,
             PhaseCode = phase.PhaseCode,
-            PhaseName = phase.PhaseName,
             DaysLeft = phase.DaysLeft,
-            PendingCount = totalPending,
             Title = title,
             Subtitle = $"{phase.PhaseName}{FormatPhaseRemaining(phase.DaysLeft)}"
         };
@@ -340,9 +336,7 @@ public class HomeService : IHomeService
             AlertType = AlertType.QuotaGap,
             Severity = severity,
             PhaseCode = phase.PhaseCode,
-            PhaseName = phase.PhaseName,
             DaysLeft = phase.DaysLeft,
-            PendingCount = shortage,
             Title = $"梯次還缺 {shortage} 題未產出",
             Subtitle = $"達成率 {ratio}%，命題階段{FormatPhaseRemaining(phase.DaysLeft)}"
         };
@@ -414,9 +408,7 @@ public class HomeService : IHomeService
                 AlertType = AlertType.PersonalBacklog,
                 Severity = AlertSeverity.Critical,
                 PhaseCode = phase.PhaseCode,
-                PhaseName = phase.PhaseName,
                 DaysLeft = phase.DaysLeft,
-                PendingCount = pending,
                 Title = $"您還有 {pending} 題{taskLabel}",
                 Subtitle = $"{phase.PhaseName}{FormatPhaseDeadline(phase.DaysLeft)}"
             });
@@ -429,9 +421,7 @@ public class HomeService : IHomeService
                 AlertType = AlertType.PhaseCountdown,
                 Severity = severity,
                 PhaseCode = phase.PhaseCode,
-                PhaseName = phase.PhaseName,
                 DaysLeft = phase.DaysLeft,
-                PendingCount = 0,
                 Title = $"{phase.PhaseName}{FormatPhaseDeadline(phase.DaysLeft)}",
                 Subtitle = "目前任務皆已完成"
             });

@@ -1235,13 +1235,13 @@
 
     private static string GetQuestionStatusBadge(int status) => status switch
     {
-        0 => "bg-gray-100 text-gray-500",          // 草稿
-        1 => "bg-blue-50 text-blue-700",            // 完成
-        2 => "bg-sage/15 text-sage",                // 送審
-        3 or 5 or 7 => "bg-blue-50 text-blue-600",  // 審查中
-        4 or 6 or 8 => "bg-amber-50 text-amber-700", // 修題中
-        12 => "bg-sage/15 text-sage",               // 採用
-        13 => "bg-gray-100 text-gray-500",          // 不採用
+        0 => "bg-gray-100 text-gray-500",            // 草稿
+        1 => "bg-blue-50 text-blue-700",             // 完成
+        2 => "bg-sage/15 text-sage",                 // 送審
+        3 or 5 or 7 => "bg-blue-50 text-blue-600",   // 審查中（互/專/總審）
+        4 or 6 or 8 => "bg-amber-50 text-amber-700", // 修題中（互/專/總修）
+        9 or 12 => "bg-sage/15 text-sage",           // 採用 / 結案入庫
+        10 or 11 => "bg-gray-100 text-gray-500",     // 不採用 / 結案未採用
         _ => "bg-morandi/15 text-morandi"
     };
 
@@ -1256,8 +1256,10 @@
         6 => "專修中",
         7 => "總審中",
         8 => "總修中",
-        12 => "採用",
-        13 => "不採用",
+        9 => "採用",
+        10 => "不採用",
+        11 => "結案未採用",
+        12 => "結案入庫",
         _ => $"狀態{status}"
     };
 }

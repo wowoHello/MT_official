@@ -9,8 +9,11 @@
 @*  Plan_010-B：骨架（Header / Banner / 三欄 / Footer）— 右側面板用 *@
 @*               Placeholder 暫代，Plan_010-C 會補上完整內容                  *@
 @* ====================================================================== *@
+@implements IAsyncDisposable
 @using MT.Components.Shared.QuestionForms
+@using MT.Components.Shared.ReviewForms
 @inject IQuestionService QuestionService
+@inject IAnnotationService AnnotationService
 @inject IJSRuntime JS
 
 @if (IsVisible)
@@ -76,8 +79,24 @@
                     }
                 </div>
 
-                @* 右側資訊區：X 關閉鈕 *@
+                @* 右側資訊區：模式切換鈕 + X 關閉鈕 *@
                 <div class="flex items-center gap-3 shrink-0">
+                    @if (data is not null)
+                    {
+                        @* 閱讀 / 編輯模式切換：閱讀模式可看劃記高亮、編輯模式可改題 *@
+                        <div class="inline-flex rounded-lg border border-gray-300 overflow-hidden text-xs font-bold shadow-sm">
+                            <button type="button" @onclick="() => SetModeAsync(true)"
+                                    class="@(isReadingMode ? "bg-morandi text-white" : "bg-white text-gray-500 hover:text-morandi") px-3 py-1.5 flex items-center gap-1.5 transition cursor-pointer focus:outline-none">
+                                <i class="fa-solid fa-eye"></i> 閱讀模式
+                            </button>
+                            <button type="button" @onclick="() => SetModeAsync(false)"
+                                    disabled="@(!data.IsEditable)"
+                                    title="@(data.IsEditable ? "切換到編輯模式" : "目前非修題期間，僅供檢視")"
+                                    class="@(!isReadingMode ? "bg-sage text-white" : "bg-white text-gray-500 hover:text-sage") px-3 py-1.5 flex items-center gap-1.5 transition cursor-pointer focus:outline-none border-l border-gray-300 disabled:opacity-40 disabled:cursor-not-allowed">
+                                <i class="fa-solid fa-pen-to-square"></i> 編輯模式
+                            </button>
+                        </div>
+                    }
                     <button type="button" @onclick="TryCloseAsync"
                             title="關閉"
                             class="text-gray-400 hover:text-terracotta hover:bg-gray-100 text-xl w-9 h-9 flex items-center justify-center rounded-lg transition cursor-pointer focus:outline-none shrink-0">
@@ -150,47 +169,59 @@
                                             InvalidFields="invalidFields" />
                                     </div>
 
-                                    @* ----- 中：題目編輯主區 ----- *@
+                                    @* ----- 中：題目主區 — 依模式切換（閱讀模式可見劃記高亮；編輯模式 Quill 編輯） ----- *@
                                     <div class="flex-grow overflow-y-auto custom-scroll bg-oatmeal min-h-0">
-                                        @switch (data.Question.QuestionType)
+                                        @if (isReadingMode)
                                         {
-                                            case QuestionTypeCodes.Single:
-                                            case QuestionTypeCodes.Select:
-                                                <QuestionFormSingle @bind-Stem="data.Question.Stem" @bind-Options="data.Question.Options"
-                                                                    @bind-Answer="data.Question.Answer" @bind-Analysis="data.Question.Analysis"
-                                                                    @bind-Images="data.Question.Images"
-                                                                    InvalidFields="invalidFields" />
-                                                break;
-                                            case QuestionTypeCodes.LongText:
-                                                <QuestionFormLongText @bind-Stem="data.Question.Stem" @bind-Passage="data.Question.ArticleContent"
-                                                                      @bind-GradingNote="data.Question.GradingNote"
-                                                                      InvalidFields="invalidFields" />
-                                                break;
-                                            case QuestionTypeCodes.ReadGroup:
-                                                <QuestionFormReadGroup Status="@data.QStatus"
-                                                                       @bind-Passage="data.Question.ArticleContent"
-                                                                       @bind-SubQuestions="data.Question.ReadSubQuestions"
-                                                                       @bind-Images="data.Question.Images"
-                                                                       InvalidFields="invalidFields" />
-                                                break;
-                                            case QuestionTypeCodes.ShortGroup:
-                                                <QuestionFormShortGroup Status="@data.QStatus"
-                                                                        @bind-Passage="data.Question.ArticleContent"
-                                                                        @bind-SubQuestions="data.Question.ShortSubQuestions"
+                                            <ReviewQuestionDisplay Question="@data.Question" CreatorName="" />
+                                        }
+                                        else
+                                        {
+                                            @switch (data.Question.QuestionType)
+                                            {
+                                                case QuestionTypeCodes.Single:
+                                                case QuestionTypeCodes.Select:
+                                                    <QuestionFormSingle @bind-Stem="data.Question.Stem" @bind-Options="data.Question.Options"
+                                                                        @bind-Answer="data.Question.Answer" @bind-Analysis="data.Question.Analysis"
+                                                                        @bind-Images="data.Question.Images"
                                                                         InvalidFields="invalidFields" />
-                                                break;
-                                            case QuestionTypeCodes.Listen:
-                                                <QuestionFormListen @bind-AudioFileName="data.Question.AudioUrl" @bind-Stem="data.Question.Stem"
-                                                                    @bind-Options="data.Question.Options" @bind-Answer="data.Question.Answer"
-                                                                    @bind-Analysis="data.Question.Analysis"
-                                                                    InvalidFields="invalidFields" />
-                                                break;
-                                            case QuestionTypeCodes.ListenGroup:
-                                                <QuestionFormListenGroup @bind-AudioFileName="data.Question.AudioUrl"
-                                                                         @bind-Passage="data.Question.ArticleContent"
-                                                                         @bind-SubQuestions="data.Question.ListenGroupSubQuestions"
-                                                                         InvalidFields="invalidFields" />
-                                                break;
+                                                    break;
+                                                case QuestionTypeCodes.LongText:
+                                                    <QuestionFormLongText @bind-Stem="data.Question.Stem" @bind-Passage="data.Question.ArticleContent"
+                                                                          @bind-GradingNote="data.Question.GradingNote"
+                                                                          @bind-Images="data.Question.Images"
+                                                                          InvalidFields="invalidFields" />
+                                                    break;
+                                                case QuestionTypeCodes.ReadGroup:
+                                                    <QuestionFormReadGroup Status="@data.QStatus"
+                                                                           @bind-Passage="data.Question.ArticleContent"
+                                                                           @bind-SubQuestions="data.Question.ReadSubQuestions"
+                                                                           @bind-Images="data.Question.Images"
+                                                                           ParentQuestionCode="@data.Question.QuestionCode"
+                                                                           InvalidFields="invalidFields" />
+                                                    break;
+                                                case QuestionTypeCodes.ShortGroup:
+                                                    <QuestionFormShortGroup Status="@data.QStatus"
+                                                                            @bind-Passage="data.Question.ArticleContent"
+                                                                            @bind-SubQuestions="data.Question.ShortSubQuestions"
+                                                                            ParentQuestionCode="@data.Question.QuestionCode"
+                                                                            @bind-Images="data.Question.Images"
+                                                                            InvalidFields="invalidFields" />
+                                                    break;
+                                                case QuestionTypeCodes.Listen:
+                                                    <QuestionFormListen @bind-AudioFileName="data.Question.AudioUrl" @bind-Stem="data.Question.Stem"
+                                                                        @bind-Options="data.Question.Options" @bind-Answer="data.Question.Answer"
+                                                                        @bind-Analysis="data.Question.Analysis"
+                                                                        InvalidFields="invalidFields" />
+                                                    break;
+                                                case QuestionTypeCodes.ListenGroup:
+                                                    <QuestionFormListenGroup @bind-AudioFileName="data.Question.AudioUrl"
+                                                                             @bind-Passage="data.Question.ArticleContent"
+                                                                             @bind-SubQuestions="data.Question.ListenGroupSubQuestions"
+                                                                             ParentQuestionCode="@data.Question.QuestionCode"
+                                                                             InvalidFields="invalidFields" />
+                                                    break;
+                                            }
                                         }
                                     </div>
                                 </fieldset>
@@ -201,7 +232,10 @@
                                                              MyReplies="@data.MyReplies"
                                                              RevisionNote="@revisionNote"
                                                              RevisionNoteChanged="OnRevisionNoteChanged"
-                                                             IsReadOnly="@(!data.IsEditable)" />
+                                                             IsReadOnly="@(!data.IsEditable)"
+                                                             Annotations="@annotations"
+                                                             OnAnnotationRespond="OnAnnotationRespondAsync"
+                                                             OnAnnotationScrollTo="OnAnnotationScrollToAsync" />
                                 </aside>
                             </div>
                         </CascadingValue>
@@ -329,6 +363,28 @@
     /// <summary>欄位驗證紅框集合：由 SaveAsync 驗證填入；子元件以 [Parameter] 接收用以畫紅框。</summary>
     private HashSet<string> invalidFields = new();
 
+    // ====================================================================
+    //  劃記評語（Annotation）— 修題端 P-4
+    //  - 跨 stage 累積該題該單元的所有劃記（GetByQuestionUnitAsync）
+    //  - 預設「閱讀模式」可見高亮；切「編輯模式」進 Quill 編輯
+    //  - 命題者只能回應（確認修改 / 不修改 + 理由），不能新增 / 刪除
+    // ====================================================================
+
+    /// <summary>該題該單元跨 stage 累積的所有劃記</summary>
+    private List<ReviewAnnotation> annotations = new();
+
+    /// <summary>annotation.js 對話框回呼用 — 修題端用不到（命題者不新增劃記），但 init 仍需傳一個 ref 避免 JS 端 null check 報錯</summary>
+    private DotNetObjectReference<RevisionSlideOver>? annotSelfRef;
+
+    private bool annotJsInited;
+
+    /// <summary>預設「閱讀模式」— 中間區用 ReviewQuestionDisplay 唯讀展示，可掛劃記高亮</summary>
+    private bool isReadingMode = true;
+
+    /// <summary>修題端對 annotation.js 的「不允許新增」攔截：浮層按鈕若點擊也轉空操作（命題者不能新增劃記）</summary>
+    [JSInvokable]
+    public Task OnAnnotationRequested(object _) => Task.CompletedTask;
+
     protected override async Task OnParametersSetAsync()
     {
         if (!IsVisible || QuestionId is null) return;
@@ -344,6 +400,8 @@
         loadError = null;
         data = null;
         revisionNote = "";
+        annotations = new();
+        isReadingMode = true;   // 每次重新開啟都從閱讀模式起步
         invalidFields.Clear();
         try
         {
@@ -351,11 +409,14 @@
             if (data is null)
             {
                 loadError = "找不到此題目，可能已被刪除。";
+                return;
             }
-            else
-            {
-                revisionNote = data.CurrentDraftContent ?? "";
-            }
+            revisionNote = data.CurrentDraftContent ?? "";
+
+            // 跨 stage 撈該單元（QuestionId + SubQuestionId）的所有劃記
+            // 修題期間命題者要面對所有審題者的意見彙整，所以不限 stage
+            // 此處 SubQuestionId 從 data.Question 推導（修題現階段 P-4 預設母題單元；題組類後續延伸再細分）
+            annotations = await AnnotationService.GetByQuestionUnitAsync(data.Question.Id, subQuestionId: null);
         }
         catch (Exception ex)
         {
@@ -365,6 +426,165 @@
         {
             isLoading = false;
         }
+    }
+
+    /// <summary>首次 render 後初始化 annotation.js + 每次 render 重畫高亮（僅閱讀模式才有 mark 容器）</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!IsVisible || data is null) return;
+
+        if (!annotJsInited)
+        {
+            annotSelfRef ??= DotNetObjectReference.Create(this);
+            try
+            {
+                // 修題端 readOnly：命題者只能看劃記、不能新增 → 不彈「加註」浮層按鈕
+                await JS.InvokeVoidAsync("annotation.init", annotSelfRef, new { readOnly = true });
+                annotJsInited = true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[annotation] revision init failed: {ex.Message}");
+                return;
+            }
+        }
+
+        // 只在閱讀模式下重畫高亮；編輯模式（Quill）內塞 mark 沒意義
+        if (isReadingMode)
+        {
+            await PushHighlightsToJsAsync();
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("annotation.clearHighlights");
+        }
+    }
+
+    private async Task PushHighlightsToJsAsync()
+    {
+        if (!annotJsInited) return;
+        // 確保 Blazor render queue 已 flush（不然 data-annot-target 可能還沒掛上 DOM）
+        await Task.Yield();
+        var payload = annotations.Select(a => new
+        {
+            id            = a.Id,
+            fieldKey      = a.FieldKey,
+            anchorStart   = a.AnchorStart,
+            anchorEnd     = a.AnchorEnd,
+            selectedText  = a.SelectedText,
+            comment       = a.Comment,
+            responseState = a.ResponseState is null ? (byte?)null : (byte)a.ResponseState.Value
+        }).ToArray();
+        try
+        {
+            // ⚠️ params object?[] 陷阱：anonymous[] 共變性會被當 params 陣列「展開」成多個 JS args。
+            // 必須轉 (object) 強制包裝，JS 端才會收到整個 array 而不是被攤平。
+            // deferredRender 內部有 retry：等 DOM 容器就位才正式 wrap，避免 OnAfterRender 早於子元件 render 的 race
+            await JS.InvokeVoidAsync("annotation.deferredRender", (object)payload);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[annotation] deferredRender failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>切換閱讀 / 編輯模式（編輯模式 disabled 時禁止切；annotation 高亮在 OnAfterRender 自動處理）</summary>
+    private Task SetModeAsync(bool reading)
+    {
+        if (data is null) return Task.CompletedTask;
+        if (!reading && !data.IsEditable) return Task.CompletedTask;
+        if (isReadingMode == reading) return Task.CompletedTask;
+        isReadingMode = reading;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>RevisionReferencePanel 內某劃記列被點擊 → scroll + flash 對應 mark（僅閱讀模式有效）</summary>
+    private async Task OnAnnotationScrollToAsync(int annotationId)
+    {
+        if (!isReadingMode)
+        {
+            // 自動切回閱讀模式，使用者比較容易看到劃記位置
+            await SetModeAsync(true);
+        }
+        await JS.InvokeVoidAsync("eval", $$"""
+            (function(){
+                const m = document.querySelector('mark[data-annot-id="{{annotationId}}"]');
+                if (!m) return;
+                m.scrollIntoView({behavior:'smooth', block:'center'});
+                m.style.transition = 'background-color .25s';
+                const original = m.style.backgroundColor;
+                m.style.backgroundColor = 'rgba(217,138,108,.55)';
+                setTimeout(() => { m.style.backgroundColor = original; }, 900);
+            })();
+        """);
+    }
+
+    /// <summary>
+    /// 命題者對某劃記下決定（確認修改 / 不修改）。
+    /// 流程：SweetAlert 二次確認（不可撤回）→ AnnotationService.RespondAsync → reload + flash + toast。
+    /// state=Rejected 必須附理由（由子元件預先驗證），此處再次防呆。
+    /// </summary>
+    private async Task OnAnnotationRespondAsync((int AnnotationId, AnnotationResponseState State, string? Reason) req)
+    {
+        if (data is null || isSaving) return;
+
+        // Rejected 必填理由
+        var reason = (req.Reason ?? string.Empty).Trim();
+        if (req.State == AnnotationResponseState.Rejected && reason.Length == 0)
+        {
+            await ShowToastAsync("warning", "選擇「不修改」時必須附上理由");
+            return;
+        }
+
+        var stateLabel = req.State == AnnotationResponseState.Accepted ? "確認修改" : "不修改";
+        var confirm = await JS.InvokeAsync<SwalResult>("Swal.fire", new
+        {
+            icon = "question",
+            title = $"確定回應「{stateLabel}」？",
+            text = "此回應為一次性決定，送出後無法撤回。",
+            showCancelButton  = true,
+            confirmButtonText = $"確定{stateLabel}",
+            cancelButtonText  = "取消",
+            confirmButtonColor = req.State == AnnotationResponseState.Accepted ? "#8EAB94" : "#D98A6C",
+            cancelButtonColor  = "#6B8EAD"
+        });
+        if (!confirm.IsConfirmed) return;
+
+        try
+        {
+            var ok = await AnnotationService.RespondAsync(new RespondAnnotationRequest
+            {
+                AnnotationId   = req.AnnotationId,
+                State          = req.State,
+                NoChangeReason = req.State == AnnotationResponseState.Rejected ? reason : null
+            }, CurrentUserId);
+
+            if (!ok)
+            {
+                await ShowToastAsync("error", "回應失敗（可能已被回應過或無權限）");
+                return;
+            }
+
+            // reload annotations 取得新狀態 + 重畫高亮（顏色會由 pending 轉 accepted / rejected）
+            annotations = await AnnotationService.GetByQuestionUnitAsync(data.Question.Id, subQuestionId: null);
+            if (isReadingMode) await PushHighlightsToJsAsync();
+            await ShowToastAsync("success", $"已回應：{stateLabel}");
+        }
+        catch (Exception ex)
+        {
+            await ShowToastAsync("error", $"回應失敗：{ex.Message}");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (annotJsInited)
+        {
+            try { await JS.InvokeVoidAsync("annotation.dispose"); }
+            catch { /* JS context 已關 */ }
+        }
+        annotSelfRef?.Dispose();
     }
 
     /// <summary>
@@ -547,6 +767,15 @@
         loadedQuestionId = null;
         data = null;
         revisionNote = "";
+        annotations = new();
+
+        // 清掉 JS 端的高亮 + 重置 init 旗標，下次重開時 OnAfterRenderAsync 會重新 init
+        if (annotJsInited)
+        {
+            try { await JS.InvokeVoidAsync("annotation.dispose"); } catch { }
+            annotJsInited = false;
+        }
+
         await IsVisibleChanged.InvokeAsync(false);
     }
 

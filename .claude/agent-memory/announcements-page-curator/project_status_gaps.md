@@ -1,6 +1,6 @@
 ---
 name: Announcements 頁面未完成缺口
-description: 2026-05-08 Re-review 確認缺口狀態；P0 已修復，P1/P2 仍未解決
+description: 2026-05-13 核對功能介紹文件後確認缺口狀態（P0 已修復，P1/P2 仍未解決）
 type: project
 ---
 

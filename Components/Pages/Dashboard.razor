@@ -537,10 +537,14 @@
                                 </span>
                                 @* 主要描述文字（僅 CUD 紀錄，登入/登出已移至 LoginLogs 頁面） *@
                                 <div class="flex-1 min-w-0">
+                                    @{
+                                        // 細分審題類型：annotation / annotationResponse / decision
+                                        var typeLabel = ResolveLogTypeLabel(log);
+                                    }
                                     <div class="text-sm text-[var(--color-slate-main)] truncate"
-                                         title="@log.UserName @ActionVerb(log.Action)了 @TargetTypeLabel(log.TargetType)「@log.TargetName」">
+                                         title="@log.UserName @ActionVerb(log.Action)了 @typeLabel「@log.TargetName」">
                                         <span class="font-semibold">@log.UserName</span>
-                                        <span class="text-gray-500"> @ActionVerb(log.Action)了 @TargetTypeLabel(log.TargetType)</span>
+                                        <span class="text-gray-500"> @ActionVerb(log.Action)了 @typeLabel</span>
                                         <span class="font-medium">「@log.TargetName」</span>
                                     </div>
                                 </div>
@@ -1030,6 +1034,42 @@
         6 => "審題",
         _ => "資料"
     };
+
+    /// <summary>
+    /// 對 TargetType=Reviews(6) 的 LOG，依 NewValue JSON 的 kind 欄位細分顯示：
+    ///   annotation         → 「審題劃記」
+    ///   annotationResponse → 「劃記回應」
+    ///   其餘                → 沿用 TargetTypeLabel (「審題」)
+    /// 其他 TargetType 不受影響。
+    /// </summary>
+    private static string ResolveLogTypeLabel(MT.Models.RecentAuditLog log)
+    {
+        if (log.TargetType != 6) return TargetTypeLabel(log.TargetType);
+
+        var json = log.NewValue ?? log.OldValue;
+        if (string.IsNullOrWhiteSpace(json)) return TargetTypeLabel(log.TargetType);
+
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) return TargetTypeLabel(log.TargetType);
+            foreach (var key in new[] { "kind", "Kind" })
+            {
+                if (doc.RootElement.TryGetProperty(key, out var v)
+                    && v.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    return v.GetString() switch
+                    {
+                        "annotation"         => "審題劃記",
+                        "annotationResponse" => "劃記回應",
+                        _                    => TargetTypeLabel(log.TargetType)
+                    };
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException) { }
+        return TargetTypeLabel(log.TargetType);
+    }
 
     /// <summary>依 Action 碼回傳圖示背景 + 文字顏色 class。</summary>
     private static string LogIconBgClass(byte action) => action switch

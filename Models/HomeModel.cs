@@ -33,17 +33,16 @@ public class UrgentAlertItem
 {
     public AlertType AlertType { get; set; }
     public AlertSeverity Severity { get; set; }
-    public int PhaseCode { get; set; }
-    public string PhaseName { get; set; } = string.Empty;
-    public int DaysLeft { get; set; }
 
-    /// <summary>個人未完成任務數（PhaseCountdown 為 0）。</summary>
-    public int PendingCount { get; set; }
+    /// <summary>HomeService 內部排序 / dedup 用，不直接顯示。</summary>
+    public int PhaseCode { get; set; }
+
+    /// <summary>HomeService 內部排序用，不直接顯示。</summary>
+    public int DaysLeft { get; set; }
 
     /// <summary>主訊息（首列顯示）。</summary>
     public string Title { get; set; } = string.Empty;
 
     /// <summary>副訊息（次列顯示，例如倒數天數）。</summary>
     public string Subtitle { get; set; } = string.Empty;
-
 }

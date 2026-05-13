@@ -279,14 +279,54 @@ public class DashboardService : IDashboardService
             statusByTypeRows = (await conn.QueryAsync<DashboardStatusByTypeItem>(
                 sqlReviewBased, new { pid = projectId, stage = reviewStage })).ToList();
         }
+        else if (currentPhaseForChart == 2)
+        {
+            // 命題階段：與其他階段語意對齊「橘=剩餘工作 / 藍=做完的工作」
+            //   命題草稿(灰) = Status 0
+            //   階段完成(藍) = Status 1 (命題完成) 或 Status 2 (已送審) ─ 對該題而言，命題工作已結束
+            //   階段進行中(橘) = MAX(0, Target − Drafts − DoneStage − Adopted − Rejected) ─ 剩餘缺額
+            //   採用 / 不採用：原樣
+            // Target 自 MT_ProjectTargets（與上方 sqlAchievement 同來源），用 CTE 先聚合再算缺口
+            const string sqlCompositionPhase = """
+                WITH TypeAgg AS (
+                    SELECT
+                        qt.Id,
+                        qt.Name AS TypeName,
+                        ISNULL((SELECT SUM(pt.TargetCount)
+                                FROM   dbo.MT_ProjectTargets pt
+                                WHERE  pt.QuestionTypeId = qt.Id AND pt.ProjectId = @pid), 0) AS TargetCount,
+                        ISNULL(SUM(CASE WHEN q.Status = 0          THEN 1 ELSE 0 END), 0) AS Drafts,
+                        ISNULL(SUM(CASE WHEN q.Status IN (1, 2)    THEN 1 ELSE 0 END), 0) AS DoneStage,
+                        ISNULL(SUM(CASE WHEN q.Status IN (9, 12)   THEN 1 ELSE 0 END), 0) AS Adopted,
+                        ISNULL(SUM(CASE WHEN q.Status IN (10, 11)  THEN 1 ELSE 0 END), 0) AS Rejected
+                    FROM      dbo.MT_QuestionTypes qt
+                    LEFT JOIN dbo.MT_Questions q
+                           ON q.QuestionTypeId = qt.Id AND q.ProjectId = @pid AND q.IsDeleted = 0
+                    GROUP BY qt.Id, qt.Name
+                )
+                SELECT
+                    TypeName,
+                    Drafts,
+                    CASE WHEN TargetCount - Drafts - DoneStage - Adopted - Rejected > 0
+                         THEN TargetCount - Drafts - DoneStage - Adopted - Rejected
+                         ELSE 0 END AS InProgress,
+                    DoneStage,
+                    Adopted,
+                    Rejected
+                FROM   TypeAgg
+                ORDER BY Id
+                """;
+
+            statusByTypeRows = (await conn.QueryAsync<DashboardStatusByTypeItem>(
+                sqlCompositionPhase, new { pid = projectId })).ToList();
+        }
         else
         {
-            // 命題 / 修題 / 結案 / 未啟動：依 Question.Status 推進
-            //   PhaseCode 2 → Status 1 為進行中；PhaseCode 4/6/8 → Status N 為進行中
+            // 修題 / 結案 / 未啟動：依 Question.Status 推進
+            //   PhaseCode 4/6/8 → Status N 為進行中
             //   其餘 → -1，所有 1~8 都歸到「階段完成」
             int inProgressStatus = currentPhaseForChart switch
             {
-                2          => 1,
                 4 or 6 or 8 => currentPhaseForChart.Value,
                 _          => -1
             };

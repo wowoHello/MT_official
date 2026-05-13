@@ -1,6 +1,6 @@
 ---
 name: 首頁三檔案架構現況
-description: Home.razor / HomeService.cs / HomeModel.cs 的實際結構與職責分工（2026-05-08 查核）
+description: Home.razor / HomeService.cs / HomeModel.cs 的實際結構與職責分工（2026-05-13 查核）
 type: project
 ---
 
@@ -36,3 +36,15 @@ type: project
 
 **Why:** 防止無任務的使用者誤入命題/審題頁面。
 **How to apply:** 修改首頁導航邏輯時需維持此防護機制。
+
+## 使用說明手冊按鈕
+
+右側今日提醒看板頂部有「使用說明手冊」按鈕，目前顯示 Toast 提示「手冊 PDF 建置中，敬請期待」（`ShowManualComingSoon`）。
+資料庫有 `MT_UserGuideFiles` 資料表可供日後實作真正的下載功能，目前尚未串接。
+
+## 規格文件來源（2026-05-13 確認）
+
+`D:\jay_liu\Desktop\命題系統相關\網站功能介紹.md` 為最新業務規格文件，首頁右側三個子區塊定義為：
+1. 使用說明手冊下載按鈕（搭配今日提醒看板標題列）
+2. 急件 / 到期警示
+3. 公告與通知

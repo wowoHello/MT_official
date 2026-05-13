@@ -1,7 +1,9 @@
 @* ====================================================================== *@
 @*  QuestionFormLongText — 長文題目 命題表單                                *@
-@*  結構：題目（Quill）+ 文章內容（Quill）+ 批閱說明（Quill）               *@
+@*  結構：題目（Quill）+ 文章內容（Quill + 附圖）+ 批閱說明（Quill）        *@
 @*  屬性側欄：寫作模式（引導寫作 / 資訊整合）                               *@
+@*                                                                         *@
+@*  附圖支援：文章內容下方嵌 QuestionImagesField（FieldType=ArticleContent） *@
 @* ====================================================================== *@
 @using MT.Components.Shared
 
@@ -14,20 +16,13 @@
 
     <FormSectionCard Title="文章內容" Icon="fa-book-open" Required="true"
         DataField="ArticleContent" ContainerClass="@InvalidRing("ArticleContent")">
-        <!-- 附圖提醒 -->
-        <div class="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md text-sm flex items-start gap-2">
-            <i class="fa-solid fa-image text-amber-500 mt-0.5 flex-shrink-0"></i>
-            <div class="text-xs leading-relaxed text-amber-700">
-                <span class="font-bold text-terracotta">文章內容可附圖</span>
-                — 點擊輸入框後可用底部編輯器工具列插入圖片，適合放題幹情境圖或資料圖表。
-            </div>
-        </div>
         <QuillField Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }" FieldLabel="文章內容" Placeholder="點擊此處開始輸入文章內容..." />
+        <QuestionImagesField Images="ArticleImages" ImagesChanged="OnArticleImagesChanged" />
     </FormSectionCard>
 
-    <FormSectionCard Title="批閱說明" Icon="fa-lightbulb" IconColor="text-amber-500"
+    <FormSectionCard Title="批閱說明" Icon="fa-lightbulb" IconColor="text-amber-500" Required="true" HintText="紀錄批閱重點"
         DataField="GradingNote" ContainerClass="@InvalidRing("GradingNote")">
-        <QuillField Value="@GradingNote" ValueChanged="v => { GradingNote = v; GradingNoteChanged.InvokeAsync(v); }" FieldLabel="批閱說明" Placeholder="請簡要說明長文題目的批閱說明..." />
+        <QuillField Value="@GradingNote" ValueChanged="v => { GradingNote = v; GradingNoteChanged.InvokeAsync(v); }" FieldLabel="批閱說明" Placeholder="請輸入批閱說明，可條列評分重點、給分要件與常見錯誤..." />
     </FormSectionCard>
 </div>
 
@@ -41,9 +36,35 @@
     [Parameter] public string GradingNote { get; set; } = "";
     [Parameter] public EventCallback<string> GradingNoteChanged { get; set; }
 
+    /// <summary>題目附圖（母題層級，FieldType 6=ArticleContent）。</summary>
+    [Parameter] public List<QuestionImage> Images { get; set; } = [];
+    [Parameter] public EventCallback<List<QuestionImage>> ImagesChanged { get; set; }
+
     /// <summary>由父層傳入的驗證失敗欄位集合。</summary>
     [Parameter] public HashSet<string>? InvalidFields { get; set; }
 
     private string InvalidRing(string fieldKey) =>
         InvalidFields?.Contains(fieldKey) == true ? "ring-2 ring-red-400" : "";
+
+    // ------------------------------------------------------------------
+    //  附圖切片：依 FieldType 從 Images 抽出文章內容附圖
+    // ------------------------------------------------------------------
+
+    private List<QuestionImage> ArticleImages =>
+        Images.Where(i => i.FieldType == (byte)QuestionImageField.ArticleContent && i.SubQuestionIndex == null)
+              .OrderBy(i => i.SortOrder).ToList();
+
+    private async Task OnArticleImagesChanged(List<QuestionImage> updated)
+    {
+        var others = Images.Where(i => !(i.FieldType == (byte)QuestionImageField.ArticleContent && i.SubQuestionIndex == null)).ToList();
+        for (int i = 0; i < updated.Count; i++)
+        {
+            updated[i].FieldType = (byte)QuestionImageField.ArticleContent;
+            updated[i].SubQuestionIndex = null;
+            updated[i].SortOrder = (byte)(i + 1);
+        }
+        others.AddRange(updated);
+        Images = others;
+        await ImagesChanged.InvokeAsync(others);
+    }
 }

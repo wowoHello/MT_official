@@ -27,8 +27,10 @@ public interface IReviewService
 
     /// <summary>
     /// 開啟審題 Modal 時一次拉取的完整資料包（題目本體 + 自己的 assignment + 歷程 + 相似題）。
+    /// subQuestionId：NULL=開啟母題單元、非 NULL=開啟該子題單元。
+    /// MyAssignment 與 ReturnCount 都會依該單元（QuestionId + SubQuestionId）精準對應。
     /// </summary>
-    Task<ReviewModalData?> GetModalDataAsync(int questionId, int currentUserId);
+    Task<ReviewModalData?> GetModalDataAsync(int questionId, int? subQuestionId, int currentUserId);
 
     /// <summary>當前專案是否已進入互審以後階段（用 MT_ReviewAssignments 是否有紀錄判斷）</summary>
     Task<bool> HasAnyAssignmentAsync(int projectId);
@@ -105,19 +107,28 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     {
         // 不再依 ReviewStage 篩選 — 顯示該使用者於本專案的全部分配
         // 同 query 撈當前 phase；前端 IsHistorical 由本 service 計算後填入，避免 UI 重做判斷
-        // ROW_NUMBER CTE：同一題同 Stage 可能有多筆（如 PhaseCode=8 退回重審後又新增 Pending）
-        // PARTITION BY (QuestionId, ReviewStage) ORDER BY Id DESC → 取最新一筆去重
+        // ROW_NUMBER CTE：同一審題單元（QuestionId, SubQuestionId, Stage）可能有多筆
+        // PARTITION BY (QuestionId, SubQuestionId, ReviewStage) ORDER BY Id DESC → 取最新一筆去重
+        // NULL-safe：SQL Server 的 PARTITION BY 將 NULL 視為相等，故母題列（SubQuestionId NULL）會正確分組
+        //
+        // 列展開：每個審題單元獨立一列。
+        //   - 非題組題：N=1（僅母題列，SubQuestionId 為 NULL）
+        //   - 題組題（QuestionTypeId IN 3,5,7）：1 母題 + M 子題；每列來自一筆 MT_ReviewAssignments
+        //
+        // SubSortOrder：JOIN MT_SubQuestions 取得；母題列為 NULL，子題列為實際排序碼。
+        // ReturnCount：僅 Final Stage 有紀錄；NULL-safe join 比對 SubQuestionId（含 NULL=NULL）。
         const string sql = """
             WITH ranked AS (
                 SELECT
                     ra.Id              AS AssignmentId,
                     ra.QuestionId,
+                    ra.SubQuestionId,
                     ra.ReviewStage     AS Stage,
                     ra.Decision,
                     ra.ReviewStatus    AS Status,
                     ISNULL(ra.DecidedAt, ra.CreatedAt) AS LastEditedAt,
                     ROW_NUMBER() OVER (
-                        PARTITION BY ra.QuestionId, ra.ReviewStage
+                        PARTITION BY ra.QuestionId, ra.SubQuestionId, ra.ReviewStage
                         ORDER BY ra.Id DESC
                     ) AS rn
                 FROM dbo.MT_ReviewAssignments ra
@@ -131,10 +142,12 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 r.AssignmentId,
                 r.QuestionId,
                 q.QuestionCode,
+                r.SubQuestionId,
+                sq.SortOrder          AS SubSortOrder,
                 q.QuestionTypeId      AS TypeId,
                 q.Level,
                 q.Difficulty,
-                q.Stem                AS SummaryHtml,
+                CASE WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent ELSE q.Stem END AS SummaryHtml,
                 r.Stage,
                 r.Decision,
                 r.Status,
@@ -143,15 +156,19 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 ISNULL(rc.CanEditByReviewer, 0) AS CanEditByReviewer
             FROM ranked r
             INNER JOIN dbo.MT_Questions q ON q.Id = r.QuestionId
+            LEFT JOIN dbo.MT_SubQuestions sq ON sq.Id = r.SubQuestionId
             -- 僅 Final Stage(3) 才有退回計數紀錄，其他 Stage 為 NULL → ISNULL 填 0
+            -- ISNULL(.., -1) 做 NULL-safe 比對：母題對母題、子題對自己的紀錄
             LEFT JOIN dbo.MT_ReviewReturnCounts rc
                 ON rc.QuestionId = r.QuestionId
+               AND ISNULL(rc.SubQuestionId, -1) = ISNULL(r.SubQuestionId, -1)
                AND r.Stage = 3   -- Final Stage only
             WHERE r.rn = 1
             ORDER BY
                 CASE WHEN r.Status = 2 THEN 1 ELSE 0 END,  -- 待處理(0/1) 優先
                 r.Stage DESC,                               -- 較新階段在上方
-                q.Id ASC;                                   -- 同階段依題目 ID 升冪（與 CwtList 統一）
+                q.Id ASC,                                   -- 同階段依題目 ID 升冪（與 CwtList 統一）
+                ISNULL(sq.SortOrder, 0) ASC;                -- 母題（SortOrder NULL→0）在前，子題依序排列
             """;
 
         // 當前進行中的審題階段（僅 PhaseCode 3/5/7 對應 Mutual/Expert/Final；其餘為 null）
@@ -185,6 +202,8 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 AssignmentId         = r.AssignmentId,
                 QuestionId           = r.QuestionId,
                 QuestionCode         = r.QuestionCode,
+                SubQuestionId        = r.SubQuestionId,
+                SubSortOrder         = r.SubSortOrder,
                 TypeKey              = QuestionConstants.TypeIdToKey.GetValueOrDefault(r.TypeId, ""),
                 Level                = r.Level,
                 Difficulty           = r.Difficulty,
@@ -269,7 +288,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         return await LoadHistoryAsync(conn, questionId);
     }
 
-    public async Task<ReviewModalData?> GetModalDataAsync(int questionId, int currentUserId)
+    public async Task<ReviewModalData?> GetModalDataAsync(int questionId, int? subQuestionId, int currentUserId)
     {
         // 1. 題目本體（複用 QuestionService.GetByIdAsync，避免兩處維護七題型載入邏輯）
         var question = await _questionSvc.GetByIdAsync(questionId);
@@ -323,35 +342,95 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             """;
         var creatorName = await conn.ExecuteScalarAsync<string>(creatorSql, new { Id = questionId }) ?? "";
 
-        // 3. 當前登入者於此題目的自己 Assignment（可能多階段，取最新一筆）
+        // 3. 當前登入者於此「審題單元」(QuestionId, SubQuestionId) 的 Assignment
+        //    NULL-safe 比對 SubQuestionId（ISNULL(.., -1)）→ 母題單元 vs 子題單元嚴格區分
+        //    同單元若跨多階段（如 Stage=1 互審 + Stage=3 總審），取最新一筆（ReviewStage DESC + Id DESC）
         const string assignSql = """
             SELECT TOP 1
-                Id, QuestionId, ReviewStage AS Stage, ReviewStatus AS Status,
+                Id, QuestionId, SubQuestionId, ReviewStage AS Stage, ReviewStatus AS Status,
                 Decision, ISNULL(Comment, '') AS Comment, DecidedAt, CreatedAt
             FROM dbo.MT_ReviewAssignments
-            WHERE QuestionId = @QuestionId AND ReviewerId = @ReviewerId
+            WHERE QuestionId = @QuestionId
+              AND ISNULL(SubQuestionId, -1) = ISNULL(@SubQuestionId, -1)
+              AND ReviewerId = @ReviewerId
             ORDER BY ReviewStage DESC, Id DESC;
             """;
         var myAssignment = await conn.QueryFirstOrDefaultAsync<AssignmentDto>(assignSql, new
         {
-            QuestionId = questionId,
-            ReviewerId = currentUserId
+            QuestionId    = questionId,
+            SubQuestionId = subQuestionId,
+            ReviewerId    = currentUserId
         });
 
-        // 4. 歷程軌跡：union 三個來源
-        var history = await LoadHistoryAsync(conn, questionId);
+        // 4. 歷程軌跡：union 三個來源（依當前單元過濾意見 / 修題說明；audit logs 不分單元）
+        var history = await LoadHistoryAsync(conn, questionId, subQuestionId);
 
         // 5. 相似題比對
         var similar = await LoadSimilaritiesAsync(conn, questionId);
 
-        // 6. 總召退回次數（僅總審階段需要顯示）
+        // 6. 總召退回次數（僅總審階段需要顯示）— 對該審題單元獨立計次（NULL-safe 比對 SubQuestionId）
         const string returnSql = """
             SELECT TOP 1 ReturnCount, CanEditByReviewer
             FROM dbo.MT_ReviewReturnCounts
             WHERE QuestionId = @QuestionId
+              AND ISNULL(SubQuestionId, -1) = ISNULL(@SubQuestionId, -1)
             ORDER BY Id DESC;
             """;
-        var returnInfo = await conn.QueryFirstOrDefaultAsync<ReturnCountDto>(returnSql, new { QuestionId = questionId });
+        var returnInfo = await conn.QueryFirstOrDefaultAsync<ReturnCountDto>(returnSql, new
+        {
+            QuestionId    = questionId,
+            SubQuestionId = subQuestionId
+        });
+
+        // 6.5 兄弟單元清單（給母題列子題索引卡用）
+        //     條件：同題、同 stage、同 reviewer；包含母題與所有子題單元
+        //     僅當有 MyAssignment 時才撈 — 沒分配給此人就不用顯示索引卡
+        var siblings = new List<ReviewSiblingUnit>();
+        if (myAssignment is not null)
+        {
+            const string siblingSql = """
+                WITH ranked AS (
+                    SELECT
+                        ra.Id              AS AssignmentId,
+                        ra.SubQuestionId,
+                        ra.ReviewStage     AS Stage,
+                        ra.Decision,
+                        ra.ReviewStatus    AS Status,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY ra.SubQuestionId
+                            ORDER BY ra.Id DESC
+                        ) AS rn
+                    FROM dbo.MT_ReviewAssignments ra
+                    WHERE ra.QuestionId  = @QuestionId
+                      AND ra.ReviewerId  = @ReviewerId
+                      AND ra.ReviewStage = @Stage
+                )
+                SELECT r.AssignmentId, r.SubQuestionId, sq.SortOrder, r.Stage, r.Decision, r.Status
+                FROM ranked r
+                LEFT JOIN dbo.MT_SubQuestions sq ON sq.Id = r.SubQuestionId
+                WHERE r.rn = 1
+                ORDER BY ISNULL(sq.SortOrder, 0);
+                """;
+            var siblingRows = await conn.QueryAsync<SiblingUnitRow>(siblingSql, new
+            {
+                QuestionId = questionId,
+                ReviewerId = currentUserId,
+                Stage      = myAssignment.Stage
+            });
+
+            foreach (var r in siblingRows)
+            {
+                siblings.Add(new ReviewSiblingUnit
+                {
+                    AssignmentId  = r.AssignmentId,
+                    SubQuestionId = r.SubQuestionId,
+                    SortOrder     = r.SortOrder,
+                    Stage         = (ReviewStage)r.Stage,
+                    Status        = (ReviewTaskStatus)r.Status,
+                    Decision      = r.Decision is null ? null : (ReviewDecision)r.Decision.Value
+                });
+            }
+        }
 
         return new ReviewModalData
         {
@@ -359,21 +438,23 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             CreatorName  = creatorName,
             MyAssignment = myAssignment is null ? null : new ReviewAssignmentInfo
             {
-                Id         = myAssignment.Id,
-                QuestionId = myAssignment.QuestionId,
-                Stage      = (ReviewStage)myAssignment.Stage,
-                Status     = (ReviewTaskStatus)myAssignment.Status,
-                Decision   = myAssignment.Decision is null ? null : (ReviewDecision)myAssignment.Decision.Value,
+                Id            = myAssignment.Id,
+                QuestionId    = myAssignment.QuestionId,
+                SubQuestionId = myAssignment.SubQuestionId,
+                Stage         = (ReviewStage)myAssignment.Stage,
+                Status        = (ReviewTaskStatus)myAssignment.Status,
+                Decision      = myAssignment.Decision is null ? null : (ReviewDecision)myAssignment.Decision.Value,
                 // 舊資料可能殘留 Quill HTML 標籤（<u> / <br> / <p> 等），textarea 不渲染 HTML
                 // 會把標籤直接當成字面顯示出現怪線條 — 載入時統一 strip 為純文字
-                Comment    = StripHtmlFull(myAssignment.Comment),
-                DecidedAt  = myAssignment.DecidedAt,
-                CreatedAt  = myAssignment.CreatedAt
+                Comment       = StripHtmlFull(myAssignment.Comment),
+                DecidedAt     = myAssignment.DecidedAt,
+                CreatedAt     = myAssignment.CreatedAt
             },
             History              = history,
             SimilarQuestions     = similar,
             FinalReturnCount     = returnInfo?.ReturnCount ?? 0,
-            CanFinalReviewerEdit = returnInfo?.CanEditByReviewer ?? false
+            CanFinalReviewerEdit = returnInfo?.CanEditByReviewer ?? false,
+            SiblingUnits         = siblings
         };
     }
 
@@ -492,8 +573,9 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         try
         {
             // 1. 取出 Assignment 元資訊（驗證權限、防重複決策、取 ProjectId 寫稽核）
+            //    SubQuestionId 用於判定本列是母題（NULL）還是子題（決定是否觸發級聯）
             const string fetchSql = """
-                SELECT Id, ProjectId, QuestionId, ReviewStage AS Stage, Decision
+                SELECT Id, ProjectId, QuestionId, SubQuestionId, ReviewStage AS Stage, Decision
                 FROM dbo.MT_ReviewAssignments
                 WHERE Id = @AssignmentId AND ReviewerId = @ReviewerId;
                 """;
@@ -586,6 +668,33 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                     new { Id = meta.QuestionId, Status = newQuestionStatus.Value }, tx);
             }
 
+            // 6-2. 級聯淘汰：母題在總審被判 Rejected(10) → 同題組所有未決策子題自動標記不採用
+            //      設計規則「母題不採用 → 子題全部連帶淘汰」單向級聯（子題不採用不影響母題）。
+            //      僅覆蓋 Decision IS NULL 的子題列，保留審題委員已輸入的人工決策做為稽核紀錄。
+            var cascadedSubCount = 0;
+            if (newQuestionStatus == QuestionStatus.Rejected
+                && meta.Stage == (byte)ReviewStage.Final
+                && meta.SubQuestionId is null)
+            {
+                const string cascadeSql = """
+                    UPDATE dbo.MT_ReviewAssignments
+                    SET Decision     = @Decision,
+                        ReviewStatus = @Completed,
+                        DecidedAt    = SYSDATETIME()
+                    WHERE QuestionId    = @QuestionId
+                      AND SubQuestionId IS NOT NULL
+                      AND ReviewStage   = @Stage
+                      AND Decision      IS NULL;
+                    """;
+                cascadedSubCount = await conn.ExecuteAsync(cascadeSql, new
+                {
+                    QuestionId = meta.QuestionId,
+                    Stage      = (byte)ReviewStage.Final,
+                    Decision   = (byte)ReviewDecision.Reject,
+                    Completed  = (byte)ReviewTaskStatus.Completed
+                }, tx);
+            }
+
             // 7. 總召「改後再審」或「不採用」→ 累加退回計數（達 2 次自動解鎖總召自編）
             //    再次決策時不重複加，避免使用者「Revise → Approve → Revise」誤計多次
             //    Reject 同樣計入：退回次數涵蓋所有「不採用→交回修改」情境
@@ -612,9 +721,11 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 OldValue   = oldQuestionStatus is null ? null : System.Text.Json.JsonSerializer.Serialize(new { QuestionStatus = oldQuestionStatus.Value }),
                 NewValue   = System.Text.Json.JsonSerializer.Serialize(new
                 {
-                    Stage          = meta.Stage,
-                    Decision       = (byte)req.Decision,
-                    QuestionStatus = newQuestionStatus
+                    Stage              = meta.Stage,
+                    SubQuestionId      = meta.SubQuestionId,
+                    Decision           = (byte)req.Decision,
+                    QuestionStatus     = newQuestionStatus,
+                    CascadedSubCount   = cascadedSubCount > 0 ? cascadedSubCount : (int?)null
                 })
             }, tx);
 
@@ -712,8 +823,9 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         try
         {
             // 1. 驗證 Assignment 屬於此使用者、Stage=Final、題目 Id 一致（防禦性雙重確認）
+            //    SubQuestionId 用於判定本列是母題（NULL）還是子題（決定是否觸發級聯）
             const string fetchAssignSql = """
-                SELECT ra.Id, ra.ProjectId, ra.QuestionId, ra.ReviewStage AS Stage, rc.CanEditByReviewer
+                SELECT ra.Id, ra.ProjectId, ra.QuestionId, ra.SubQuestionId, ra.ReviewStage AS Stage, rc.CanEditByReviewer
                 FROM dbo.MT_ReviewAssignments ra
                 LEFT JOIN dbo.MT_ReviewReturnCounts rc ON rc.QuestionId = ra.QuestionId
                 WHERE ra.Id       = @AssignmentId
@@ -847,6 +959,30 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 Completed    = (byte)ReviewTaskStatus.Completed
             }, tx);
 
+            // 6.5 級聯淘汰：總召代修後若母題判 Reject → 同題組所有未決策子題自動標記不採用
+            //     對應規則同 SubmitDecisionAsync 第 6-2 步，僅覆蓋 Decision IS NULL 的列。
+            var cascadedSubCount = 0;
+            if (req.Decision == ReviewDecision.Reject && assign.SubQuestionId is null)
+            {
+                const string cascadeSql = """
+                    UPDATE dbo.MT_ReviewAssignments
+                    SET Decision     = @Decision,
+                        ReviewStatus = @Completed,
+                        DecidedAt    = SYSDATETIME()
+                    WHERE QuestionId    = @QuestionId
+                      AND SubQuestionId IS NOT NULL
+                      AND ReviewStage   = @Stage
+                      AND Decision      IS NULL;
+                    """;
+                cascadedSubCount = await conn.ExecuteAsync(cascadeSql, new
+                {
+                    QuestionId = req.QuestionId,
+                    Stage      = (byte)ReviewStage.Final,
+                    Decision   = (byte)ReviewDecision.Reject,
+                    Completed  = (byte)ReviewTaskStatus.Completed
+                }, tx);
+            }
+
             // 7. AuditLog：FinalReviewerEdit（題目層級）
             const string auditSql = """
                 INSERT INTO dbo.MT_AuditLogs
@@ -881,10 +1017,12 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 OldValue   = (string?)null,
                 NewValue   = System.Text.Json.JsonSerializer.Serialize(new
                 {
-                    Reason         = "FinalDecision",
-                    Stage          = (byte)ReviewStage.Final,
-                    Decision       = (byte)req.Decision,
-                    QuestionStatus = (byte)newQuestionStatus
+                    Reason           = "FinalDecision",
+                    Stage            = (byte)ReviewStage.Final,
+                    SubQuestionId    = assign.SubQuestionId,
+                    Decision         = (byte)req.Decision,
+                    QuestionStatus   = (byte)newQuestionStatus,
+                    CascadedSubCount = cascadedSubCount > 0 ? cascadedSubCount : (int?)null
                 })
             }, tx);
 
@@ -1012,9 +1150,19 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     //  Helper：歷程軌跡（union 三個來源 → 時序排列）
     // ====================================================================
 
-    private static async Task<List<ReviewHistoryEntry>> LoadHistoryAsync(System.Data.IDbConnection conn, int questionId)
+    /// <summary>
+    /// 載入指定題目（可選指定單元）的審題歷程。
+    /// subQuestionId 傳 null = 整題歷程（OverviewService / GetHistoryByQuestionIdAsync 用）；
+    /// 傳值 = 該單元獨立歷程（ReviewModal 開啟特定單元時用，避免母題子題歷程混淆）。
+    ///
+    /// 注意：MT_AuditLogs 屬「題目層」事件（建立 / 送審 / 決策），目前無 SubQuestionId 欄位，
+    ///       因此 audit row 在任何單元都會帶出 — 此為題目層共有歷程，視為前置背景而非冗餘。
+    ///       未來若有「子題層 audit」可在此處加 SubQuestionId 過濾。
+    /// </summary>
+    private static async Task<List<ReviewHistoryEntry>> LoadHistoryAsync(
+        System.Data.IDbConnection conn, int questionId, int? subQuestionId = null)
     {
-        // (a) MT_AuditLogs：題目層級事件（建立、修改、送審、決策）
+        // (a) MT_AuditLogs：題目層級事件（建立、修改、送審、決策）— 不分單元，整題共有
         const string auditSql = """
             SELECT al.Action, al.CreatedAt AS At,
                    ISNULL(u.DisplayName, '系統') AS ActorName,
@@ -1031,27 +1179,58 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         });
 
         // (b) MT_ReviewAssignments：每階段的審題意見
-        const string commentSql = """
-            SELECT ra.ReviewStage AS Stage, ra.Decision, ra.Comment,
-                   ISNULL(ra.DecidedAt, ra.CreatedAt) AS At,
-                   ISNULL(u.DisplayName, '') AS ActorName
-            FROM dbo.MT_ReviewAssignments ra
-            LEFT JOIN dbo.MT_Users u ON u.Id = ra.ReviewerId
-            WHERE ra.QuestionId = @QuestionId AND ra.Comment IS NOT NULL AND ra.Comment <> ''
-            ORDER BY ra.DecidedAt;
-            """;
-        var commentRows = await conn.QueryAsync<ReviewCommentRow>(commentSql, new { QuestionId = questionId });
+        //     subQuestionId != null 時用 NULL-safe 比對精準過濾單元；否則撈整題（母題 + 所有子題）
+        var commentSql = subQuestionId is null
+            ? """
+                SELECT ra.ReviewStage AS Stage, ra.Decision, ra.Comment,
+                       ISNULL(ra.DecidedAt, ra.CreatedAt) AS At,
+                       ISNULL(u.DisplayName, '') AS ActorName
+                FROM dbo.MT_ReviewAssignments ra
+                LEFT JOIN dbo.MT_Users u ON u.Id = ra.ReviewerId
+                WHERE ra.QuestionId = @QuestionId AND ra.Comment IS NOT NULL AND ra.Comment <> ''
+                ORDER BY ra.DecidedAt;
+                """
+            : """
+                SELECT ra.ReviewStage AS Stage, ra.Decision, ra.Comment,
+                       ISNULL(ra.DecidedAt, ra.CreatedAt) AS At,
+                       ISNULL(u.DisplayName, '') AS ActorName
+                FROM dbo.MT_ReviewAssignments ra
+                LEFT JOIN dbo.MT_Users u ON u.Id = ra.ReviewerId
+                WHERE ra.QuestionId = @QuestionId
+                  AND ISNULL(ra.SubQuestionId, -1) = ISNULL(@SubQuestionId, -1)
+                  AND ra.Comment IS NOT NULL AND ra.Comment <> ''
+                ORDER BY ra.DecidedAt;
+                """;
+        var commentRows = await conn.QueryAsync<ReviewCommentRow>(commentSql, new
+        {
+            QuestionId    = questionId,
+            SubQuestionId = subQuestionId
+        });
 
-        // (c) MT_RevisionReplies：命題教師的修題說明
-        const string replySql = """
-            SELECT rr.Stage, rr.Content, rr.CreatedAt AS At,
-                   ISNULL(u.DisplayName, '') AS ActorName
-            FROM dbo.MT_RevisionReplies rr
-            LEFT JOIN dbo.MT_Users u ON u.Id = rr.UserId
-            WHERE rr.QuestionId = @QuestionId
-            ORDER BY rr.CreatedAt;
-            """;
-        var replyRows = await conn.QueryAsync<RevisionReplyRow>(replySql, new { QuestionId = questionId });
+        // (c) MT_RevisionReplies：命題教師的修題說明 — 同樣支援單元過濾
+        var replySql = subQuestionId is null
+            ? """
+                SELECT rr.Stage, rr.Content, rr.CreatedAt AS At,
+                       ISNULL(u.DisplayName, '') AS ActorName
+                FROM dbo.MT_RevisionReplies rr
+                LEFT JOIN dbo.MT_Users u ON u.Id = rr.UserId
+                WHERE rr.QuestionId = @QuestionId
+                ORDER BY rr.CreatedAt;
+                """
+            : """
+                SELECT rr.Stage, rr.Content, rr.CreatedAt AS At,
+                       ISNULL(u.DisplayName, '') AS ActorName
+                FROM dbo.MT_RevisionReplies rr
+                LEFT JOIN dbo.MT_Users u ON u.Id = rr.UserId
+                WHERE rr.QuestionId = @QuestionId
+                  AND ISNULL(rr.SubQuestionId, -1) = ISNULL(@SubQuestionId, -1)
+                ORDER BY rr.CreatedAt;
+                """;
+        var replyRows = await conn.QueryAsync<RevisionReplyRow>(replySql, new
+        {
+            QuestionId    = questionId,
+            SubQuestionId = subQuestionId
+        });
 
         var entries = new List<ReviewHistoryEntry>();
 
@@ -1201,7 +1380,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 q.QuestionCode AS ComparedQuestionCode,
                 sc.SimilarityScore,
                 sc.Determination,
-                q.Stem AS SummaryHtml
+                CASE WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent ELSE q.Stem END AS SummaryHtml
             FROM dbo.MT_SimilarityChecks sc
             INNER JOIN dbo.MT_Questions q ON q.Id = sc.ComparedQuestionId
             WHERE sc.SourceQuestionId = @QuestionId
@@ -1262,6 +1441,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         public int Id { get; set; }
         public int ProjectId { get; set; }
         public int QuestionId { get; set; }
+        public int? SubQuestionId { get; set; }
         public byte Stage { get; set; }
         public bool CanEditByReviewer { get; set; }
     }
@@ -1271,6 +1451,10 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         public int AssignmentId { get; set; }
         public int QuestionId { get; set; }
         public string QuestionCode { get; set; } = "";
+        /// <summary>子題 Id；NULL=該列為母題審題單元。</summary>
+        public int? SubQuestionId { get; set; }
+        /// <summary>子題 SortOrder（JOIN MT_SubQuestions 取得）；NULL=母題列。</summary>
+        public int? SubSortOrder { get; set; }
         public int TypeId { get; set; }
         public byte? Level { get; set; }
         public byte? Difficulty { get; set; }
@@ -1301,6 +1485,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     {
         public int Id { get; set; }
         public int QuestionId { get; set; }
+        public int? SubQuestionId { get; set; }
         public byte Stage { get; set; }
         public byte Status { get; set; }
         public byte? Decision { get; set; }
@@ -1344,6 +1529,16 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         public string? SummaryHtml { get; set; }
     }
 
+    private sealed class SiblingUnitRow
+    {
+        public int AssignmentId { get; set; }
+        public int? SubQuestionId { get; set; }
+        public int? SortOrder { get; set; }
+        public byte Stage { get; set; }
+        public byte? Decision { get; set; }
+        public byte Status { get; set; }
+    }
+
     private sealed class ReturnCountDto
     {
         public int ReturnCount { get; set; }
@@ -1355,6 +1550,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         public int Id { get; set; }
         public int ProjectId { get; set; }
         public int QuestionId { get; set; }
+        public int? SubQuestionId { get; set; }
         public byte Stage { get; set; }
         public byte? Decision { get; set; }
     }

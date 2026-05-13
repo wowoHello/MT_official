@@ -2,54 +2,61 @@
 @*  ReviewQuestionDisplay — 審題 Modal 左 70% 題目展示                       *@
 @*                                                                          *@
 @*  設計原則：                                                              *@
-@*    1. 改用 PreviewXxx 元件呈現考卷風格（與 Overview Slide-over 一致）      *@
-@*    2. 隱藏 PreviewHeader 的「全民中文檢定」大標題（review-no-cwt-title）   *@
-@*    3. 試題解析 / 批閱說明以 <details open> 折疊區置於題目下方              *@
-@*       → 預設展開，審題者必須可見（這是審題判斷依據）                       *@
-@*       → 折疊僅提供空間節省選項                                           *@
-@*    4. 題組子題解析各自獨立顯示於每題下方的 details 區                     *@
+@*    1. 非題組類（一般 / 精選 / 長文 / 聽力）：沿用 PreviewXxx 元件 + 解析折疊區
+@*    2. 題組類（閱讀 / 短文 / 聽力題組）：拆成「母題卡 + N 張子題卡」         *@
+@*       - 母題卡：文章 / 音檔 + 文體標籤                                    *@
+@*       - 子題卡：題號膠囊 + 題幹 + 選項（或自由作答）+ 內嵌解析             *@
+@*       → 每張子題卡資訊完整自足，審題者一目了然                            *@
+@*    3. 隱藏 PreviewHeader 的「全民中文檢定」大標題（review-no-cwt-title）    *@
 @* ====================================================================== *@
 @using MT.Components.Shared.QuestionPreviews
 
 <div class="w-full bg-oatmeal overflow-y-auto custom-scroll">
     <div class="max-w-4xl mx-auto px-5 sm:px-6 py-5 sm:py-6 space-y-4">
 
-        @* 考卷預覽區：外層加 review-no-cwt-title 隱藏「全民中文檢定」大標題 *@
-        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-            <p class="text-xs font-bold text-morandi uppercase tracking-wider mb-3">
-                <i class="fa-solid fa-file-alt mr-1"></i> 題目內容
-            </p>
-            <div class="bg-gray-50 rounded-lg p-4 border border-gray-100 review-no-cwt-title">
-                @switch (Question.QuestionType)
-                {
-                    case QuestionTypeCodes.Single:
-                    case QuestionTypeCodes.Select:
-                        @RenderChoicePreview
-                        break;
-                    case QuestionTypeCodes.LongText:
-                        @RenderLongTextPreview
-                        break;
-                    case QuestionTypeCodes.ReadGroup:
-                        @RenderReadGroupPreview
-                        break;
-                    case QuestionTypeCodes.ShortGroup:
-                        @RenderShortGroupPreview
-                        break;
-                    case QuestionTypeCodes.Listen:
-                        @RenderListenPreview
-                        break;
-                    case QuestionTypeCodes.ListenGroup:
-                        @RenderListenGroupPreview
-                        break;
-                    default:
-                        <p class="text-sm text-gray-500">未知題型：@Question.QuestionType</p>
-                        break;
-                }
-            </div>
-        </div>
+        @switch (Question.QuestionType)
+        {
+            @* 非題組類：白卡內嵌 Preview*，下方獨立解析折疊區 *@
+            case QuestionTypeCodes.Single:
+            case QuestionTypeCodes.Select:
+                @RenderInPaperShell(@<text><PreviewSingle QuestionType="@TypeLabel()" Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
+                                Tags="@BuildTags()" Stem="@(Question.Stem ?? "")"
+                                Options="@Question.Options" Answer="@(Question.Answer ?? "")"
+                                Images="@Question.Images" /></text>)
+                @RenderAnalysisSection
+                break;
+            case QuestionTypeCodes.LongText:
+                @RenderInPaperShell(@<text><PreviewLongText Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
+                                Tags="@BuildTags()" Stem="@(Question.Stem ?? "")"
+                                Passage="@(Question.ArticleContent ?? "")"
+                                Images="@Question.Images" /></text>)
+                @RenderAnalysisSection
+                break;
+            case QuestionTypeCodes.Listen:
+                @RenderInPaperShell(@<text><PreviewListen Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
+                                Tags="@BuildTags()" AudioFileName="@(Question.AudioUrl ?? "")"
+                                Stem="@(Question.Stem ?? "")" Options="@Question.Options"
+                                Answer="@(Question.Answer ?? "")" /></text>)
+                @RenderAnalysisSection
+                break;
 
-        @* 批閱者輔助資訊折疊區（解析 / 批閱說明），預設展開 *@
-        @RenderAnalysisSection
+            @* 題組類：母題卡 + 子題卡群（解析內嵌於各子題卡）*@
+            case QuestionTypeCodes.ReadGroup:
+                @RenderReadGroupReviewLayout
+                break;
+            case QuestionTypeCodes.ShortGroup:
+                @RenderShortGroupReviewLayout
+                break;
+            case QuestionTypeCodes.ListenGroup:
+                @RenderListenGroupReviewLayout
+                break;
+
+            default:
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <p class="text-sm text-gray-500">未知題型：@Question.QuestionType</p>
+                </div>
+                break;
+        }
 
     </div>
 </div>
@@ -57,6 +64,93 @@
 @code {
     [Parameter, EditorRequired] public QuestionFormData Question { get; set; } = default!;
     [Parameter] public string CreatorName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 當前審題單元：NULL = 母題列模式（顯示子題索引卡群）；非 NULL = 子題列模式（聚焦該子題）。
+    /// 僅題組類（ReadGroup / ShortGroup / ListenGroup）有差異；其他題型忽略此參數。
+    /// </summary>
+    [Parameter] public int? SubQuestionId { get; set; }
+
+    /// <summary>
+    /// 兄弟單元清單（給母題列子題索引卡用）— 來自 ReviewModalData.SiblingUnits。
+    /// 列表內含母題與所有子題單元，已依 SortOrder 升冪排序。
+    /// </summary>
+    [Parameter] public List<ReviewSiblingUnit> SiblingUnits { get; set; } = new();
+
+    /// <summary>子題索引卡點擊 → 通知 Modal 切換 currentSubId 並重撈該單元資料。</summary>
+    [Parameter] public EventCallback<int?> OnSubUnitClick { get; set; }
+
+    /// <summary>母題列模式（題組類顯示子題索引卡）</summary>
+    private bool IsMasterMode => SubQuestionId is null;
+
+    /// <summary>依 sub.Id 找出位置（給子題列模式定位用）</summary>
+    private static int FindSubIndex<T>(IReadOnlyList<T> list, int? subId, Func<T, int> idSelector)
+    {
+        if (subId is null) return -1;
+        for (var i = 0; i < list.Count; i++)
+            if (idSelector(list[i]) == subId.Value) return i;
+        return -1;
+    }
+
+    /// <summary>從 SiblingUnits 找對應該單元（NULL=母題）</summary>
+    private ReviewSiblingUnit? FindSibling(int? subId)
+        => SiblingUnits.FirstOrDefault(s => s.SubQuestionId == subId);
+
+    /// <summary>子題索引卡的「我的狀態」徽章 — 依 sibling.Status / Decision 推導文字與顏色</summary>
+    private static (string Label, string Css) DescribeUnitStatus(ReviewSiblingUnit? unit)
+    {
+        if (unit is null) return ("未分配", "bg-gray-100 text-gray-500 border-gray-200");
+
+        // 仍 Pending / Reviewing → 待審
+        if (unit.Status != ReviewTaskStatus.Completed)
+            return ("待審", "bg-amber-50 text-amber-700 border-amber-200");
+
+        // Completed：依階段與 Decision 判讀
+        return unit.Decision switch
+        {
+            ReviewDecision.Approve => ("已採用",     "bg-sage/15 text-sage border-sage/30"),
+            ReviewDecision.Revise  => ("改後再審",   "bg-terracotta/15 text-terracotta border-terracotta/30"),
+            ReviewDecision.Reject  => ("不採用",     "bg-red-50 text-red-700 border-red-200"),
+            // Decision null + Completed → 互審只給意見的場景
+            _ => unit.Stage == ReviewStage.Mutual
+                ? ("已給意見", "bg-morandi/15 text-morandi border-morandi/30")
+                : ("已審",     "bg-gray-100 text-gray-600 border-gray-300")
+        };
+    }
+
+    /// <summary>子題索引卡 — 母題列模式下顯示所有子題的概覽（編號 + 摘要 + 狀態 + 點擊跳子題）</summary>
+    private RenderFragment RenderSubIndexCard(int idx, int subId, string? stem) => __builder =>
+    {
+        var num    = idx + 1;
+        var sib    = FindSibling(subId);
+        var (label, css) = DescribeUnitStatus(sib);
+        var snippet = SnippetOf(stem);
+        <button type="button"
+                @onclick="() => OnSubUnitClick.InvokeAsync(subId)"
+                class="w-full text-left bg-white rounded-xl shadow-sm border border-gray-200 hover:border-morandi hover:shadow-md transition group flex items-stretch overflow-hidden focus:outline-none cursor-pointer">
+            <div class="w-12 sm:w-14 flex-shrink-0 bg-gradient-to-b from-morandi/15 to-morandi/5 border-r border-morandi/15 flex flex-col items-center justify-center py-3 font-serif">
+                <span class="text-[10px] text-morandi/70 font-bold tracking-wider font-sans">第</span>
+                <span class="text-xl font-black text-morandi leading-none my-0.5">@num</span>
+                <span class="text-[10px] text-morandi/70 font-bold tracking-wider font-sans">題</span>
+            </div>
+            <div class="flex-1 min-w-0 px-4 py-3 flex items-center gap-3">
+                <div class="flex-1 min-w-0">
+                    <div class="text-xs text-gray-400 mb-0.5 font-sans">點此進入該子題審題表單</div>
+                    <div class="text-sm text-gray-700 font-serif truncate" title="@snippet">@(string.IsNullOrEmpty(snippet) ? "（尚未填寫題幹）" : snippet)</div>
+                </div>
+                <span class="inline-block px-2 py-0.5 rounded text-xs font-bold border whitespace-nowrap @css">@label</span>
+                <i class="fa-solid fa-arrow-right text-gray-300 group-hover:text-morandi group-hover:translate-x-0.5 transition"></i>
+            </div>
+        </button>
+    };
+
+    /// <summary>HTML 字串擷取前 N 字（去標籤）— 索引卡摘要用</summary>
+    private static string SnippetOf(string? html, int max = 60)
+    {
+        if (string.IsNullOrWhiteSpace(html)) return "";
+        var text = System.Text.RegularExpressions.Regex.Replace(html, "<[^>]*>", "").Trim();
+        return text.Length <= max ? text : text[..max] + "…";
+    }
 
     // ==========================================================
     //  共用 Helper
@@ -74,7 +168,7 @@
     /// 解析折疊區（<details open>，預設展開）。
     /// amber 配色表示「審題者私有資訊」視覺位階。
     /// </summary>
-    private RenderFragment InlineAnalysis(string label, string icon, string? content) => __builder =>
+    private RenderFragment InlineAnalysis(string label, string icon, string? content, string fieldKey = "analysis") => __builder =>
     {
         if (!HasContent(content)) return;
         <div class="pt-3 mt-3 border-t border-amber-100">
@@ -82,24 +176,24 @@
                 <i class="fa-solid @icon mr-1"></i> @label
             </p>
             <div class="pl-3 border-l-2 border-amber-200">
-                <div class="prose prose-sm max-w-none font-serif text-sm leading-relaxed text-gray-700">
+                <div class="prose prose-sm max-w-none font-serif text-sm leading-relaxed text-gray-700"
+                     data-annot-target="@fieldKey">
                     @((MarkupString)content!)
                 </div>
             </div>
         </div>
     };
 
-    /// <summary>依題型決定是否有解析內容（控制 details 是否顯示）</summary>
+    /// <summary>
+    /// 依題型決定是否有解析內容（控制 details 是否顯示）。
+    /// 題組類解析已內嵌於子題卡內，本區不再渲染（回 false）。
+    /// </summary>
     private bool HaveAnyAnalysis() => Question.QuestionType switch
     {
         QuestionTypeCodes.LongText
             => HasContent(Question.GradingNote),
-        QuestionTypeCodes.ReadGroup
-            => Question.ReadSubQuestions.Any(sq => HasContent(sq.Analysis)),
-        QuestionTypeCodes.ShortGroup
-            => Question.ShortSubQuestions.Any(sq => HasContent(sq.Analysis)),
-        QuestionTypeCodes.ListenGroup
-            => Question.ListenGroupSubQuestions.Any(sq => HasContent(sq.Analysis)),
+        QuestionTypeCodes.ReadGroup or QuestionTypeCodes.ShortGroup or QuestionTypeCodes.ListenGroup
+            => false,   // 已於子題卡內嵌
         _   => HasContent(Question.Analysis)
     };
 
@@ -164,75 +258,347 @@
             : "";
 
     // ==========================================================
-    //  考卷預覽元件呼叫（7 種題型）
+    //  考卷預覽呼叫（非題組類：殼套 Preview*）
     // ==========================================================
 
-    /// <summary>一般 / 精選：PreviewSingle + 解析 details</summary>
-    private RenderFragment RenderChoicePreview => __builder =>
+    /// <summary>白卡殼：「題目內容」標題 + 模擬考卷外觀，給非題組類複用</summary>
+    private RenderFragment RenderInPaperShell(RenderFragment inner) => __builder =>
     {
-        <PreviewSingle QuestionType="@TypeLabel()" Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
-                       Tags="@BuildTags()" Stem="@(Question.Stem ?? "")"
-                       Options="@Question.Options" Answer="@(Question.Answer ?? "")"
-                       Images="@Question.Images" />
+        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+            <p class="text-xs font-bold text-morandi uppercase tracking-wider mb-3">
+                <i class="fa-solid fa-file-alt mr-1"></i> 題目內容
+            </p>
+            <div class="bg-gray-50 rounded-lg p-4 border border-gray-100 review-no-cwt-title">
+                @inner
+            </div>
+        </div>
     };
 
-    /// <summary>長文題目：PreviewLongText + 批閱說明 details</summary>
-    private RenderFragment RenderLongTextPreview => __builder =>
+    // ==========================================================
+    //  題組類三型：母題卡 + N 張子題卡（解析內嵌）
+    // ==========================================================
+
+    /// <summary>
+    /// 母題卡：圖示 + 標題 + 業務特有標籤（文體 / 語音類型 / 素材分類…）。
+    /// 題型 / 等級 / 難度交由頂部 Modal Header 統一顯示，本卡不再重複。
+    /// </summary>
+    private RenderFragment RenderMasterCard(string icon, string title, RenderFragment inner) => __builder =>
     {
-        <PreviewLongText Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
-                         Tags="@BuildTags()" Stem="@(Question.Stem ?? "")"
-                         Passage="@(Question.ArticleContent ?? "")" />
+        var tags = BuildTags();
+        <div class="bg-white rounded-xl shadow-sm border border-morandi/20 overflow-hidden">
+            <div class="px-5 py-3 bg-morandi/8 border-b border-morandi/15 flex items-center gap-2 flex-wrap">
+                <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-morandi/15 text-morandi flex-shrink-0">
+                    <i class="fa-solid @icon text-sm"></i>
+                </span>
+                <span class="font-bold text-slate-main text-sm">@title</span>
+                @if (tags.Count > 0)
+                {
+                    <span class="text-xs text-gray-300 font-sans ml-1">|</span>
+                    @foreach (var kv in tags)
+                    {
+                        <span class="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-white border border-morandi/15 text-gray-600 font-sans">
+                            <span class="text-gray-400">@kv.Key</span>
+                            <span class="font-bold text-morandi">@kv.Value</span>
+                        </span>
+                    }
+                }
+            </div>
+            <div class="p-5">
+                @inner
+            </div>
+        </div>
     };
 
-    /// <summary>閱讀題組：PreviewReadGroup + 各子題解析 details（於主 details 內依序）</summary>
-    private RenderFragment RenderReadGroupPreview => __builder =>
+    /// <summary>子題卡片殼：左側序號膠囊 + 主體內容（題幹 + 選項 / 自由作答 + 解析）</summary>
+    private RenderFragment RenderSubCard(int num, int idx, RenderFragment body, string? analysisHtml) => __builder =>
     {
-        <PreviewReadGroup Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
-                          Tags="@BuildTags()"
-                          Passage="@(Question.ArticleContent ?? "")"
-                          Images="@Question.Images"
-                          SubQuestions="@Question.ReadSubQuestions.Select(sq => new PreviewReadGroup.SubQuestionData {
-                              Stem    = sq.Stem ?? "",
-                              Options = sq.Options,
-                              Answer  = sq.Answer ?? ""
-                          }).ToList()" />
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden transition hover:shadow-md hover:border-morandi/30">
+            <div class="flex items-stretch">
+                @* 左側序號膠囊（柔和漸層 / morandi 色）— 在卡片視覺上「貼齊邊」並縱向延伸 *@
+                <div class="w-12 sm:w-14 flex-shrink-0 bg-gradient-to-b from-morandi/15 to-morandi/5 border-r border-morandi/15 flex flex-col items-center justify-start pt-5 pb-3 font-serif">
+                    <span class="text-xs text-morandi/70 font-bold tracking-wider font-sans">第</span>
+                    <span class="text-2xl font-black text-morandi leading-none my-0.5">@num</span>
+                    <span class="text-xs text-morandi/70 font-bold tracking-wider font-sans">題</span>
+                </div>
+                <div class="flex-1 min-w-0 p-5">
+                    @body
+                    @if (HasContent(analysisHtml))
+                    {
+                        <div class="mt-4 pt-3 border-t border-amber-100 bg-amber-50/40 -mx-5 -mb-5 px-5 py-3">
+                            <p class="text-xs font-bold text-amber-700 mb-2 tracking-wider flex items-center gap-1.5">
+                                <i class="fa-solid fa-lightbulb text-amber-500"></i>
+                                試題解析
+                                <span class="ml-1 text-[10px] text-amber-500/70 font-normal font-sans">（僅命題／審題者可見）</span>
+                            </p>
+                            <div class="pl-3 border-l-2 border-amber-200">
+                                <div class="prose prose-sm max-w-none font-serif text-sm leading-relaxed text-gray-700"
+                                     data-annot-target="@($"subAnalysis.{idx}")">
+                                    @((MarkupString)analysisHtml!)
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
     };
 
-    /// <summary>短文題組：PreviewShortGroup + 各子題解析 details（於主 details 內依序）</summary>
-    private RenderFragment RenderShortGroupPreview => __builder =>
+    /// <summary>子題題幹（題幹 HTML + 圖片列）；idx 用於 data-annot-target 命名</summary>
+    private RenderFragment RenderSubStem(int idx, string? stem, List<QuestionImage> stemImages) => __builder =>
     {
-        <PreviewShortGroup Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
-                           Tags="@BuildTags()"
-                           Passage="@(Question.ArticleContent ?? "")"
-                           SubQuestions="@Question.ShortSubQuestions.Select(sq => new PreviewShortGroup.SubQuestionData {
-                               Stem      = sq.Stem ?? "",
-                               Dimension = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ShortGroup),
-                               Indicator = QuestionConstants.DecodeSubIndicator(sq.Indicator, QuestionTypeCodes.ShortGroup)
-                           }).ToList()" />
+        var hasText = HasContent(stem);
+        var hasImg  = stemImages.Count > 0;
+        <div class="font-serif">
+            @if (hasText)
+            {
+                <div class="prose prose-base max-w-none leading-relaxed text-gray-900" data-annot-target="@($"subStem.{idx}")">
+                    @((MarkupString)stem!)
+                </div>
+            }
+            else if (!hasImg)
+            {
+                <p class="text-gray-400 italic text-sm font-sans">子題題幹尚未填寫</p>
+            }
+            @if (hasImg)
+            {
+                <PreviewImageRow Images="stemImages" />
+            }
+        </div>
     };
 
-    /// <summary>聽力題目：PreviewListen + 解析 details</summary>
-    private RenderFragment RenderListenPreview => __builder =>
+    /// <summary>閱讀題組版面：母題卡 + (母題列子題索引卡群 / 子題列單一完整子題卡)</summary>
+    private RenderFragment RenderReadGroupReviewLayout => __builder =>
     {
-        <PreviewListen Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
-                       Tags="@BuildTags()" AudioFileName="@(Question.AudioUrl ?? "")"
-                       Stem="@(Question.Stem ?? "")" Options="@Question.Options"
-                       Answer="@(Question.Answer ?? "")" />
+        var articleImages = Question.Images.Where(i =>
+            i.FieldType == (byte)QuestionImageField.ArticleContent && i.SubQuestionIndex == null)
+            .OrderBy(i => i.SortOrder).ToList();
+
+        @RenderMasterCard("fa-book-open", IsMasterMode ? "閱讀文章" : "閱讀文章（上下文參考）", @<text>
+            <div class="prose prose-base max-w-none font-serif leading-relaxed text-gray-900" data-annot-target="article">
+                @if (HasContent(Question.ArticleContent))
+                {
+                    @((MarkupString)Question.ArticleContent!)
+                }
+                else
+                {
+                    <p class="text-gray-400 italic text-sm font-sans">文章內容尚未填寫</p>
+                }
+            </div>
+            @if (articleImages.Count > 0)
+            {
+                <PreviewImageRow Images="articleImages" />
+            }
+        </text>)
+
+        @if (IsMasterMode)
+        {
+            <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
+                <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：上方文章；點下方索引卡進入個別子題審題表單
+            </p>
+            <div class="space-y-3">
+                @for (int i = 0; i < Question.ReadSubQuestions.Count; i++)
+                {
+                    var idx = i;
+                    var sq  = Question.ReadSubQuestions[idx];
+                    @RenderSubIndexCard(idx, sq.Id, sq.Stem)
+                }
+                @if (Question.ReadSubQuestions.Count == 0)
+                {
+                    <div class="bg-white rounded-xl border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400 italic font-sans">
+                        尚未新增子題
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            var focusIdx = FindSubIndex(Question.ReadSubQuestions, SubQuestionId, s => s.Id);
+            if (focusIdx >= 0)
+            {
+                var sq = Question.ReadSubQuestions[focusIdx];
+                var stemImages = Question.Images.Where(im =>
+                    im.FieldType == (byte)QuestionImageField.Stem && im.SubQuestionIndex == focusIdx)
+                    .OrderBy(im => im.SortOrder).ToList();
+                <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
+                    <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：下方子題
+                </p>
+                @RenderSubCard(focusIdx + 1, focusIdx, @<text>
+                    @RenderSubStem(focusIdx, sq.Stem, stemImages)
+                    <PreviewChoiceOptions Options="@sq.Options" Answer="@(sq.Answer ?? "")"
+                                          Images="@Question.Images" SubQuestionIndex="focusIdx" />
+                </text>, sq.Analysis)
+            }
+            else
+            {
+                <div class="bg-white rounded-xl border border-dashed border-terracotta/30 p-6 text-center text-sm text-terracotta font-sans">
+                    <i class="fa-solid fa-circle-exclamation mr-1"></i>找不到該子題（可能已被刪除）
+                </div>
+            }
+        }
     };
 
-    /// <summary>聽力題組：PreviewListenGroup + 各子題解析 details（於主 details 內依序）</summary>
-    private RenderFragment RenderListenGroupPreview => __builder =>
+    /// <summary>短文題組版面：母題卡 + (母題列子題索引卡群 / 子題列單一完整子題卡)</summary>
+    private RenderFragment RenderShortGroupReviewLayout => __builder =>
     {
-        <PreviewListenGroup Tags="@BuildTags()" AudioFileName="@(Question.AudioUrl ?? "")"
-                            Passage="@(Question.ArticleContent ?? "")"
-                            SubQuestions="@Question.ListenGroupSubQuestions.Select(sq => new PreviewListenGroup.SubQuestionData {
-                                Level           = QuestionConstants.ListenLevelLabels.GetValueOrDefault(sq.FixedDifficulty, ""),
-                                CoreAbility     = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ListenGroup),
-                                DetailIndicator = QuestionConstants.DecodeSubIndicator(sq.DetailIndicator, QuestionTypeCodes.ListenGroup),
-                                Stem    = sq.Stem ?? "",
-                                Options = sq.Options,
-                                Answer  = sq.Answer ?? ""
-                            }).ToList()" />
+        var articleImages = Question.Images.Where(i =>
+            i.FieldType == (byte)QuestionImageField.ArticleContent && i.SubQuestionIndex == null)
+            .OrderBy(i => i.SortOrder).ToList();
+
+        @RenderMasterCard("fa-feather-pointed", IsMasterMode ? "短文文章" : "短文文章（上下文參考）", @<text>
+            <div class="prose prose-base max-w-none font-serif leading-relaxed text-gray-900">
+                @if (HasContent(Question.ArticleContent))
+                {
+                    @((MarkupString)Question.ArticleContent!)
+                }
+                else
+                {
+                    <p class="text-gray-400 italic text-sm font-sans">文章內容尚未填寫</p>
+                }
+            </div>
+            @if (articleImages.Count > 0)
+            {
+                <PreviewImageRow Images="articleImages" />
+            }
+        </text>)
+
+        @if (IsMasterMode)
+        {
+            <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
+                <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：上方文章；點下方索引卡進入個別子題審題表單
+            </p>
+            <div class="space-y-3">
+                @for (int i = 0; i < Question.ShortSubQuestions.Count; i++)
+                {
+                    var idx = i;
+                    var sq  = Question.ShortSubQuestions[idx];
+                    @RenderSubIndexCard(idx, sq.Id, sq.Stem)
+                }
+                @if (Question.ShortSubQuestions.Count == 0)
+                {
+                    <div class="bg-white rounded-xl border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400 italic font-sans">
+                        尚未新增子題
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            var focusIdx = FindSubIndex(Question.ShortSubQuestions, SubQuestionId, s => s.Id);
+            if (focusIdx >= 0)
+            {
+                var sq = Question.ShortSubQuestions[focusIdx];
+                var stemImages = Question.Images.Where(im =>
+                    im.FieldType == (byte)QuestionImageField.Stem && im.SubQuestionIndex == focusIdx)
+                    .OrderBy(im => im.SortOrder).ToList();
+                var dimension = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ShortGroup);
+                var indicator = QuestionConstants.DecodeSubIndicator(sq.Indicator, QuestionTypeCodes.ShortGroup);
+                <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
+                    <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：下方子題
+                </p>
+                @RenderSubCard(focusIdx + 1, focusIdx, @<text>
+                    @RenderSubStem(focusIdx, sq.Stem, stemImages)
+                    <div class="border border-gray-200 rounded-md bg-gray-50/40 p-3 min-h-[80px] mt-3 flex items-center justify-center text-xs text-gray-400 italic font-sans">
+                        自由作答區（正式考試於稿紙作答）
+                    </div>
+                    <div class="mt-3 pt-2 border-t border-dashed border-gray-200 flex flex-wrap items-center gap-2 text-xs font-sans">
+                        <span class="text-gray-400"><i class="fa-solid fa-key mr-1"></i>命題者參考：</span>
+                        <span class="inline-flex items-center rounded-full border border-morandi/15 bg-morandi/5 px-2 py-0.5 text-morandi/80">
+                            主向度：@(string.IsNullOrWhiteSpace(dimension) ? "未設定" : dimension)
+                        </span>
+                        <span class="inline-flex items-center rounded-full border border-sage/15 bg-sage/5 px-2 py-0.5 text-sage">
+                            能力指標：@(string.IsNullOrWhiteSpace(indicator) ? "未設定" : indicator)
+                        </span>
+                    </div>
+                </text>, sq.Analysis)
+            }
+            else
+            {
+                <div class="bg-white rounded-xl border border-dashed border-terracotta/30 p-6 text-center text-sm text-terracotta font-sans">
+                    <i class="fa-solid fa-circle-exclamation mr-1"></i>找不到該子題（可能已被刪除）
+                </div>
+            }
+        }
+    };
+
+    /// <summary>聽力題組版面：母題卡（音檔 + 語音內容）+ (母題列子題索引卡群 / 子題列單一完整子題卡)</summary>
+    private RenderFragment RenderListenGroupReviewLayout => __builder =>
+    {
+        @RenderMasterCard("fa-headphones", IsMasterMode ? "聽力素材" : "聽力素材（上下文參考）", @<text>
+            <PreviewAudioSection AudioFileName="@(Question.AudioUrl ?? "")" />
+            @if (HasContent(Question.ArticleContent))
+            {
+                <details class="mt-4 border border-amber-200 rounded-lg bg-amber-50/60 overflow-hidden">
+                    <summary class="px-4 py-2.5 cursor-pointer text-xs font-bold text-amber-700 flex items-center gap-1.5 hover:bg-amber-100/50 transition list-none font-sans">
+                        <i class="fa-solid fa-eye-slash text-amber-500"></i>
+                        語音內容（僅命題／審題者可見，考生不會看到）
+                        <i class="fa-solid fa-chevron-down ml-auto text-xs text-amber-500"></i>
+                    </summary>
+                    <div class="px-4 pb-3 pt-1">
+                        <div class="prose prose-sm max-w-none leading-relaxed text-gray-700 font-serif">
+                            @((MarkupString)Question.ArticleContent!)
+                        </div>
+                    </div>
+                </details>
+            }
+        </text>)
+
+        @if (IsMasterMode)
+        {
+            <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
+                <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：上方聽力素材；點下方索引卡進入個別子題審題表單
+            </p>
+            <div class="space-y-3">
+                @for (int i = 0; i < Question.ListenGroupSubQuestions.Count; i++)
+                {
+                    var idx = i;
+                    var sq  = Question.ListenGroupSubQuestions[idx];
+                    @RenderSubIndexCard(idx, sq.Id, sq.Stem)
+                }
+                @if (Question.ListenGroupSubQuestions.Count == 0)
+                {
+                    <div class="bg-white rounded-xl border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400 italic font-sans">
+                        尚未新增子題
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            var focusIdx = FindSubIndex(Question.ListenGroupSubQuestions, SubQuestionId, s => s.Id);
+            if (focusIdx >= 0)
+            {
+                var sq = Question.ListenGroupSubQuestions[focusIdx];
+                var fixedLevel  = QuestionConstants.ListenLevelLabels.GetValueOrDefault(sq.FixedDifficulty, "");
+                var coreAbility = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ListenGroup);
+                var indicator   = QuestionConstants.DecodeSubIndicator(sq.DetailIndicator, QuestionTypeCodes.ListenGroup);
+                <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
+                    <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：下方子題
+                </p>
+                @RenderSubCard(focusIdx + 1, focusIdx, @<text>
+                    @RenderSubStem(focusIdx, sq.Stem, new List<QuestionImage>())
+                    <PreviewChoiceOptions Options="@sq.Options" Answer="@(sq.Answer ?? "")"
+                                          SubQuestionIndex="focusIdx" />
+                    <div class="mt-3 pt-2 border-t border-dashed border-gray-200 flex flex-wrap items-center gap-2 text-xs font-sans">
+                        <span class="text-gray-400"><i class="fa-solid fa-key mr-1"></i>命題者參考：</span>
+                        <span class="inline-flex items-center rounded-full border border-morandi/15 bg-morandi/5 px-2 py-0.5 text-morandi/80">
+                            難度：@(string.IsNullOrWhiteSpace(fixedLevel) ? "未設定" : fixedLevel)
+                        </span>
+                        <span class="inline-flex items-center rounded-full border border-sage/15 bg-sage/5 px-2 py-0.5 text-sage">
+                            核心能力：@(string.IsNullOrWhiteSpace(coreAbility) ? "未設定" : coreAbility)
+                        </span>
+                        <span class="inline-flex items-center rounded-full border border-terracotta/15 bg-terracotta/5 px-2 py-0.5 text-terracotta">
+                            細目指標：@(string.IsNullOrWhiteSpace(indicator) ? "未設定" : indicator)
+                        </span>
+                    </div>
+                </text>, sq.Analysis)
+            }
+            else
+            {
+                <div class="bg-white rounded-xl border border-dashed border-terracotta/30 p-6 text-center text-sm text-terracotta font-sans">
+                    <i class="fa-solid fa-circle-exclamation mr-1"></i>找不到該子題（可能已被刪除）
+                </div>
+            }
+        }
     };
 
     // ==========================================================
@@ -257,47 +623,10 @@
                 @switch (Question.QuestionType)
                 {
                     case QuestionTypeCodes.LongText:
-                        @InlineAnalysis("批閱說明", "fa-list-check", Question.GradingNote)
+                        @InlineAnalysis("批閱說明", "fa-list-check", Question.GradingNote, "gradingNote")
                         break;
-
-                    case QuestionTypeCodes.ReadGroup:
-                        @for (int i = 0; i < Question.ReadSubQuestions.Count; i++)
-                        {
-                            var sq  = Question.ReadSubQuestions[i];
-                            var num = i + 1;
-                            if (HasContent(sq.Analysis))
-                            {
-                                @InlineAnalysis($"第 {num} 題試題解析", "fa-lightbulb", sq.Analysis)
-                            }
-                        }
-                        break;
-
-                    case QuestionTypeCodes.ShortGroup:
-                        @for (int i = 0; i < Question.ShortSubQuestions.Count; i++)
-                        {
-                            var sq  = Question.ShortSubQuestions[i];
-                            var num = i + 1;
-                            if (HasContent(sq.Analysis))
-                            {
-                                @InlineAnalysis($"第 {num} 題試題解析", "fa-lightbulb", sq.Analysis)
-                            }
-                        }
-                        break;
-
-                    case QuestionTypeCodes.ListenGroup:
-                        @for (int i = 0; i < Question.ListenGroupSubQuestions.Count; i++)
-                        {
-                            var sq  = Question.ListenGroupSubQuestions[i];
-                            var num = i + 1;
-                            if (HasContent(sq.Analysis))
-                            {
-                                @InlineAnalysis($"第 {num} 題試題解析", "fa-lightbulb", sq.Analysis)
-                            }
-                        }
-                        break;
-
                     default:
-                        @* 一般 / 精選 / 聽力：單一解析欄位 *@
+                        @* 一般 / 精選 / 聽力：單一解析欄位（題組類解析已內嵌於子題卡，不會走到此處） *@
                         @InlineAnalysis("試題解析", "fa-lightbulb", Question.Analysis)
                         break;
                 }

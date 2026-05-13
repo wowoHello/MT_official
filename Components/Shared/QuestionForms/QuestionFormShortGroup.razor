@@ -21,6 +21,8 @@
             </div>
         </div>
         <QuillField Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }" FieldLabel="文章內容" Placeholder="點擊此處開始輸入文章內容..." />
+        <QuestionImagesField Images="ArticleImages"
+            ImagesChanged="upd => ApplyImageChange(QuestionImageField.ArticleContent, null, upd)" />
     </FormSectionCard>
 
     <FormSectionCard Title="子題區" Icon="fa-layer-group" BodyClass="p-5">
@@ -45,9 +47,15 @@
                 var indicatorKey  = $"ShortSub_{n}_Indicator";
                 var analysisKey   = $"ShortSub_{n}_Analysis";
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                    <!-- 子題標頭 -->
+                    <!-- 子題標頭：第 N 題 + 子題碼（命題後配發） -->
                     <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                        <span class="text-sm font-bold text-slate-main">第 @n 題</span>
+                        <span class="text-sm font-bold text-slate-main flex items-center gap-2">
+                            第 @n 題
+                            @if (!string.IsNullOrWhiteSpace(ParentQuestionCode))
+                            {
+                                <span class="text-xs text-gray-400 font-normal font-mono">@QuestionCodeHelper.SubCode(ParentQuestionCode, n)</span>
+                            }
+                        </span>
                         @* 刪除子題僅在草稿狀態開放；命題完成後鎖定，避免送審/審題流程斷鏈 *@
                         @if (Status == QuestionStatus.Draft && SubQuestions.Count > 1)
                         {
@@ -65,6 +73,8 @@
                             </label>
                             <QuillField Value="@sq.Stem" ValueChanged="v => { sq.Stem = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }" FieldLabel="@($"第 {n} 題 題目內容")"
                                 Placeholder="點擊此處開始編輯題目內容..." />
+                            <QuestionImagesField Images="SubStemImages(idx)"
+                                ImagesChanged="upd => ApplyImageChange(QuestionImageField.Stem, idx, upd)" />
                         </div>
 
                         <!-- 主向度 + 能力指標 -->
@@ -123,11 +133,45 @@
     /// <summary>當前題目狀態，僅 Draft 開放刪除子題；其餘狀態（命題完成 / 送審後）按鈕隱藏</summary>
     [Parameter] public byte Status { get; set; } = QuestionStatus.Draft;
 
+    /// <summary>母題編號（Q-{Year}-{NNNNN}），用於在子題卡頭顯示子題碼。新題尚未配發碼時可為空字串。</summary>
+    [Parameter] public string ParentQuestionCode { get; set; } = "";
+
+    /// <summary>題目附圖（母題 FieldType=ArticleContent；子題 FieldType=Stem + SubQuestionIndex=子題位置）。</summary>
+    [Parameter] public List<QuestionImage> Images { get; set; } = [];
+    [Parameter] public EventCallback<List<QuestionImage>> ImagesChanged { get; set; }
+
     /// <summary>由父層傳入的驗證失敗欄位集合。</summary>
     [Parameter] public HashSet<string>? InvalidFields { get; set; }
 
     private string InvalidRing(string fieldKey) =>
         InvalidFields?.Contains(fieldKey) == true ? "ring-2 ring-red-400" : "";
+
+    // ------------------------------------------------------------------
+    //  附圖切片：依 FieldType + SubQuestionIndex 抽片段
+    // ------------------------------------------------------------------
+
+    private List<QuestionImage> ArticleImages =>
+        Images.Where(i => i.FieldType == (byte)QuestionImageField.ArticleContent && i.SubQuestionIndex == null)
+              .OrderBy(i => i.SortOrder).ToList();
+
+    private List<QuestionImage> SubStemImages(int subIdx) =>
+        Images.Where(i => i.FieldType == (byte)QuestionImageField.Stem && i.SubQuestionIndex == subIdx)
+              .OrderBy(i => i.SortOrder).ToList();
+
+    /// <summary>把指定欄位（FieldType + SubQuestionIndex）的附圖覆寫為 updated，並回拋父層。</summary>
+    private async Task ApplyImageChange(QuestionImageField fieldType, int? subIdx, List<QuestionImage> updated)
+    {
+        var others = Images.Where(i => !(i.FieldType == (byte)fieldType && i.SubQuestionIndex == subIdx)).ToList();
+        for (int i = 0; i < updated.Count; i++)
+        {
+            updated[i].FieldType = (byte)fieldType;
+            updated[i].SubQuestionIndex = subIdx;
+            updated[i].SortOrder = (byte)(i + 1);
+        }
+        others.AddRange(updated);
+        Images = others;
+        await ImagesChanged.InvokeAsync(others);
+    }
 
     private void OnCoreAbilityChanged(SubQuestionFreeResponse sq)
     {

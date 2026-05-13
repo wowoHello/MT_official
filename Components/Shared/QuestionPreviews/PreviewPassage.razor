@@ -20,17 +20,22 @@
             {
                 @((MarkupString)Content)
             }
-            else
+            else if (Images is not { Count: > 0 })
             {
+                @* 文字與圖片都沒有才顯示佔位字；純圖文章不顯示 *@
                 <p class="text-gray-400 italic text-sm font-sans">內容尚未填寫</p>
             }
         </div>
+        <PreviewImageRow Images="Images" />
     </div>
 </div>
 
 @code {
     [Parameter] public string Content { get; set; } = "";
     [Parameter] public string Label { get; set; } = "文章內容";
+
+    /// <summary>文章附圖（已過篩，由父層提供，本元件不做 FieldType 篩選）。</summary>
+    [Parameter] public List<QuestionImage>? Images { get; set; }
 
     private bool HasContent(string? html)
     {

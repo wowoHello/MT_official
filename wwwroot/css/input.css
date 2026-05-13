@@ -67,6 +67,52 @@ html { font-size: 120%; }
         border-color: #e2e8f0;
         transform: translateY(-2px);
     }
+
+    /* ===== 審題劃記評語 (annotation) — 由 annotation.js 動態插入 <mark> ===== */
+    /* 共通樣式：底線粗體式高亮，hover 變濃；保留原文閱讀清晰度 */
+    mark.annot {
+        background: transparent;
+        padding: 0 1px;
+        border-radius: 2px;
+        cursor: help;
+        transition: background-color 0.15s ease;
+        text-decoration: underline wavy;
+        text-underline-offset: 3px;
+        text-decoration-thickness: 1.5px;
+    }
+    /* 未回應：amber（待處理） */
+    mark.annot.annot-pending {
+        color: inherit;
+        text-decoration-color: #d97706;
+        background-color: rgba(254, 243, 199, 0.4);
+    }
+    mark.annot.annot-pending:hover {
+        background-color: rgba(254, 215, 170, 0.7);
+    }
+    /* 確認修改：sage（已採納） */
+    mark.annot.annot-accepted {
+        color: inherit;
+        text-decoration-color: #8EAB94;
+        background-color: rgba(142, 171, 148, 0.12);
+    }
+    mark.annot.annot-accepted:hover {
+        background-color: rgba(142, 171, 148, 0.22);
+    }
+    /* 不修改：terracotta（保留原文） */
+    mark.annot.annot-rejected {
+        color: inherit;
+        text-decoration-color: #D98A6C;
+        background-color: rgba(217, 138, 108, 0.12);
+    }
+    mark.annot.annot-rejected:hover {
+        background-color: rgba(217, 138, 108, 0.22);
+    }
+
+    /* 浮層按鈕 hover 加深 */
+    .annot-float-btn:hover {
+        background-color: #587a99 !important;
+        transform: translateY(-1px);
+    }
 }
 
 /* Sidebar Sticky */

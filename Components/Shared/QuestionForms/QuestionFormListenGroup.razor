@@ -46,9 +46,15 @@
                                             $"ListenSub_{n}_Options_2", $"ListenSub_{n}_Options_3", answerKey };
 
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                    <!-- 子題標頭 -->
+                    <!-- 子題標頭：第 N 題 + 子題碼（命題後配發） + 難度 badge -->
                     <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                        <span class="text-sm font-bold text-slate-main">第 @n 題</span>
+                        <span class="text-sm font-bold text-slate-main flex items-center gap-2">
+                            第 @n 題
+                            @if (!string.IsNullOrWhiteSpace(ParentQuestionCode))
+                            {
+                                <span class="text-xs text-gray-400 font-normal font-mono">@QuestionCodeHelper.SubCode(ParentQuestionCode, n)</span>
+                            }
+                        </span>
                         <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-600 text-xs font-bold">@subLevelLabel</span>
                     </div>
                     <div class="p-4 space-y-4">
@@ -130,6 +136,9 @@
     [Parameter] public List<ListenGroupSubQuestion> SubQuestions { get; set; }
         = [new() { FixedDifficulty = 3 }, new() { FixedDifficulty = 4 }];
     [Parameter] public EventCallback<List<ListenGroupSubQuestion>> SubQuestionsChanged { get; set; }
+
+    /// <summary>母題編號（Q-{Year}-{NNNNN}），用於在子題卡頭顯示子題碼。新題尚未配發碼時可為空字串。</summary>
+    [Parameter] public string ParentQuestionCode { get; set; } = "";
 
     /// <summary>由父層傳入的驗證失敗欄位集合。</summary>
     [Parameter] public HashSet<string>? InvalidFields { get; set; }

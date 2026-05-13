@@ -15,6 +15,12 @@ type: project
 
 **Why:** 原本 Status=11 是 SentBack（總審退回），於 2026-05-05 D1 決策正式廢用，因此 ClosedNotAdopted/Archived 各自前移一位。動到 SQL 寫死值時要小心對齊新編號。
 
+**規格文件落差警告（2026-05-13 確認）：**
+- `D:\MTrefer\db.md` MT_Questions.Status 註解仍寫「0~13，共 14 種」（舊版未更新）
+- `D:\MTrefer\pageFinal_doc\CwtList.md` v2.0（2026-05-05）也仍列出 14 種含 SentBack=11/ClosedNotAdopted=12/Archived=13（舊編號）
+- **以 C# `QuestionStatus` 常數為唯一真值**（新編號 0-12 共 13 種）
+- 子題 `MT_SubQuestions.Status` 註解（db.md L648-651）已對齊新編號
+
 **三 Tab 狀態範圍（驅動列表預設過濾與 EmptyState）：**
 - `ComposeTabStatuses = [0..8]` — 命題作業區（包含 2-8 的「已送審快照」唯讀）
 - `RevisionTabStatuses = [2..8]` — 審修作業區

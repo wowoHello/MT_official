@@ -3,8 +3,8 @@
 
 <PreviewHeader QuestionType="短文題組" Level="@Level" Difficulty="@Difficulty" Tags="@Tags" />
 
-<!-- 文章內容（實際考卷格式：不顯示「題目」，直接顯示文章） -->
-<PreviewPassage Content="@Passage" Label="閱讀文章" />
+<!-- 文章內容（實際考卷格式：不顯示「題目」，直接顯示文章；含附圖） -->
+<PreviewPassage Content="@Passage" Label="閱讀文章" Images="ArticleImages" />
 
 <!-- 作答提示 -->
 <p class="text-xs text-gray-500 italic mt-4 mb-2 font-sans">
@@ -15,9 +15,11 @@
 <div class="space-y-6 mt-4">
     @for (int i = 0; i < SubQuestions.Count; i++)
     {
-        var sq = SubQuestions[i];
-        var num = i + 1;
-        <div class="@(i > 0 ? "border-t border-gray-200 pt-5" : "")">
+        var idx = i;
+        var sq = SubQuestions[idx];
+        var num = idx + 1;
+        var subStemImages = SubStemImagesOf(idx);
+        <div class="@(idx > 0 ? "border-t border-gray-200 pt-5" : "")">
             <!-- 題號 + 題幹 -->
             <div class="flex items-baseline gap-3 mb-3 font-serif">
                 <span class="text-lg font-bold text-gray-900 leading-none">@num.</span>
@@ -26,12 +28,14 @@
                     {
                         @((MarkupString)sq.Stem)
                     }
-                    else
+                    else if (subStemImages.Count == 0)
                     {
+                        @* 文字與圖片都沒有時才顯示佔位字 *@
                         <p class="text-gray-400 italic text-sm font-sans">子題題幹尚未填寫</p>
                     }
                 </div>
             </div>
+            <PreviewImageRow Images="subStemImages" />
 
             <!-- 自由作答框 -->
             <div class="border border-gray-200 rounded-md bg-gray-50/40 p-3 min-h-[80px] flex items-center justify-center text-xs text-gray-400 italic font-sans">
@@ -63,6 +67,7 @@
     [Parameter] public Dictionary<string, string>? Tags { get; set; }
     [Parameter] public string Passage { get; set; } = "";
     [Parameter] public List<SubQuestionData> SubQuestions { get; set; } = new();
+    [Parameter] public List<QuestionImage> Images { get; set; } = [];
 
     public class SubQuestionData
     {
@@ -70,6 +75,14 @@
         public string Dimension { get; set; } = "";
         public string Indicator { get; set; } = "";
     }
+
+    private List<QuestionImage> ArticleImages =>
+        Images.Where(i => i.FieldType == (byte)QuestionImageField.ArticleContent && i.SubQuestionIndex == null)
+              .OrderBy(i => i.SortOrder).ToList();
+
+    private List<QuestionImage> SubStemImagesOf(int subIdx) =>
+        Images.Where(i => i.FieldType == (byte)QuestionImageField.Stem && i.SubQuestionIndex == subIdx)
+              .OrderBy(i => i.SortOrder).ToList();
 
     private bool HasContent(string? html)
     {

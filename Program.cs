@@ -87,6 +87,9 @@ builder.Services.AddScoped<IQuestionService, QuestionService>();
 // 審題任務列表、Modal 資料、意見儲存、決策提交（Reviews.razor）
 builder.Services.AddScoped<IReviewService, ReviewService>();
 
+// 審題劃記評語（inline annotation）— 由 ReviewModal / RevisionSlideOver 共用
+builder.Services.AddScoped<IAnnotationService, AnnotationService>();
+
 // 命題總覽列表彙整與詳情（Overview.razor，內部依賴 IQuestionService）
 builder.Services.AddScoped<IOverviewService, OverviewService>();
 

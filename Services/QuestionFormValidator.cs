@@ -157,7 +157,7 @@ public static class QuestionFormValidator
                      && i.SubQuestionIndex is null
                      && !string.IsNullOrWhiteSpace(i.ImagePath));
 
-    /// <summary>長文題目。</summary>
+    /// <summary>長文題目。文章內容：文字或圖片擇一；批閱說明：必填文字。</summary>
     private static void ValidateLongText(QuestionFormData data, List<ValidationError> errors)
     {
         if (data.WritingMode is null)
@@ -165,9 +165,9 @@ public static class QuestionFormValidator
         if (data.Difficulty is null)
             errors.Add(new(nameof(QuestionFormData.Difficulty), "請選擇難易度"));
 
-        // 題目（Stem）在 razor 中沒標必填，但文章內容、批閱說明標 *
-        if (IsRichTextEmpty(data.ArticleContent))
-            errors.Add(new(nameof(QuestionFormData.ArticleContent), "請填寫文章內容"));
+        // 題目（Stem）在 razor 中沒標必填、不檢查
+        if (IsRichTextEmpty(data.ArticleContent) && !HasMasterImage(data.Images, QuestionImageField.ArticleContent))
+            errors.Add(new(nameof(QuestionFormData.ArticleContent), "請填寫文章內容或上傳文章圖片"));
         if (IsRichTextEmpty(data.GradingNote))
             errors.Add(new(nameof(QuestionFormData.GradingNote), "請填寫批閱說明"));
     }
@@ -234,7 +234,7 @@ public static class QuestionFormValidator
                      && i.SubQuestionIndex == subIdx
                      && !string.IsNullOrWhiteSpace(i.ImagePath));
 
-    /// <summary>短文題組。</summary>
+    /// <summary>短文題組。文章內容與子題題幹：文字或圖片擇一。</summary>
     private static void ValidateShortGroup(QuestionFormData data, List<ValidationError> errors)
     {
         if (data.Genre is null)
@@ -242,9 +242,9 @@ public static class QuestionFormValidator
         if (data.Difficulty is null)
             errors.Add(new(nameof(QuestionFormData.Difficulty), "請選擇難易度"));
 
-        // 實際考卷不需要「題目」欄位，故只檢查文章內容
-        if (IsRichTextEmpty(data.ArticleContent))
-            errors.Add(new(nameof(QuestionFormData.ArticleContent), "請填寫文章內容"));
+        // 實際考卷不需要「題目」欄位，故只檢查文章內容（文字或圖片擇一）
+        if (IsRichTextEmpty(data.ArticleContent) && !HasMasterImage(data.Images, QuestionImageField.ArticleContent))
+            errors.Add(new(nameof(QuestionFormData.ArticleContent), "請填寫文章內容或上傳文章圖片"));
 
         if (data.ShortSubQuestions.Count == 0)
         {
@@ -257,8 +257,9 @@ public static class QuestionFormValidator
             var sub = data.ShortSubQuestions[i];
             var n = i + 1;
 
-            if (IsRichTextEmpty(sub.Stem))
-                errors.Add(new($"ShortSub_{n}_Stem", $"子題 {n}：請填寫題目內容", n));
+            // 子題題目內容：文字或圖片擇一（與單選題、長文邏輯一致）
+            if (IsRichTextEmpty(sub.Stem) && !HasSubImage(data.Images, QuestionImageField.Stem, i))
+                errors.Add(new($"ShortSub_{n}_Stem", $"子題 {n}：請填寫題目內容或上傳圖片", n));
 
             if (sub.CoreAbility is null)
                 errors.Add(new($"ShortSub_{n}_CoreAbility", $"子題 {n}：請選擇主向度", n));

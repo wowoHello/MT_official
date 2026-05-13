@@ -315,6 +315,11 @@ public class SubQuestionChoice           // 用於閱讀題組
     public string[] Options { get; set; } = ["", "", "", ""];
     public string Answer { get; set; } = "";
     public string Analysis { get; set; } = "";
+
+    // 審題單元狀態（Stage A 加入，預設值跟著母題、Stage B 才啟用獨立流程）
+    public byte Status { get; set; }                 // 對應 MT_SubQuestions.Status
+    public DateTime? SubmittedAt { get; set; }
+    public DateTime? DecidedAt { get; set; }
 }
 
 public class SubQuestionFreeResponse     // 用於短文題組
@@ -324,6 +329,11 @@ public class SubQuestionFreeResponse     // 用於短文題組
     public byte? CoreAbility { get; set; }   // 主向度（ShortGroupCoreAbilityLabels）
     public byte? Indicator { get; set; }     // 能力指標（ShortGroupIndicatorLabels）
     public string Analysis { get; set; } = "";
+
+    // 審題單元狀態（同上）
+    public byte Status { get; set; }
+    public DateTime? SubmittedAt { get; set; }
+    public DateTime? DecidedAt { get; set; }
 }
 
 public class ListenGroupSubQuestion      // 用於聽力題組
@@ -336,6 +346,31 @@ public class ListenGroupSubQuestion      // 用於聽力題組
     public string Analysis { get; set; } = "";
     public byte? CoreAbility { get; set; }       // 沿用 CoreAbilityLabels 全表碼
     public byte? DetailIndicator { get; set; }   // 沿用 DetailIndicatorLabels 全表碼
+
+    // 審題單元狀態（同上）
+    public byte Status { get; set; }
+    public DateTime? SubmittedAt { get; set; }
+    public DateTime? DecidedAt { get; set; }
+}
+
+/// <summary>
+/// 題目編號 / 子題編號產生器。
+/// 母題碼格式：Q-{民國年}-{NNNNN}（由 QuestionService 配發，存於 MT_Questions.QuestionCode）
+/// 子題碼格式：母題碼-{NN}（兩位 SortOrder 補零，純顯示用，不存於 DB）
+///
+/// 設計取捨：
+///   - 不在 DB 為子題另存 code 欄位；保留 SortOrder 作為唯一序號來源
+///   - 若使用者刪除中間子題，SortOrder 會在 UpsertSubQuestionsAsync 重編，
+///     後續子題碼會「往前推」一格 — 命題期可接受；送審後題目鎖定即固定
+/// </summary>
+public static class QuestionCodeHelper
+{
+    /// <summary>
+    /// 子題碼。parentCode 為空字串（新題尚未配發碼）時回傳空字串。
+    /// 範例：(parentCode="Q-115-00012", sortOrder=2) → "Q-115-00012-02"
+    /// </summary>
+    public static string SubCode(string? parentCode, int sortOrder) =>
+        string.IsNullOrWhiteSpace(parentCode) ? "" : $"{parentCode}-{sortOrder:D2}";
 }
 
 // ======================================================================

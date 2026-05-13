@@ -1,7 +1,9 @@
 - [CwtList 整合規格文件路徑](reference_cwtlist_spec_doc.md) — 權威文件位於 D:\MTrefer\pageFinal_doc\CwtList.md，舊原型 html/js 已棄用
-- [CwtList 實作現況概覽](project_implementation_state.md) — 已進入正式實作階段；Plan_008/009/010/011/012/013 編號歷程；輔助 Service 例外
-- [14 種狀態碼與三 Tab 範圍](project_status_codes.md) — Status 0-12（11=ClosedNotAdopted、12=Archived；舊 SentBack 已廢用）
+- [CwtList 實作現況概覽](project_implementation_state.md) — 正式實作；Plan_008-014 歷程；輔助 Service 例外；圖片獨立表上線
+- [14 種狀態碼與三 Tab 範圍](project_status_codes.md) — Status 0-12（11=ClosedNotAdopted、12=Archived；舊 SentBack 廢用；db.md/規格書註解仍是舊版）
 - [三 Tab 佈局與統計卡片組成](project_three_tabs_layout.md) — revision tab 已升 4 卡（含「已修題」），列表分流 Modal vs SlideOver
 - [七種題型表單實作位置與差異點](project_question_types.md) — 7 個 QuestionForm 元件、子題增刪規則、屬性側欄差異
 - [審修作業區修題工作區（RevisionSlideOver）](project_revision_slideover.md) — FullScreen 三欄結構、本輪 reply 隔離、PhaseCode 對齊
 - [配額進度卡片與命題階段鎖死（Plan_008）](project_quota_and_phase_lock.md) — Completed 計入 Status≥1、階段結束全頁多重鎖死
+- [DB schema 演化重點（Stage A 子題提升）](project_db_schema_evolution.md) — MT_QuestionImages、子題 Status 三欄、Review/Revision 三表加 SubQuestionId
+- [CwtList 與其他頁面的關聯點](project_page_relations.md) — 與 Projects/Reviews/Overview/Dashboard/Teachers 的視角差異與共用 Service

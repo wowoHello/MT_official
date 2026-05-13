@@ -3,10 +3,10 @@
 
 <PreviewHeader QuestionType="長文題目" Level="@Level" Difficulty="@Difficulty" Tags="@Tags" />
 
-<!-- 題號 + 題目 -->
+<!-- 題號 + 題目（data-annot-target 給審題劃記用） -->
 <div class="flex items-baseline gap-3 mb-4 font-serif">
     <span class="text-xl font-bold text-gray-900 leading-none">1.</span>
-    <div class="flex-1 prose prose-base max-w-none leading-relaxed text-gray-900">
+    <div class="flex-1 prose prose-base max-w-none leading-relaxed text-gray-900" data-annot-target="stem">
         @if (HasContent(Stem))
         {
             @((MarkupString)Stem)
@@ -18,8 +18,10 @@
     </div>
 </div>
 
-<!-- 文章內容（紙感引用樣式） -->
-<PreviewPassage Content="@Passage" Label="文章內容" />
+<!-- 文章內容（紙感引用樣式 + 附圖） -->
+<div data-annot-target="article">
+    <PreviewPassage Content="@Passage" Label="文章內容" Images="ArticleImages" />
+</div>
 
 <!-- 作答區（模擬作答框） -->
 <div class="mt-6 font-sans">
@@ -37,6 +39,11 @@
     [Parameter] public Dictionary<string, string>? Tags { get; set; }
     [Parameter] public string Stem { get; set; } = "";
     [Parameter] public string Passage { get; set; } = "";
+    [Parameter] public List<QuestionImage> Images { get; set; } = [];
+
+    private List<QuestionImage> ArticleImages =>
+        Images.Where(i => i.FieldType == (byte)QuestionImageField.ArticleContent && i.SubQuestionIndex == null)
+              .OrderBy(i => i.SortOrder).ToList();
 
     private bool HasContent(string? html)
     {

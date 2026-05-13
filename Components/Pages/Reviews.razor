@@ -339,9 +339,22 @@
                                 <tbody>
                                     @foreach (var item in Page(FilteredAssignments))
                                     {
-                                        <tr @onclick="() => OpenReviewModal(item.QuestionId, item.IsHistorical)"
+                                        <tr @onclick="() => OpenReviewModal(item.QuestionId, item.IsHistorical, item.SubQuestionId)"
                                             class="border-b border-gray-100 relative hover:z-10 hover:bg-blue-50/40 hover:shadow-[inset_4px_0_0_var(--color-morandi),0_6px_16px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer group">
-                                            <td class="px-4 py-3 font-bold text-slate-main group-hover:text-morandi whitespace-nowrap transition-colors">@item.QuestionCode</td>
+                                            <td class="px-4 py-3 font-bold text-slate-main group-hover:text-morandi whitespace-nowrap transition-colors">
+                                                @if (item.SubQuestionId.HasValue)
+                                                {
+                                                    @* 子題列：縮排 + 樹枝符號，讓視覺從屬於上方母題 *@
+                                                    <span class="inline-flex items-center gap-1 text-xs text-gray-400 mr-1" aria-hidden="true">
+                                                        <i class="fa-solid fa-turn-up rotate-90"></i>
+                                                    </span>
+                                                    <span>@item.DisplayCode</span>
+                                                }
+                                                else
+                                                {
+                                                    @item.DisplayCode
+                                                }
+                                            </td>
                                             <td class="px-4 py-3 whitespace-nowrap">
                                                 <span class="inline-block px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-bold border border-gray-200">
                                                     @QuestionConstants.TypeLabels.GetValueOrDefault(item.TypeKey, "未知")
@@ -359,7 +372,7 @@
                                             </td>
                                             <td class="px-4 py-3 max-w-md">
                                                 <div class="text-gray-700 truncate" title="@item.SummaryText">
-                                                    @(string.IsNullOrEmpty(item.SummaryText) ? "（尚未填寫題幹）" : item.SummaryText)
+                                                    @(string.IsNullOrEmpty(item.SummaryText) ? "（尚未填寫內容）" : item.SummaryText)
                                                 </div>
                                             </td>
                                             <td class="px-4 py-3 text-center whitespace-nowrap">
@@ -442,7 +455,7 @@
                                                                 ? ("fa-solid fa-pen-to-square","編輯題目","text-terracotta hover:text-[#c87a5d]")
                                                                 : ("fa-solid fa-eye",          "檢視",    "text-gray-400 hover:text-gray-600");
                                                 }
-                                                <button @onclick="() => OpenReviewModal(item.QuestionId, item.IsHistorical)"
+                                                <button @onclick="() => OpenReviewModal(item.QuestionId, item.IsHistorical, item.SubQuestionId)"
                                                         class="hover:underline text-xs font-bold cursor-pointer focus:outline-none @btnCss">
                                                     <i class="@btnIcon mr-0.5"></i> @btnLabel
                                                 </button>
@@ -515,7 +528,7 @@
                                             </td>
                                             <td class="px-4 py-3 max-w-md">
                                                 <div class="text-gray-700 truncate" title="@item.SummaryText">
-                                                    @(string.IsNullOrEmpty(item.SummaryText) ? "（尚未填寫題幹）" : item.SummaryText)
+                                                    @(string.IsNullOrEmpty(item.SummaryText) ? "（尚未填寫內容）" : item.SummaryText)
                                                 </div>
                                             </td>
                                             <td class="px-4 py-3 text-center whitespace-nowrap">
@@ -549,6 +562,7 @@
 @* ====== 審題 Modal ====== *@
 <ReviewModal @bind-IsVisible="showReviewModal"
              QuestionId="@selectedQuestionId"
+             SubQuestionId="@selectedSubQuestionId"
              CurrentUserId="@(currentUserId ?? 0)"
              IsHistoricalFromService="@selectedIsHistorical"
              OnDecisionMade="OnDecisionMadeAsync"
@@ -631,6 +645,7 @@
                                 <QuestionFormLongText @bind-Stem="finalEditFormData.Stem"
                                     @bind-Passage="finalEditFormData.ArticleContent"
                                     @bind-GradingNote="finalEditFormData.GradingNote"
+                                    @bind-Images="finalEditFormData.Images"
                                     InvalidFields="finalEditInvalidFields" />
                                 break;
                             case QuestionTypeCodes.ReadGroup:
@@ -638,12 +653,15 @@
                                     @bind-Passage="finalEditFormData.ArticleContent"
                                     @bind-SubQuestions="finalEditFormData.ReadSubQuestions"
                                     @bind-Images="finalEditFormData.Images"
+                                    ParentQuestionCode="@finalEditFormData.QuestionCode"
                                     InvalidFields="finalEditInvalidFields" />
                                 break;
                             case QuestionTypeCodes.ShortGroup:
                                 <QuestionFormShortGroup Status="@QuestionStatus.FinalReviewing"
                                     @bind-Passage="finalEditFormData.ArticleContent"
                                     @bind-SubQuestions="finalEditFormData.ShortSubQuestions"
+                                    ParentQuestionCode="@finalEditFormData.QuestionCode"
+                                    @bind-Images="finalEditFormData.Images"
                                     InvalidFields="finalEditInvalidFields" />
                                 break;
                             case QuestionTypeCodes.Listen:
@@ -658,6 +676,7 @@
                                 <QuestionFormListenGroup @bind-AudioFileName="finalEditFormData.AudioUrl"
                                     @bind-Passage="finalEditFormData.ArticleContent"
                                     @bind-SubQuestions="finalEditFormData.ListenGroupSubQuestions"
+                                    ParentQuestionCode="@finalEditFormData.QuestionCode"
                                     InvalidFields="finalEditInvalidFields" />
                                 break;
                         }
@@ -756,6 +775,8 @@
     // ReviewModal 開關
     private bool showReviewModal;
     private int? selectedQuestionId;
+    /// <summary>開啟 Modal 時的子題單元（null=母題列、非 null=子題列）。Stage B-3：列拆分後每列獨立打開對應單元</summary>
+    private int? selectedSubQuestionId;
     // 開啟 Modal 時一併記下該行的 IsHistorical（Service 端已算好），傳給 ReviewModal 取代舊的 CurrentProjectStage 比對
     private bool selectedIsHistorical;
 
@@ -802,12 +823,6 @@
     /// <summary>專案首次載入或顯式 reload — 集中所有 side effect 入口</summary>
     private async Task LoadProjectAsync(int projectId)
     {
-        // 階段轉換統一委派 PhaseTransitionCoordinator —
-        // 60 秒去重 + 統一 logging，try/catch 全部收進 coordinator 內
-        await PhaseCoordinator.EnsureAsync(projectId);
-
-        await LoadPhasesAsync(projectId);
-
         // 取得當前登入者 Id（每位使用者每次進頁面只跑一次）
         if (currentUserId is null)
         {
@@ -816,7 +831,14 @@
             if (int.TryParse(claim, out var uid)) currentUserId = uid;
         }
 
+        // 立即用「目前 DB 狀態」渲染：phases + 兩個列表
+        // 不再等 PhaseCoordinator.EnsureAsync 完成（互審 / 專審 / 總審分配可能跑 5~10 秒）
+        await LoadPhasesAsync(projectId);
         await Task.WhenAll(LoadAssignmentsAsync(), LoadHistoryAsync());
+
+        // 階段轉換改背景跑：第一次階段切換時可能寫入新分配 / 升級 Status
+        // 完成後自動 InvokeAsync 切回 UI thread 刷新列表（漸進式 UX）
+        _ = RunPhaseCoordinatorBackgroundAsync(projectId);
 
         // 權限檢查：每位使用者每次進頁面只跑一次
         if (permissionChecked) return;
@@ -825,6 +847,32 @@
         if (currentUserId is null) return;
         var isMember = await QuestionService.IsProjectMemberAsync(currentUserId.Value, projectId);
         if (!isMember) needNoPermissionRedirect = true;
+    }
+
+    /// <summary>
+    /// 背景觸發 PhaseCoordinator 階段轉換（idempotent；60 秒內 cache hit 即刻返回）。
+    /// 若有實際寫入分配紀錄，跑完後切回 UI thread reload 列表，畫面自動補上新分配。
+    /// 例外靜默吞掉 — coordinator 本身已有 ILogger，這裡不再噴 toast 干擾使用者。
+    /// </summary>
+    private async Task RunPhaseCoordinatorBackgroundAsync(int projectId)
+    {
+        try
+        {
+            await PhaseCoordinator.EnsureAsync(projectId);
+
+            // 跑完後刷新列表（用 InvokeAsync 切回 UI thread；StateHasChanged 已含於 LoadAssignmentsAsync 的 set 內）
+            // 若使用者已換頁（CurrentProject 變動），下方 LoadAssignmentsAsync 內 guard 會直接 return
+            await InvokeAsync(async () =>
+            {
+                if (CurrentProject?.Id != projectId) return;  // 已切到別的專案 → 不污染當前畫面
+                await Task.WhenAll(LoadAssignmentsAsync(), LoadHistoryAsync());
+                StateHasChanged();
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Background PhaseCoordinator failed for project {ProjectId}", projectId);
+        }
     }
 
     private async Task LoadAssignmentsAsync()
@@ -867,11 +915,12 @@
         }
     }
 
-    private void OpenReviewModal(int questionId, bool isHistorical = false)
+    private void OpenReviewModal(int questionId, bool isHistorical = false, int? subQuestionId = null)
     {
-        selectedQuestionId   = questionId;
-        selectedIsHistorical = isHistorical;
-        showReviewModal      = true;
+        selectedQuestionId    = questionId;
+        selectedSubQuestionId = subQuestionId;
+        selectedIsHistorical  = isHistorical;
+        showReviewModal       = true;
     }
 
     private async Task OnDecisionMadeAsync()
@@ -1072,7 +1121,7 @@
     }
 
     private IReadOnlyList<ReviewListItem> FilteredAssignments => cachedAssignments ??= assignments
-        .Where(a => MatchKeywordOn(a.QuestionCode, a.SummaryText))
+        .Where(a => MatchKeywordOn(a.DisplayCode, a.SummaryText))
         .Where(a => MatchType(a.TypeKey))
         .Where(a => MatchLevel(a.Level))
         .Where(a => queryStatus switch

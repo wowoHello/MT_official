@@ -28,6 +28,129 @@
             <p class="text-xs text-gray-500 mt-0.5">參考歷次審題意見與您的修題紀錄</p>
         </div>
 
+        @* ========== 區塊 1.5：劃記回應（P-4，與審題意見並列） ========== *@
+        <details open class="group bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
+            <summary class="w-full px-4 py-3 flex items-center justify-between bg-stone-50/60 border-b border-stone-100 hover:bg-stone-100/60 transition-colors cursor-pointer list-none">
+                <span class="text-sm font-bold text-slate-main flex items-center gap-2">
+                    <i class="fa-solid fa-highlighter text-amber-600"></i>
+                    劃記評語
+                    <span class="px-2 py-0.5 bg-amber-50 text-amber-700 text-xs font-bold rounded-full border border-amber-200">@Annotations.Count 筆</span>
+                    @if (Annotations.Any(a => !a.IsResponded))
+                    {
+                        <span class="px-2 py-0.5 bg-terracotta/15 text-terracotta text-xs font-bold rounded-full border border-terracotta/30">待回應 @Annotations.Count(a => !a.IsResponded)</span>
+                    }
+                </span>
+                <i class="fa-solid fa-chevron-down text-gray-400 text-xs transition-transform group-open:rotate-180"></i>
+            </summary>
+
+            <div class="p-3 space-y-3">
+                @if (Annotations.Count == 0)
+                {
+                    <EmptyState IconClass="fa-highlighter" Message="尚無劃記評語" Compact="true" />
+                }
+                else
+                {
+                    @* 依 stage 升冪、同 stage 依時間排序（Service 端已回 stage→time 排序，這裡照原順序渲染） *@
+                    @for (var i = 0; i < Annotations.Count; i++)
+                    {
+                        var idx   = i;
+                        var annot = Annotations[idx];
+                        var num   = idx + 1;
+                        var stage = annot.Stage;
+                        var s     = GetStageStyle((byte)stage);
+                        var actorName = AnnotationActorLabel.Anonymize(stage);
+                        var fieldLabel = AnnotationFieldLabel.Describe(annot.FieldKey);
+
+                        <div class="relative @s.BgClass rounded-lg border @s.BorderClass @s.HoverBorderClass pl-3 pr-3 py-3 transition-colors group/annot @(IsReadOnly ? "" : "cursor-pointer")"
+                             @onclick="() => OnScrollClickAsync(annot.Id)">
+                            <span class="absolute left-0 top-3 bottom-3 w-1 rounded-full @s.BarClass"></span>
+
+                            @* Header: 序號 + 匿名身份 badge + 時間 *@
+                            <div class="flex items-center gap-2 mb-2">
+                                <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-white border @s.BorderClass text-[10px] font-bold @s.IconColorClass flex-shrink-0">@num</span>
+                                <span class="px-2 py-0.5 @s.BadgeBgClass text-white text-xs font-bold rounded-md flex items-center gap-1">
+                                    <i class="fa-solid @s.Icon text-[10px]"></i> @actorName
+                                </span>
+                                <span class="text-[11px] text-gray-400 font-sans">@fieldLabel</span>
+                                <span class="text-xs text-gray-400 tabular-nums ml-auto">@annot.CreatedAt.ToString("MM/dd HH:mm")</span>
+                            </div>
+
+                            @* 劃記原文摘要（amber 強調，給命題者看「審題者標了哪段」） *@
+                            <div class="bg-amber-50 border border-amber-200 rounded px-2 py-1 text-xs text-gray-800 font-serif leading-relaxed mb-2 max-h-16 overflow-y-auto" title="@annot.SelectedText">
+                                「@annot.SelectedText」
+                            </div>
+
+                            @* 評語本文 *@
+                            <p class="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap break-words">@annot.Comment</p>
+
+                            @* 回應區（依狀態分流） *@
+                            @if (annot.IsResponded)
+                            {
+                                var (respLabel, respCss, respIcon) = annot.ResponseState switch
+                                {
+                                    AnnotationResponseState.Accepted => ("已確認修改", "bg-sage/15 text-sage border-sage/30", "fa-circle-check"),
+                                    AnnotationResponseState.Rejected => ("已選擇不修改", "bg-terracotta/15 text-terracotta border-terracotta/30", "fa-circle-xmark"),
+                                    _                                 => ("已回應",     "bg-gray-100 text-gray-600 border-gray-300", "fa-check")
+                                };
+                                <div class="mt-3 pt-2 border-t border-dashed border-gray-200">
+                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold border @respCss">
+                                        <i class="fa-solid @respIcon"></i> @respLabel
+                                    </span>
+                                    @if (!string.IsNullOrWhiteSpace(annot.NoChangeReason))
+                                    {
+                                        <div class="mt-1.5 text-xs text-gray-500 leading-relaxed">
+                                            <span class="font-bold text-gray-600">不修改理由：</span>@annot.NoChangeReason
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            else if (!IsReadOnly)
+                            {
+                                @* 未回應 + 可編輯 → 兩個按鈕（確認修改 / 不修改）+ 不修改時要展開理由輸入 *@
+                                var draft = noChangeReasonDrafts.GetValueOrDefault(annot.Id, "");
+                                var expandedReject = expandedRejectFor == annot.Id;
+                                <div class="mt-3 pt-2 border-t border-dashed border-gray-200 space-y-2"
+                                     @onclick:stopPropagation="true">
+                                    @if (!expandedReject)
+                                    {
+                                        <div class="flex items-center gap-2">
+                                            <button type="button" @onclick="() => OnAcceptAsync(annot.Id)"
+                                                    class="flex-1 px-3 py-1.5 bg-sage hover:bg-[#7a9a82] text-white rounded-md text-xs font-bold transition cursor-pointer focus:outline-none flex items-center justify-center gap-1.5">
+                                                <i class="fa-solid fa-check"></i> 確認修改
+                                            </button>
+                                            <button type="button" @onclick="() => ExpandReject(annot.Id)"
+                                                    class="flex-1 px-3 py-1.5 bg-white border border-terracotta text-terracotta hover:bg-terracotta/5 rounded-md text-xs font-bold transition cursor-pointer focus:outline-none flex items-center justify-center gap-1.5">
+                                                <i class="fa-solid fa-xmark"></i> 不修改
+                                            </button>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <textarea @bind="noChangeReasonDrafts[annot.Id]"
+                                                  @bind:event="oninput"
+                                                  placeholder="請填寫不修改的理由（必填）"
+                                                  rows="2"
+                                                  class="w-full px-2 py-1.5 text-xs leading-relaxed text-slate-main border border-terracotta/40 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-terracotta focus:border-terracotta resize-none"></textarea>
+                                        <div class="flex items-center gap-2">
+                                            <button type="button" @onclick="() => CancelReject(annot.Id)"
+                                                    class="px-3 py-1 bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 rounded-md text-xs font-medium cursor-pointer focus:outline-none">
+                                                取消
+                                            </button>
+                                            <button type="button" @onclick="() => OnRejectAsync(annot.Id)"
+                                                    disabled="@string.IsNullOrWhiteSpace(noChangeReasonDrafts.GetValueOrDefault(annot.Id, ""))"
+                                                    class="flex-1 px-3 py-1 bg-terracotta hover:bg-[#c87a5d] text-white rounded-md text-xs font-bold transition cursor-pointer focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed">
+                                                <i class="fa-solid fa-paper-plane mr-1"></i> 送出不修改
+                                            </button>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        </details>
+
         @* ========== 區塊 2：審題意見摺疊卡（Tier 1 白卡） ========== *@
         <details open class="group bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
             <summary class="w-full px-4 py-3 flex items-center justify-between bg-stone-50/60 border-b border-stone-100 hover:bg-stone-100/60 transition-colors cursor-pointer list-none">
@@ -146,6 +269,54 @@
     [Parameter] public string RevisionNote { get; set; } = "";
     [Parameter] public EventCallback<string> RevisionNoteChanged { get; set; }
     [Parameter] public bool IsReadOnly { get; set; }
+
+    /// <summary>P-4：劃記評語清單（跨 stage 累積，由父層 LoadAsync 帶入）</summary>
+    [Parameter] public List<ReviewAnnotation> Annotations { get; set; } = new();
+
+    /// <summary>P-4：命題者下回應（確認修改 / 不修改 + 理由）→ 父層處理 SweetAlert + RespondAsync</summary>
+    [Parameter] public EventCallback<(int AnnotationId, AnnotationResponseState State, string? Reason)> OnAnnotationRespond { get; set; }
+
+    /// <summary>P-4：點劃記列觸發父層 scroll + flash 對應 mark</summary>
+    [Parameter] public EventCallback<int> OnAnnotationScrollTo { get; set; }
+
+    /// <summary>「不修改」展開時暫存每筆劃記的理由 draft（不過渡父層、單純元件內 state）</summary>
+    private readonly Dictionary<int, string> noChangeReasonDrafts = new();
+
+    /// <summary>當前展開「不修改 理由輸入」的劃記 Id；NULL = 未展開</summary>
+    private int? expandedRejectFor;
+
+    private async Task OnScrollClickAsync(int annotationId)
+    {
+        await OnAnnotationScrollTo.InvokeAsync(annotationId);
+    }
+
+    private async Task OnAcceptAsync(int annotationId)
+    {
+        await OnAnnotationRespond.InvokeAsync((annotationId, AnnotationResponseState.Accepted, null));
+    }
+
+    private void ExpandReject(int annotationId)
+    {
+        expandedRejectFor = annotationId;
+        if (!noChangeReasonDrafts.ContainsKey(annotationId))
+            noChangeReasonDrafts[annotationId] = "";
+    }
+
+    private void CancelReject(int annotationId)
+    {
+        expandedRejectFor = null;
+        noChangeReasonDrafts.Remove(annotationId);
+    }
+
+    private async Task OnRejectAsync(int annotationId)
+    {
+        var reason = noChangeReasonDrafts.GetValueOrDefault(annotationId, "").Trim();
+        if (reason.Length == 0) return;
+        await OnAnnotationRespond.InvokeAsync((annotationId, AnnotationResponseState.Rejected, reason));
+        // 不論成功失敗都收合（成功時父層 reload annotations 會把這筆變 IsResponded，UI 自動切換到「已回應」分支）
+        expandedRejectFor = null;
+        noChangeReasonDrafts.Remove(annotationId);
+    }
 
     private async Task OnRevisionNoteChanged(string newValue)
     {

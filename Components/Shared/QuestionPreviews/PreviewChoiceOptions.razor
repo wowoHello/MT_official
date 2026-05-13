@@ -35,7 +35,9 @@
                     border-l-2 @(isAnswer ? "border-sage bg-sage/5" : "border-transparent")">
             <span class="font-bold text-gray-700 flex-shrink-0 select-none">(@label)</span>
             <div class="flex-1 min-w-0">
-                <div class="prose prose-sm max-w-none leading-relaxed @(isAnswer ? "text-sage font-medium" : "text-gray-800")">
+                @* fieldKey 直接 inline：母題 = optionA/B/C/D；子題 = subOptionA.{idx} 等 — 給審題劃記用 *@
+                <div class="prose prose-sm max-w-none leading-relaxed @(isAnswer ? "text-sage font-medium" : "text-gray-800")"
+                     data-annot-target="@(SubQuestionIndex.HasValue ? $"subOption{label}.{SubQuestionIndex}" : $"option{label}")">
                     @if (hasText)
                     {
                         @((MarkupString)content)

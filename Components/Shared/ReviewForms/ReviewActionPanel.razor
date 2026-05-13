@@ -60,8 +60,67 @@
                        class="review-textarea no-underline w-full h-[200px] px-3 py-2 text-sm leading-relaxed text-slate-main border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-morandi focus:border-morandi resize-none read-only:bg-gray-50 read-only:cursor-not-allowed" />
     </div>
 
-    @* ===== 下半部：歷程軌跡 + 相似題比對（共用同一個內捲容器） ===== *@
+    @* ===== 下半部：劃記評語 + 歷程軌跡 + 相似題比對（共用同一個內捲容器） ===== *@
     <div class="flex-1 min-h-0 overflow-y-auto custom-scroll">
+
+        @* 劃記評語清單（用 details 折疊，有內容預設展開） *@
+        @if (Annotations.Count > 0)
+        {
+            <details open class="border-b border-gray-100">
+                <summary class="px-5 py-3 cursor-pointer text-xs font-bold text-morandi flex items-center gap-1.5 hover:bg-morandi/5 transition list-none select-none">
+                    <i class="fa-solid fa-pen-to-square"></i>
+                    <span>劃記評語</span>
+                    <span class="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-morandi/15 text-morandi font-bold">@Annotations.Count</span>
+                    <i class="fa-solid fa-chevron-down ml-auto text-xs text-gray-400"></i>
+                </summary>
+                <div class="px-4 pb-4 pt-1 space-y-2">
+                    @for (int i = 0; i < Annotations.Count; i++)
+                    {
+                        var idx = i;
+                        var annot = Annotations[idx];
+                        var num = idx + 1;
+                        var (stateLabel, stateCss) = DescribeState(annot);
+                        var canDelete = annot.CreatedByUserId == CurrentUserId && annot.ResponseState is null;
+                        <div class="bg-white border border-gray-200 rounded-lg p-3 text-xs hover:border-morandi/40 hover:shadow-sm transition group"
+                             @onclick="() => ScrollToAnnotationAsync(annot.Id)">
+                            <div class="flex items-start gap-2 mb-1.5">
+                                <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-morandi text-white text-[10px] font-bold flex-shrink-0">@num</span>
+                                <div class="flex-1 min-w-0">
+                                    @* 審題端：自己看自己的劃記，不顯示身份標籤（修題端會用 AnnotationActorLabel 顯示）；
+                                       位置由左側題目區的高亮 mark 表達，這裡只列時間 + 摘要 + 評語 *@
+                                    <div class="text-gray-400 text-[11px] mb-1">@annot.CreatedAt.ToString("MM/dd HH:mm")</div>
+                                    <div class="bg-amber-50 border border-amber-200 rounded px-2 py-1 text-gray-800 font-serif leading-relaxed mb-1.5 max-h-16 overflow-y-auto" title="@annot.SelectedText">
+                                        「@annot.SelectedText」
+                                    </div>
+                                    <div class="text-gray-700 leading-relaxed whitespace-pre-wrap">@annot.Comment</div>
+                                    @if (annot.IsResponded)
+                                    {
+                                        <div class="mt-2 pt-2 border-t border-dashed border-gray-200">
+                                            <span class="inline-block px-2 py-0.5 rounded text-[10px] font-bold border @stateCss">@stateLabel</span>
+                                            @if (!string.IsNullOrWhiteSpace(annot.NoChangeReason))
+                                            {
+                                                <div class="mt-1 text-gray-500 text-[11px]">老師說明：@annot.NoChangeReason</div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                                @if (canDelete)
+                                {
+                                    <button type="button"
+                                            @onclick="() => OnAnnotationDeleted.InvokeAsync(annot.Id)"
+                                            @onclick:stopPropagation="true"
+                                            title="刪除此劃記"
+                                            class="opacity-0 group-hover:opacity-100 transition text-gray-400 hover:text-terracotta text-xs cursor-pointer focus:outline-none">
+                                        <i class="fa-solid fa-trash"></i>
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </details>
+        }
+
         <ReviewHistoryTimeline Entries="@History" />
 
         <ReviewSimilarityBanner @ref="similaritySection"
@@ -78,6 +137,15 @@
     [Parameter] public string? LockReason { get; set; }
     [Parameter] public List<ReviewHistoryEntry> History { get; set; } = new();
     [Parameter] public List<ReviewSimilarityEntry> SimilarQuestions { get; set; } = new();
+
+    /// <summary>當前單元的劃記評語清單（審題者只看自己的）</summary>
+    [Parameter] public List<ReviewAnnotation> Annotations { get; set; } = new();
+
+    /// <summary>當前登入者 Id — 用於判斷劃記是否本人建立（決定是否顯示刪除按鈕）</summary>
+    [Parameter] public int CurrentUserId { get; set; }
+
+    /// <summary>劃記刪除事件，由父層 (ReviewModal) 呼叫 Service 完成刪除後 reload</summary>
+    [Parameter] public EventCallback<int> OnAnnotationDeleted { get; set; }
 
     private readonly string textareaId = $"review-comment-{Guid.NewGuid():N}";
     private ReviewSimilarityBanner? similaritySection;
@@ -117,4 +185,29 @@
     ];
 
     private record CannedMessage(string IconClass, string Label, string Text, string ColorCss);
+
+    /// <summary>劃記狀態徽章描述（與 annotation.js 高亮配色一致）</summary>
+    private static (string Label, string Css) DescribeState(ReviewAnnotation annot) => annot.ResponseState switch
+    {
+        AnnotationResponseState.Accepted => ("命題者已確認修改", "bg-sage/15 text-sage border-sage/30"),
+        AnnotationResponseState.Rejected => ("命題者不修改",     "bg-terracotta/15 text-terracotta border-terracotta/30"),
+        _                                 => ("待回應",          "bg-amber-50 text-amber-700 border-amber-200")
+    };
+
+    /// <summary>點擊劃記列 → 卷動到對應的 mark 元素並 flash 提示</summary>
+    private async Task ScrollToAnnotationAsync(int annotationId)
+    {
+        // 簡單實作：用 querySelector + scrollIntoView + 短暫加 ring class
+        await JS.InvokeVoidAsync("eval", $$"""
+            (function(){
+                const m = document.querySelector('mark[data-annot-id="{{annotationId}}"]');
+                if (!m) return;
+                m.scrollIntoView({behavior:'smooth', block:'center'});
+                m.style.transition = 'background-color .25s';
+                const original = m.style.backgroundColor;
+                m.style.backgroundColor = 'rgba(217,138,108,.55)';
+                setTimeout(() => { m.style.backgroundColor = original; }, 900);
+            })();
+        """);
+    }
 }

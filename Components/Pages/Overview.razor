@@ -608,7 +608,7 @@
                 break;
             case QuestionTypeCodes.LongText:
                 <PreviewLongText Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
-                    Stem="@detailData.Stem" Passage="@detailData.ArticleContent" />
+                    Stem="@detailData.Stem" Passage="@detailData.ArticleContent" Images="@detailData.Images" />
                 break;
             case QuestionTypeCodes.ReadGroup:
                 <PreviewReadGroup Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
@@ -620,6 +620,7 @@
             case QuestionTypeCodes.ShortGroup:
                 <PreviewShortGroup Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
                     Passage="@detailData.ArticleContent"
+                    Images="@detailData.Images"
                     SubQuestions="@detailData.ShortSubQuestions.Select(sq => new PreviewShortGroup.SubQuestionData {
                         Stem      = sq.Stem,
                         Dimension = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ShortGroup),

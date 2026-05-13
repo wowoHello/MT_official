@@ -9,6 +9,7 @@
 @inject IQuestionService QuestionService
 @inject IPhaseTransitionCoordinator PhaseCoordinator
 @inject NavigationManager Navigation
+@inject ILogger<CwtList> Logger
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
 
@@ -267,7 +268,7 @@
                                                         @item.SubQuestionCount 子題
                                                     </span>
                                                 }
-                                                <span class="truncate">@(string.IsNullOrWhiteSpace(item.SummaryHtml) ? "（尚未填寫題幹）" : StripHtml(item.SummaryHtml))</span>
+                                                <span class="truncate">@(string.IsNullOrWhiteSpace(item.SummaryHtml) ? "（尚未填寫內容）" : StripHtml(item.SummaryHtml))</span>
                                             </div>
                                         </td>
                                         <td class="px-4 py-3 text-center whitespace-nowrap">
@@ -390,15 +391,16 @@
                             break;
                         case QuestionTypeCodes.LongText:
                             <QuestionFormLongText @bind-Stem="formData.Stem" @bind-Passage="formData.ArticleContent" @bind-GradingNote="formData.GradingNote"
-                                InvalidFields="invalidFields" />
+                                @bind-Images="formData.Images" InvalidFields="invalidFields" />
                             break;
                         case QuestionTypeCodes.ReadGroup:
-                            <QuestionFormReadGroup Status="@currentFormStatus" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ReadSubQuestions" @bind-Images="formData.Images"
+                            <QuestionFormReadGroup Status="@currentFormStatus" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ReadSubQuestions" @bind-Images="formData.Images" ParentQuestionCode="@formData.QuestionCode"
                                 InvalidFields="invalidFields" />
                             break;
                         case QuestionTypeCodes.ShortGroup:
                             <QuestionFormShortGroup Status="@currentFormStatus" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ShortSubQuestions"
-                                InvalidFields="invalidFields" />
+                                ParentQuestionCode="@formData.QuestionCode"
+                                @bind-Images="formData.Images" InvalidFields="invalidFields" />
                             break;
                         case QuestionTypeCodes.Listen:
                             <QuestionFormListen @bind-AudioFileName="formData.AudioUrl" @bind-Stem="formData.Stem" @bind-Options="formData.Options" @bind-Answer="formData.Answer" @bind-Analysis="formData.Analysis"
@@ -406,6 +408,7 @@
                             break;
                         case QuestionTypeCodes.ListenGroup:
                             <QuestionFormListenGroup @bind-AudioFileName="formData.AudioUrl" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ListenGroupSubQuestions"
+                                ParentQuestionCode="@formData.QuestionCode"
                                 InvalidFields="invalidFields" />
                             break;
                     }
@@ -439,11 +442,12 @@
             break;
         case QuestionTypeCodes.LongText:
             <PreviewLongText Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel" Tags="@GetPreviewTags()"
-                Stem="@formData.Stem" Passage="@formData.ArticleContent" />
+                Stem="@formData.Stem" Passage="@formData.ArticleContent" Images="@formData.Images" />
             break;
         case QuestionTypeCodes.ShortGroup:
             <PreviewShortGroup Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel" Tags="@GetPreviewTags()"
                 Passage="@formData.ArticleContent"
+                Images="@formData.Images"
                 SubQuestions="@formData.ShortSubQuestions.Select(sq => new PreviewShortGroup.SubQuestionData {
                     Stem = sq.Stem,
                     Dimension = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ShortGroup),
@@ -544,10 +548,36 @@
         if (loadedProjectId == CurrentProject.Id) return;   // 同專案重派 → 不重載
         loadedProjectId = CurrentProject.Id;
 
-        // 階段轉換統一委派 PhaseTransitionCoordinator
-        await PhaseCoordinator.EnsureAsync(CurrentProject.Id);
-
+        // 立即用「目前 DB 狀態」渲染：配額 / 階段 / 列表
+        // 不再等 PhaseCoordinator.EnsureAsync 完成（互審 / 專審 / 總審分配可能跑 5~10 秒）
         await LoadPageDataAsync();
+
+        // 階段轉換改背景跑：完成後自動 reload 配額與列表（漸進式 UX）
+        _ = RunPhaseCoordinatorBackgroundAsync(CurrentProject.Id);
+    }
+
+    /// <summary>
+    /// 背景觸發 PhaseCoordinator 階段轉換（idempotent；60 秒內 cache hit 即刻返回）。
+    /// 若有實際升級 Status / 寫入新分配，跑完後切回 UI thread reload 頁面資料，畫面自動補上變化。
+    /// </summary>
+    private async Task RunPhaseCoordinatorBackgroundAsync(int projectId)
+    {
+        try
+        {
+            await PhaseCoordinator.EnsureAsync(projectId);
+
+            // 跑完後刷新（用 InvokeAsync 切回 UI thread）
+            await InvokeAsync(async () =>
+            {
+                if (CurrentProject?.Id != projectId) return;  // 已切到別的專案 → 不污染當前畫面
+                await LoadPageDataAsync();
+                StateHasChanged();
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Background PhaseCoordinator failed for project {ProjectId}", projectId);
+        }
     }
 
     private async Task LoadPageDataAsync()
