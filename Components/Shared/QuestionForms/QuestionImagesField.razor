@@ -19,7 +19,7 @@
                 class="text-xs text-gray-400 hover:text-morandi hover:bg-morandi/5 inline-flex items-center gap-3 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
                 <span>支援 PNG / JPEG / GIF / WebP，單檔 5MB</span>
                 <span class="h-3 w-px bg-gray-300" aria-hidden="true"></span>
-                <i class="fa-solid fa-paperclip text-[11px]"></i>
+                <i class="fa-solid fa-paperclip text-xs"></i>
                 <span>加圖片</span>
             </button>
         }
@@ -43,7 +43,7 @@ else
                     <button type="button" @onclick="() => RemoveAsync(idx)"
                         class="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-white/95 text-terracotta opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity duration-150 flex items-center justify-center cursor-pointer shadow-sm"
                         aria-label="@($"刪除附圖 {idx + 1}")">
-                        <i class="fa-solid fa-xmark text-[10px]"></i>
+                        <i class="fa-solid fa-xmark text-xs"></i>
                     </button>
                 }
             </div>
@@ -63,7 +63,7 @@ else
                 class="w-16 h-16 rounded-md border border-dashed border-gray-300 text-gray-400 hover:border-morandi hover:text-morandi hover:bg-morandi/5 transition-colors cursor-pointer flex flex-col items-center justify-center gap-0.5"
                 aria-label="新增附圖">
                 <i class="fa-solid fa-plus text-sm"></i>
-                <span class="text-[11px]">加圖片</span>
+                <span class="text-xs">加圖片</span>
             </button>
         }
     </div>
@@ -72,7 +72,7 @@ else
 @if (!string.IsNullOrEmpty(errorMessage))
 {
     <p class="mt-1.5 text-xs text-terracotta flex items-center gap-1">
-        <i class="fa-solid fa-circle-exclamation text-[11px]"></i>
+        <i class="fa-solid fa-circle-exclamation text-xs"></i>
         <span>@errorMessage</span>
     </p>
 }

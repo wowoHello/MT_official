@@ -213,7 +213,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             var newId = await conn.QuerySingleAsync<int>(insertSql, BuildQuestionParams(formData, projectId, creatorUserId, initialStatus, typeId, code), tx);
 
             // 4. 子題（題組型才有；本步驟會把每個 sq.Id 從 DB 回填）
-            await InsertSubQuestionsAsync(conn, tx, newId, formData);
+            //    Status 與母題一致，使後續階段升級（fromStatuses=[2]→3 等）能正確波及子題
+            await InsertSubQuestionsAsync(conn, tx, newId, formData, initialStatus);
 
             // 5. 附圖（母題層 + 子題層；子題層需 sq.Id 已存在，故放在子題 INSERT 之後）
             await QuestionImagePersistence.UpsertMasterAsync(conn, tx, newId, formData.Images);
@@ -343,7 +344,25 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
             if (affected == 0) return false;
 
+            // 2.5 子題 Status cascade：與母題 Status 同步，使 N+1 拆列在 [審修作業區] 立即可見
+            //     避開已決策落定（>= 9：採用 / 不採用 / 結案類）的子題，保留個別審題結果
+            //     僅題組類（3=閱讀 / 5=短文 / 7=聽力題組）才會有子題，其他題型省去這次 SQL
+            if (formData.QuestionType is QuestionTypeCodes.ReadGroup
+                                       or QuestionTypeCodes.ShortGroup
+                                       or QuestionTypeCodes.ListenGroup)
+            {
+                await conn.ExecuteAsync("""
+                    UPDATE dbo.MT_SubQuestions
+                    SET Status = @NewStatus
+                    WHERE ParentQuestionId = @Id
+                      AND IsDeleted = 0
+                      AND Status < 9;
+                    """,
+                    new { Id = questionId, NewStatus = newStatus }, tx);
+            }
+
             // 3. 子題：UPSERT by SubId + 缺席軟刪除（保留 Id 穩定，sq.Id 由本步驟維護）
+            //    UpsertSub 內部會 lookup 母題 Status 給新插入子題用（此時已是上方 cascade 後的新值）
             await UpsertSubQuestionsAsync(conn, tx, questionId, formData, operatorUserId, projectId);
 
             // 4. 附圖：DELETE + INSERT 全量覆寫（母題層 + 子題層）
@@ -2223,18 +2242,19 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
     /// INSERT 後把新 Id 寫回 formData，以便後續 UpdateAsync 能一致追蹤。
     /// </summary>
     private static async Task InsertSubQuestionsAsync(IDbConnection conn, IDbTransaction tx,
-        int parentId, QuestionFormData formData)
+        int parentId, QuestionFormData formData, byte masterStatus)
     {
+        // Status 帶入：子題與母題同步起跑，後續階段升級才會抓到（避免子題卡在 Draft 永遠不顯示）
         const string sql = """
             INSERT INTO dbo.MT_SubQuestions (
-                ParentQuestionId, SortOrder,
+                ParentQuestionId, SortOrder, Status,
                 Stem, CorrectAnswer,
                 OptionA, OptionB, OptionC, OptionD,
                 Analysis, CoreAbility, Indicator, FixedDifficulty
             )
             OUTPUT INSERTED.Id
             VALUES (
-                @ParentId, @SortOrder,
+                @ParentId, @SortOrder, @Status,
                 @Stem, @Answer,
                 @OptA, @OptB, @OptC, @OptD,
                 @Analysis, @CoreAbility, @Indicator, @FixedDifficulty
@@ -2246,7 +2266,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             for (var i = 0; i < formData.ReadSubQuestions.Count; i++)
             {
                 var sq = formData.ReadSubQuestions[i];
-                sq.Id = await conn.QuerySingleAsync<int>(sql, BuildReadSubParams(parentId, i + 1, sq), tx);
+                sq.Id = await conn.QuerySingleAsync<int>(sql, BuildReadSubParams(parentId, i + 1, sq, masterStatus), tx);
             }
         }
         else if (formData.QuestionType == QuestionTypeCodes.ShortGroup)
@@ -2254,7 +2274,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             for (var i = 0; i < formData.ShortSubQuestions.Count; i++)
             {
                 var sq = formData.ShortSubQuestions[i];
-                sq.Id = await conn.QuerySingleAsync<int>(sql, BuildShortSubParams(parentId, i + 1, sq), tx);
+                sq.Id = await conn.QuerySingleAsync<int>(sql, BuildShortSubParams(parentId, i + 1, sq, masterStatus), tx);
             }
         }
         else if (formData.QuestionType == QuestionTypeCodes.ListenGroup)
@@ -2262,7 +2282,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             for (var i = 0; i < formData.ListenGroupSubQuestions.Count; i++)
             {
                 var sq = formData.ListenGroupSubQuestions[i];
-                sq.Id = await conn.QuerySingleAsync<int>(sql, BuildListenSubParams(parentId, i + 1, sq), tx);
+                sq.Id = await conn.QuerySingleAsync<int>(sql, BuildListenSubParams(parentId, i + 1, sq, masterStatus), tx);
             }
         }
         // 其他四種非題組型題目：不寫子題
@@ -2282,19 +2302,25 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             "SELECT Id FROM dbo.MT_SubQuestions WHERE ParentQuestionId = @Id AND IsDeleted = 0",
             new { Id = parentId }, tx)).ToHashSet();
 
+        // 1.5 撈母題當前 Status — 新插入子題用此值（這次的 UPDATE 已先於本函式跑完，已是新值）
+        var masterStatus = await conn.ExecuteScalarAsync<byte>(
+            "SELECT Status FROM dbo.MT_Questions WHERE Id = @Id;",
+            new { Id = parentId }, tx);
+
         // 2. 表單帶上來的子題（依題型）
         var formIds = new HashSet<int>();
 
+        // INSERT 帶 Status；UPDATE SQL（下方）不引用 @Status，故 BuildXSubParams 的 Status 欄對 UPDATE 路徑無作用
         const string insertSql = """
             INSERT INTO dbo.MT_SubQuestions (
-                ParentQuestionId, SortOrder,
+                ParentQuestionId, SortOrder, Status,
                 Stem, CorrectAnswer,
                 OptionA, OptionB, OptionC, OptionD,
                 Analysis, CoreAbility, Indicator, FixedDifficulty
             )
             OUTPUT INSERTED.Id
             VALUES (
-                @ParentId, @SortOrder,
+                @ParentId, @SortOrder, @Status,
                 @Stem, @Answer,
                 @OptA, @OptB, @OptC, @OptD,
                 @Analysis, @CoreAbility, @Indicator, @FixedDifficulty
@@ -2322,7 +2348,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             for (var i = 0; i < formData.ReadSubQuestions.Count; i++)
             {
                 var sq = formData.ReadSubQuestions[i];
-                var p  = BuildReadSubParams(parentId, i + 1, sq);
+                var p  = BuildReadSubParams(parentId, i + 1, sq, masterStatus);
                 if (sq.Id == 0)
                     sq.Id = await conn.QuerySingleAsync<int>(insertSql, p, tx);
                 else
@@ -2335,7 +2361,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             for (var i = 0; i < formData.ShortSubQuestions.Count; i++)
             {
                 var sq = formData.ShortSubQuestions[i];
-                var p  = BuildShortSubParams(parentId, i + 1, sq);
+                var p  = BuildShortSubParams(parentId, i + 1, sq, masterStatus);
                 if (sq.Id == 0)
                     sq.Id = await conn.QuerySingleAsync<int>(insertSql, p, tx);
                 else
@@ -2348,7 +2374,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             for (var i = 0; i < formData.ListenGroupSubQuestions.Count; i++)
             {
                 var sq = formData.ListenGroupSubQuestions[i];
-                var p  = BuildListenSubParams(parentId, i + 1, sq);
+                var p  = BuildListenSubParams(parentId, i + 1, sq, masterStatus);
                 if (sq.Id == 0)
                     sq.Id = await conn.QuerySingleAsync<int>(insertSql, p, tx);
                 else
@@ -2393,10 +2419,12 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             _                              => Array.Empty<int>()
         };
 
-    private static object BuildReadSubParams(int parentId, int sortOrder, SubQuestionChoice sq) => new
+    // Status 參數同步：新插入的子題 Status 與母題一致，使 N+1 拆列在 [審修作業區] 立刻可見。
+    private static object BuildReadSubParams(int parentId, int sortOrder, SubQuestionChoice sq, byte status) => new
     {
         ParentId        = parentId,
         SortOrder       = sortOrder,
+        Status          = status,
         Stem            = NullIfEmpty(sq.Stem),
         Answer          = NullIfEmpty(sq.Answer),
         OptA            = SafeOption(sq.Options, 0),
@@ -2409,10 +2437,11 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         FixedDifficulty = (byte?)null
     };
 
-    private static object BuildShortSubParams(int parentId, int sortOrder, SubQuestionFreeResponse sq) => new
+    private static object BuildShortSubParams(int parentId, int sortOrder, SubQuestionFreeResponse sq, byte status) => new
     {
         ParentId        = parentId,
         SortOrder       = sortOrder,
+        Status          = status,
         Stem            = NullIfEmpty(sq.Stem),
         Answer          = (string?)null,
         OptA            = (string?)null,
@@ -2425,10 +2454,11 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         FixedDifficulty = (byte?)null
     };
 
-    private static object BuildListenSubParams(int parentId, int sortOrder, ListenGroupSubQuestion sq) => new
+    private static object BuildListenSubParams(int parentId, int sortOrder, ListenGroupSubQuestion sq, byte status) => new
     {
         ParentId        = parentId,
         SortOrder       = sortOrder,
+        Status          = status,
         Stem            = NullIfEmpty(sq.Stem),
         Answer          = NullIfEmpty(sq.Answer),
         OptA            = SafeOption(sq.Options, 0),

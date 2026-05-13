@@ -534,10 +534,10 @@
                         }
                     </div>
                     <div class="text-xs text-gray-500 mt-0.5 flex items-center gap-3 flex-wrap">
-                        <span class="inline-flex items-center gap-1"><i class="fa-solid fa-user text-[11px] text-gray-400"></i>@item.Username</span>
+                        <span class="inline-flex items-center gap-1"><i class="fa-solid fa-user text-xs text-gray-400"></i>@item.Username</span>
                         @if (!string.IsNullOrWhiteSpace(item.IpAddress))
                         {
-                            <span class="inline-flex items-center gap-1"><i class="fa-solid fa-globe text-[11px] text-gray-400"></i>@item.IpAddress</span>
+                            <span class="inline-flex items-center gap-1"><i class="fa-solid fa-globe text-xs text-gray-400"></i>@item.IpAddress</span>
                         }
                         @if (isFailure && !string.IsNullOrWhiteSpace(item.FailReason))
                         {
@@ -601,7 +601,7 @@
                     <div class="text-xs text-gray-500 mt-0.5">
                         @if (!string.IsNullOrWhiteSpace(item.IpAddress))
                         {
-                            <span class="inline-flex items-center gap-1"><i class="fa-solid fa-globe text-[11px] text-gray-400"></i>@item.IpAddress</span>
+                            <span class="inline-flex items-center gap-1"><i class="fa-solid fa-globe text-xs text-gray-400"></i>@item.IpAddress</span>
                         }
                     </div>
                 </div>

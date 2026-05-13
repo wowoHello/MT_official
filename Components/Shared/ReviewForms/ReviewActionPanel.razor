@@ -70,7 +70,7 @@
                 <summary class="px-5 py-3 cursor-pointer text-xs font-bold text-morandi flex items-center gap-1.5 hover:bg-morandi/5 transition list-none select-none">
                     <i class="fa-solid fa-pen-to-square"></i>
                     <span>劃記評語</span>
-                    <span class="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-morandi/15 text-morandi font-bold">@Annotations.Count</span>
+                    <span class="ml-1 px-1.5 py-0.5 text-xs rounded-full bg-morandi/15 text-morandi font-bold">@Annotations.Count</span>
                     <i class="fa-solid fa-chevron-down ml-auto text-xs text-gray-400"></i>
                 </summary>
                 <div class="px-4 pb-4 pt-1 space-y-2">
@@ -84,11 +84,11 @@
                         <div class="bg-white border border-gray-200 rounded-lg p-3 text-xs hover:border-morandi/40 hover:shadow-sm transition group"
                              @onclick="() => ScrollToAnnotationAsync(annot.Id)">
                             <div class="flex items-start gap-2 mb-1.5">
-                                <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-morandi text-white text-[10px] font-bold flex-shrink-0">@num</span>
+                                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-morandi text-white text-xs font-bold flex-shrink-0">@num</span>
                                 <div class="flex-1 min-w-0">
                                     @* 審題端：自己看自己的劃記，不顯示身份標籤（修題端會用 AnnotationActorLabel 顯示）；
                                        位置由左側題目區的高亮 mark 表達，這裡只列時間 + 摘要 + 評語 *@
-                                    <div class="text-gray-400 text-[11px] mb-1">@annot.CreatedAt.ToString("MM/dd HH:mm")</div>
+                                    <div class="text-gray-400 text-xs mb-1">@annot.CreatedAt.ToString("MM/dd HH:mm")</div>
                                     <div class="bg-amber-50 border border-amber-200 rounded px-2 py-1 text-gray-800 font-serif leading-relaxed mb-1.5 max-h-16 overflow-y-auto" title="@annot.SelectedText">
                                         「@annot.SelectedText」
                                     </div>
@@ -96,10 +96,10 @@
                                     @if (annot.IsResponded)
                                     {
                                         <div class="mt-2 pt-2 border-t border-dashed border-gray-200">
-                                            <span class="inline-block px-2 py-0.5 rounded text-[10px] font-bold border @stateCss">@stateLabel</span>
+                                            <span class="inline-block px-2 py-0.5 rounded text-xs font-bold border @stateCss">@stateLabel</span>
                                             @if (!string.IsNullOrWhiteSpace(annot.NoChangeReason))
                                             {
-                                                <div class="mt-1 text-gray-500 text-[11px]">老師說明：@annot.NoChangeReason</div>
+                                                <div class="mt-1 text-gray-500 text-xs">老師說明：@annot.NoChangeReason</div>
                                             }
                                         </div>
                                     }

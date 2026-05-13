@@ -11,23 +11,52 @@
 
 <div class="p-5 lg:p-6 pb-16 max-w-4xl mx-auto space-y-4 min-h-full">
 
-    <FormSectionCard Title="聽力音檔" Icon="fa-headphones" HintText="可先命題，音檔之後再補上"
-        DataField="AudioUrl" ContainerClass="@InvalidRing("AudioUrl")">
-        <AudioUploadField AudioUrl="@AudioFileName"
-            AudioUrlChanged="v => { AudioFileName = v; AudioFileNameChanged.InvokeAsync(v); }" />
-    </FormSectionCard>
-
-    <FormSectionCard Title="語音內容" Icon="fa-microphone" Required="true"
-        DataField="ArticleContent" ContainerClass="@InvalidRing("ArticleContent")">
-        <div class="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md text-sm flex items-start gap-2">
-            <i class="fa-solid fa-circle-info text-amber-500 mt-0.5 flex-shrink-0"></i>
-            <div class="text-xs leading-relaxed text-amber-700">
-                <span class="font-bold text-terracotta">聽力題組母題提醒</span>
-                — 母題不區分難度，僅需上傳音檔與語音內容。底下固定 2 個子題，各有獨立的難度、核心能力與細目指標。
-            </div>
+    @if (IsFocusMode)
+    {
+        <!-- Focus 模式提示條（單一子題修題視角） -->
+        <div class="px-4 py-2.5 bg-morandi/10 border border-morandi/25 rounded-lg text-sm text-morandi font-bold flex items-center gap-2">
+            <i class="fa-solid fa-bullseye"></i>
+            <span>正在編輯第 @FocusSubOrder 子題（母題音檔與語音內容作為上下文僅供參考、無法修改）</span>
         </div>
-        <QuillField Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }" FieldLabel="語音內容" Placeholder="點擊此處開始輸入語音內容（逐字稿）..." />
-    </FormSectionCard>
+    }
+
+    @* Focus 模式：母題音檔 + 語音內容皆唯讀（CascadingValue 蓋掉父層 IsFormReadOnly） *@
+    @if (IsFocusMode)
+    {
+        <CascadingValue Name="IsFormReadOnly" Value="true" IsFixed="false">
+            <FormSectionCard Title="聽力音檔" Icon="fa-headphones" HintText="僅供參考"
+                DataField="AudioUrl" ContainerClass="@InvalidRing("AudioUrl")">
+                <AudioUploadField AudioUrl="@AudioFileName"
+                    AudioUrlChanged="v => { AudioFileName = v; AudioFileNameChanged.InvokeAsync(v); }" />
+            </FormSectionCard>
+
+            <FormSectionCard Title="語音內容" Icon="fa-microphone"
+                DataField="ArticleContent" ContainerClass="@InvalidRing("ArticleContent")">
+                <QuillField Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }"
+                    FieldLabel="語音內容" Placeholder="點擊此處開始輸入語音內容（逐字稿）..." />
+            </FormSectionCard>
+        </CascadingValue>
+    }
+    else
+    {
+        <FormSectionCard Title="聽力音檔" Icon="fa-headphones" HintText="可先命題，音檔之後再補上"
+            DataField="AudioUrl" ContainerClass="@InvalidRing("AudioUrl")">
+            <AudioUploadField AudioUrl="@AudioFileName"
+                AudioUrlChanged="v => { AudioFileName = v; AudioFileNameChanged.InvokeAsync(v); }" />
+        </FormSectionCard>
+
+        <FormSectionCard Title="語音內容" Icon="fa-microphone" Required="true"
+            DataField="ArticleContent" ContainerClass="@InvalidRing("ArticleContent")">
+            <div class="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md text-sm flex items-start gap-2">
+                <i class="fa-solid fa-circle-info text-amber-500 mt-0.5 flex-shrink-0"></i>
+                <div class="text-xs leading-relaxed text-amber-700">
+                    <span class="font-bold text-terracotta">聽力題組母題提醒</span>
+                    — 母題不區分難度，僅需上傳音檔與語音內容。底下固定 2 個子題，各有獨立的難度、核心能力與細目指標。
+                </div>
+            </div>
+            <QuillField Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }" FieldLabel="語音內容" Placeholder="點擊此處開始輸入語音內容（逐字稿）..." />
+        </FormSectionCard>
+    }
 
     <FormSectionCard Title="子題區" Icon="fa-layer-group" HintText="固定 2 題">
         <div class="space-y-4">
@@ -36,6 +65,8 @@
                 var idx = i;
                 var sq = SubQuestions[idx];
                 var n = idx + 1;
+                @* Focus 模式：只渲染被點開的子題；其他略過 *@
+                if (IsFocusMode && sq.Id != FocusSubDbId!.Value) { continue; }
                 var subLevelLabel = QuestionConstants.ListenLevelLabels.GetValueOrDefault(sq.FixedDifficulty, "");
                 var coreKey      = $"ListenSub_{n}_CoreAbility";
                 var indicatorKey = $"ListenSub_{n}_Indicator";
@@ -154,6 +185,17 @@
 
     /// <summary>由父層傳入的驗證失敗欄位集合。</summary>
     [Parameter] public HashSet<string>? InvalidFields { get; set; }
+
+    /// <summary>
+    /// Focus 模式：當 RevisionSlideOver 從子題列開啟時傳入該子題 DB Id。
+    /// 設定後：只渲染對應子題、母題音檔/語音內容變唯讀。
+    /// </summary>
+    [Parameter] public int? FocusSubDbId { get; set; }
+
+    private bool IsFocusMode => FocusSubDbId is not null;
+
+    private int FocusSubOrder =>
+        FocusSubDbId is int id ? SubQuestions.FindIndex(s => s.Id == id) + 1 : 0;
 
     private string InvalidRing(string fieldKey) =>
         InvalidFields?.Contains(fieldKey) == true ? "ring-2 ring-red-400" : "";

@@ -88,7 +88,7 @@
                                         <div class="flex min-w-0 flex-col gap-0.5">
                                             <span class="truncate @(isSelected ? "font-bold text-morandi" : "font-medium text-gray-700")">@project.DisplayName</span>
                                             <span class="flex items-center gap-1.5 text-xs text-gray-500 tabular-nums">
-                                                <i class="fa-regular fa-calendar text-[10px] text-gray-400"></i>
+                                                <i class="fa-regular fa-calendar text-xs text-gray-400"></i>
                                                 @project.StartDate.ToString("yyyy/MM/dd") — @project.EndDate.ToString("yyyy/MM/dd")
                                             </span>
                                         </div>
@@ -113,7 +113,7 @@
                                         <div class="flex min-w-0 flex-col gap-0.5">
                                             <span class="truncate @(isSelected ? "font-bold text-morandi" : "font-medium text-gray-700")">@project.DisplayName</span>
                                             <span class="flex items-center gap-1.5 text-xs text-gray-500 tabular-nums">
-                                                <i class="fa-regular fa-calendar text-[10px] text-gray-400"></i>
+                                                <i class="fa-regular fa-calendar text-xs text-gray-400"></i>
                                                 @project.StartDate.ToString("yyyy/MM/dd") — @project.EndDate.ToString("yyyy/MM/dd")
                                             </span>
                                         </div>
@@ -326,7 +326,12 @@
 <CascadingValue Value="moduleCards" Name="ModuleCards">
 <CascadingValue Value="currentProject" Name="CurrentProject">
     <div class="mx-auto flex-grow w-full">
-        @Body
+        @* isAppReady 守門：等 OnAfterRenderAsync 還原完 storage 才 render 子頁，
+           避免 currentProject=null 時 OnParametersSetAsync 白跑一次然後第二輪又跑 *@
+        @if (isAppReady)
+        {
+            @Body
+        }
     </div>
 </CascadingValue>
 </CascadingValue>
@@ -410,7 +415,10 @@
             currentUserId = userId;
 
             await ReloadVisibleProjectsAsync();
-            await InitializeHubConnectionAsync();
+
+            // Hub 連線 50~300ms，且訂閱 SignalR 廣播屬「之後才會用到」的功能，
+            // 改 fire-and-forget 不阻塞首屏 render。例外靜默吞掉（內部已有 LogWarning）。
+            _ = InitializeHubConnectionAsync();
 
             // 訂閱導航事件，後續每次路由變更時檢查模組存取權限
             Navigation.LocationChanged += OnLocationChanged;

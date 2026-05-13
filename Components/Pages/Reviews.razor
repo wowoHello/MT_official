@@ -361,11 +361,37 @@
                                                 </span>
                                             </td>
                                             <td class="px-4 py-3 whitespace-nowrap">
-                                                @if (item.Level is byte lv)
-                                                {
-                                                    <span class="text-xs text-morandi font-bold">@(item.TypeKey == QuestionTypeCodes.Listen ? QuestionConstants.ListenLevelLabels.GetValueOrDefault(lv, "") : QuestionConstants.GeneralLevelLabels.GetValueOrDefault(lv, ""))</span>
+                                                @* 等級 pill：
+                                                   - 聽力題目（Listen single）：用 ListenLevelLabels（難度一~五）
+                                                   - 聽力題組（ListenGroup）子題：用 ListenLevelLabels 取 FixedDifficulty → 難度三/難度四
+                                                   - 聽力題組母題：— (整題組無單一等級)
+                                                   - 其他題型：用 GeneralLevelLabels（初等~優等） *@
+                                                @{
+                                                    string? levelText = null;
+                                                    if (item.TypeKey == QuestionTypeCodes.ListenGroup)
+                                                    {
+                                                        if (item.SubQuestionId.HasValue && item.FixedDifficulty is byte fdLv)
+                                                        {
+                                                            levelText = QuestionConstants.ListenLevelLabels.GetValueOrDefault(fdLv, "");
+                                                        }
+                                                    }
+                                                    else if (item.Level is byte lv)
+                                                    {
+                                                        levelText = item.TypeKey == QuestionTypeCodes.Listen
+                                                            ? QuestionConstants.ListenLevelLabels.GetValueOrDefault(lv, "")
+                                                            : QuestionConstants.GeneralLevelLabels.GetValueOrDefault(lv, "");
+                                                    }
                                                 }
-                                                @if (item.Difficulty is byte d)
+                                                @if (!string.IsNullOrEmpty(levelText))
+                                                {
+                                                    <span class="text-xs text-morandi font-bold">@levelText</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-xs text-gray-300">—</span>
+                                                }
+                                                @* 難度 pill：聽力題組整體沒有難度（只有等級），跳過；其他題型才顯示 *@
+                                                @if (item.TypeKey != QuestionTypeCodes.ListenGroup && item.Difficulty is byte d)
                                                 {
                                                     <span class="text-xs text-terracotta font-bold ml-2">@QuestionConstants.DifficultyLabels.GetValueOrDefault(d, "")</span>
                                                 }
@@ -517,11 +543,19 @@
                                                 </span>
                                             </td>
                                             <td class="px-4 py-3 whitespace-nowrap">
-                                                @if (item.Level is byte lv)
+                                                @* 歷史 Tab 一律以 QuestionId 一列呈現（不拆子題）— 聽力題組整體無單一等級也無難度，顯示 em dash *@
+                                                @if (item.TypeKey != QuestionTypeCodes.ListenGroup && item.Level is byte lv)
                                                 {
-                                                    <span class="text-xs text-morandi font-bold">@(item.TypeKey == QuestionTypeCodes.Listen ? QuestionConstants.ListenLevelLabels.GetValueOrDefault(lv, "") : QuestionConstants.GeneralLevelLabels.GetValueOrDefault(lv, ""))</span>
+                                                    var levelText = item.TypeKey == QuestionTypeCodes.Listen
+                                                        ? QuestionConstants.ListenLevelLabels.GetValueOrDefault(lv, "")
+                                                        : QuestionConstants.GeneralLevelLabels.GetValueOrDefault(lv, "");
+                                                    <span class="text-xs text-morandi font-bold">@levelText</span>
                                                 }
-                                                @if (item.Difficulty is byte d)
+                                                else
+                                                {
+                                                    <span class="text-xs text-gray-300">—</span>
+                                                }
+                                                @if (item.TypeKey != QuestionTypeCodes.ListenGroup && item.Difficulty is byte d)
                                                 {
                                                     <span class="text-xs text-terracotta font-bold ml-2">@QuestionConstants.DifficultyLabels.GetValueOrDefault(d, "")</span>
                                                 }
@@ -833,22 +867,26 @@
             if (int.TryParse(claim, out var uid)) currentUserId = uid;
         }
 
-        // 立即用「目前 DB 狀態」渲染：phases + 兩個列表
+        // 立即用「目前 DB 狀態」渲染：phases + 兩個列表 + 權限檢查 全部並行
         // 不再等 PhaseCoordinator.EnsureAsync 完成（互審 / 專審 / 總審分配可能跑 5~10 秒）
-        await LoadPhasesAsync(projectId);
-        await Task.WhenAll(LoadAssignmentsAsync(), LoadHistoryAsync());
+        var phasesTask      = LoadPhasesAsync(projectId);
+        var assignmentsTask = LoadAssignmentsAsync();
+        var historyTask     = LoadHistoryAsync();
+        var memberTask      = !permissionChecked && currentUserId is not null
+            ? QuestionService.IsProjectMemberAsync(currentUserId.Value, projectId)
+            : Task.FromResult(true);
+
+        await Task.WhenAll(phasesTask, assignmentsTask, historyTask, memberTask);
+
+        if (!permissionChecked)
+        {
+            permissionChecked = true;
+            if (!memberTask.Result) needNoPermissionRedirect = true;
+        }
 
         // 階段轉換改背景跑：第一次階段切換時可能寫入新分配 / 升級 Status
         // 完成後自動 InvokeAsync 切回 UI thread 刷新列表（漸進式 UX）
         _ = RunPhaseCoordinatorBackgroundAsync(projectId);
-
-        // 權限檢查：每位使用者每次進頁面只跑一次
-        if (permissionChecked) return;
-        permissionChecked = true;
-
-        if (currentUserId is null) return;
-        var isMember = await QuestionService.IsProjectMemberAsync(currentUserId.Value, projectId);
-        if (!isMember) needNoPermissionRedirect = true;
     }
 
     /// <summary>

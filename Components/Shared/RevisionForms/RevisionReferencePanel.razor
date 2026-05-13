@@ -67,11 +67,11 @@
 
                             @* Header: 序號 + 匿名身份 badge + 時間 *@
                             <div class="flex items-center gap-2 mb-2">
-                                <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-white border @s.BorderClass text-[10px] font-bold @s.IconColorClass flex-shrink-0">@num</span>
+                                <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-white border @s.BorderClass text-xs font-bold @s.IconColorClass flex-shrink-0">@num</span>
                                 <span class="px-2 py-0.5 @s.BadgeBgClass text-white text-xs font-bold rounded-md flex items-center gap-1">
-                                    <i class="fa-solid @s.Icon text-[10px]"></i> @actorName
+                                    <i class="fa-solid @s.Icon text-xs"></i> @actorName
                                 </span>
-                                <span class="text-[11px] text-gray-400 font-sans">@fieldLabel</span>
+                                <span class="text-xs text-gray-400 font-sans">@fieldLabel</span>
                                 <span class="text-xs text-gray-400 tabular-nums ml-auto">@annot.CreatedAt.ToString("MM/dd HH:mm")</span>
                             </div>
 
@@ -180,7 +180,7 @@
                             @* Header: stage badge + 時間 *@
                             <div class="flex items-center justify-between mb-2">
                                 <span class="px-2 py-0.5 @s.BadgeBgClass text-white text-xs font-bold rounded-md flex items-center gap-1">
-                                    <i class="fa-solid @s.Icon text-[10px]"></i> @s.Name
+                                    <i class="fa-solid @s.Icon text-xs"></i> @s.Name
                                 </span>
                                 <span class="text-xs text-gray-400 tabular-nums">@c.DecidedAt.ToString("MM/dd HH:mm")</span>
                             </div>
@@ -243,7 +243,7 @@
 
                             <div class="flex items-center justify-between mb-2">
                                 <span class="px-2 py-0.5 bg-sage text-white text-xs font-bold rounded-md flex items-center gap-1">
-                                    <i class="fa-solid fa-pen text-[10px]"></i>
+                                    <i class="fa-solid fa-pen text-xs"></i>
                                     @stageName@(total > 1 ? $" 第 {round} 次" : "")
                                 </span>
                                 <span class="text-xs text-gray-400 tabular-nums">@r.CreatedAt.ToString("MM/dd HH:mm")</span>

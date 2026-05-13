@@ -180,7 +180,8 @@
                                     <div class="flex-grow overflow-y-auto custom-scroll bg-oatmeal min-h-0">
                                         @if (isReadingMode)
                                         {
-                                            <ReviewQuestionDisplay Question="@data.Question" CreatorName="" />
+                                            @* SubQuestionId 非 null 時 ReviewQuestionDisplay 自動切到子題模式，僅顯示該子題（與 Reviews 審題作業區一致） *@
+                                            <ReviewQuestionDisplay Question="@data.Question" CreatorName="" SubQuestionId="@data.SubQuestionId" />
                                         }
                                         else
                                         {
@@ -205,7 +206,8 @@
                                                                            @bind-SubQuestions="data.Question.ReadSubQuestions"
                                                                            @bind-Images="data.Question.Images"
                                                                            ParentQuestionCode="@data.Question.QuestionCode"
-                                                                           InvalidFields="invalidFields" />
+                                                                           InvalidFields="invalidFields"
+                                                                           FocusSubDbId="@data.SubQuestionId" />
                                                     break;
                                                 case QuestionTypeCodes.ShortGroup:
                                                     <QuestionFormShortGroup Status="@data.QStatus"
@@ -213,7 +215,8 @@
                                                                             @bind-SubQuestions="data.Question.ShortSubQuestions"
                                                                             ParentQuestionCode="@data.Question.QuestionCode"
                                                                             @bind-Images="data.Question.Images"
-                                                                            InvalidFields="invalidFields" />
+                                                                            InvalidFields="invalidFields"
+                                                                            FocusSubDbId="@data.SubQuestionId" />
                                                     break;
                                                 case QuestionTypeCodes.Listen:
                                                     <QuestionFormListen @bind-AudioFileName="data.Question.AudioUrl" @bind-Stem="data.Question.Stem"
@@ -228,7 +231,8 @@
                                                                              @bind-SubQuestions="data.Question.ListenGroupSubQuestions"
                                                                              ParentQuestionCode="@data.Question.QuestionCode"
                                                                              @bind-Images="data.Question.Images"
-                                                                             InvalidFields="invalidFields" />
+                                                                             InvalidFields="invalidFields"
+                                                                             FocusSubDbId="@data.SubQuestionId" />
                                                     break;
                                             }
                                         }

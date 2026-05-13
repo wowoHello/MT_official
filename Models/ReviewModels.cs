@@ -187,6 +187,14 @@ public class ReviewListItem
     public string TypeKey { get; set; } = string.Empty;
     public byte? Level { get; set; }
     public byte? Difficulty { get; set; }
+
+    /// <summary>
+    /// 聽力題組子題的「固定難度」（1~5），對應 MT_SubQuestions.FixedDifficulty。
+    /// 子題一固定 3、子題二固定 4；母題列與其他題型一律為 null。
+    /// 用於顯示「難三/難四」標籤，與一般 Difficulty（易/中/難）的色系區分。
+    /// </summary>
+    public byte? FixedDifficulty { get; set; }
+
     public string SummaryText { get; set; } = string.Empty;
     public ReviewStage Stage { get; set; }
     public ReviewDecision? Decision { get; set; }

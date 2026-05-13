@@ -253,12 +253,9 @@
                                         <td class="px-4 py-3 font-bold text-slate-main group-hover:text-morandi whitespace-nowrap transition-colors">
                                             @if (isSubRow)
                                             {
-                                                @* 子題列：以 ↳ 視覺縮排表達層級，題號加 ".N" 子題索引（SortOrder 從 0 起算，呈現 +1） *@
+                                                @* 子題列：↳ 視覺縮排 + 完整子題碼 Q-{Year}-{NNNNN}-{NN}（SortOrder 從 1 起算） *@
                                                 <span class="text-gray-400 mr-1">↳</span>
-                                                <span class="text-gray-500">@item.QuestionCode</span>
-                                                <span class="ml-1 inline-block px-1.5 py-0.5 bg-morandi/15 text-morandi rounded text-xs font-bold border border-morandi/25">
-                                                    第 @((item.SubSortOrder ?? 0) + 1) 子題
-                                                </span>
+                                                <span class="text-gray-500 font-mono">@QuestionCodeHelper.SubCode(item.QuestionCode, item.SubSortOrder ?? 0)</span>
                                             }
                                             else
                                             {
@@ -613,13 +610,19 @@
         isLoadingQuota = true;
         try
         {
+            // 全部並行（含 LoadListAsync 內部的 ListAsync），降低空白→有內容的延遲
             var quotaTask    = QuestionService.GetMyQuotaProgressAsync(currentUserId!.Value, CurrentProject!.Id);
             var phaseTask    = QuestionService.GetCurrentPhaseAsync(CurrentProject!.Id);
             var countsTask   = QuestionService.GetStatusCountsAsync(CurrentProject!.Id, currentUserId!.Value);
             var phaseEndTask = QuestionService.GetCompositionPhaseEndAsync(CurrentProject!.Id);
-            // 本人視角「已修題」計數（給審修作業區「已修題」統計卡片用）
-            var repliedTask  = QuestionService.GetMyRevisionRepliedCountAsync(CurrentProject!.Id, currentUserId!.Value);
-            await Task.WhenAll(quotaTask, phaseTask, countsTask, phaseEndTask, repliedTask);
+            // 「已修題」計數只服務 revision tab 統計卡片；首次進站若停留在 compose/history 不必查
+            var repliedTask  = currentTab == "revision"
+                ? QuestionService.GetMyRevisionRepliedCountAsync(CurrentProject!.Id, currentUserId!.Value)
+                : Task.FromResult(0);
+            var listTask     = LoadListAsync();
+
+            await Task.WhenAll(quotaTask, phaseTask, countsTask, phaseEndTask, repliedTask, listTask);
+
             quotaProgress             = quotaTask.Result;
             currentPhase              = phaseTask.Result;
             statusCounts              = countsTask.Result;
@@ -635,10 +638,7 @@
         if (quotaProgress.Count == 0)
         {
             needNoPermissionRedirect = true;
-            return;
         }
-
-        await LoadListAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -732,7 +732,19 @@
         currentTab    = tab;
         activeFilter  = "all";
         currentPage   = 1;
-        await LoadListAsync();
+
+        // 切到 revision tab 才需「已修題」計數（首載時若不在 revision tab 會略過，這裡補回）
+        var listTask = LoadListAsync();
+        if (tab == "revision" && currentUserId.HasValue && CurrentProject is not null)
+        {
+            var repliedTask = QuestionService.GetMyRevisionRepliedCountAsync(CurrentProject.Id, currentUserId.Value);
+            await Task.WhenAll(listTask, repliedTask);
+            revisionRepliedCount = repliedTask.Result;
+        }
+        else
+        {
+            await listTask;
+        }
     }
 
     private async Task OnFilterChanged(string filterKey)
@@ -1258,8 +1270,8 @@
 
             @if (reached && !locked)
             {
-                <span class="absolute top-1.5 right-1.5 inline-flex items-center gap-0.5 text-[10px] font-bold text-sage bg-sage/10 px-1.5 py-0.5 rounded-full border border-sage/20">
-                    <i class="fa-solid fa-check text-[9px]"></i>已達標
+                <span class="absolute top-1.5 right-1.5 inline-flex items-center gap-0.5 text-xs font-bold text-sage bg-sage/10 px-1.5 py-0.5 rounded-full border border-sage/20">
+                    <i class="fa-solid fa-check text-xs"></i>已達標
                 </span>
             }
             <div class="text-xs font-bold text-gray-600 mb-1 truncate pr-12">@typeName</div>
@@ -1272,8 +1284,8 @@
             </div>
             @if (!locked)
             {
-                <span class="absolute bottom-1.5 right-2 text-[10px] text-morandi font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
-                    <i class="fa-solid fa-plus text-[9px]"></i>新增
+                <span class="absolute bottom-1.5 right-2 text-xs text-morandi font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                    <i class="fa-solid fa-plus text-xs"></i>新增
                 </span>
             }
         </button>

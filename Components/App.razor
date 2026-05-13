@@ -17,11 +17,12 @@
     <link rel="stylesheet" href="@Assets["css/app.css"]" />
     <script src="@Assets["js/sweetalert2@11.js"]" defer></script>
     <script src="@Assets["js/quill.js"]" defer></script>
-    <HeadOutlet @rendermode="InteractiveServer" />
+    @* prerender: false — 砍掉 Blazor Server 預設「HTTP Prerender + SignalR Interactive 兩段 render」造成 OnInitializedAsync 跑兩次的浪費 *@
+    <HeadOutlet @rendermode="@(new InteractiveServerRenderMode(prerender: false))" />
 </head>
 
 <body>
-    <Routes @rendermode="InteractiveServer" />
+    <Routes @rendermode="@(new InteractiveServerRenderMode(prerender: false))" />
     <ReconnectModal />
     <script src="@Assets["_framework/blazor.web.js"]"></script>
     <script src="@Assets["js/app.js"]" defer></script>

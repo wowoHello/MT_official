@@ -10,23 +10,52 @@
 
 <div class="p-5 lg:p-6 pb-16 max-w-4xl mx-auto space-y-4 min-h-full">
 
+    @if (IsFocusMode)
+    {
+        <!-- Focus 模式提示條（單一子題修題視角） -->
+        <div class="px-4 py-2.5 bg-morandi/10 border border-morandi/25 rounded-lg text-sm text-morandi font-bold flex items-center gap-2">
+            <i class="fa-solid fa-bullseye"></i>
+            <span>正在編輯第 @FocusSubOrder 子題（母題文章作為上下文僅供參考、無法修改）</span>
+        </div>
+    }
+
     <FormSectionCard Title="文章內容" Icon="fa-book-open" Required="true"
         DataField="ArticleContent" ContainerClass="@InvalidRing("ArticleContent")">
-        <!-- 閱讀題組母題提醒 -->
-        <div class="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md text-sm flex items-start gap-2">
-            <i class="fa-solid fa-circle-info text-amber-500 mt-0.5 flex-shrink-0"></i>
-            <div class="text-xs leading-relaxed text-amber-700">
-                <span class="font-bold text-terracotta">閱讀題組母題提醒</span>
-                — 母題只需填寫「文章內容」（文字或附圖擇一）；子題再補上選項、答案與解析即可。
+        @if (!IsFocusMode)
+        {
+            <!-- 閱讀題組母題提醒（focus 模式不顯示） -->
+            <div class="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md text-sm flex items-start gap-2">
+                <i class="fa-solid fa-circle-info text-amber-500 mt-0.5 flex-shrink-0"></i>
+                <div class="text-xs leading-relaxed text-amber-700">
+                    <span class="font-bold text-terracotta">閱讀題組母題提醒</span>
+                    — 母題只需填寫「文章內容」（文字或附圖擇一）；子題再補上選項、答案與解析即可。
+                </div>
             </div>
-        </div>
-        <QuillField Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }" FieldLabel="文章內容" Placeholder="點擊此處開始輸入文章內容..." />
-        <QuestionImagesField Images="ArticleImages" ImagesChanged="OnArticleImagesChanged" />
+        }
+        @* Focus 模式：用 CascadingValue 蓋掉父層的 IsFormReadOnly，讓文章區強制唯讀 *@
+        @if (IsFocusMode)
+        {
+            <CascadingValue Name="IsFormReadOnly" Value="true" IsFixed="false">
+                <QuillField Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }"
+                    FieldLabel="文章內容" Placeholder="點擊此處開始輸入文章內容..." />
+            </CascadingValue>
+            @if (ArticleImages.Count > 0)
+            {
+                @* focus 模式顯示既有附圖但不允許新增/移除 *@
+                <MT.Components.Shared.QuestionPreviews.PreviewImageRow Images="@ArticleImages" />
+            }
+        }
+        else
+        {
+            <QuillField Value="@Passage" ValueChanged="v => { Passage = v; PassageChanged.InvokeAsync(v); }"
+                FieldLabel="文章內容" Placeholder="點擊此處開始輸入文章內容..." />
+            <QuestionImagesField Images="ArticleImages" ImagesChanged="OnArticleImagesChanged" />
+        }
     </FormSectionCard>
 
     <FormSectionCard Title="子題區" Icon="fa-layer-group" BodyClass="p-5">
         <HeaderRight>
-            @if (Status == QuestionStatus.Draft)
+            @if (Status == QuestionStatus.Draft && !IsFocusMode)
             {
                 <button type="button" @onclick="AddSubQuestion"
                     class="px-3 py-1.5 text-xs font-bold text-white bg-sage rounded-lg hover:bg-[#7a9a82] transition-colors cursor-pointer shadow-sm flex items-center gap-1">
@@ -41,6 +70,8 @@
                 var idx = i;
                 var sq = SubQuestions[idx];
                 var n = idx + 1;
+                @* Focus 模式：只渲染被點開的子題；其他略過 *@
+                if (IsFocusMode && sq.Id != FocusSubDbId!.Value) { continue; }
                 var stemKey      = $"ReadSub_{n}_Stem";
                 var analysisKey  = $"ReadSub_{n}_Analysis";
                 var answerKey    = $"ReadSub_{n}_Answer";
@@ -58,8 +89,8 @@
                                 <span class="text-xs text-gray-400 font-normal font-mono">@QuestionCodeHelper.SubCode(ParentQuestionCode, n)</span>
                             }
                         </span>
-                        @* 刪除子題僅在草稿狀態開放；命題完成後鎖定，避免送審/審題流程斷鏈 *@
-                        @if (Status == QuestionStatus.Draft && SubQuestions.Count > 1)
+                        @* 刪除子題僅在草稿狀態 + 非 focus 模式時開放；命題完成後鎖定，避免送審/審題流程斷鏈 *@
+                        @if (Status == QuestionStatus.Draft && SubQuestions.Count > 1 && !IsFocusMode)
                         {
                             <button type="button" @onclick="() => RemoveSubQuestion(idx)"
                                 class="text-xs text-red-400 hover:text-red-600 transition-colors cursor-pointer flex items-center gap-1">
@@ -161,6 +192,19 @@
 
     /// <summary>由父層傳入的驗證失敗欄位集合。</summary>
     [Parameter] public HashSet<string>? InvalidFields { get; set; }
+
+    /// <summary>
+    /// Focus 模式：當 RevisionSlideOver 從子題列開啟時傳入該子題 DB Id。
+    /// 設定後：只渲染對應子題、母題文章變唯讀、隱藏新增/刪除子題按鈕。
+    /// 與 Reviews 審題作業區的子題單元視角一致。
+    /// </summary>
+    [Parameter] public int? FocusSubDbId { get; set; }
+
+    private bool IsFocusMode => FocusSubDbId is not null;
+
+    /// <summary>focus 模式下顯示「第 N 子題」的 N（找不到時回 0，提示條會被略過渲染）。</summary>
+    private int FocusSubOrder =>
+        FocusSubDbId is int id ? SubQuestions.FindIndex(s => s.Id == id) + 1 : 0;
 
     private string InvalidRing(string fieldKey) =>
         InvalidFields?.Contains(fieldKey) == true ? "ring-2 ring-red-400" : "";

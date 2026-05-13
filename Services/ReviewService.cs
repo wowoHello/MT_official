@@ -144,6 +144,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 q.QuestionTypeId      AS TypeId,
                 q.Level,
                 q.Difficulty,
+                sq.FixedDifficulty    AS FixedDifficulty,    -- 聽力題組子題固定難度（母題列為 NULL）
                 CASE WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent ELSE q.Stem END AS SummaryHtml,
                 r.Stage,
                 r.Decision,
@@ -204,6 +205,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 TypeKey              = QuestionConstants.TypeIdToKey.GetValueOrDefault(r.TypeId, ""),
                 Level                = r.Level,
                 Difficulty           = r.Difficulty,
+                FixedDifficulty      = r.FixedDifficulty,
                 SummaryText          = StripHtml(r.SummaryHtml),
                 Stage                = stage,
                 Decision             = r.Decision is null ? null : (ReviewDecision)r.Decision.Value,
@@ -1479,6 +1481,8 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         public int TypeId { get; set; }
         public byte? Level { get; set; }
         public byte? Difficulty { get; set; }
+        /// <summary>聽力題組子題固定難度（1~5）；母題列與其他題型為 null。</summary>
+        public byte? FixedDifficulty { get; set; }
         public string? SummaryHtml { get; set; }
         public byte Stage { get; set; }
         public byte? Decision { get; set; }
