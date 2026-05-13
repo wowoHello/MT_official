@@ -36,10 +36,20 @@ public class DashboardService : IDashboardService
         _logger = logger;
     }
 
+    /// <summary>
+    /// 修補 G：給並行 SQL 使用 — 每次呼叫建一個獨立 conn（Dapper 同 conn 不支援並發 command），
+    /// action 完成後自動 Dispose。回傳 Task 由 caller 用 await/Task.WhenAll 處理。
+    /// </summary>
+    private async Task<T> WithOwnConnAsync<T>(Func<System.Data.IDbConnection, Task<T>> action)
+    {
+        using var conn = _db.CreateConnection();
+        return await action(conn);
+    }
+
     /// <inheritdoc />
     public async Task<DashboardKpiDto> GetKpiAsync(int projectId)
     {
-        using var conn = _db.CreateConnection();
+        // 修補 G Stage 1：5 個無相依 SQL 並行（各自開 conn — Dapper 同 conn 不支援並發 command）
 
         // ──────────────────────────────────────────────────────────────
         // 1. 各題型目標題數（含明細）
@@ -53,9 +63,6 @@ public class DashboardService : IDashboardService
             ORDER BY qt.Id
             """;
 
-        var targetRows = (await conn.QueryAsync<DashboardTargetBreakdown>(
-            sqlTargets, new { pid = projectId })).ToList();
-
         // ──────────────────────────────────────────────────────────────
         // 2. 各題目狀態計數（一次掃表，按 Status 分組）
         //    IsDeleted = 0：只計算未軟刪除的題目
@@ -68,21 +75,11 @@ public class DashboardService : IDashboardService
             WHERE ProjectId = @pid AND IsDeleted = 0
             """;
 
-        var counts = await conn.QuerySingleOrDefaultAsync<StatusCountRow>(
-            sqlStatusCounts, new { pid = projectId });
-
         // ──────────────────────────────────────────────────────────────
-        // 3. 梯次狀態 + 目前所在階段
-        //    MT_Projects 無 Status 欄位，需用 ClosedAt / StartDate 計算：
-        //      ClosedAt 非 NULL          → 2 已結案
-        //      StartDate > 今日           → 0 準備中
-        //      其餘                       → 1 進行中
-        //    再查 MT_ProjectPhases 確認 Today 是否落在某個 Phase 區間
+        // 3. 梯次狀態 + 結案時間
+        //    MT_Projects 無 Status 欄位，需用 ClosedAt / EndDate / StartDate 計算
+        //    （結案判定與 HomeService.cs 一致：手動結案 ClosedAt 有值 / 自然結案 EndDate 已過）
         // ──────────────────────────────────────────────────────────────
-        // 結案判定（與 HomeService.cs L60 規則一致）：
-        //   - 手動結案：ClosedAt 有值
-        //   - 自然結案：EndDate 已過
-        // ClosedAt 對外顯示：手動結案用 ClosedAt；自然結案 fallback 用 EndDate
         const string sqlProjectStatus = """
             SELECT
                 CASE
@@ -100,82 +97,97 @@ public class DashboardService : IDashboardService
             WHERE Id = @pid AND IsDeleted = 0
             """;
 
-        var projectInfo = await conn.QuerySingleOrDefaultAsync<ProjectStatusRow>(
-            sqlProjectStatus, new { pid = projectId });
-        var projectStatus = projectInfo?.Status;
-        var closedAt      = projectInfo?.ClosedAt;
-
-        // 排除 PhaseCode=1（產學計畫區間框架），讓 Footer 顯示真正的工作階段名稱。
-        // 否則由於產學區間涵蓋整個專案期間，SortOrder ASC 會先抓到它而誤導使用者。
-        const string sqlCurrentPhase = """
-            SELECT TOP 1
-                PhaseName,
-                DATEDIFF(DAY, SYSDATETIME(), CAST(EndDate AS DATETIME2)) AS DaysLeft
-            FROM dbo.MT_ProjectPhases
-            WHERE ProjectId = @pid
-              AND PhaseCode > 1
-              AND StartDate <= CAST(GETDATE() AS DATE)
-              AND EndDate   >= CAST(GETDATE() AS DATE)
-            ORDER BY SortOrder ASC
+        // 修補 B：一次性撈所有階段資料，後續 in-memory 推導 phaseRow / neighborPhase / currentPhaseCode / urgentItems
+        const string sqlAllPhases = """
+            SELECT PhaseCode, PhaseName, StartDate, EndDate, SortOrder,
+                   DATEDIFF(DAY, CAST(GETDATE() AS DATE), EndDate)    AS DaysRemaining,
+                   DATEDIFF(DAY, CAST(GETDATE() AS DATE), StartDate)  AS DaysToStart
+            FROM   dbo.MT_ProjectPhases
+            WHERE  ProjectId = @pid
+            ORDER  BY PhaseCode ASC
             """;
 
-        var phaseRow = await conn.QuerySingleOrDefaultAsync<PhaseRow>(
-            sqlCurrentPhase, new { pid = projectId });
-
-        // 若 today 不在任何工作階段內（階段銜接空窗），查最接近的鄰居：
-        //   1. 優先：下一個尚未開始的階段（StartDate > today，最早的）
-        //   2. 次之：剛結束的階段（EndDate < today，最近的）
-        // 這樣 Footer 與「非審題未啟動」說明文字才能呈現有意義的階段名稱。
-        NeighborPhase? neighborPhase = null;
-        if (phaseRow is null)
-        {
-            const string sqlNeighbor = """
-                SELECT TOP 1 PhaseCode, PhaseName, StartDate, EndDate, IsUpcoming
-                FROM (
-                    SELECT PhaseCode, PhaseName, StartDate, EndDate, 1 AS IsUpcoming,
-                           DATEDIFF(DAY, CAST(GETDATE() AS DATE), StartDate) AS DistanceDays
-                    FROM   dbo.MT_ProjectPhases
-                    WHERE  ProjectId = @pid AND PhaseCode > 1
-                      AND  StartDate > CAST(GETDATE() AS DATE)
-                    UNION ALL
-                    SELECT PhaseCode, PhaseName, StartDate, EndDate, 0 AS IsUpcoming,
-                           DATEDIFF(DAY, EndDate, CAST(GETDATE() AS DATE)) AS DistanceDays
-                    FROM   dbo.MT_ProjectPhases
-                    WHERE  ProjectId = @pid AND PhaseCode > 1
-                      AND  EndDate   < CAST(GETDATE() AS DATE)
-                ) n
-                ORDER BY IsUpcoming DESC, DistanceDays ASC
-                """;
-            neighborPhase = await conn.QuerySingleOrDefaultAsync<NeighborPhase>(
-                sqlNeighbor, new { pid = projectId });
-        }
-
-        // ──────────────────────────────────────────────────────────────
-        // 4. 圖表 1：各題型缺口達成率
-        //    Produced = Status ∈ {1, 2~9, 12} — 命題完成後（含送審、各審/修題、採用、結案入庫）
-        //               排除 0 草稿（尚未確認）、10 不採用、11 結案未採用
-        //    Target   = MT_ProjectTargets.TargetCount
-        //    使用 LEFT JOIN 確保即使無題目也回傳 7 筆（供圖表顯示 0 軸）
-        // ──────────────────────────────────────────────────────────────
+        // 4. 圖表 1：題型缺口達成率
+        // 修補 F：CTE 預先聚合 + LEFT JOIN（hash join 取代 nested loop）
         const string sqlAchievement = """
+            WITH ProducedCounts AS (
+                SELECT QuestionTypeId,
+                       SUM(CASE WHEN Status NOT IN (0, 10, 11) THEN 1 ELSE 0 END) AS Produced
+                FROM   dbo.MT_Questions
+                WHERE  ProjectId = @pid AND IsDeleted = 0
+                GROUP BY QuestionTypeId
+            ),
+            AggregatedTargets AS (
+                SELECT QuestionTypeId, SUM(TargetCount) AS TotalTarget
+                FROM   dbo.MT_ProjectTargets
+                WHERE  ProjectId = @pid
+                GROUP BY QuestionTypeId
+            )
             SELECT
                 qt.Id   AS QuestionTypeId,
                 qt.Name AS TypeName,
-                ISNULL(SUM(CASE WHEN q.Status NOT IN (0, 10, 11) THEN 1 ELSE 0 END), 0) AS Produced,
-                ISNULL((
-                    SELECT SUM(pt2.TargetCount)
-                    FROM dbo.MT_ProjectTargets pt2
-                    WHERE pt2.QuestionTypeId = qt.Id AND pt2.ProjectId = @pid
-                ), 0) AS Target
+                ISNULL(pc.Produced, 0)    AS Produced,
+                ISNULL(at.TotalTarget, 0) AS Target
             FROM dbo.MT_QuestionTypes qt
-            LEFT JOIN dbo.MT_Questions q
-                   ON q.QuestionTypeId = qt.Id AND q.ProjectId = @pid AND q.IsDeleted = 0
-            GROUP BY qt.Id, qt.Name
+            LEFT JOIN ProducedCounts     pc ON pc.QuestionTypeId = qt.Id
+            LEFT JOIN AggregatedTargets  at ON at.QuestionTypeId = qt.Id
             ORDER BY qt.Id
             """;
 
-        var achievementRows = (await conn.QueryAsync<DashboardAchievementItem>(
-            sqlAchievement, new { pid = projectId })).ToList();
+        // ── 並行發出 5 個 task ──
+        var targetsTask       = WithOwnConnAsync(c => c.QueryAsync<DashboardTargetBreakdown>(sqlTargets, new { pid = projectId }));
+        var statusCountsTask  = WithOwnConnAsync(c => c.QuerySingleOrDefaultAsync<StatusCountRow>(sqlStatusCounts, new { pid = projectId }));
+        var projectStatusTask = WithOwnConnAsync(c => c.QuerySingleOrDefaultAsync<ProjectStatusRow>(sqlProjectStatus, new { pid = projectId }));
+        var allPhasesTask     = WithOwnConnAsync(c => c.QueryAsync<UrgentPhaseRow>(sqlAllPhases, new { pid = projectId }));
+        var achievementTask   = WithOwnConnAsync(c => c.QueryAsync<DashboardAchievementItem>(sqlAchievement, new { pid = projectId }));
+
+        await Task.WhenAll(targetsTask, statusCountsTask, projectStatusTask, allPhasesTask, achievementTask);
+
+        var targetRows      = targetsTask.Result.ToList();
+        var counts          = statusCountsTask.Result;
+        var projectInfo     = projectStatusTask.Result;
+        var allPhases       = allPhasesTask.Result.ToList();
+        var achievementRows = achievementTask.Result.ToList();
+
+        var projectStatus = projectInfo?.Status;
+        var closedAt      = projectInfo?.ClosedAt;
+        var today         = DateTime.Today;
+
+        // phaseRow（卡片 3+4 Footer 用）：當前在區間內的工作階段（排除 PhaseCode=1 產學區間框架）
+        // 排序：SortOrder ASC 取第一筆作為「主要當前階段」（與原 sqlCurrentPhase 邏輯一致）
+        var currentPhaseRecord = allPhases
+            .Where(p => p.PhaseCode > 1 && p.StartDate <= today && p.EndDate >= today)
+            .OrderBy(p => p.SortOrder)
+            .FirstOrDefault();
+        var phaseRow = currentPhaseRecord is null
+            ? null
+            : new PhaseRow { PhaseName = currentPhaseRecord.PhaseName, DaysLeft = currentPhaseRecord.DaysRemaining };
+
+        // neighborPhase（卡片 Footer 銜接空窗備援）：當前無 phaseRow 時找鄰近階段
+        // 優先順序：upcoming（即將開始）距離小 → past（剛結束）距離小
+        NeighborPhase? neighborPhase = null;
+        if (phaseRow is null)
+        {
+            neighborPhase = allPhases
+                .Where(p => p.PhaseCode > 1 && (p.StartDate > today || p.EndDate < today))
+                .Select(p => new
+                {
+                    IsUpcoming   = p.StartDate > today,
+                    DistanceDays = p.StartDate > today ? (p.StartDate - today).Days : (today - p.EndDate).Days,
+                    Phase = new NeighborPhase
+                    {
+                        PhaseCode  = (byte)p.PhaseCode,
+                        PhaseName  = p.PhaseName,
+                        StartDate  = p.StartDate,
+                        EndDate    = p.EndDate,
+                        IsUpcoming = (byte)(p.StartDate > today ? 1 : 0)
+                    }
+                })
+                .OrderByDescending(x => x.IsUpcoming)
+                .ThenBy(x => x.DistanceDays)
+                .Select(x => x.Phase)
+                .FirstOrDefault();
+        }
 
         // ──────────────────────────────────────────────────────────────
         // 5. 圖表 2：各題型依狀態分佈（依當前 PhaseCode 動態分桶）
@@ -186,181 +198,30 @@ public class DashboardService : IDashboardService
         //         任一 assignment 未填 Comment → 進行中；全填 → 階段完成
         //    - 其他階段（命題/修題）：依 Question.Status 推進
         // ──────────────────────────────────────────────────────────────
-        var currentPhaseForChart = await GetCurrentPhaseCodeAsync(conn, projectId);
+        // 修補 B：currentPhaseCode 從 allPhases in-memory 算（StartDate ≤ today + 取 Max PhaseCode）
+        int? currentPhaseForChart = allPhases
+            .Where(p => p.StartDate <= today)
+            .Select(p => (int?)p.PhaseCode)
+            .DefaultIfEmpty(null)
+            .Max();
 
-        List<DashboardStatusByTypeItem> statusByTypeRows;
+        // 修補 G Stage 3：4 個依賴 currentPhaseForChart 的 SQL 並行（各自開 conn）
+        //   - statusByType（依 phaseCode 走 4 種 SQL 分支） / GetReviewProgress / GetRevisionProgress / BuildUrgentItems
+        var statusByTypeTask     = WithOwnConnAsync(c => LoadStatusByTypeRowsAsync(c, projectId, currentPhaseForChart));
+        var reviewProgressTask   = WithOwnConnAsync(c => GetReviewProgressAsync(c, projectId, currentPhaseForChart));
+        var revisionProgressTask = WithOwnConnAsync(c => GetRevisionProgressAsync(c, projectId, currentPhaseForChart));
+        var urgentItemsTask      = WithOwnConnAsync(c => BuildUrgentItemsAsync(c, projectId, achievementRows, currentPhaseForChart, allPhases));
 
-        if (currentPhaseForChart is 4 or 6 or 8)
-        {
-            // 修題階段：依 MT_RevisionReplies.Content 區分（與卡片 4 同口徑）
-            //   Stage 欄位為 PhaseCode（4/6/8）
-            // Plan_014：本輪過濾 — PC=8 跨輪退回後舊 reply 不算本輪已修
-            //           PC=4/6 線性單輪，filter 等同 NULL fallback 不影響
-            byte revisionStage = (byte)currentPhaseForChart.Value;
+        await Task.WhenAll(statusByTypeTask, reviewProgressTask, revisionProgressTask, urgentItemsTask);
 
-            const string sqlRevisionBased = """
-                WITH QuestionRevisionStatus AS (
-                    SELECT DISTINCT rr.QuestionId
-                    FROM   dbo.MT_RevisionReplies rr
-                    WHERE  rr.Stage = @revisionStage
-                      AND  rr.Content IS NOT NULL
-                      AND  LEN(LTRIM(RTRIM(rr.Content))) > 0
-                      AND  rr.CreatedAt > ISNULL(
-                          (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
-                           WHERE QuestionId = rr.QuestionId AND ReviewStage = 3 AND Decision IN (2, 3)),
-                          '1900-01-01')
-                )
-                SELECT
-                    qt.Name AS TypeName,
-                    ISNULL(SUM(CASE WHEN q.Status = 0 THEN 1 ELSE 0 END), 0) AS Drafts,
-                    ISNULL(SUM(CASE
-                        WHEN q.Status BETWEEN 1 AND 8
-                         AND qrs.QuestionId IS NULL
-                        THEN 1 ELSE 0 END), 0) AS InProgress,
-                    ISNULL(SUM(CASE
-                        WHEN q.Status BETWEEN 1 AND 8
-                         AND qrs.QuestionId IS NOT NULL
-                        THEN 1 ELSE 0 END), 0) AS DoneStage,
-                    ISNULL(SUM(CASE WHEN q.Status IN (9, 12)  THEN 1 ELSE 0 END), 0) AS Adopted,
-                    ISNULL(SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END), 0) AS Rejected
-                FROM      dbo.MT_QuestionTypes qt
-                LEFT JOIN dbo.MT_Questions q
-                       ON q.QuestionTypeId = qt.Id AND q.ProjectId = @pid AND q.IsDeleted = 0
-                LEFT JOIN QuestionRevisionStatus qrs ON qrs.QuestionId = q.Id
-                GROUP BY qt.Id, qt.Name
-                ORDER BY qt.Id
-                """;
-
-            statusByTypeRows = (await conn.QueryAsync<DashboardStatusByTypeItem>(
-                sqlRevisionBased, new { pid = projectId, revisionStage })).ToList();
-        }
-        else if (currentPhaseForChart is 3 or 5 or 7)
-        {
-            // 審題階段：依 ReviewAssignments.Comment 區分（與卡片 3 同口徑）
-            //   PhaseCode 3 → ReviewStage 1、5 → 2、7 → 3
-            byte reviewStage = currentPhaseForChart.Value switch { 3 => 1, 5 => 2, 7 => 3, _ => 0 };
-
-            const string sqlReviewBased = """
-                WITH QuestionStageStatus AS (
-                    SELECT  ra.QuestionId,
-                            SUM(CASE WHEN ra.Comment IS NULL
-                                       OR LEN(LTRIM(RTRIM(ra.Comment))) = 0
-                                     THEN 1 ELSE 0 END) AS PendingCount
-                    FROM    dbo.MT_ReviewAssignments ra
-                    WHERE   ra.ProjectId = @pid AND ra.ReviewStage = @stage
-                    GROUP BY ra.QuestionId
-                )
-                SELECT
-                    qt.Name AS TypeName,
-                    ISNULL(SUM(CASE WHEN q.Status = 0 THEN 1 ELSE 0 END), 0) AS Drafts,
-                    ISNULL(SUM(CASE
-                        WHEN q.Status BETWEEN 1 AND 8
-                         AND (qss.PendingCount IS NULL OR qss.PendingCount > 0)
-                        THEN 1 ELSE 0 END), 0) AS InProgress,
-                    ISNULL(SUM(CASE
-                        WHEN q.Status BETWEEN 1 AND 8
-                         AND qss.PendingCount = 0
-                        THEN 1 ELSE 0 END), 0) AS DoneStage,
-                    ISNULL(SUM(CASE WHEN q.Status IN (9, 12)  THEN 1 ELSE 0 END), 0) AS Adopted,
-                    ISNULL(SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END), 0) AS Rejected
-                FROM      dbo.MT_QuestionTypes qt
-                LEFT JOIN dbo.MT_Questions q
-                       ON q.QuestionTypeId = qt.Id AND q.ProjectId = @pid AND q.IsDeleted = 0
-                LEFT JOIN QuestionStageStatus qss ON qss.QuestionId = q.Id
-                GROUP BY qt.Id, qt.Name
-                ORDER BY qt.Id
-                """;
-
-            statusByTypeRows = (await conn.QueryAsync<DashboardStatusByTypeItem>(
-                sqlReviewBased, new { pid = projectId, stage = reviewStage })).ToList();
-        }
-        else if (currentPhaseForChart == 2)
-        {
-            // 命題階段：與其他階段語意對齊「橘=剩餘工作 / 藍=做完的工作」
-            //   命題草稿(灰) = Status 0
-            //   階段完成(藍) = Status 1 (命題完成) 或 Status 2 (已送審) ─ 對該題而言，命題工作已結束
-            //   階段進行中(橘) = MAX(0, Target − Drafts − DoneStage − Adopted − Rejected) ─ 剩餘缺額
-            //   採用 / 不採用：原樣
-            // Target 自 MT_ProjectTargets（與上方 sqlAchievement 同來源），用 CTE 先聚合再算缺口
-            const string sqlCompositionPhase = """
-                WITH TypeAgg AS (
-                    SELECT
-                        qt.Id,
-                        qt.Name AS TypeName,
-                        ISNULL((SELECT SUM(pt.TargetCount)
-                                FROM   dbo.MT_ProjectTargets pt
-                                WHERE  pt.QuestionTypeId = qt.Id AND pt.ProjectId = @pid), 0) AS TargetCount,
-                        ISNULL(SUM(CASE WHEN q.Status = 0          THEN 1 ELSE 0 END), 0) AS Drafts,
-                        ISNULL(SUM(CASE WHEN q.Status IN (1, 2)    THEN 1 ELSE 0 END), 0) AS DoneStage,
-                        ISNULL(SUM(CASE WHEN q.Status IN (9, 12)   THEN 1 ELSE 0 END), 0) AS Adopted,
-                        ISNULL(SUM(CASE WHEN q.Status IN (10, 11)  THEN 1 ELSE 0 END), 0) AS Rejected
-                    FROM      dbo.MT_QuestionTypes qt
-                    LEFT JOIN dbo.MT_Questions q
-                           ON q.QuestionTypeId = qt.Id AND q.ProjectId = @pid AND q.IsDeleted = 0
-                    GROUP BY qt.Id, qt.Name
-                )
-                SELECT
-                    TypeName,
-                    Drafts,
-                    CASE WHEN TargetCount - Drafts - DoneStage - Adopted - Rejected > 0
-                         THEN TargetCount - Drafts - DoneStage - Adopted - Rejected
-                         ELSE 0 END AS InProgress,
-                    DoneStage,
-                    Adopted,
-                    Rejected
-                FROM   TypeAgg
-                ORDER BY Id
-                """;
-
-            statusByTypeRows = (await conn.QueryAsync<DashboardStatusByTypeItem>(
-                sqlCompositionPhase, new { pid = projectId })).ToList();
-        }
-        else
-        {
-            // 修題 / 結案 / 未啟動：依 Question.Status 推進
-            //   PhaseCode 4/6/8 → Status N 為進行中
-            //   其餘 → -1，所有 1~8 都歸到「階段完成」
-            int inProgressStatus = currentPhaseForChart switch
-            {
-                4 or 6 or 8 => currentPhaseForChart.Value,
-                _          => -1
-            };
-
-            const string sqlStatusBased = """
-                SELECT
-                    qt.Name AS TypeName,
-                    ISNULL(SUM(CASE WHEN q.Status = 0  THEN 1 ELSE 0 END), 0) AS Drafts,
-                    ISNULL(SUM(CASE WHEN q.Status BETWEEN 1 AND 8
-                                     AND (q.Status = @inProgress OR q.Status = 2)
-                                     THEN 1 ELSE 0 END), 0) AS InProgress,
-                    ISNULL(SUM(CASE WHEN q.Status BETWEEN 1 AND 8
-                                     AND q.Status <> @inProgress AND q.Status <> 2
-                                     THEN 1 ELSE 0 END), 0) AS DoneStage,
-                    ISNULL(SUM(CASE WHEN q.Status IN (9, 12)  THEN 1 ELSE 0 END), 0) AS Adopted,
-                    ISNULL(SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END), 0) AS Rejected
-                FROM dbo.MT_QuestionTypes qt
-                LEFT JOIN dbo.MT_Questions q
-                       ON q.QuestionTypeId = qt.Id AND q.ProjectId = @pid AND q.IsDeleted = 0
-                GROUP BY qt.Id, qt.Name
-                ORDER BY qt.Id
-                """;
-
-            statusByTypeRows = (await conn.QueryAsync<DashboardStatusByTypeItem>(
-                sqlStatusBased, new { pid = projectId, inProgress = inProgressStatus })).ToList();
-        }
+        var statusByTypeRows                                    = statusByTypeTask.Result;
+        var (reviewLabel, reviewedCount, reviewTotalCount)      = reviewProgressTask.Result;
+        var (revisionLabel, revisedCount, revisionTotalCount)   = revisionProgressTask.Result;
+        var urgentItems                                         = urgentItemsTask.Result;
 
         // 計算卡片 3 的狀態類型與顯示文字
         var (phaseStatusType, phaseStatusText, phaseDaysRemaining) =
             ResolvePhaseStatus(projectStatus, phaseRow, neighborPhase);
-
-        // ──────────────────────────────────────────────────────────────
-        // 5b. 卡片 3 審題進度（依當前 PhaseCode 對應 ReviewStage）
-        //     直接共用第 1 步 currentPhaseForChart 結果，避免重複查 MT_ProjectPhases
-        // ──────────────────────────────────────────────────────────────
-        var (reviewLabel, reviewedCount, reviewTotalCount) =
-            await GetReviewProgressAsync(conn, projectId, currentPhaseForChart);
-        var (revisionLabel, revisedCount, revisionTotalCount) =
-            await GetRevisionProgressAsync(conn, projectId, currentPhaseForChart);
 
         // 已結案專案：覆蓋審/修題階段判定為 Closed（即使中途結案也顯示為「已結案」）
         if (projectStatus == 2)
@@ -372,12 +233,6 @@ public class DashboardService : IDashboardService
             revisedCount       = 0;
             revisionTotalCount = 0;
         }
-
-        // ──────────────────────────────────────────────────────────────
-        // 6. 逾期與緊急待辦 Top 5
-        //    需在 achievementRows 產出後才可呼叫（TypeShortage 依賴達成率資料）
-        // ──────────────────────────────────────────────────────────────
-        var urgentItems = await BuildUrgentItemsAsync(conn, projectId, achievementRows, currentPhaseForChart);
 
         // ──────────────────────────────────────────────────────────────
         // 組裝 DTO（LOG 已獨立至 GetAuditLogsAsync，此處不再帶入）
@@ -401,6 +256,136 @@ public class DashboardService : IDashboardService
             StatusByType        = statusByTypeRows,
             UrgentItems         = urgentItems
         };
+    }
+
+    /// <summary>
+    /// 修補 G：原本 GetKpiAsync 內 4 個 if-elseif 分支抽出。
+    /// 依當前 PhaseCode 走不同 SQL 路徑算「依題型狀態分佈」資料（給圖表 2 用）。
+    ///   PhaseCode 4/6/8 修題階段 → 依 MT_RevisionReplies.Content 區分
+    ///   PhaseCode 3/5/7 審題階段 → 依 MT_ReviewAssignments.Comment 區分
+    ///   PhaseCode 2     命題階段 → 依 Target 計算缺口
+    ///   其他           → 純 Status 推進
+    /// </summary>
+    private static async Task<List<DashboardStatusByTypeItem>> LoadStatusByTypeRowsAsync(
+        System.Data.IDbConnection conn, int projectId, int? currentPhaseForChart)
+    {
+        if (currentPhaseForChart is 4 or 6 or 8)
+        {
+            // 修題階段：依 MT_RevisionReplies.Content 區分（與卡片 4 同口徑）
+            // Plan_014 本輪過濾 — PC=8 跨輪退回後舊 reply 不算本輪已修；PC=4/6 線性單輪不受影響
+            byte revisionStage = (byte)currentPhaseForChart.Value;
+            const string sqlRevisionBased = """
+                WITH QuestionRevisionStatus AS (
+                    SELECT DISTINCT rr.QuestionId
+                    FROM   dbo.MT_RevisionReplies rr
+                    WHERE  rr.Stage = @revisionStage
+                      AND  rr.Content IS NOT NULL
+                      AND  LEN(LTRIM(RTRIM(rr.Content))) > 0
+                      AND  rr.CreatedAt > ISNULL(
+                          (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
+                           WHERE QuestionId = rr.QuestionId AND ReviewStage = 3 AND Decision IN (2, 3)),
+                          '1900-01-01')
+                )
+                SELECT
+                    qt.Name AS TypeName,
+                    ISNULL(SUM(CASE WHEN q.Status = 0 THEN 1 ELSE 0 END), 0) AS Drafts,
+                    ISNULL(SUM(CASE WHEN q.Status BETWEEN 1 AND 8 AND qrs.QuestionId IS NULL     THEN 1 ELSE 0 END), 0) AS InProgress,
+                    ISNULL(SUM(CASE WHEN q.Status BETWEEN 1 AND 8 AND qrs.QuestionId IS NOT NULL THEN 1 ELSE 0 END), 0) AS DoneStage,
+                    ISNULL(SUM(CASE WHEN q.Status IN (9, 12)  THEN 1 ELSE 0 END), 0) AS Adopted,
+                    ISNULL(SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END), 0) AS Rejected
+                FROM      dbo.MT_QuestionTypes qt
+                LEFT JOIN dbo.MT_Questions q
+                       ON q.QuestionTypeId = qt.Id AND q.ProjectId = @pid AND q.IsDeleted = 0
+                LEFT JOIN QuestionRevisionStatus qrs ON qrs.QuestionId = q.Id
+                GROUP BY qt.Id, qt.Name
+                ORDER BY qt.Id
+                """;
+            return (await conn.QueryAsync<DashboardStatusByTypeItem>(sqlRevisionBased, new { pid = projectId, revisionStage })).ToList();
+        }
+
+        if (currentPhaseForChart is 3 or 5 or 7)
+        {
+            // 審題階段：依 ReviewAssignments.Comment 區分（與卡片 3 同口徑）
+            byte reviewStage = currentPhaseForChart.Value switch { 3 => 1, 5 => 2, 7 => 3, _ => 0 };
+            const string sqlReviewBased = """
+                WITH QuestionStageStatus AS (
+                    SELECT  ra.QuestionId,
+                            SUM(CASE WHEN ra.Comment IS NULL OR LEN(LTRIM(RTRIM(ra.Comment))) = 0
+                                     THEN 1 ELSE 0 END) AS PendingCount
+                    FROM    dbo.MT_ReviewAssignments ra
+                    WHERE   ra.ProjectId = @pid AND ra.ReviewStage = @stage
+                    GROUP BY ra.QuestionId
+                )
+                SELECT
+                    qt.Name AS TypeName,
+                    ISNULL(SUM(CASE WHEN q.Status = 0 THEN 1 ELSE 0 END), 0) AS Drafts,
+                    ISNULL(SUM(CASE WHEN q.Status BETWEEN 1 AND 8 AND (qss.PendingCount IS NULL OR qss.PendingCount > 0) THEN 1 ELSE 0 END), 0) AS InProgress,
+                    ISNULL(SUM(CASE WHEN q.Status BETWEEN 1 AND 8 AND qss.PendingCount = 0 THEN 1 ELSE 0 END), 0) AS DoneStage,
+                    ISNULL(SUM(CASE WHEN q.Status IN (9, 12)  THEN 1 ELSE 0 END), 0) AS Adopted,
+                    ISNULL(SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END), 0) AS Rejected
+                FROM      dbo.MT_QuestionTypes qt
+                LEFT JOIN dbo.MT_Questions q
+                       ON q.QuestionTypeId = qt.Id AND q.ProjectId = @pid AND q.IsDeleted = 0
+                LEFT JOIN QuestionStageStatus qss ON qss.QuestionId = q.Id
+                GROUP BY qt.Id, qt.Name
+                ORDER BY qt.Id
+                """;
+            return (await conn.QueryAsync<DashboardStatusByTypeItem>(sqlReviewBased, new { pid = projectId, stage = reviewStage })).ToList();
+        }
+
+        if (currentPhaseForChart == 2)
+        {
+            // 命題階段：橘=剩餘工作（缺口）/ 藍=做完的工作（Status 1/2）
+            const string sqlCompositionPhase = """
+                WITH TypeAgg AS (
+                    SELECT
+                        qt.Id,
+                        qt.Name AS TypeName,
+                        ISNULL((SELECT SUM(pt.TargetCount)
+                                FROM   dbo.MT_ProjectTargets pt
+                                WHERE  pt.QuestionTypeId = qt.Id AND pt.ProjectId = @pid), 0) AS TargetCount,
+                        ISNULL(SUM(CASE WHEN q.Status = 0          THEN 1 ELSE 0 END), 0) AS Drafts,
+                        ISNULL(SUM(CASE WHEN q.Status IN (1, 2)    THEN 1 ELSE 0 END), 0) AS DoneStage,
+                        ISNULL(SUM(CASE WHEN q.Status IN (9, 12)   THEN 1 ELSE 0 END), 0) AS Adopted,
+                        ISNULL(SUM(CASE WHEN q.Status IN (10, 11)  THEN 1 ELSE 0 END), 0) AS Rejected
+                    FROM      dbo.MT_QuestionTypes qt
+                    LEFT JOIN dbo.MT_Questions q
+                           ON q.QuestionTypeId = qt.Id AND q.ProjectId = @pid AND q.IsDeleted = 0
+                    GROUP BY qt.Id, qt.Name
+                )
+                SELECT
+                    TypeName, Drafts,
+                    CASE WHEN TargetCount - Drafts - DoneStage - Adopted - Rejected > 0
+                         THEN TargetCount - Drafts - DoneStage - Adopted - Rejected
+                         ELSE 0 END AS InProgress,
+                    DoneStage, Adopted, Rejected
+                FROM   TypeAgg
+                ORDER BY Id
+                """;
+            return (await conn.QueryAsync<DashboardStatusByTypeItem>(sqlCompositionPhase, new { pid = projectId })).ToList();
+        }
+
+        // 修題 / 結案 / 未啟動：純 Status 推進
+        int inProgressStatus = currentPhaseForChart switch
+        {
+            4 or 6 or 8 => currentPhaseForChart.Value,
+            _          => -1
+        };
+        const string sqlStatusBased = """
+            SELECT
+                qt.Name AS TypeName,
+                ISNULL(SUM(CASE WHEN q.Status = 0  THEN 1 ELSE 0 END), 0) AS Drafts,
+                ISNULL(SUM(CASE WHEN q.Status BETWEEN 1 AND 8 AND (q.Status = @inProgress OR q.Status = 2) THEN 1 ELSE 0 END), 0) AS InProgress,
+                ISNULL(SUM(CASE WHEN q.Status BETWEEN 1 AND 8 AND q.Status <> @inProgress AND q.Status <> 2 THEN 1 ELSE 0 END), 0) AS DoneStage,
+                ISNULL(SUM(CASE WHEN q.Status IN (9, 12)  THEN 1 ELSE 0 END), 0) AS Adopted,
+                ISNULL(SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END), 0) AS Rejected
+            FROM dbo.MT_QuestionTypes qt
+            LEFT JOIN dbo.MT_Questions q
+                   ON q.QuestionTypeId = qt.Id AND q.ProjectId = @pid AND q.IsDeleted = 0
+            GROUP BY qt.Id, qt.Name
+            ORDER BY qt.Id
+            """;
+        return (await conn.QueryAsync<DashboardStatusByTypeItem>(sqlStatusBased, new { pid = projectId, inProgress = inProgressStatus })).ToList();
     }
 
     /// <summary>
@@ -562,7 +547,8 @@ public class DashboardService : IDashboardService
         System.Data.IDbConnection conn,
         int projectId,
         List<DashboardAchievementItem> achievement,
-        int? currentPhaseCode)
+        int? currentPhaseCode,
+        List<UrgentPhaseRow> allPhases)
     {
         var items = new List<DashboardUrgentItem>();
 
@@ -582,18 +568,8 @@ public class DashboardService : IDashboardService
         var statusCounts2 = await conn.QuerySingleOrDefaultAsync<PhaseStatusCounts>(
             sqlStatusCounts2, new { pid = projectId }) ?? new PhaseStatusCounts();
 
-        // ── 3. A. 查 MT_ProjectPhases：所有階段（含已過）──────────────
-        //    使用 EndDate ≤ 今天 + 5 天 過濾，再依 currentPhaseCode 精確過濾
-        const string sqlPhases = """
-            SELECT PhaseCode, PhaseName, StartDate, EndDate,
-                   DATEDIFF(DAY, CAST(GETDATE() AS DATE), EndDate)    AS DaysRemaining,
-                   DATEDIFF(DAY, CAST(GETDATE() AS DATE), StartDate)  AS DaysToStart
-            FROM   dbo.MT_ProjectPhases
-            WHERE  ProjectId = @pid
-            ORDER  BY PhaseCode ASC
-            """;
-
-        var phaseRows = (await conn.QueryAsync<UrgentPhaseRow>(sqlPhases, new { pid = projectId })).ToList();
+        // ── 3. A. 階段資料來自上層傳入的 allPhases（修補 B：合併 3 次 MT_ProjectPhases 查詢）──
+        var phaseRows = allPhases;
 
         // Phase 2（命題階段）抑制條件：所有題型達成率 ≥ 100%
         // （DB 中 PhaseCode=1 是「產學區間」框架；PhaseCode=2 才是命題階段）
@@ -1241,24 +1217,6 @@ public class DashboardService : IDashboardService
     }
 
     /// <summary>
-    /// 查詢當前進行中的 PhaseCode（StartDate ≤ 今天，取最大的 PhaseCode）。
-    /// 若梯次尚未啟動或無符合資料，回傳 null。
-    /// </summary>
-    private static async Task<int?> GetCurrentPhaseCodeAsync(
-        System.Data.IDbConnection conn, int projectId)
-    {
-        const string sql = """
-            SELECT TOP 1 PhaseCode
-            FROM   dbo.MT_ProjectPhases
-            WHERE  ProjectId = @pid
-              AND  StartDate <= CAST(GETDATE() AS DATE)
-            ORDER  BY PhaseCode DESC
-            """;
-        return await conn.QuerySingleOrDefaultAsync<int?>(sql, new { pid = projectId });
-    }
-
-
-    /// <summary>
     /// 依階段碼回傳對應的目的 URL（DB 實際 PhaseCode：1=產學區間, 2=命題, 3=互審, 4=互修...）。
     /// 命題階段（2）→ 命題作業區；各修題階段（4,6,8）→ 審修作業區；各審題階段（3,5,7）→ 審題作業區。
     /// </summary>
@@ -1342,6 +1300,8 @@ public class DashboardService : IDashboardService
         public DateTime EndDate       { get; init; }
         public int      DaysRemaining { get; init; }
         public int      DaysToStart   { get; init; }
+        /// <summary>修補 B：合併三次 MT_ProjectPhases 查詢後，由 in-memory 端按 SortOrder 排序取「主要當前階段」。</summary>
+        public int      SortOrder     { get; init; }
     }
 
     /// <summary>教師落後彙總列（GROUP BY 教師）。</summary>

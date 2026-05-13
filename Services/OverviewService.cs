@@ -89,17 +89,15 @@ public class OverviewService(
             listFilter.PageSize = 10000;   // 單梯次題目上限保護值，足以覆蓋實務題量
         }
 
-        // countsTask、listTask 兩者並行；StatusCounts 永遠不受下拉影響（給統計卡片用，符合既有契約）
-        // 命題總覽：題組類拆列（母題 + 每子題各一列），故 StatusCounts 改為「列數視角」—
-        //   母題與子題各依各自 Status 分桶，使「總題數=列數」直觀對齊清單畫面。
-        // pendingTask、statusKeyCountsTask 同樣納入子題列。
-        var countsTask          = BuildStatusRowCountsAsync(projectId);
-        var listTask            = _questionService.ListAsync(listFilter);
-        var pendingTask         = GetPendingRevisionCountAsync(projectId, phaseCode);
-        var statusKeyCountsTask = BuildStatusKeyCountsAsync(projectId, phaseCode);
+        // 修補 D：StatusCounts 與 StatusKeyCounts 來自同一份 UNION ALL（母題+子題），
+        //   合併為單一 BuildOverviewCountsAsync 一次 SQL 同時算兩種 dict，省一個全表掃描 + EXISTS 子查詢。
+        var countsTask  = BuildOverviewCountsAsync(projectId, phaseCode);
+        var listTask    = _questionService.ListAsync(listFilter);
+        var pendingTask = GetPendingRevisionCountAsync(projectId, phaseCode);
 
-        await Task.WhenAll(countsTask, listTask, pendingTask, statusKeyCountsTask);
+        await Task.WhenAll(countsTask, listTask, pendingTask);
 
+        var (statusRowCounts, statusKeyCounts) = countsTask.Result;
         var list = listTask.Result;
         var items = list.Items;
 
@@ -128,9 +126,9 @@ public class OverviewService(
                 .Take(pageSize)
                 .ToList();
 
-            // responded 字典需重算為當前頁範圍（後續 razor 端 ResolveDisplayStatus 會再用）
-            responded = await GetAllReviewersRespondedAsync(
-                projectId, phaseCode, items.Select(i => i.Id));
+            // 修補 E：原本這裡會用「縮小後的 ids」第二次查 GetAllReviewersRespondedAsync。
+            //   但第一次的 responded dict 已涵蓋所有 raw items 的 Q 維度判定（filtered/paginate 後是 raw 子集），
+            //   razor 端用 responded.GetValueOrDefault(item.Id, false) lookup 仍正確。直接 reuse 省一個 SQL。
         }
         else
         {
@@ -140,7 +138,7 @@ public class OverviewService(
         return new OverviewListResult
         {
             Items                = items,
-            StatusCounts         = countsTask.Result,
+            StatusCounts         = statusRowCounts,
             TotalCount           = totalCount,
             Page                 = needInMemoryFilter ? Math.Max(1, filter.Page) : list.Page,
             PageSize             = filter.PageSize,
@@ -148,7 +146,7 @@ public class OverviewService(
             // 梯次當前 PhaseCode（null = 不在任何進行中階段）；轉 byte? 讓 UI 端易於比對 QuestionStatus 常數
             CurrentPhaseCode     = phaseCode,
             AllReviewersResponded = responded,
-            StatusKeyCounts      = statusKeyCountsTask.Result
+            StatusKeyCounts      = statusKeyCounts
         };
     }
 
@@ -286,7 +284,9 @@ public class OverviewService(
     private async Task<Dictionary<int, bool>> GetAllReviewersRespondedAsync(
         int projectId, byte? phaseCode, IEnumerable<int> questionIds)
     {
-        var ids = questionIds as IList<int> ?? questionIds.ToList();
+        // 題組類 N+1 列拆列（母題 + N 子題）後，呼叫端傳進來的 ids 可能含同一 QuestionId 多次。
+        // 用 HashSet 去重後再查，避免 ToDictionary 撞重複 key 拋 ArgumentException。
+        var ids = questionIds.ToHashSet();
         if (ids.Count == 0) return new();
 
         var stage = phaseCode switch
@@ -385,44 +385,15 @@ public class OverviewService(
     }
 
     /// <summary>
-    /// 命題總覽專屬 StatusCounts（列數視角，含子題）：
-    /// 母題列計入 q.Status；子題列各自計入 sq.Status；IsDeleted=1 列不計入（與 GetStatusCountsAsync 同步）。
-    /// 使「TotalQuestions = StatusCounts.Values.Sum() = 列表拆列後總列數」對齊。
-    /// </summary>
-    private async Task<Dictionary<byte, int>> BuildStatusRowCountsAsync(int projectId)
-    {
-        const string sql = """
-            WITH combined AS (
-                SELECT q.Status FROM dbo.MT_Questions q
-                WHERE q.ProjectId = @ProjectId AND q.IsDeleted = 0
-
-                UNION ALL
-
-                SELECT sq.Status FROM dbo.MT_SubQuestions sq
-                INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
-                WHERE q.ProjectId = @ProjectId AND q.IsDeleted = 0
-            )
-            SELECT Status, COUNT(*) AS Cnt
-            FROM combined
-            GROUP BY Status;
-            """;
-
-        using var conn = _db.CreateConnection();
-        var rows = await conn.QueryAsync<StatusCountRow>(sql, new { ProjectId = projectId });
-        return rows.ToDictionary(r => r.Status, r => r.Cnt);
-    }
-
-    /// <summary>BuildStatusRowCountsAsync 用的輕量資料列。</summary>
-    private record StatusCountRow(byte Status, int Cnt);
-
-    /// <summary>
-    /// 計算梯次內每個 OverviewStatusKey 對應的「列數」（用於下拉動態渲染：忽略所有 filter）。
-    /// 列數視角：母題列 + 每子題列各計一筆，與列表拆列後呈現一致。
+    /// 修補 D：一次 UNION ALL（母題+子題）撈完 → C# 端同時 bucket 兩種 dict：
+    ///   - StatusRowCounts（依 Status 分桶，IsDeleted=1 不計）— 給統計卡片「總題數 / 命題進行中 / 已採用」用
+    ///   - StatusKeyCounts（依 OverviewStatusKey 分桶）— 給狀態篩選下拉動態渲染用
     /// 規則表與 razor 端 ResolveDisplayStatus + TranslateStatusKey 同源——三方共用 Match* 條件函式。
-    /// 一筆列可能同時落在多個 key（例：修題中 + 修題已送出 → 正常；修題已送出單獨計於 RevisionSubmitted）。
+    /// 一筆列可能同時落在多個 StatusKey（例：修題中 + 修題已送出 → 正常；修題已送出單獨計於 RevisionSubmitted）。
     /// 若梯次無題目直接回空 dict，下拉只會剩「所有狀態」一個選項。
     /// </summary>
-    private async Task<Dictionary<string, int>> BuildStatusKeyCountsAsync(int projectId, byte? phaseCode)
+    private async Task<(Dictionary<byte, int> StatusRowCounts, Dictionary<string, int> StatusKeyCounts)>
+        BuildOverviewCountsAsync(int projectId, byte? phaseCode)
     {
         // 輕量 SQL：母題 + 子題 UNION ALL，每列各自帶自身 Status / HasRepliedThisStage / IsDeleted
         // HasRepliedThisStage 邏輯與 QuestionService.ListAsync 同步：EXISTS RevisionReplies 同 Stage + UserId=CreatorId
@@ -477,20 +448,25 @@ public class OverviewService(
 
         using var conn = _db.CreateConnection();
         var rows = (await conn.QueryAsync<StatusBucketRow>(sql, new { ProjectId = projectId })).AsList();
-        if (rows.Count == 0) return new();
+        if (rows.Count == 0) return (new(), new());
 
         // 全體審題者已給意見字典：只 query 仍在審題鎖定狀態且未刪的題目（其他狀態查了沒意義）
         var responded = await GetAllReviewersRespondedAsync(
             projectId, phaseCode,
             rows.Where(r => !r.IsDeleted && IsReviewLocked(r.Status)).Select(r => r.Id));
 
-        var counts = new Dictionary<string, int>();
-        void Bump(string key) => counts[key] = counts.GetValueOrDefault(key, 0) + 1;
+        var rowCounts = new Dictionary<byte, int>();
+        var keyCounts = new Dictionary<string, int>();
+        void BumpStatus(byte s) => rowCounts[s] = rowCounts.GetValueOrDefault(s, 0) + 1;
+        void BumpKey(string k)  => keyCounts[k] = keyCounts.GetValueOrDefault(k, 0) + 1;
 
         foreach (var r in rows)
         {
-            // 命題刪除：獨立桶且優先（與其他狀態互斥）
-            if (r.IsDeleted) { Bump(OverviewStatusKey.Deleted); continue; }
+            // StatusRowCounts：IsDeleted=1 不計（與舊 BuildStatusRowCountsAsync WHERE q.IsDeleted=0 對齊）
+            if (!r.IsDeleted) BumpStatus(r.Status);
+
+            // StatusKeyCounts：命題刪除獨立桶且優先（與其他 key 互斥）
+            if (r.IsDeleted) { BumpKey(OverviewStatusKey.Deleted); continue; }
 
             // 用 QuestionListItem 走 Match* 條件——欄位夠用即可
             var item = new QuestionListItem
@@ -502,30 +478,30 @@ public class OverviewService(
             };
 
             // 命題
-            if (MatchDraft(item, phaseCode))             Bump(OverviewStatusKey.Draft);
-            if (MatchFailedComposition(item, phaseCode)) Bump(OverviewStatusKey.FailedComposition);
-            if (r.Status == QuestionStatus.Completed)    Bump(OverviewStatusKey.Completed);
+            if (MatchDraft(item, phaseCode))             BumpKey(OverviewStatusKey.Draft);
+            if (MatchFailedComposition(item, phaseCode)) BumpKey(OverviewStatusKey.FailedComposition);
+            if (r.Status == QuestionStatus.Completed)    BumpKey(OverviewStatusKey.Completed);
 
             // 審題
-            if (MatchAwaitingReview(item, phaseCode, responded)) Bump(OverviewStatusKey.AwaitingReview);
-            if (MatchReviewed(item, phaseCode, responded))       Bump(OverviewStatusKey.Reviewed);
+            if (MatchAwaitingReview(item, phaseCode, responded)) BumpKey(OverviewStatusKey.AwaitingReview);
+            if (MatchReviewed(item, phaseCode, responded))       BumpKey(OverviewStatusKey.Reviewed);
 
             // 修題
-            if (MatchInRevision(item, phaseCode))                  Bump(OverviewStatusKey.InRevision);
-            if (MatchAwaitingNext(item, phaseCode))                Bump(OverviewStatusKey.AwaitingNext);
-            if (IsEditing(r.Status) && r.HasRepliedThisStage)      Bump(OverviewStatusKey.RevisionSubmitted);
+            if (MatchInRevision(item, phaseCode))                  BumpKey(OverviewStatusKey.InRevision);
+            if (MatchAwaitingNext(item, phaseCode))                BumpKey(OverviewStatusKey.AwaitingNext);
+            if (IsEditing(r.Status) && r.HasRepliedThisStage)      BumpKey(OverviewStatusKey.RevisionSubmitted);
 
             // 結果
             if (r.Status is QuestionStatus.Adopted or QuestionStatus.Archived)
-                Bump(OverviewStatusKey.Adopted);
+                BumpKey(OverviewStatusKey.Adopted);
             if (r.Status is QuestionStatus.Rejected or QuestionStatus.ClosedNotAdopted)
-                Bump(OverviewStatusKey.NotAdopted);
+                BumpKey(OverviewStatusKey.NotAdopted);
         }
 
-        return counts;
+        return (rowCounts, keyCounts);
     }
 
-    /// <summary>BuildStatusKeyCountsAsync 用的輕量資料列（含子題列 — Id=母題 QId、SubId=子題 Id 或 NULL）。</summary>
+    /// <summary>BuildOverviewCountsAsync 用的輕量資料列（含子題列 — Id=母題 QId、SubId=子題 Id 或 NULL）。</summary>
     private record StatusBucketRow(int Id, int? SubId, byte Status, bool IsDeleted, bool HasRepliedThisStage);
 
     public async Task<List<OverviewCreatorOption>> GetCreatorOptionsAsync(int projectId)

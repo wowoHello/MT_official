@@ -686,7 +686,11 @@
     [CascadingParameter(Name = "CurrentProject")] private ProjectSwitcherItem? CurrentProject { get; set; }
 
     private DashboardKpiDto kpi = new();
-    private bool isLoading;
+    /// <summary>
+    /// 修補 A：預設 true，避免 CascadingParameter CurrentProject 尚未送達 / OnParametersSetAsync 前置 await 期間，
+    /// UI 短暫以「有資料」狀態渲染造成閃爍（與 Overview.razor 同手法）。
+    /// </summary>
+    private bool isLoading = true;
     private int? previousProjectId;
 
     // 旗標：資料載入完成後觸發圖表渲染（在 OnAfterRenderAsync 中偵測）
@@ -717,16 +721,17 @@
         if (newProjectId != previousProjectId)
         {
             previousProjectId = newProjectId;
+            // 修補 A：立刻把 isLoading 拉高並 render，避免 LoadKpiAsync 前置 await 期間 UI 閃現「有資料」狀態
+            isLoading = true;
+            StateHasChanged();
             await LoadKpiAsync();
         }
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
-        {
-            await LoadLogsAsync(reset: true);
-        }
+        // 修補 C：移除 firstRender 內 LoadLogsAsync — LoadKpiAsync 末尾已負責載入 LOG，
+        //   原本 firstRender + OnParametersSetAsync 各跑一次造成相同 SQL 重複 + race condition。
 
         // 每次 StateHasChanged 後若旗標為 true，就執行圖表渲染
         if (chartsNeedRender)
@@ -751,29 +756,37 @@
         selectedDetailItem = null;
         StateHasChanged();
 
+        // 修補 D：KPI 與 LOG 並行載入（兩者完全無資料相依），總時間從相加變為取最大值。
+        //   KPI 完成時 isLoading=false + StateHasChanged，卡片/圖表先呈現不必等 LOG。
+        //   LOG 完成時 isLoadingLogs=false + StateHasChanged，LOG 區塊更新不必等 KPI。
+        var kpiTask  = LoadKpiCoreAsync(CurrentProject.Id);
+        var logsTask = LoadLogsAsync(reset: true);
+        await Task.WhenAll(kpiTask, logsTask);
+    }
+
+    /// <summary>KPI 核心載入流程（PhaseCoordinator + GetKpiAsync）— 修補 D 後由 LoadKpiAsync 與 LoadLogsAsync 並行呼叫。</summary>
+    private async Task LoadKpiCoreAsync(int projectId)
+    {
         try
         {
             // 階段轉換統一委派 PhaseTransitionCoordinator —
-            // 60 秒去重 + idempotent，確保管理員開儀表板就能看到真實的審題分配資料
-            // （而非 fallback 估算值）
-            await PhaseCoordinator.EnsureAsync(CurrentProject.Id);
+            // 60 秒去重 + idempotent，確保管理員開儀表板就能看到真實的審題分配資料（而非 fallback 估算值）
+            await PhaseCoordinator.EnsureAsync(projectId);
 
-            kpi = await DashboardService.GetKpiAsync(CurrentProject.Id);
+            kpi = await DashboardService.GetKpiAsync(projectId);
             chartsNeedRender = true;
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "載入 Dashboard KPI 失敗，ProjectId={ProjectId}", CurrentProject.Id);
+            Logger.LogError(ex, "載入 Dashboard KPI 失敗，ProjectId={ProjectId}", projectId);
             kpi = new DashboardKpiDto();
             chartsNeedRender = false;
         }
         finally
         {
             isLoading = false;
+            StateHasChanged();   // KPI 完成立即更新 UI（卡片/圖表 trigger），不等 LOG
         }
-
-        // KPI 載完後重新載入梯次內 LOG
-        await LoadLogsAsync(reset: true);
     }
 
     // ── LOG 載入流程 ────────────────────────────────────────────────
@@ -821,6 +834,7 @@
         finally
         {
             isLoadingLogs = false;
+            StateHasChanged();   // 修補 D：LOG 完成立即更新 UI，不必等 KPI
         }
     }
 
@@ -837,10 +851,13 @@
 
     /// <summary>
     /// 依 kpi 資料組裝 ApexCharts options 並透過 JS Interop 渲染兩張圖表。
+    /// 修補 E：兩張圖表 JS interop 改為並行（原本序列等待約 200ms）。
     /// 無資料時 DOM 元素不存在，JS 端會安全跳過。
     /// </summary>
     private async Task RenderChartsAsync()
     {
+        var chartTasks = new List<Task>(2);
+
         // ── 圖表 1：題型缺口達成率（100% 堆疊水平條） ──
         // formatter 函式無法 JSON 化，改由 JS 端的 renderAchievement 方法處理
         if (kpi.AchievementByType.Any(x => x.Target > 0 || x.Produced > 0))
@@ -853,7 +870,7 @@
                 fillColor = ResolveBarColor(item.Produced, item.Target)
             }).ToArray();
 
-            await JS.InvokeVoidAsync("apexInterop.renderAchievement", "chart-achievement", achievementItems);
+            chartTasks.Add(JS.InvokeVoidAsync("apexInterop.renderAchievement", "chart-achievement", achievementItems).AsTask());
         }
 
         // ── 圖表 2：依題型狀態分佈（Vertical Stacked Bar） ──
@@ -913,8 +930,12 @@
                 tooltip = new { shared = true, intersect = false }
             };
 
-            await JS.InvokeVoidAsync("apexInterop.render", "chart-status", chart2Options);
+            chartTasks.Add(JS.InvokeVoidAsync("apexInterop.render", "chart-status", chart2Options).AsTask());
         }
+
+        // 修補 E：兩張圖表 JS interop 並行（renderAchievement 與 render 彼此獨立）
+        if (chartTasks.Count > 0)
+            await Task.WhenAll(chartTasks);
     }
 
     /// <summary>

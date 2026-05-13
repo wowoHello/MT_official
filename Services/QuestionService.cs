@@ -2074,7 +2074,9 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
         using var conn = _db.CreateConnection();
         conn.Open();
-        using var tx = conn.BeginTransaction(IsolationLevel.Serializable);
+        // ReadCommitted 即可：單一題目同時只會被一位命題教師修；
+        // 第 2 步檢查 Status + PhaseCode 已有業務層級的「狀態流轉」防護，無需 Serializable 的 key-range lock。
+        using var tx = conn.BeginTransaction(IsolationLevel.ReadCommitted);
         try
         {
             // 1. 取「該單元」當前 Status / ProjectId

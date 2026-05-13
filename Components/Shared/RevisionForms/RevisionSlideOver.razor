@@ -590,7 +590,8 @@
             }
 
             // reload annotations 取得新狀態 + 重畫高亮（顏色會由 pending 轉 accepted / rejected）
-            annotations = await AnnotationService.GetByQuestionUnitAsync(data.Question.Id, subQuestionId: null);
+            // Stage B-4-2：必須帶當前單元的 SubQuestionId，否則子題回應後會彈回母題劃記清單
+            annotations = await AnnotationService.GetByQuestionUnitAsync(data.Question.Id, data.SubQuestionId);
             if (isReadingMode) await PushHighlightsToJsAsync();
             await ShowToastAsync("success", $"已回應：{stateLabel}");
         }
@@ -637,6 +638,9 @@
 
         isSaving = true;
         pendingAction = "complete";
+        // 立即觸發 re-render，讓「完成修題」按鈕在 SQL 跑之前就 disabled+spinner，
+        // 避免使用者誤以為「按了沒反應」而重複點擊。
+        StateHasChanged();
         try
         {
             var ok = await QuestionService.SaveRevisionAsync(new SaveRevisionRequest
@@ -653,9 +657,12 @@
                 return;
             }
 
-            await ShowToastAsync("success", "修題完成已儲存");
-            await OnSaved.InvokeAsync();
+            // 立刻關閉 Modal + 彈成功 toast — 使用者「儲存」流程到此結束。
+            // 父層 reload（含 revision tab 最重的 UNION ALL ListAsync）改 fire-and-forget 在背景跑，
+            // 不再讓使用者乾等。即便 reload 短暫慢一點，畫面已切回列表，無感。
             await CloseAsync();
+            _ = ShowToastAsync("success", "修題完成已儲存");
+            _ = OnSaved.InvokeAsync();
         }
         catch (InvalidOperationException ex)
         {
@@ -699,6 +706,8 @@
 
         isSaving = true;
         pendingAction = "resubmit";
+        // 立即觸發 re-render，讓「完成送審」按鈕在 SQL 跑之前就 disabled+spinner
+        StateHasChanged();
         try
         {
             // 1. 先存修題內容（題目本體 + 修題說明）；Status 維持 8
@@ -724,9 +733,10 @@
                 return;
             }
 
-            await ShowToastAsync("success", "已完成送審，等待總審複審");
-            await OnSaved.InvokeAsync();
+            // 同 SaveAsync：立刻關閉 + toast，reload 背景跑
             await CloseAsync();
+            _ = ShowToastAsync("success", "已完成送審，等待總審複審");
+            _ = OnSaved.InvokeAsync();
         }
         catch (InvalidOperationException ex)
         {

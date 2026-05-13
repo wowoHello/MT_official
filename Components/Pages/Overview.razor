@@ -415,7 +415,11 @@
 
     private OverviewFilter filter = new();
     private OverviewListResult result = new();
-    private bool isLoading;
+    /// <summary>
+    /// 預設 true：避免 CascadingParameter CurrentProject 尚未送達 / OnParametersSetAsync 內前置 await 期間，
+    /// UI 因 result.Items.Count==0 閃現「目前尚無題目」(修補 A)。
+    /// </summary>
+    private bool isLoading = true;
 
     // razor 端 dropdown 用字串值，事件觸發時轉成 byte/int 寫進 filter
     private string queryTypeId    = "";
@@ -458,17 +462,18 @@
         if (loadedProjectId == CurrentProject.Id) return;   // 同專案重派 → 不重載
         loadedProjectId = CurrentProject.Id;
 
-        // 階段轉換統一委派 PhaseTransitionCoordinator —— 確保 Overview 也能觸發
-        // PhaseCode 7→8 的 buffer flush（Approve→Adopted、Revise/Reject→FinalEditing），
-        // 否則使用者只進 Overview 不進 CwtList/Reviews 時，題目會卡在 FinalReviewing(7)
-        await PhaseCoordinator.EnsureAsync(CurrentProject.Id);
+        // 修補 A：立刻把 isLoading 提升並 render 一次，避免「creator 載入 + LoadAsync」期間
+        // result.Items.Count==0 觸發「目前尚無題目」空狀態閃現
+        isLoading = true;
+        StateHasChanged();
 
-        // 切換專案時重抓命題教師清單
-        creatorOptions = await OverviewService.GetCreatorOptionsAsync(CurrentProject.Id);
+        // 修補 B：刪掉 razor 端的 PhaseCoordinator.EnsureAsync —— OverviewService.LoadAsync 內已有
+        // 60 秒去重的呼叫，這裡再跑一次純贅餘（多一個序列 round-trip）
 
-        // 若 query string 帶有 creatorId 且該教師存在於選項，自動套用篩選
-        // OverviewCreatorOption 欄位為 Id（非 UserId），以 o.Id 比對
-        if (CreatorId.HasValue && creatorOptions.Any(o => o.Id == CreatorId.Value))
+        // 修補 C：並行載入教師選項 + 主列表
+        //  - 先「樂觀地」依 query string CreatorId 設 filter，並行兩個 Task
+        //  - 完成後再驗證 CreatorId 是否真存在於 options；若不存在則清空 + 重 Load（罕見路徑）
+        if (CreatorId.HasValue)
         {
             queryCreatorId   = CreatorId.Value.ToString();
             filter.CreatorId = CreatorId.Value;
@@ -479,13 +484,26 @@
             filter.CreatorId = null;
         }
 
-        await LoadAsync();
+        var creatorTask = OverviewService.GetCreatorOptionsAsync(CurrentProject.Id);
+        var loadTask    = LoadAsync();
+        await Task.WhenAll(creatorTask, loadTask);
+        creatorOptions = creatorTask.Result;
+
+        // CreatorId 樂觀套用後的後驗證：若該教師不在 options 內（例如 Dashboard 跳轉帶到舊資料），清空篩選重 Load
+        if (CreatorId.HasValue && !creatorOptions.Any(o => o.Id == CreatorId.Value))
+        {
+            queryCreatorId   = "";
+            filter.CreatorId = null;
+            await LoadAsync();
+        }
     }
 
     private async Task LoadAsync()
     {
         if (CurrentProject is null) return;
         isLoading = true;
+        // 立刻 render「載入中…」狀態（被 GoToPage / 篩選變更等 caller 觸發時也保證 UI 同步）
+        StateHasChanged();
         try
         {
             result = await OverviewService.LoadAsync(CurrentProject.Id, filter);

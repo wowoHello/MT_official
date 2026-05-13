@@ -39,26 +39,30 @@ internal static class QuestionImagePersistence
             .ToList();
         if (masterImages.Count == 0) return;
 
-        const string insertSql = """
-            INSERT INTO dbo.MT_QuestionImages (QuestionId, SubQuestionId, FieldType, ImagePath, SortOrder)
-            VALUES (@QuestionId, NULL, @FieldType, @ImagePath, @SortOrder);
-            """;
+        // 單一 INSERT...VALUES (),(),() 批次寫入，整批只用 1 個 round-trip
+        // 取代原本 foreach { await ExecuteAsync } 每張圖一個 RTT 的逐筆寫法
+        var sb  = new System.Text.StringBuilder(
+            "INSERT INTO dbo.MT_QuestionImages (QuestionId, SubQuestionId, FieldType, ImagePath, SortOrder) VALUES ");
+        var args = new DynamicParameters();
+        args.Add("Qid", questionId);
 
+        var idx = 0;
         // SortOrder 依 (FieldType) 群組各自重新編號 1, 2, 3...
         foreach (var grp in masterImages.GroupBy(i => i.FieldType))
         {
             byte order = 1;
             foreach (var img in grp)
             {
-                await conn.ExecuteAsync(insertSql, new
-                {
-                    QuestionId = questionId,
-                    img.FieldType,
-                    img.ImagePath,
-                    SortOrder = order++
-                }, tx);
+                if (idx > 0) sb.Append(", ");
+                sb.Append($"(@Qid, NULL, @F{idx}, @P{idx}, @S{idx})");
+                args.Add($"F{idx}", img.FieldType);
+                args.Add($"P{idx}", img.ImagePath);
+                args.Add($"S{idx}", order++);
+                idx++;
             }
         }
+
+        await conn.ExecuteAsync(sb.ToString(), args, tx);
     }
 
     /// <summary>讀取指定題目的母題附圖，依 FieldType + SortOrder 排序。SubQuestionIndex 為 null。</summary>
@@ -105,26 +109,29 @@ internal static class QuestionImagePersistence
             .ToList();
         if (validImages.Count == 0) return;
 
-        const string insertSql = """
-            INSERT INTO dbo.MT_QuestionImages (QuestionId, SubQuestionId, FieldType, ImagePath, SortOrder)
-            VALUES (NULL, @SubId, @FieldType, @ImagePath, @SortOrder);
-            """;
+        // 單一 INSERT...VALUES (),(),() 批次寫入，整批只用 1 個 round-trip
+        var sb   = new System.Text.StringBuilder(
+            "INSERT INTO dbo.MT_QuestionImages (QuestionId, SubQuestionId, FieldType, ImagePath, SortOrder) VALUES ");
+        var args = new DynamicParameters();
 
+        var rowIdx = 0;
         // SortOrder 依 (SubQuestionIndex, FieldType) 群組各自重新編號
         foreach (var grp in validImages.GroupBy(i => (i.SubQuestionIndex!.Value, i.FieldType)))
         {
             byte order = 1;
             foreach (var img in grp)
             {
-                await conn.ExecuteAsync(insertSql, new
-                {
-                    SubId = subQuestionDbIds[grp.Key.Item1],
-                    img.FieldType,
-                    img.ImagePath,
-                    SortOrder = order++
-                }, tx);
+                if (rowIdx > 0) sb.Append(", ");
+                sb.Append($"(NULL, @Sid{rowIdx}, @F{rowIdx}, @P{rowIdx}, @S{rowIdx})");
+                args.Add($"Sid{rowIdx}", subQuestionDbIds[grp.Key.Item1]);
+                args.Add($"F{rowIdx}",   img.FieldType);
+                args.Add($"P{rowIdx}",   img.ImagePath);
+                args.Add($"S{rowIdx}",   order++);
+                rowIdx++;
             }
         }
+
+        await conn.ExecuteAsync(sb.ToString(), args, tx);
     }
 
     /// <summary>
