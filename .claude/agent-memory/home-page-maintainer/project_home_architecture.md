@@ -15,7 +15,7 @@ type: project
 - 注入：`IHomeService`、`IQuestionService`（用於命題配額與成員判斷）、`NavigationManager`
 - CascadingParameter：`AuthenticationState`、`ModuleCards`（`List<UserModuleCard>`，由 MainLayout 傳入）、`CurrentProject`（`ProjectSwitcherItem?`）
 - 功能卡片清單（`enabledModules`）由 `ModuleCards` 過濾 `IsEnabled` 產生，**不在 Home 自行查 DB**
-- 生命週期：`OnInitialized` 設定日期顯示；`OnParametersSetAsync` 偵測梯次切換後呼叫 `LoadHomeDataAsync`；`OnAfterRenderAsync` firstRender 後 100ms 設 `isReady=true` 觸發卡片 fadeIn 動畫
+- 生命週期：`OnInitialized` 設定日期顯示；`OnParametersSetAsync` 偵測梯次切換後呼叫 `LoadHomeDataAsync`（無 `OnAfterRenderAsync`，卡片動畫直接用 inline style `animation: fadeIn 0.4s ease-out @(delay)ms both`）
 - 無任何 EditForm（無表單需求）
 
 ## 右側今日提醒看板

@@ -86,8 +86,8 @@ type: project
 **狀態碼對應**（命題歷程 GetQuestionStatusText/Badge）：
 - 0=草稿（灰）、1=完成（藍）、2=送審（鼠尾草綠）
 - 3=互審中（藍）、4=互修中（琥珀）、5=專審中（藍）、6=專修中（琥珀）、7=總審中（藍）、8=總修中（琥珀）
-- 12=採用（鼠尾草綠）、13=不採用（灰）
-- **注意**：TeacherService 常數 `StatusClosedAdopted=12` / `StatusClosedNotAdopted=11`，但 UI Helper 中「不採用=13」——此不一致需後續確認（技術債 TM-07）
+- 9=採用（鼠尾草綠）、10=不採用（灰）、11=結案未採用（灰）、12=結案入庫（鼠尾草綠）
+- TeacherService 常數 `StatusClosedAdopted=12` / `StatusClosedNotAdopted=11`，與 UI Helper 完全一致
 
 **命題歷程統計查詢**：AdoptedCount：`Status IN (9, 12)`，RejectedCount：`Status IN (10, 11)`，ReviewingCount：`Status BETWEEN 1 AND 8`。
 
@@ -113,7 +113,7 @@ type: project
 - **TM-03**：儲存按鈕為 `type="button"` 而非 `type="submit"`。
 - **TM-04**：HandleSaveTeacher（第 992 行）與 HandleAssignProject（第 1148 行）各有 1 處不必要的 `StateHasChanged()`。
 - **TM-05**：ToggleTeacherStatusAsync 查詢+更新未包在 Transaction（低風險競態條件）。
-- **TM-07（新）**：TeacherService 常數 `StatusClosedNotAdopted=11` 但 UI Helper `GetQuestionStatusBadge` 中「不採用=13」，邏輯不一致，需確認資料庫實際資料。
+- ~~TM-07（已解除 2026-05-13）：狀態碼不一致疑慮—已複核程式碼，UI Helper 正確對應 9/10/11/12，與 Service 常數一致。~~
 - **TM-08**：帳號狀態 Radio 使用原生 `input type="radio"` 而非 Blazor `InputRadio`。
 - **TM-10**：`composeFilterProjectId` / `reviewFilterProjectId` 為 string 型別，`int.Parse()` 轉換（空字串有保護，但非數字字串仍可能拋例外）。
 

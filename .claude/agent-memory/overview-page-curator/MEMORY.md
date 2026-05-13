@@ -5,3 +5,5 @@
 - [OverviewService 依賴與委派](project_overview_service_dependencies.md) — 注入 IQuestionService/IReviewService/IDatabaseService/IPhaseTransitionCoordinator 四個依賴
 - [Overview 相關資料庫關鍵欄位](project_db_schema_overview_relevant.md) — Stage A 子題提升為審題單元 / Plan_014 本輪過濾 / MT_QuestionImages 圖片獨立表
 - [修題階段燈號雙態呈現](feedback_revision_phase_display.md) — 已送出藍勾+綠 Badge / 未送出紅筆+橘 Badge，由 PhaseProgressStepper 統一處理
+- [七階段燈號判定條件](project_overview_phase_lamps.md) — ResolveStage 6 種 tone / preDone/revisionSent/draftFailed 三種僅 Overview 觸發
+- [Overview 可檢視角色](project_overview_viewer_roles.md) — 管理者/計畫主持人/總召/教務管理者，外部教師禁入

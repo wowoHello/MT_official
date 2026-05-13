@@ -20,7 +20,7 @@ type: project
 
 ## 卡片動畫
 
-`isReady` 初始為 false，首次渲染後 100ms 設為 true，觸發 CSS `fadeIn` animation（動畫定義在 `tailwind.css` 全域樣式）。
+無 `isReady` 狀態旗標，直接在卡片 div 以 inline style `animation: fadeIn 0.4s ease-out @(delay)ms both` 實現逐卡 fadeIn，delay = index * 50ms（動畫 keyframe 定義在 `wwwroot/css/input.css`）。
 
 ## UserModuleCard 型別位置
 

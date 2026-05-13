@@ -1,6 +1,6 @@
 ---
 name: Announcements 頁面架構現況
-description: 2026-05-13 再次讀碼驗證，與功能介紹文件核對後更新
+description: 2026-05-13 二次讀碼完整驗證，三檔案結構符合規則，P1/P2 缺口確認仍未解決
 type: project
 ---
 

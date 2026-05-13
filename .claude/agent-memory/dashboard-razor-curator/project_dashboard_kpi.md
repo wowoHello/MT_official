@@ -73,7 +73,7 @@ Closed         → "已結案"         （ClosedAt 有值或 EndDate 已過）
 
 ## Service 查詢結構（GetKpiAsync）
 1. sqlTargets → DashboardTargetBreakdown（7 筆，卡片 1 明細）
-2. sqlStatusCounts → StatusCountRow（AdoptedCount/InReviewCount/ReturnEditCount/PeerEditCount/ExpertEditCount/FinalEditCount）
+2. sqlStatusCounts → StatusCountRow（僅 AdoptedCount，Status IN (9, 12) 計數）
 3. sqlProjectStatus → ProjectStatusRow（動態計算 Status 0/1/2 + ClosedAt）
 4. sqlCurrentPhase → PhaseRow（排除 PhaseCode=1，取今日所在工作階段）
 5. sqlNeighbor（phaseRow 為 null 時）→ NeighborPhase（下一個/剛結束的鄰近階段）

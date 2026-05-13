@@ -13,10 +13,10 @@ type: project
 | 優先 | 缺口 | 最後確認日 |
 |:---:|------|-----------|
 | ~~P0~~ | ~~`HasAnnouncementPermission()` 用 ModuleKey 比對，改為 PageUrl + OrdinalIgnoreCase~~ | **已修復**（程式碼已確認使用 PageUrl + OrdinalIgnoreCase） |
-| P1 | 自動下架未 UPDATE Status=2，`DisplayStatus` 僅在前端由日期推導（DB 仍只有 0=草稿/1=發佈） | 2026-05-08 仍未解決 |
-| P1 | 使用說明手冊顯示硬編碼假資料（3 筆 PDF 名稱），未接 MT_UserGuideFiles | 2026-05-08 仍未解決 |
-| P2 | Slide-over 表單無「狀態下拉」欄位（無法手動設為已下架；已下架僅由日期決定） | 2026-05-08 仍未解決 |
-| P2 | InlineQuillEditor.razor 缺少 12 個中文標點符號快速插入列 UI | 2026-05-08 仍未解決 |
+| P1 | 自動下架未 UPDATE Status=2，`DisplayStatus` 僅在前端由日期推導（DB 仍只有 0=草稿/1=發佈） | 2026-05-13 仍未解決 |
+| P1 | 使用說明手冊顯示硬編碼假資料（3 筆 PDF 名稱），未接 MT_UserGuideFiles | 2026-05-13 仍未解決 |
+| P2 | Slide-over 表單無「狀態下拉」欄位（無法手動設為已下架；已下架僅由日期決定） | 2026-05-13 仍未解決 |
+| P2 | InlineQuillEditor.razor 缺少 12 個中文標點符號快速插入列 UI | 2026-05-13 仍未解決 |
 
 ### 權限比對設計（已修復，防止未來迴歸）
 `HasAnnouncementPermission()` 已改為：
