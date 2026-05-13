@@ -66,18 +66,7 @@
                         }
                     </div>
                     <div class="p-4 space-y-4">
-                        <!-- 題目內容 -->
-                        <div data-field="@stemKey" class="@InvalidRing(stemKey) rounded-lg p-1">
-                            <label class="block text-sm font-bold text-gray-700 mb-2">
-                                題目內容 <span class="text-red-400">*</span>
-                            </label>
-                            <QuillField Value="@sq.Stem" ValueChanged="v => { sq.Stem = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }" FieldLabel="@($"第 {n} 題 題目內容")"
-                                Placeholder="點擊此處開始編輯題目內容..." />
-                            <QuestionImagesField Images="SubStemImages(idx)"
-                                ImagesChanged="upd => ApplyImageChange(QuestionImageField.Stem, idx, upd)" />
-                        </div>
-
-                        <!-- 主向度 + 能力指標 -->
+                        <!-- 主向度 + 能力指標（與聽力題組對齊，置於題目內容之上） -->
                         <div class="grid grid-cols-2 gap-3">
                             <div data-field="@coreKey" class="@InvalidRing(coreKey) rounded-lg p-1">
                                 <label class="block text-xs font-medium text-gray-600 mb-1">主向度 <span class="text-red-400">*</span></label>
@@ -107,13 +96,28 @@
                             </div>
                         </div>
 
-                        <!-- 試題解析 -->
-                        <div data-field="@analysisKey" class="@InvalidRing(analysisKey) rounded-lg p-1">
+                        <!-- 題目內容 -->
+                        <div data-field="@stemKey" class="@InvalidRing(stemKey) rounded-lg p-1">
                             <label class="block text-sm font-bold text-gray-700 mb-2">
-                                試題解析（紀錄答案理由） <span class="text-red-400">*</span>
+                                題目內容 <span class="text-red-400">*</span>
                             </label>
-                            <QuillField Value="@sq.Analysis" ValueChanged="v => { sq.Analysis = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }" FieldLabel="@($"第 {n} 題 解析")"
-                                Placeholder="點擊此處開始編輯解析..." />
+                            <QuillField Value="@sq.Stem" ValueChanged="v => { sq.Stem = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }" FieldLabel="@($"第 {n} 題 題目內容")"
+                                Placeholder="點擊此處開始編輯題目內容..." />
+                            <QuestionImagesField Images="SubStemImages(idx)"
+                                ImagesChanged="upd => ApplyImageChange(QuestionImageField.Stem, idx, upd)" />
+                        </div>
+
+                        <!-- 試題解析（樣式對齊一般單選題：lightbulb 琥珀色 + 標題與 hint 分層） -->
+                        <div data-field="@analysisKey" class="@InvalidRing(analysisKey) rounded-lg p-1">
+                            <label class="text-sm font-bold text-gray-700 flex items-center gap-2 mb-2">
+                                <i class="fa-solid fa-lightbulb text-amber-500"></i>
+                                <span>試題解析</span>
+                                <span class="text-red-400">*</span>
+                                <span class="text-xs text-gray-400 font-normal">紀錄答案理由</span>
+                            </label>
+                            <QuillField Value="@sq.Analysis" ValueChanged="v => { sq.Analysis = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }"
+                                FieldLabel="@($"第 {n} 題 試題解析")"
+                                Placeholder="請輸入解析內容，可說明命題用意、參考答案要點..." />
                         </div>
                     </div>
                 </div>

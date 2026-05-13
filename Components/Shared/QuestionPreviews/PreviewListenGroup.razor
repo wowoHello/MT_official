@@ -32,9 +32,11 @@
 <div class="space-y-6 mt-2">
     @for (int i = 0; i < SubQuestions.Count; i++)
     {
-        var sq = SubQuestions[i];
-        var num = i + 1;
-        <div class="@(i > 0 ? "border-t border-gray-200 pt-5" : "")">
+        var idx = i;
+        var sq = SubQuestions[idx];
+        var num = idx + 1;
+        var subStemImages = SubStemImagesOf(idx);
+        <div class="@(idx > 0 ? "border-t border-gray-200 pt-5" : "")">
             <!-- 題號 + 題幹 -->
             <div class="flex items-baseline gap-3 mb-2 font-serif">
                 <span class="text-lg font-bold text-gray-900 leading-none">@num.</span>
@@ -43,14 +45,17 @@
                     {
                         @((MarkupString)sq.Stem)
                     }
-                    else
+                    else if (subStemImages.Count == 0)
                     {
+                        @* 文字與圖片都沒有才顯示佔位字 *@
                         <p class="text-gray-400 italic text-sm font-sans">子題題幹尚未填寫</p>
                     }
                 </div>
             </div>
+            <PreviewImageRow Images="subStemImages" />
 
-            <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer" />
+            <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer"
+                                  Images="@Images" SubQuestionIndex="idx" />
         </div>
     }
 </div>
@@ -60,6 +65,7 @@
     [Parameter] public string AudioFileName { get; set; } = "";
     [Parameter] public string Passage { get; set; } = "";
     [Parameter] public List<SubQuestionData> SubQuestions { get; set; } = new();
+    [Parameter] public List<QuestionImage> Images { get; set; } = [];
 
     public class SubQuestionData
     {
@@ -70,6 +76,10 @@
         public string[] Options { get; set; } = new string[4];
         public string Answer { get; set; } = "";
     }
+
+    private List<QuestionImage> SubStemImagesOf(int subIdx) =>
+        Images.Where(i => i.FieldType == (byte)QuestionImageField.Stem && i.SubQuestionIndex == subIdx)
+              .OrderBy(i => i.SortOrder).ToList();
 
     private bool HasContent(string? html)
     {

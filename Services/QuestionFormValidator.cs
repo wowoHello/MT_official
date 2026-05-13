@@ -198,6 +198,12 @@ public static class QuestionFormValidator
             var n = i + 1;
             var subIdx = i;   // 0-based form 位置（對應 QuestionImage.SubQuestionIndex）
 
+            // 主向度 / 能力指標（與短文題組對齊）
+            if (sub.CoreAbility is null)
+                errors.Add(new($"ReadSub_{n}_CoreAbility", $"子題 {n}：請選擇主向度", n));
+            if (sub.Indicator is null)
+                errors.Add(new($"ReadSub_{n}_Indicator", $"子題 {n}：請選擇能力指標", n));
+
             // 題目內容：文字或圖片擇一
             if (IsRichTextEmpty(sub.Stem) && !HasSubImage(data.Images, QuestionImageField.Stem, subIdx))
                 errors.Add(new($"ReadSub_{n}_Stem", $"子題 {n}：請填寫題目內容或上傳題目圖片", n));
@@ -271,7 +277,7 @@ public static class QuestionFormValidator
         }
     }
 
-    /// <summary>聽力測驗。</summary>
+    /// <summary>聽力測驗。題幹必填文字；選項：文字或圖片擇一（聽圖辨識題型）；解析必填文字。</summary>
     private static void ValidateListen(QuestionFormData data, List<ValidationError> errors)
     {
         if (data.CoreAbility is null)
@@ -285,12 +291,29 @@ public static class QuestionFormValidator
         if (data.Difficulty is null)
             errors.Add(new(nameof(QuestionFormData.Difficulty), "請選擇難易度"));
 
+        // 題幹維持文字必填（聽力題的題幹通常是提示語，較少配圖）
         if (IsRichTextEmpty(data.Stem))
             errors.Add(new(nameof(QuestionFormData.Stem), "請填寫題幹"));
 
-        ValidateOptionsAndAnswer(data.Options, data.Answer, errors,
-            optionPrefix: nameof(QuestionFormData.Options),
-            answerKey: nameof(QuestionFormData.Answer));
+        // 四選項：逐項檢查「文字或圖片至少一個」；只回報第一個漏的（與 Single 邏輯一致）
+        for (int i = 0; i < 4; i++)
+        {
+            var hasText  = !IsRichTextEmpty(i < data.Options.Length ? data.Options[i] : "");
+            var hasImage = HasMasterImage(data.Images, (QuestionImageField)((byte)QuestionImageField.OptionA + i));
+            if (!hasText && !hasImage)
+            {
+                var letter = "ABCD"[i];
+                errors.Add(new($"{nameof(QuestionFormData.Options)}_{i}",
+                    $"選項 ({letter}) 請輸入文字或上傳圖片"));
+                break;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(data.Answer)
+            || (data.Answer != "A" && data.Answer != "B" && data.Answer != "C" && data.Answer != "D"))
+        {
+            errors.Add(new(nameof(QuestionFormData.Answer), "請選擇正確答案"));
+        }
 
         if (IsRichTextEmpty(data.Analysis))
             errors.Add(new(nameof(QuestionFormData.Analysis), "請填寫試題解析"));
@@ -323,14 +346,31 @@ public static class QuestionFormValidator
             if (sub.DetailIndicator is null)
                 errors.Add(new($"ListenSub_{n}_Indicator", $"子題 {n}：請選擇細目指標", n));
 
-            if (IsRichTextEmpty(sub.Stem))
-                errors.Add(new($"ListenSub_{n}_Stem", $"子題 {n}：請填寫題目內容", n));
+            // 子題題目內容：文字或圖片擇一
+            if (IsRichTextEmpty(sub.Stem) && !HasSubImage(data.Images, QuestionImageField.Stem, i))
+                errors.Add(new($"ListenSub_{n}_Stem", $"子題 {n}：請填寫題目內容或上傳圖片", n));
 
-            ValidateOptionsAndAnswer(sub.Options, sub.Answer, errors,
-                optionPrefix: $"ListenSub_{n}_Options",
-                answerKey: $"ListenSub_{n}_Answer",
-                subIndex: n,
-                subLabel: $"子題 {n}：");
+            // 子題四選項：逐項檢查「文字或圖片擇一」；只回報第一個漏的（與 ReadGroup 一致）
+            var firstMissing = -1;
+            for (int j = 0; j < 4; j++)
+            {
+                var hasText  = !IsRichTextEmpty(j < sub.Options.Length ? sub.Options[j] : "");
+                var hasImage = HasSubImage(data.Images, (QuestionImageField)((byte)QuestionImageField.OptionA + j), i);
+                if (!hasText && !hasImage) { firstMissing = j; break; }
+            }
+            if (firstMissing >= 0)
+            {
+                var letter = "ABCD"[firstMissing];
+                errors.Add(new($"ListenSub_{n}_Options_{firstMissing}",
+                    $"子題 {n}：選項 ({letter}) 請輸入文字或上傳圖片", n));
+            }
+
+            // 答案必選
+            if (string.IsNullOrWhiteSpace(sub.Answer)
+                || (sub.Answer != "A" && sub.Answer != "B" && sub.Answer != "C" && sub.Answer != "D"))
+            {
+                errors.Add(new($"ListenSub_{n}_Answer", $"子題 {n}：請選擇正確答案", n));
+            }
 
             if (IsRichTextEmpty(sub.Analysis))
                 errors.Add(new($"ListenSub_{n}_Analysis", $"子題 {n}：請填寫試題解析", n));

@@ -670,6 +670,7 @@
                                     @bind-Options="finalEditFormData.Options"
                                     @bind-Answer="finalEditFormData.Answer"
                                     @bind-Analysis="finalEditFormData.Analysis"
+                                    @bind-Images="finalEditFormData.Images"
                                     InvalidFields="finalEditInvalidFields" />
                                 break;
                             case QuestionTypeCodes.ListenGroup:
@@ -677,6 +678,7 @@
                                     @bind-Passage="finalEditFormData.ArticleContent"
                                     @bind-SubQuestions="finalEditFormData.ListenGroupSubQuestions"
                                     ParentQuestionCode="@finalEditFormData.QuestionCode"
+                                    @bind-Images="finalEditFormData.Images"
                                     InvalidFields="finalEditInvalidFields" />
                                 break;
                         }

@@ -423,12 +423,12 @@
                             break;
                         case QuestionTypeCodes.Listen:
                             <QuestionFormListen @bind-AudioFileName="formData.AudioUrl" @bind-Stem="formData.Stem" @bind-Options="formData.Options" @bind-Answer="formData.Answer" @bind-Analysis="formData.Analysis"
-                                InvalidFields="invalidFields" />
+                                @bind-Images="formData.Images" InvalidFields="invalidFields" />
                             break;
                         case QuestionTypeCodes.ListenGroup:
                             <QuestionFormListenGroup @bind-AudioFileName="formData.AudioUrl" @bind-Passage="formData.ArticleContent" @bind-SubQuestions="formData.ListenGroupSubQuestions"
                                 ParentQuestionCode="@formData.QuestionCode"
-                                InvalidFields="invalidFields" />
+                                @bind-Images="formData.Images" InvalidFields="invalidFields" />
                             break;
                     }
                 </div>
@@ -458,7 +458,11 @@
         case QuestionTypeCodes.ReadGroup:
             <PreviewReadGroup Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel" Tags="@GetPreviewTags()"
                 Passage="@formData.ArticleContent" Images="@formData.Images"
-                SubQuestions="@formData.ReadSubQuestions.Select(sq => new PreviewReadGroup.SubQuestionData { Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer }).ToList()" />
+                SubQuestions="@formData.ReadSubQuestions.Select(sq => new PreviewReadGroup.SubQuestionData {
+                    Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer,
+                    Dimension = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ReadGroup),
+                    Indicator = QuestionConstants.DecodeSubIndicator(sq.Indicator, QuestionTypeCodes.ReadGroup)
+                }).ToList()" />
             break;
         case QuestionTypeCodes.LongText:
             <PreviewLongText Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel" Tags="@GetPreviewTags()"
@@ -475,10 +479,12 @@
             break;
         case QuestionTypeCodes.Listen:
             <PreviewListen Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel" Tags="@GetPreviewTags()"
-                AudioFileName="@formData.AudioUrl" Stem="@formData.Stem" Options="@formData.Options" Answer="@formData.Answer" />
+                AudioFileName="@formData.AudioUrl" Stem="@formData.Stem" Options="@formData.Options" Answer="@formData.Answer"
+                Images="@formData.Images" />
             break;
         case QuestionTypeCodes.ListenGroup:
             <PreviewListenGroup Tags="@GetPreviewTags()" AudioFileName="@formData.AudioUrl" Passage="@formData.ArticleContent"
+                Images="@formData.Images"
                 SubQuestions="@formData.ListenGroupSubQuestions.Select(sq => new PreviewListenGroup.SubQuestionData {
                     Level = QuestionConstants.ListenLevelLabels.GetValueOrDefault(sq.FixedDifficulty, ""),
                     CoreAbility = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ListenGroup),

@@ -219,6 +219,7 @@
                                                     <QuestionFormListen @bind-AudioFileName="data.Question.AudioUrl" @bind-Stem="data.Question.Stem"
                                                                         @bind-Options="data.Question.Options" @bind-Answer="data.Question.Answer"
                                                                         @bind-Analysis="data.Question.Analysis"
+                                                                        @bind-Images="data.Question.Images"
                                                                         InvalidFields="invalidFields" />
                                                     break;
                                                 case QuestionTypeCodes.ListenGroup:
@@ -226,6 +227,7 @@
                                                                              @bind-Passage="data.Question.ArticleContent"
                                                                              @bind-SubQuestions="data.Question.ListenGroupSubQuestions"
                                                                              ParentQuestionCode="@data.Question.QuestionCode"
+                                                                             @bind-Images="data.Question.Images"
                                                                              InvalidFields="invalidFields" />
                                                     break;
                                             }

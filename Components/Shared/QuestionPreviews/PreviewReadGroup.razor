@@ -43,6 +43,17 @@
             <!-- 子題選項：傳 SubQuestionIndex 給 PreviewChoiceOptions，由它依 (FieldType, SubQuestionIndex) 抓對應圖 -->
             <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer"
                 Images="@Images" SubQuestionIndex="idx" />
+
+            <!-- 命題端 metadata（給命題者驗收，淡化處理） -->
+            <div class="mt-2 pt-2 border-t border-dashed border-gray-200 flex flex-wrap items-center gap-2 text-xs font-sans">
+                <span class="text-gray-400"><i class="fa-solid fa-key mr-1"></i>命題者參考：</span>
+                <span class="inline-flex items-center rounded-full border border-morandi/15 bg-morandi/5 px-2 py-0.5 text-morandi/80">
+                    主向度：@(string.IsNullOrWhiteSpace(sq.Dimension) ? "未設定" : sq.Dimension)
+                </span>
+                <span class="inline-flex items-center rounded-full border border-sage/15 bg-sage/5 px-2 py-0.5 text-sage">
+                    能力指標：@(string.IsNullOrWhiteSpace(sq.Indicator) ? "未設定" : sq.Indicator)
+                </span>
+            </div>
         </div>
     }
 
@@ -65,6 +76,8 @@
         public string Stem { get; set; } = "";
         public string[] Options { get; set; } = new string[4];
         public string Answer { get; set; } = "";
+        public string Dimension { get; set; } = "";
+        public string Indicator { get; set; } = "";
     }
 
     // 母題文章內容附圖

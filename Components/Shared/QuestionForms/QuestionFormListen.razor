@@ -22,7 +22,10 @@
         DataField="@OptionsFieldKey" ContainerClass="@InvalidRingAny(OptionsAndAnswerKeys)">
         <OptionGroup Options="@Options" OptionsChanged="OptionsChanged"
             Answer="@Answer" AnswerChanged="AnswerChanged"
-            RadioName="@($"listen-answer-{Id}")" Layout="OptionGroup.OptionLayout.Vertical" />
+            RadioName="@($"listen-answer-{Id}")" Layout="OptionGroup.OptionLayout.Vertical"
+            EnableImages="true"
+            OptionImages="OptionImagesByLetter"
+            OptionImageChanged="OnOptionImagesChanged" />
     </FormSectionCard>
 
     <FormSectionCard Title="試題解析" Icon="fa-lightbulb" IconColor="text-amber-500" Required="true" HintText="紀錄答案理由"
@@ -49,6 +52,10 @@
     [Parameter] public string Analysis { get; set; } = "";
     [Parameter] public EventCallback<string> AnalysisChanged { get; set; }
 
+    /// <summary>題目附圖（母題層級，FieldType 2~5 = OptionA~D。題幹保持文字、解析不支援圖）。</summary>
+    [Parameter] public List<QuestionImage> Images { get; set; } = [];
+    [Parameter] public EventCallback<List<QuestionImage>> ImagesChanged { get; set; }
+
     /// <summary>由父層傳入的驗證失敗欄位集合。</summary>
     [Parameter] public HashSet<string>? InvalidFields { get; set; }
 
@@ -64,4 +71,33 @@
 
     private string InvalidRingAny(IEnumerable<string> keys) =>
         keys.Any(k => InvalidFields?.Contains(k) == true) ? "ring-2 ring-red-400" : "";
+
+    // ------------------------------------------------------------------
+    //  選項附圖切片：A=2 / B=3 / C=4 / D=5（母題層級，SubQuestionIndex=null）
+    // ------------------------------------------------------------------
+
+    private static QuestionImageField OptionFieldFor(int idx) =>
+        (QuestionImageField)((byte)QuestionImageField.OptionA + idx);
+
+    private List<QuestionImage> ImagesOf(QuestionImageField fieldType) =>
+        Images.Where(i => i.FieldType == (byte)fieldType && i.SubQuestionIndex == null)
+              .OrderBy(i => i.SortOrder).ToList();
+
+    private List<List<QuestionImage>> OptionImagesByLetter =>
+        Enumerable.Range(0, 4).Select(idx => ImagesOf(OptionFieldFor(idx))).ToList();
+
+    private async Task OnOptionImagesChanged((int Index, List<QuestionImage> Updated) e)
+    {
+        var fieldType = OptionFieldFor(e.Index);
+        var others = Images.Where(i => !(i.FieldType == (byte)fieldType && i.SubQuestionIndex == null)).ToList();
+        for (int i = 0; i < e.Updated.Count; i++)
+        {
+            e.Updated[i].FieldType = (byte)fieldType;
+            e.Updated[i].SubQuestionIndex = null;
+            e.Updated[i].SortOrder = (byte)(i + 1);
+        }
+        others.AddRange(e.Updated);
+        Images = others;
+        await ImagesChanged.InvokeAsync(others);
+    }
 }

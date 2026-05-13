@@ -287,6 +287,7 @@ public static class QuestionConstants
         if (value is null) return "";
         return parentTypeKey switch
         {
+            QuestionTypeCodes.ReadGroup   => ShortGroupCoreAbilityLabels.GetValueOrDefault(value.Value, ""),
             QuestionTypeCodes.ShortGroup  => ShortGroupCoreAbilityLabels.GetValueOrDefault(value.Value, ""),
             QuestionTypeCodes.ListenGroup => CoreAbilityLabels.GetValueOrDefault(value.Value, ""),
             _ => ""
@@ -298,6 +299,7 @@ public static class QuestionConstants
         if (value is null) return "";
         return parentTypeKey switch
         {
+            QuestionTypeCodes.ReadGroup   => ShortGroupIndicatorLabels.GetValueOrDefault(value.Value, ""),
             QuestionTypeCodes.ShortGroup  => ShortGroupIndicatorLabels.GetValueOrDefault(value.Value, ""),
             QuestionTypeCodes.ListenGroup => DetailIndicatorLabels.GetValueOrDefault(value.Value, ""),
             _ => ""
@@ -315,6 +317,10 @@ public class SubQuestionChoice           // 用於閱讀題組
     public string[] Options { get; set; } = ["", "", "", ""];
     public string Answer { get; set; } = "";
     public string Analysis { get; set; } = "";
+
+    // 主向度 / 能力指標（與短文題組共用 ShortGroupCoreAbilityLabels / ShortGroupIndicatorLabels）
+    public byte? CoreAbility { get; set; }
+    public byte? Indicator { get; set; }
 
     // 審題單元狀態（Stage A 加入，預設值跟著母題、Stage B 才啟用獨立流程）
     public byte Status { get; set; }                 // 對應 MT_SubQuestions.Status

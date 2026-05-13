@@ -458,6 +458,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                     Options     = [r.OptionA ?? "", r.OptionB ?? "", r.OptionC ?? "", r.OptionD ?? ""],
                     Answer      = r.CorrectAnswer ?? "",
                     Analysis    = r.Analysis ?? "",
+                    CoreAbility = r.CoreAbility,
+                    Indicator   = r.Indicator,
                     Status      = r.Status,
                     SubmittedAt = r.SubmittedAt,
                     DecidedAt   = r.DecidedAt
@@ -2402,8 +2404,8 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
         OptC            = SafeOption(sq.Options, 2),
         OptD            = SafeOption(sq.Options, 3),
         Analysis        = NullIfEmpty(sq.Analysis),
-        CoreAbility     = (byte?)null,
-        Indicator       = (byte?)null,
+        sq.CoreAbility,           // 與短文題組共用對照表
+        sq.Indicator,             // 同上
         FixedDifficulty = (byte?)null
     };
 

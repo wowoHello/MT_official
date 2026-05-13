@@ -98,6 +98,8 @@
                             </label>
                             <QuillField Value="@sq.Stem" ValueChanged="v => { sq.Stem = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }" FieldLabel="@($"第 {n} 題 題目內容")"
                                 Placeholder="點擊此處開始編輯題目內容..." />
+                            <QuestionImagesField Images="SubStemImages(idx)"
+                                ImagesChanged="upd => ApplyImageChange(QuestionImageField.Stem, idx, upd)" />
                         </div>
 
                         <!-- 選項與答案 -->
@@ -107,17 +109,23 @@
                             </label>
                             <OptionGroup Options="@sq.Options" OptionsChanged="v => SubQuestionsChanged.InvokeAsync(SubQuestions)"
                                 Answer="@sq.Answer" AnswerChanged="v => { sq.Answer = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }"
-                                RadioName="@($"lg-answer-{idx}")" Layout="OptionGroup.OptionLayout.Vertical" />
+                                RadioName="@($"lg-answer-{idx}")" Layout="OptionGroup.OptionLayout.Vertical"
+                                EnableImages="true"
+                                OptionImages="SubOptionImagesByLetter(idx)"
+                                OptionImageChanged="e => OnSubOptionImagesChanged(idx, e)" />
                         </div>
 
-                        <!-- 試題解析 -->
+                        <!-- 試題解析（樣式對齊一般單選題：lightbulb 琥珀色 + 標題與 hint 分層） -->
                         <div data-field="@analysisKey" class="@InvalidRing(analysisKey) rounded-lg p-1">
-                            <label class="block text-sm font-bold text-gray-700 mb-2">
-                                試題解析（紀錄答案理由） <span class="text-red-400">*</span>
+                            <label class="text-sm font-bold text-gray-700 flex items-center gap-2 mb-2">
+                                <i class="fa-solid fa-lightbulb text-amber-500"></i>
+                                <span>試題解析</span>
+                                <span class="text-red-400">*</span>
+                                <span class="text-xs text-gray-400 font-normal">紀錄答案理由</span>
                             </label>
                             <QuillField Value="@sq.Analysis" ValueChanged="v => { sq.Analysis = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }"
-                                FieldLabel="@($"第 {n} 題 解析")"
-                                Placeholder="點擊此處開始編輯解析..." />
+                                FieldLabel="@($"第 {n} 題 試題解析")"
+                                Placeholder="請輸入解析內容，可說明正確答案依據與其他選項錯誤原因..." />
                         </div>
                     </div>
                 </div>
@@ -140,6 +148,10 @@
     /// <summary>母題編號（Q-{Year}-{NNNNN}），用於在子題卡頭顯示子題碼。新題尚未配發碼時可為空字串。</summary>
     [Parameter] public string ParentQuestionCode { get; set; } = "";
 
+    /// <summary>題目附圖（子題層級：FieldType=Stem 或 OptionA-D + SubQuestionIndex=0/1）。母題的音檔/語音內容不支援圖。</summary>
+    [Parameter] public List<QuestionImage> Images { get; set; } = [];
+    [Parameter] public EventCallback<List<QuestionImage>> ImagesChanged { get; set; }
+
     /// <summary>由父層傳入的驗證失敗欄位集合。</summary>
     [Parameter] public HashSet<string>? InvalidFields { get; set; }
 
@@ -152,5 +164,41 @@
     private void OnSubCoreAbilityChanged(ListenGroupSubQuestion sq)
     {
         sq.DetailIndicator = null;
+    }
+
+    // ------------------------------------------------------------------
+    //  附圖切片：子題層級 (SubQuestionIndex = idx)
+    // ------------------------------------------------------------------
+
+    private static QuestionImageField OptionFieldFor(int idx) =>
+        (QuestionImageField)((byte)QuestionImageField.OptionA + idx);
+
+    private List<QuestionImage> ImagesOf(QuestionImageField fieldType, int subIdx) =>
+        Images.Where(i => i.FieldType == (byte)fieldType && i.SubQuestionIndex == subIdx)
+              .OrderBy(i => i.SortOrder).ToList();
+
+    private List<QuestionImage> SubStemImages(int subIdx) =>
+        ImagesOf(QuestionImageField.Stem, subIdx);
+
+    private List<List<QuestionImage>> SubOptionImagesByLetter(int subIdx) =>
+        Enumerable.Range(0, 4).Select(j => ImagesOf(OptionFieldFor(j), subIdx)).ToList();
+
+    private async Task ApplyImageChange(QuestionImageField fieldType, int? subIdx, List<QuestionImage> updated)
+    {
+        var others = Images.Where(i => !(i.FieldType == (byte)fieldType && i.SubQuestionIndex == subIdx)).ToList();
+        for (int i = 0; i < updated.Count; i++)
+        {
+            updated[i].FieldType = (byte)fieldType;
+            updated[i].SubQuestionIndex = subIdx;
+            updated[i].SortOrder = (byte)(i + 1);
+        }
+        others.AddRange(updated);
+        Images = others;
+        await ImagesChanged.InvokeAsync(others);
+    }
+
+    private async Task OnSubOptionImagesChanged(int subIdx, (int Index, List<QuestionImage> Updated) e)
+    {
+        await ApplyImageChange(OptionFieldFor(e.Index), subIdx, e.Updated);
     }
 }

@@ -41,9 +41,11 @@
                 var idx = i;
                 var sq = SubQuestions[idx];
                 var n = idx + 1;
-                var stemKey     = $"ReadSub_{n}_Stem";
-                var analysisKey = $"ReadSub_{n}_Analysis";
-                var answerKey   = $"ReadSub_{n}_Answer";
+                var stemKey      = $"ReadSub_{n}_Stem";
+                var analysisKey  = $"ReadSub_{n}_Analysis";
+                var answerKey    = $"ReadSub_{n}_Answer";
+                var coreKey      = $"ReadSub_{n}_CoreAbility";
+                var indicatorKey = $"ReadSub_{n}_Indicator";
                 var optionAnyKey = new[] { $"ReadSub_{n}_Options_0", $"ReadSub_{n}_Options_1",
                                             $"ReadSub_{n}_Options_2", $"ReadSub_{n}_Options_3", answerKey };
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
@@ -66,6 +68,36 @@
                         }
                     </div>
                     <div class="p-4 space-y-4">
+                        <!-- 主向度 + 能力指標（與短文題組對齊，置於題目內容之上） -->
+                        <div class="grid grid-cols-2 gap-3">
+                            <div data-field="@coreKey" class="@InvalidRing(coreKey) rounded-lg p-1">
+                                <label class="block text-xs font-medium text-gray-600 mb-1">主向度 <span class="text-red-400">*</span></label>
+                                <select @bind="sq.CoreAbility" @bind:after="() => OnCoreAbilityChanged(sq)"
+                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                                    <option value="">請選擇</option>
+                                    @foreach (var pair in QuestionConstants.ShortGroupCoreAbilityLabels)
+                                    {
+                                        <option value="@pair.Key">@pair.Value</option>
+                                    }
+                                </select>
+                            </div>
+                            <div data-field="@indicatorKey" class="@InvalidRing(indicatorKey) rounded-lg p-1">
+                                <label class="block text-xs font-medium text-gray-600 mb-1">能力指標 <span class="text-red-400">*</span></label>
+                                <select @bind="sq.Indicator"
+                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer @(sq.CoreAbility is null ? "bg-gray-50 text-gray-300" : "")"
+                                    disabled="@(sq.CoreAbility is null)">
+                                    <option value="">@(sq.CoreAbility is null ? "先選主向度" : "請選擇")</option>
+                                    @if (sq.CoreAbility is not null && QuestionConstants.ShortGroupCoreAbilityIndicatorMap.TryGetValue(sq.CoreAbility.Value, out var indicators))
+                                    {
+                                        @foreach (var ind in indicators)
+                                        {
+                                            <option value="@ind">@QuestionConstants.ShortGroupIndicatorLabels.GetValueOrDefault(ind, "")</option>
+                                        }
+                                    }
+                                </select>
+                            </div>
+                        </div>
+
                         <!-- 題目內容 -->
                         <div data-field="@stemKey" class="@InvalidRing(stemKey) rounded-lg p-1">
                             <label class="block text-sm font-bold text-gray-700 mb-2">
@@ -92,11 +124,11 @@
 
                         <!-- 試題解析（樣式對齊一般單選題：lightbulb 琥珀色 + 標題與 hint 分層） -->
                         <div data-field="@analysisKey" class="@InvalidRing(analysisKey) rounded-lg p-1">
-                            <label class="block text-sm font-bold text-gray-700 mb-2">
+                            <label class="text-sm font-bold text-gray-700 flex items-center gap-2 mb-2">
                                 <i class="fa-solid fa-lightbulb text-amber-500"></i>
                                 <span>試題解析</span>
                                 <span class="text-red-400">*</span>
-                                <span class="text-xs text-gray-400 font-normal ml-1">紀錄答案理由</span>
+                                <span class="text-xs text-gray-400 font-normal">紀錄答案理由</span>
                             </label>
                             <QuillField Value="@sq.Analysis" ValueChanged="v => { sq.Analysis = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }"
                                 FieldLabel="@($"第 {n} 題 試題解析")"
@@ -174,6 +206,12 @@
         others.AddRange(updated);
         Images = others;
         await ImagesChanged.InvokeAsync(others);
+    }
+
+    /// <summary>主向度改變時清空能力指標，避免出現對不上的選項。</summary>
+    private void OnCoreAbilityChanged(SubQuestionChoice sq)
+    {
+        sq.Indicator = null;
     }
 
     // ------------------------------------------------------------------

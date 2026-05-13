@@ -614,7 +614,9 @@
                 <PreviewReadGroup Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
                     Passage="@detailData.ArticleContent" Images="@detailData.Images"
                     SubQuestions="@detailData.ReadSubQuestions.Select(sq => new PreviewReadGroup.SubQuestionData {
-                        Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer
+                        Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer,
+                        Dimension = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ReadGroup),
+                        Indicator = QuestionConstants.DecodeSubIndicator(sq.Indicator, QuestionTypeCodes.ReadGroup)
                     }).ToList()" />
                 break;
             case QuestionTypeCodes.ShortGroup:
@@ -630,10 +632,12 @@
             case QuestionTypeCodes.Listen:
                 <PreviewListen Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
                     AudioFileName="@detailData.AudioUrl" Stem="@detailData.Stem"
-                    Options="@detailData.Options" Answer="@detailData.Answer" />
+                    Options="@detailData.Options" Answer="@detailData.Answer"
+                    Images="@detailData.Images" />
                 break;
             case QuestionTypeCodes.ListenGroup:
                 <PreviewListenGroup Tags="@tags" AudioFileName="@detailData.AudioUrl" Passage="@detailData.ArticleContent"
+                    Images="@detailData.Images"
                     SubQuestions="@detailData.ListenGroupSubQuestions.Select(sq => new PreviewListenGroup.SubQuestionData {
                         Level           = QuestionConstants.ListenLevelLabels.GetValueOrDefault(sq.FixedDifficulty, ""),
                         CoreAbility     = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ListenGroup),
