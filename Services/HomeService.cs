@@ -114,8 +114,8 @@ public class HomeService : IHomeService
                         AND rr.UserId     = q.CreatorId
                         AND rr.Stage      = q.Status
                         AND rr.CreatedAt > ISNULL(
-                            (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
-                             WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)),
+                            (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
+                             WHERE QuestionId = q.Id),
                             '1900-01-01')
                   )
                 GROUP BY q.Status;
@@ -173,8 +173,8 @@ public class HomeService : IHomeService
                         AND rr.UserId     = q.CreatorId
                         AND rr.Stage      = q.Status
                         AND rr.CreatedAt > ISNULL(
-                            (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
-                             WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)),
+                            (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
+                             WHERE QuestionId = q.Id),
                             '1900-01-01')
                   )
                 GROUP BY q.Status;

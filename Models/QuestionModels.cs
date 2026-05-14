@@ -380,7 +380,7 @@ public static class QuestionCodeHelper
 }
 
 // ======================================================================
-//  Status 14 種狀態 enum 常數（對應 MT_Questions.Status）
+//  Status 13 種狀態 enum 常數（對應 MT_Questions.Status，0-12；舊 11=SentBack 於 2026-05-05 廢用，11/12 前移）
 // ======================================================================
 public static class QuestionStatus
 {

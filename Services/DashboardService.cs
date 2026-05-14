@@ -29,11 +29,13 @@ public class DashboardService : IDashboardService
 {
     private readonly IDatabaseService _db;
     private readonly ILogger<DashboardService> _logger;
+    private readonly IQuestionTypeCatalog _typeCatalog;
 
-    public DashboardService(IDatabaseService db, ILogger<DashboardService> logger)
+    public DashboardService(IDatabaseService db, ILogger<DashboardService> logger, IQuestionTypeCatalog typeCatalog)
     {
         _db = db;
         _logger = logger;
+        _typeCatalog = typeCatalog;
     }
 
     /// <summary>
@@ -282,8 +284,8 @@ public class DashboardService : IDashboardService
                       AND  rr.Content IS NOT NULL
                       AND  LEN(LTRIM(RTRIM(rr.Content))) > 0
                       AND  rr.CreatedAt > ISNULL(
-                          (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
-                           WHERE QuestionId = rr.QuestionId AND ReviewStage = 3 AND Decision IN (2, 3)),
+                          (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
+                           WHERE QuestionId = rr.QuestionId),
                           '1900-01-01')
                 )
                 SELECT
@@ -292,6 +294,7 @@ public class DashboardService : IDashboardService
                     ISNULL(SUM(CASE WHEN q.Status BETWEEN 1 AND 8 AND qrs.QuestionId IS NULL     THEN 1 ELSE 0 END), 0) AS InProgress,
                     ISNULL(SUM(CASE WHEN q.Status BETWEEN 1 AND 8 AND qrs.QuestionId IS NOT NULL THEN 1 ELSE 0 END), 0) AS DoneStage,
                     ISNULL(SUM(CASE WHEN q.Status IN (9, 12)  THEN 1 ELSE 0 END), 0) AS Adopted,
+                    -- 不採用合計 = 10(Rejected 三審判決) + 11(ClosedNotAdopted 結案清盤)；警示型不採用走 Status=8 不會落此桶
                     ISNULL(SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END), 0) AS Rejected
                 FROM      dbo.MT_QuestionTypes qt
                 LEFT JOIN dbo.MT_Questions q
@@ -491,8 +494,8 @@ public class DashboardService : IDashboardService
                        AND rr.Content IS NOT NULL
                        AND LEN(LTRIM(RTRIM(rr.Content))) > 0
                        AND rr.CreatedAt > ISNULL(
-                           (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
-                            WHERE QuestionId = a.QuestionId AND ReviewStage = 3 AND Decision IN (2, 3)),
+                           (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
+                            WHERE QuestionId = a.QuestionId),
                            '1900-01-01')
                  )
                 ) AS Revised
@@ -526,8 +529,8 @@ public class DashboardService : IDashboardService
                   AND  rr.Content IS NOT NULL
                   AND  LEN(LTRIM(RTRIM(rr.Content))) > 0
                   AND  rr.CreatedAt > ISNULL(
-                      (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
-                       WHERE QuestionId = rr.QuestionId AND ReviewStage = 3 AND Decision IN (2, 3)),
+                      (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
+                       WHERE QuestionId = rr.QuestionId),
                       '1900-01-01')
                 """;
             revised = await conn.ExecuteScalarAsync<int>(
@@ -756,8 +759,8 @@ public class DashboardService : IDashboardService
                                  AND rr.Content IS NOT NULL
                                  AND LEN(LTRIM(RTRIM(rr.Content))) > 0
                                  AND rr.CreatedAt > ISNULL(
-                                     (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
-                                      WHERE QuestionId = ra.QuestionId AND ReviewStage = 3 AND Decision IN (2, 3)),
+                                     (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
+                                      WHERE QuestionId = ra.QuestionId),
                                      '1900-01-01')
                            ) THEN 1 ELSE 0 END AS IsRevised
                     FROM   dbo.MT_ReviewAssignments ra
@@ -911,8 +914,8 @@ public class DashboardService : IDashboardService
                                      AND rr.Content IS NOT NULL
                                      AND LEN(LTRIM(RTRIM(rr.Content))) > 0
                                      AND rr.CreatedAt > ISNULL(
-                                         (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
-                                          WHERE QuestionId = ra.QuestionId AND ReviewStage = 3 AND Decision IN (2, 3)),
+                                         (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
+                                          WHERE QuestionId = ra.QuestionId),
                                          '1900-01-01')
                                ) THEN 1 ELSE 0 END AS IsRevised
                         FROM   dbo.MT_ReviewAssignments ra
@@ -927,12 +930,10 @@ public class DashboardService : IDashboardService
                     )
                     SELECT  rs.CreatorId AS UserId,
                             rs.QuestionTypeId,
-                            qt.Name      AS TypeName,
                             COUNT(*)     AS Assigned,
                             SUM(rs.IsRevised) AS Produced
                     FROM    RevisionScope rs
-                    JOIN    dbo.MT_QuestionTypes qt ON qt.Id = rs.QuestionTypeId
-                    GROUP BY rs.CreatorId, rs.QuestionTypeId, qt.Name
+                    GROUP BY rs.CreatorId, rs.QuestionTypeId
                     ORDER BY rs.CreatorId,
                              (1.0 * SUM(rs.IsRevised) / NULLIF(COUNT(*), 0)) ASC
                     """;
@@ -955,19 +956,17 @@ public class DashboardService : IDashboardService
                 sqlTypeDetails = """
                     SELECT  ra.ReviewerId AS UserId,
                             q.QuestionTypeId,
-                            qt.Name      AS TypeName,
                             COUNT(*)     AS Assigned,
                             SUM(CASE WHEN ra.Comment IS NOT NULL
                                       AND LEN(LTRIM(RTRIM(ra.Comment))) > 0
                                      THEN 1 ELSE 0 END) AS Produced
                     FROM    dbo.MT_ReviewAssignments ra
                     JOIN    dbo.MT_Questions      q  ON q.Id = ra.QuestionId
-                    JOIN    dbo.MT_QuestionTypes  qt ON qt.Id = q.QuestionTypeId
                     WHERE   ra.ProjectId   = @pid
                       AND   ra.ReviewStage = @reviewStage
                       AND   ra.ReviewerId IN @userIds
                       AND   q.IsDeleted    = 0
-                    GROUP BY ra.ReviewerId, q.QuestionTypeId, qt.Name
+                    GROUP BY ra.ReviewerId, q.QuestionTypeId
                     ORDER BY ra.ReviewerId,
                              (1.0 * SUM(CASE WHEN ra.Comment IS NOT NULL
                                                AND LEN(LTRIM(RTRIM(ra.Comment))) > 0
@@ -981,12 +980,10 @@ public class DashboardService : IDashboardService
                 sqlTypeDetails = """
                     SELECT  pm.UserId,
                             mq.QuestionTypeId,
-                            qt.Name AS TypeName,
                             mq.QuotaCount AS Assigned,
                             ISNULL(prod.Produced, 0) AS Produced
                     FROM    dbo.MT_ProjectMembers pm
                     JOIN    dbo.MT_MemberQuotas   mq ON mq.ProjectMemberId = pm.Id
-                    JOIN    dbo.MT_QuestionTypes  qt ON qt.Id = mq.QuestionTypeId
                     OUTER APPLY (
                         SELECT COUNT(*) AS Produced
                         FROM   dbo.MT_Questions
@@ -1018,7 +1015,7 @@ public class DashboardService : IDashboardService
                 item.TeacherDetails = rows.Select(r => new UrgentTeacherDetail
                 {
                     QuestionTypeId = r.QuestionTypeId,
-                    TypeName       = r.TypeName,
+                    TypeName       = _typeCatalog.GetName(r.QuestionTypeId),
                     Assigned       = r.Assigned,
                     Produced       = r.Produced,
                     Achievement    = r.Assigned > 0
@@ -1308,9 +1305,9 @@ public class DashboardService : IDashboardService
     private sealed record TeacherShortageRow(
         int UserId, string TeacherName, int TotalAssigned, int TotalProduced);
 
-    /// <summary>教師×題型明細列（展開用）。</summary>
+    /// <summary>教師×題型明細列（展開用）。TypeName 由 IQuestionTypeCatalog 在消費端補。</summary>
     private sealed record TeacherTypeDetailRow(
-        int UserId, int QuestionTypeId, string TypeName, int Assigned, int Produced);
+        int UserId, int QuestionTypeId, int Assigned, int Produced);
 
     private sealed class StatusCountRow
     {

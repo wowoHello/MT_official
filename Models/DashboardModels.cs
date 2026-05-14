@@ -305,6 +305,11 @@ public class DashboardStatusByTypeItem
     /// <summary>已採用（Status = 9）。</summary>
     public int Adopted { get; set; }
 
-    /// <summary>不採用（Status = 10）。</summary>
+    /// <summary>
+    /// 不採用合計（Status IN 10, 11）— 涵蓋兩種「最終不入庫」終態：
+    ///   10 = Rejected：總召三審後親判不採用（運行中產生的最終態）
+    ///   11 = ClosedNotAdopted：結案清盤未採用（結案時產生的最終態）
+    /// ※ 警示型「不採用」按鈕（第 1/2 輪）會退回 FinalEditing(8)，不會落到此桶。
+    /// </summary>
     public int Rejected { get; set; }
 }

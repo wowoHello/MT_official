@@ -5,6 +5,7 @@
 @inject IJSRuntime JS
 @inject IProjectService ProjectService
 @inject IRoleService RoleService
+@inject IMembershipService MembershipService
 @inject ProtectedLocalStorage ProtectedLocalStorage
 @inject ILogger<MainLayout> Logger
 @rendermode InteractiveServer
@@ -402,6 +403,14 @@
             var authState = await AuthState;
             var user = authState.User;
 
+            // 首次登入未改密碼 → 任何已認證頁面進入 MainLayout 都強制踢回改密碼頁
+            // 攔截「上一頁繞過 /first-login-password」的所有路徑
+            if (user.HasClaim("IsFirstLogin", "true"))
+            {
+                Navigation.NavigateTo("first-login-password", forceLoad: false, replace: true);
+                return;
+            }
+
             userName = user.FindFirst("DisplayName")?.Value
                 ?? user.Identity?.Name
                 ?? string.Empty;
@@ -447,34 +456,32 @@
 
         hasRestoredProjectFromStorage = true;
 
+        if (currentUserId is null)
+        {
+            Logger.LogInformation("還原梯次跳過：尚無 currentUserId");
+            isAppReady = true;
+            StateHasChanged();
+            return;
+        }
+
+        // ① 梯次還原：失敗不影響後續模組權限載入
         try
         {
-            if (currentUserId is null)
-            {
-                Logger.LogInformation("還原梯次跳過：尚無 currentUserId");
-                return;
-            }
-
             var stored = await ProtectedLocalStorage.GetAsync<int>(ProjectStorageKey);
             Logger.LogInformation("讀取 storage Key={Key} Success={Success} Value={Value}",
                 ProjectStorageKey, stored.Success, stored.Success ? stored.Value : -1);
 
-            // 標記 storage 是否已是有效紀錄；若是則跳過後續重寫（省一次 JS Interop）
             var storedIsValid = false;
             if (stored.Success)
             {
                 var match = availableProjects.FirstOrDefault(p => p.Id == stored.Value);
                 if (match is null)
                 {
-                    // 上次選的梯次已被刪除/結案/無權限 → 清掉過期紀錄，稍後改走 fallback
                     Logger.LogInformation("storage 紀錄的梯次 Id={Id} 已不在可見清單，清除紀錄", stored.Value);
                     await ProtectedLocalStorage.DeleteAsync(ProjectStorageKey);
                 }
                 else
                 {
-                    // OnAfterRenderAsync 一生只跑一次，此時 currentProject 必為 null（OnInitializedAsync
-                    // 跑完 ReloadVisibleProjectsAsync 時 hasRestoredProjectFromStorage 還是 false，
-                    // 不會套 fallback），所以這裡可以直接覆寫
                     Logger.LogInformation("還原梯次成功 ProjectId={Id}", match.Id);
                     currentProject = match;
                     storedIsValid = true;
@@ -483,28 +490,35 @@
 
             currentProject ??= GetDefaultProject();
 
-            // 僅在 storage 失效或無紀錄時寫入，避免每次 F5 都做一次冗餘 Set。
-            // GetDefaultProject 結果會隨「最新年度梯次」變化而改變，因此 fallback 後必須鎖進 storage，
-            // 避免造成「每次登入梯次都不一樣」的飄移感。
             if (!storedIsValid && currentProject is not null)
             {
                 await PersistSelectedProjectAsync(currentProject.Id);
             }
+        }
+        catch (Exception ex)
+        {
+            // ProtectedLocalStorage 在 IIS 第一次部署 / Data Protection key 未就緒時可能會炸，
+            // 此處靜默回退到 GetDefaultProject，**絕對不能讓 moduleCards 載入連帶失敗**。
+            Logger.LogWarning(ex, "還原上次選擇的梯次失敗 (UserId={UserId})", currentUserId);
+            currentProject ??= GetDefaultProject();
+        }
 
-            // 不論 currentProject 是否為 null 都要重載模組權限：
-            // 系統管理員等內部身分即便沒參與任何梯次，仍應依 MT_Users.RoleId 判定後台卡片。
+        // ② 模組權限載入：獨立 try/catch，無論 storage 是否成功都要跑。
+        // 系統管理員等內部身分即便沒參與任何梯次，仍應依 MT_Users.RoleId 判定後台卡片；
+        // 一般教師沒梯次則回空清單，由 Home.razor 顯示 EmptyState。
+        try
+        {
             await ReloadModuleCardsAsync();
             EnforceModuleAccess(Navigation.Uri);
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "還原上次選擇的梯次失敗 (UserId={UserId})", currentUserId);
+            Logger.LogError(ex, "載入功能模組權限失敗 (UserId={UserId})", currentUserId);
+            moduleCards ??= [];   // 保底：絕對不能讓 ModuleCards 維持 null 卡死 Home spinner
         }
-        finally
-        {
-            isAppReady = true;
-            StateHasChanged();
-        }
+
+        isAppReady = true;
+        StateHasChanged();
     }
 
     public async ValueTask DisposeAsync()
@@ -528,7 +542,8 @@
 
         try
         {
-            moduleCards = await RoleService.GetUserModuleCardsAsync(currentUserId.Value, currentProject?.Id);
+            // 走 IMembershipService 30 秒短 TTL Cache，梯次切換 / Layout 重渲染時免重複打 DB
+            moduleCards = await MembershipService.GetUserModuleCardsAsync(currentUserId.Value, currentProject?.Id);
         }
         catch (Exception ex)
         {
@@ -627,7 +642,13 @@
         EnforceModuleAccess(Navigation.Uri);
 
         // Toast 為純通知效果，不需等待 JS 回應；fire-and-forget 避免 1 秒逾時拋 TaskCanceledException
-        _ = JS.InvokeVoidAsync("swalInterop.fireToast", "info", "已切換命題梯次", $"目前梯次：{project.DisplayName}", 2000);
+        _ = JS.InvokeVoidAsync("mtToast.show", new
+        {
+            type     = "success",
+            title    = "已切換梯次",
+            subtitle = project.DisplayName,
+            duration = 3500
+        });
     }
 
     /// <summary>將當前梯次寫入 ProtectedLocalStorage（瀏覽器禁用 storage 時靜默忽略）。</summary>
@@ -872,12 +893,13 @@
             if (silentlyFellBack && currentProject is not null)
             {
                 await PersistSelectedProjectAsync(currentProject.Id);
-                _ = JS.InvokeVoidAsync(
-                    "swalInterop.fireToast",
-                    "warning",
-                    "原梯次已不可見",
-                    $"「{previousProjectDisplayName}」已被結案或移除，已自動切換到「{currentProject.DisplayName}」",
-                    3500);
+                _ = JS.InvokeVoidAsync("mtToast.show", new
+                {
+                    type     = "warning",
+                    title    = "原梯次已不可見",
+                    subtitle = $"「{previousProjectDisplayName}」已被結案或移除，已自動切換到「{currentProject.DisplayName}」",
+                    duration = 4500
+                });
             }
         }
         catch (Exception ex)

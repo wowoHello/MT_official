@@ -43,7 +43,7 @@ Login.razor **不使用 DataAnnotationsValidator**，改用自訂 `Dictionary<st
 - `Username`：帳號或信箱（支援兩者）
 - `Password`：密碼
 - `CaptchaInput`：驗證碼輸入
-- `RememberMe`：記住登入，預設 false
+（無 RememberMe 欄位：已於 2026-05-15 移除，改為一律 Session Cookie，關瀏覽器即失效）
 
 首次登入、重設密碼模型也在同一個 `Models/AuthModels.cs` 檔案中：
 - `FirstLoginPasswordFormModel`：NewPassword + ConfirmPassword

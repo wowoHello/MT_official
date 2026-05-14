@@ -28,9 +28,9 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         // 登出後回登入頁
         options.LogoutPath = "/login";
 
-        // Session 預設：未勾「記住登入」時的票據有效時間（滑動延長）
-        // 勾選「記住登入」時，於 AuthService.CompleteSignInAsync 顯式覆寫為 90 天絕對期限
-        options.ExpireTimeSpan = TimeSpan.FromHours(2);
+        // Session Cookie：IsPersistent=false 由 AuthService 設定，關瀏覽器即失效需重登
+        // ExpireTimeSpan 24 小時作安全網（萬一 cookie 外洩可限縮危害），有活動就滑動延長
+        options.ExpireTimeSpan = TimeSpan.FromDays(1);
         options.SlidingExpiration = true;
 
         // 不需要 ReturnUrl 跳回機制（登入成功一律由 /auth/login 端點導去首頁）
@@ -107,7 +107,17 @@ builder.Services.AddScoped<ISystemLogService, SystemLogService>();
 builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<IPhaseTransitionCoordinator, PhaseTransitionCoordinator>();
 
+// 7 種題型字典：啟動時載入記憶體，全站 SQL 不再 JOIN MT_QuestionTypes（靜態小表)
+builder.Services.AddSingleton<IQuestionTypeCatalog, QuestionTypeCatalog>();
+
+// 使用者「effective 角色 + 模組權限」短 TTL Cache（30 秒）
+// 服務的場景：MainLayout / Home / Announcements 編輯 / 任何權限快速判斷
+builder.Services.AddScoped<IMembershipService, MembershipService>();
+
 var app = builder.Build();
+
+// 預先載入題型字典（fail-fast：DB 連不上就讓站台不啟動，避免帶空資料上線）
+await app.Services.GetRequiredService<IQuestionTypeCatalog>().ReloadAsync();
 
 // =========================================================
 // HTTP Pipeline

@@ -351,8 +351,8 @@ public class OverviewService(
                           AND rr.UserId       = q.CreatorId
                           AND rr.Stage        = q.Status
                           AND rr.CreatedAt > ISNULL(
-                              (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
-                               WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)),
+                              (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
+                               WHERE QuestionId = q.Id),
                               '1900-01-01')
                   )
 
@@ -372,8 +372,8 @@ public class OverviewService(
                           AND rr.UserId        = q.CreatorId
                           AND rr.Stage         = sq.Status
                           AND rr.CreatedAt > ISNULL(
-                              (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
-                               WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)),
+                              (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
+                               WHERE QuestionId = q.Id),
                               '1900-01-01')
                   )
             )
@@ -414,8 +414,8 @@ public class OverviewService(
                       AND rr.Stage      = q.Status
                       AND q.Status IN (4, 6, 8)
                       AND rr.CreatedAt > ISNULL(
-                          (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
-                           WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)),
+                          (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
+                           WHERE QuestionId = q.Id),
                           '1900-01-01')
                 ) THEN 1 ELSE 0 END AS BIT) AS HasRepliedThisStage
             FROM dbo.MT_Questions q
@@ -437,8 +437,8 @@ public class OverviewService(
                       AND rr.Stage         = sq.Status
                       AND sq.Status IN (4, 6, 8)
                       AND rr.CreatedAt > ISNULL(
-                          (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
-                           WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)),
+                          (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
+                           WHERE QuestionId = q.Id),
                           '1900-01-01')
                 ) THEN 1 ELSE 0 END AS BIT) AS HasRepliedThisStage
             FROM dbo.MT_SubQuestions sq

@@ -57,10 +57,14 @@ public interface IQuestionService
     Task<int> EnsurePhaseTransitionAsync(int projectId);
 }
 
-public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAccessor) : IQuestionService
+public class QuestionService(
+    IDatabaseService db,
+    IHttpContextAccessor httpAccessor,
+    IQuestionTypeCatalog typeCatalog) : IQuestionService
 {
     private readonly IDatabaseService _db = db;
     private readonly IHttpContextAccessor _httpAccessor = httpAccessor;
+    private readonly IQuestionTypeCatalog _typeCatalog = typeCatalog;
 
     // ====================================================================
     //  既有：配額與階段
@@ -70,13 +74,11 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
     {
         const string sql = """
             SELECT
-                qt.Id          AS QuestionTypeId,
-                qt.Name        AS TypeName,
+                mq.QuestionTypeId,
                 mq.QuotaCount  AS Target,
                 COUNT(q.Id)    AS Completed
             FROM dbo.MT_MemberQuotas mq
             INNER JOIN dbo.MT_ProjectMembers pm  ON pm.Id  = mq.ProjectMemberId
-            INNER JOIN dbo.MT_QuestionTypes  qt  ON qt.Id  = mq.QuestionTypeId
             LEFT  JOIN dbo.MT_Questions      q   ON q.CreatorId      = pm.UserId
                                                 AND q.ProjectId      = @ProjectId
                                                 AND q.QuestionTypeId = mq.QuestionTypeId
@@ -84,13 +86,20 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                                                 AND q.Status         >= 1
             WHERE pm.UserId    = @UserId
               AND pm.ProjectId = @ProjectId
-            GROUP BY qt.Id, qt.Name, qt.SortOrder, mq.QuotaCount
-            ORDER BY qt.SortOrder;
+            GROUP BY mq.QuestionTypeId, mq.QuotaCount;
             """;
 
         using var conn = _db.CreateConnection();
-        var result = await conn.QueryAsync<QuotaProgressItem>(sql, new { UserId = userId, ProjectId = projectId });
-        return result.AsList();
+        var rows = (await conn.QueryAsync<QuotaProgressItem>(sql, new { UserId = userId, ProjectId = projectId })).ToList();
+
+        // catalog 補 TypeName 並依 SortOrder 排序（原 SQL 用 qt.SortOrder，現由記憶體字典代勞）
+        foreach (var row in rows)
+        {
+            row.TypeName = _typeCatalog.GetName(row.QuestionTypeId);
+        }
+        return rows
+            .OrderBy(r => _typeCatalog.Get(r.QuestionTypeId)?.SortOrder ?? int.MaxValue)
+            .ToList();
     }
 
     public async Task<ProjectPhaseInfo?> GetCurrentPhaseAsync(int projectId)
@@ -590,7 +599,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                           AND ISNULL(rr.SubQuestionId, -1) = ISNULL({subIdExpr}, -1)
                           AND rr.UserId     = q.CreatorId
                           AND rr.Stage      = {statusExpr}
-                          AND rr.CreatedAt > ISNULL((SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)), '1900-01-01')
+                          AND rr.CreatedAt > ISNULL((SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt WHERE QuestionId = q.Id), '1900-01-01')
                     ) THEN 1 ELSE 0 END AS BIT)))
             """;
 
@@ -673,7 +682,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                       AND rr.UserId     = q.CreatorId
                       AND rr.Stage      = q.Status
                       AND q.Status IN (4, 6, 8)
-                      AND rr.CreatedAt > ISNULL((SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)), '1900-01-01')
+                      AND rr.CreatedAt > ISNULL((SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt WHERE QuestionId = q.Id), '1900-01-01')
                 ) THEN 1 ELSE 0 END AS BIT) AS HasRepliedThisStage,
                 CAST(NULL AS INT) AS SubQuestionId,
                 CAST(NULL AS INT) AS SubSortOrder
@@ -709,7 +718,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                       AND rr.UserId        = q.CreatorId
                       AND rr.Stage         = sq.Status
                       AND sq.Status IN (4, 6, 8)
-                      AND rr.CreatedAt > ISNULL((SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)), '1900-01-01')
+                      AND rr.CreatedAt > ISNULL((SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt WHERE QuestionId = q.Id), '1900-01-01')
                 ) THEN 1 ELSE 0 END AS BIT) AS HasRepliedThisStage,
                 sq.Id        AS SubQuestionId,
                 sq.SortOrder AS SubSortOrder
@@ -833,7 +842,7 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                   WHERE rr.QuestionId = q.Id
                     AND rr.UserId     = q.CreatorId
                     AND rr.Stage      = q.Status
-                    AND rr.CreatedAt > ISNULL((SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments WHERE QuestionId = q.Id AND ReviewStage = 3 AND Decision IN (2, 3)), '1900-01-01')
+                    AND rr.CreatedAt > ISNULL((SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt WHERE QuestionId = q.Id), '1900-01-01')
               );
             """;
         using var conn = _db.CreateConnection();
@@ -1513,11 +1522,21 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
                     }, tx);
             }
 
-            // 2. 取該題 Stage=3 所有 ReviewerId（distinct，跨多輪保留全部歷史審題者）
-            //    題組綁定下整題同 ReviewerId，DISTINCT 後一般只剩 1 筆
-            var reviewerIds = (await conn.QueryAsync<int>(
-                "SELECT DISTINCT ReviewerId FROM dbo.MT_ReviewAssignments WHERE QuestionId = @Id AND ReviewStage = 3;",
-                new { Id = questionId }, tx)).AsList();
+            // 2. Sticky Reviewer：取該「單元」最早被指派的 Stage=3 ReviewerId（單一原始總召）
+            //    — 過去用 DISTINCT 全量會員會在邊界情境（多總召被併入 Stage=3）下，
+            //      把同題重派給兩位總召造成雙頭決策衝突。改 TOP 1 ORDER BY Id 鎖回原派 reviewer。
+            //    — 範圍下放至 (QuestionId, SubQuestionId) 單元層，子題分歧情境也能各自黏對。
+            var stickyReviewerId = await conn.ExecuteScalarAsync<int?>(
+                """
+                SELECT TOP 1 ReviewerId
+                FROM dbo.MT_ReviewAssignments
+                WHERE QuestionId = @Id
+                  AND ISNULL(SubQuestionId, -1) = ISNULL(@SubId, -1)
+                  AND ReviewStage = 3
+                ORDER BY Id;
+                """,
+                new { Id = questionId, SubId = subQuestionId }, tx);
+            var reviewerIds = stickyReviewerId is null ? new List<int>() : new List<int> { stickyReviewerId.Value };
 
             // 2.5 找「需重派的審題單元」— Stage B-4-2 限縮為「該目標單元」
             //     母題單元送審：unitsToReassign = [null]（只重派母題）
@@ -1667,6 +1686,20 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
             new { ProjectId = projectId }, tx))
             .Select(x => (x.QuestionId, x.ReviewerId))
             .ToHashSet();
+
+        // 5.1 撈 Stage=1（互審）已審過的 (Q, R)，併入 existingPairs，自動迴避
+        //     — 兼任「命題教師＋審題委員」者，不會在專審再拿到自己互審審過的題
+        var stage1Pairs = await conn.QueryAsync<(int QuestionId, int ReviewerId)>(
+            """
+            SELECT DISTINCT QuestionId, ReviewerId
+            FROM dbo.MT_ReviewAssignments
+            WHERE ProjectId = @ProjectId AND ReviewStage = 1;
+            """,
+            new { ProjectId = projectId }, tx);
+        foreach (var (qid, rid) in stage1Pairs)
+        {
+            existingPairs.Add((qid, rid));
+        }
 
         // 5.5 撈每題的子題 mapping
         var subMap = await LoadSubQuestionMapAsync(conn, tx, candidates.Select(c => c.Id));
@@ -2024,6 +2057,10 @@ public class QuestionService(IDatabaseService db, IHttpContextAccessor httpAcces
 
         // Plan_013 + Stage B-4-2：本輪起點時間 — 上次「該單元」總審退回時間
         // 沒有任何總審退回紀錄時 fallback 為 1900-01-01（等同於不過濾，全部 reply 視為本輪）
+        //
+        // ⚠️ 不用 vw_QuestionRoundStartedAt：此處為「單元級」（含 SubQuestionId NULL-safe 比對），
+        //    view 為題目級（按 QuestionId GROUP BY），涵蓋不到母題 / 子題的獨立時序。
+        //    Plan_DB_PerfReview 第二波 #6 已確認此處不納入 View 範圍。
         var roundStartedAt = await conn.ExecuteScalarAsync<DateTime?>(
             """
             SELECT MAX(DecidedAt)

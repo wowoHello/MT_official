@@ -84,6 +84,7 @@ public class ProjectService : IProjectService
     private readonly ILogger<ProjectService> _logger;
     private readonly IHubContext<ProjectsHub> _projectsHubContext;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IQuestionTypeCatalog _typeCatalog;
 
     /// <summary>
     /// 初始化專案服務所需的資料庫、記錄器與即時同步依賴。
@@ -92,12 +93,14 @@ public class ProjectService : IProjectService
         IDatabaseService db,
         ILogger<ProjectService> logger,
         IHubContext<ProjectsHub> projectsHubContext,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        IQuestionTypeCatalog typeCatalog)
     {
         _db = db;
         _logger = logger;
         _projectsHubContext = projectsHubContext;
         _httpContextAccessor = httpContextAccessor;
+        _typeCatalog = typeCatalog;
     }
 
     /// <summary>
@@ -236,10 +239,9 @@ public class ProjectService : IProjectService
             WHERE ProjectId = @ProjectId
             ORDER BY SortOrder;
 
-            -- 3. Targets
-            SELECT pt.QuestionTypeId, qt.Name AS TypeName, pt.TargetCount
+            -- 3. Targets（TypeName 由 IQuestionTypeCatalog 在 C# 端補；不再 JOIN MT_QuestionTypes）
+            SELECT pt.QuestionTypeId, pt.TargetCount
             FROM dbo.MT_ProjectTargets pt
-            INNER JOIN dbo.MT_QuestionTypes qt ON qt.Id = pt.QuestionTypeId
             WHERE pt.ProjectId = @ProjectId
             ORDER BY pt.QuestionTypeId;
 
@@ -269,6 +271,10 @@ public class ProjectService : IProjectService
                 
             detail.Phases = (await multi.ReadAsync<PhaseDetailDto>()).ToList();
             detail.Targets = (await multi.ReadAsync<TargetDetailDto>()).ToList();
+            foreach (var t in detail.Targets)
+            {
+                t.TypeName = _typeCatalog.GetName(t.QuestionTypeId);
+            }
             
             var memberRows = await multi.ReadAsync<ProjectMemberRow>();
             detail.Members = memberRows

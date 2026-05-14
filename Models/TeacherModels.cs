@@ -100,6 +100,7 @@ public class TeacherComposeItem
 {
     public int QuestionId { get; set; }
     public string QuestionCode { get; set; } = "";
+    public int QuestionTypeId { get; set; }
     public string TypeName { get; set; } = "";
     public int? Level { get; set; }
     public int ProjectId { get; set; }
@@ -131,6 +132,7 @@ public class TeacherReviewItem
 {
     public int ReviewAssignmentId { get; set; }
     public string QuestionCode { get; set; } = "";
+    public int QuestionTypeId { get; set; }
     public string TypeName { get; set; } = "";
     public int? Level { get; set; }
     public int ProjectId { get; set; }

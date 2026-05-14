@@ -168,17 +168,23 @@ public class PasswordResetService : IPasswordResetService
             if (row.ExpiresAt < DateTime.Now)
                 return (false, "此重設連結已過期，請重新申請！", false);
 
-            // 計算新密碼雜湊（與登入驗證使用相同的 SHA256 UTF-16LE 雜湊）
-            var passwordHash = AuthService.ComputePasswordHash(newPassword);
-
-            // 新舊密碼比對防呆（PasswordHash 為 byte[]，用 SequenceEqual 比對）
-            var currentHash = await conn.QueryFirstOrDefaultAsync<byte[]?>(
+            // 新舊密碼比對防呆：用 AuthService.VerifyPassword 對「新密碼明文」驗證
+            // 「當前儲存的 hash」—— 若驗證通過代表「新密碼 = 舊密碼」
+            // 同時支援新（PBKDF2）與舊（裸 SHA256 Base64）格式
+            var currentHash = await conn.QueryFirstOrDefaultAsync<string?>(
                 @"SELECT PasswordHash FROM dbo.MT_Users WHERE Id = @UserId",
                 new { UserId = row.UserId }, tx);
-            if (currentHash is not null && currentHash.SequenceEqual(passwordHash))
+            if (!string.IsNullOrEmpty(currentHash))
             {
-                return (false, "新密碼不可與舊密碼相同", true);
+                var (sameAsOld, _) = AuthService.VerifyPassword(newPassword, currentHash);
+                if (sameAsOld)
+                {
+                    return (false, "新密碼不可與舊密碼相同", true);
+                }
             }
+
+            // 計算新密碼雜湊（PBKDF2-SHA256 含 salt + 100k iterations）
+            var passwordHash = AuthService.HashPassword(newPassword);
 
             await conn.ExecuteAsync(
                 @"UPDATE dbo.MT_Users
@@ -210,16 +216,21 @@ public class PasswordResetService : IPasswordResetService
     {
         using var conn = _db.CreateConnection();
 
-        var passwordHash = AuthService.ComputePasswordHash(newPassword);
-
-        // 新舊密碼比對防呆（PasswordHash 為 byte[]，用 SequenceEqual 比對）
-        var currentHash = await conn.QueryFirstOrDefaultAsync<byte[]?>(
+        // 新舊密碼比對防呆：對新密碼明文驗證儲存中的 hash，若通過代表「新密碼 = 舊密碼」
+        var currentHash = await conn.QueryFirstOrDefaultAsync<string?>(
             @"SELECT PasswordHash FROM dbo.MT_Users WHERE Id = @UserId",
             new { UserId = userId });
-        if (currentHash is not null && currentHash.SequenceEqual(passwordHash))
+        if (!string.IsNullOrEmpty(currentHash))
         {
-            return (false, "新密碼不可與舊密碼相同", true);
+            var (sameAsOld, _) = AuthService.VerifyPassword(newPassword, currentHash);
+            if (sameAsOld)
+            {
+                return (false, "新密碼不可與舊密碼相同", true);
+            }
         }
+
+        // 計算新密碼雜湊（PBKDF2-SHA256 含 salt + 100k iterations）
+        var passwordHash = AuthService.HashPassword(newPassword);
 
         await conn.ExecuteAsync(
             @"UPDATE dbo.MT_Users

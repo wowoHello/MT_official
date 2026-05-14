@@ -63,6 +63,12 @@
                         <i class="fa-solid fa-bullseye text-sm"></i>
                     </div>
                     <p class="text-sm font-semibold text-gray-600">總目標題數</p>
+                    <button type="button"
+                            class="text-gray-400 hover:text-[var(--color-morandi)] focus:text-[var(--color-morandi)] cursor-help focus:outline-none transition-colors"
+                            aria-label="計算口徑說明"
+                            title="「總目標題數」依使用者設定的題型配額計算。題組類試題（短文題組、閱讀題組、聽力題組）整題視為 1 題，不另計子題。">
+                        <i class="fa-regular fa-circle-question text-sm"></i>
+                    </button>
                 </div>
                 <!-- Main -->
                 <div class="flex items-baseline gap-1.5 mb-3">
@@ -136,12 +142,18 @@
             @* 依當前 PhaseCode 對應 ReviewStage，顯示審題完成度（已完成/總數） *@
             @* 非審題階段顯示「未啟動」替代區塊；Footer 顯示真正當前階段名稱 *@
             <div class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all border-l-[3px] border-l-amber-500 p-5 flex flex-col min-h-[200px]">
-                <!-- Header：圖示 + 標題 + 右上角階段 Pill Badge -->
+                <!-- Header：圖示 + 標題 + 計算口徑 ⓘ + 右上角階段 Pill Badge -->
                 <div class="flex items-center gap-2.5 mb-2">
                     <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
                         <i class="fa-solid @(isLoading ? "fa-spinner fa-spin-pulse" : "fa-magnifying-glass") text-sm"></i>
                     </div>
-                    <p class="text-sm font-semibold text-gray-600">各階段審題</p>
+                    <p class="text-sm font-semibold text-gray-600">各審題階段</p>
+                    <button type="button"
+                            class="text-gray-400 hover:text-amber-600 focus:text-amber-600 cursor-help focus:outline-none transition-colors"
+                            aria-label="計算口徑說明"
+                            title="題組類試題的母題與每一道子題各為獨立審題單位，分別累計；故總數可能高於「總目標題數」。">
+                        <i class="fa-regular fa-circle-question text-sm"></i>
+                    </button>
                     @if (!isLoading)
                     {
                         <span class="ml-auto px-2.5 py-0.5 text-xs font-medium rounded-full border tabular-nums @ReviewPhasePillClass(kpi.CurrentReviewPhase)">
@@ -241,6 +253,8 @@
                                 </div>
                                 break;
                         }
+                        @* 計算口徑 footnote（與卡片 1 的「題目」口徑不同，故標註） *@
+                        <p class="text-xs text-gray-400 mt-2">* 題組類母題與每子題分別計算數量</p>
                     }
                 </div>
             </div>
@@ -249,12 +263,18 @@
             @* 依當前 PhaseCode 對應 RevisionStage，顯示修題完成度（已修完/待修總數） *@
             @* 非修題階段顯示「未啟動」替代區塊；已結案顯示印章卡；Footer 顯示真正當前階段名稱 *@
             <div class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all border-l-[3px] border-l-[var(--color-terracotta)] p-5 flex flex-col min-h-[200px]">
-                <!-- Header：圖示 + 標題 + 右上角階段 Pill Badge -->
+                <!-- Header：圖示 + 標題 + 計算口徑 ⓘ + 右上角階段 Pill Badge -->
                 <div class="flex items-center gap-2.5 mb-2">
                     <div class="w-8 h-8 rounded-lg bg-red-50 text-[var(--color-terracotta)] flex items-center justify-center shrink-0">
                         <i class="fa-solid @(isLoading ? "fa-spinner fa-spin-pulse" : "fa-pen-to-square") text-sm"></i>
                     </div>
                     <p class="text-sm font-semibold text-gray-600">各修題階段</p>
+                    <button type="button"
+                            class="text-gray-400 hover:text-[var(--color-terracotta)] focus:text-[var(--color-terracotta)] cursor-help focus:outline-none transition-colors"
+                            aria-label="計算口徑說明"
+                            title="題組類試題的母題與每一道子題各為獨立修題單位，分別累計；故總數可能高於「總目標題數」。">
+                        <i class="fa-regular fa-circle-question text-sm"></i>
+                    </button>
                     @if (!isLoading)
                     {
                         <span class="ml-auto px-2.5 py-0.5 text-xs font-medium rounded-full border tabular-nums @RevisionPhasePillClass(kpi.CurrentRevisionPhase)">
@@ -354,6 +374,8 @@
                                 </div>
                                 break;
                         }
+                        @* 計算口徑 footnote（與卡片 1 的「題目」口徑不同，故標註） *@
+                        <p class="text-xs text-gray-400 mt-2">* 題組類母題與每子題分別計算數量</p>
                     }
                 </div>
             </div>

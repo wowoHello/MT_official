@@ -57,12 +57,18 @@ public class TeacherService : ITeacherService
     private readonly IDatabaseService _db;
     private readonly ILogger<TeacherService> _logger;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IQuestionTypeCatalog _typeCatalog;
 
-    public TeacherService(IDatabaseService db, ILogger<TeacherService> logger, IHttpContextAccessor httpContextAccessor)
+    public TeacherService(
+        IDatabaseService db,
+        ILogger<TeacherService> logger,
+        IHttpContextAccessor httpContextAccessor,
+        IQuestionTypeCatalog typeCatalog)
     {
         _db = db;
         _logger = logger;
         _httpContextAccessor = httpContextAccessor;
+        _typeCatalog = typeCatalog;
     }
 
     // ==================================================================
@@ -238,14 +244,13 @@ public class TeacherService : ITeacherService
             SELECT
                 q.Id AS QuestionId,
                 q.QuestionCode,
-                qt.Name AS TypeName,
+                q.QuestionTypeId,
                 q.Level,
                 q.ProjectId,
                 p.Name AS ProjectName,
                 q.Status,
                 q.UpdatedAt
             FROM dbo.MT_Questions q
-            INNER JOIN dbo.MT_QuestionTypes qt ON qt.Id = q.QuestionTypeId
             INNER JOIN dbo.MT_Projects p ON p.Id = q.ProjectId
             WHERE q.CreatorId = @UserId
               AND q.IsDeleted = 0
@@ -253,12 +258,17 @@ public class TeacherService : ITeacherService
             ORDER BY q.UpdatedAt DESC;
             """;
 
-        var rows = await conn.QueryAsync<TeacherComposeItem>(sql, new
+        var rows = (await conn.QueryAsync<TeacherComposeItem>(sql, new
         {
             UserId = teacherUserId,
             ProjectId = filterProjectId
-        });
-        return rows.ToList();
+        })).ToList();
+
+        foreach (var row in rows)
+        {
+            row.TypeName = _typeCatalog.GetName(row.QuestionTypeId);
+        }
+        return rows;
     }
 
     // ==================================================================
@@ -300,7 +310,7 @@ public class TeacherService : ITeacherService
             SELECT
                 ra.Id AS ReviewAssignmentId,
                 q.QuestionCode,
-                qt.Name AS TypeName,
+                q.QuestionTypeId,
                 q.Level,
                 ra.ProjectId,
                 p.Name AS ProjectName,
@@ -312,19 +322,23 @@ public class TeacherService : ITeacherService
                 q.Status   AS FinalQuestionStatus
             FROM dbo.MT_ReviewAssignments ra
             INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
-            INNER JOIN dbo.MT_QuestionTypes qt ON qt.Id = q.QuestionTypeId
             INNER JOIN dbo.MT_Projects p ON p.Id = ra.ProjectId
             WHERE ra.ReviewerId = @UserId
               AND (@ProjectId IS NULL OR ra.ProjectId = @ProjectId)
             ORDER BY ra.CreatedAt DESC;
             """;
 
-        var rows = await conn.QueryAsync<TeacherReviewItem>(sql, new
+        var rows = (await conn.QueryAsync<TeacherReviewItem>(sql, new
         {
             UserId = teacherUserId,
             ProjectId = filterProjectId
-        });
-        return rows.ToList();
+        })).ToList();
+
+        foreach (var row in rows)
+        {
+            row.TypeName = _typeCatalog.GetName(row.QuestionTypeId);
+        }
+        return rows;
     }
 
     // ==================================================================
@@ -596,10 +610,11 @@ public class TeacherService : ITeacherService
         await conn.OpenAsync();
 
         // 1. 查 Email 是否已存在於 MT_Users（同時比對 Username 與 Email，因兩者皆有 UNIQUE 過濾索引）
+        // SQL Server 預設 collation 為 CI（case-insensitive），無需 LOWER() 包欄位，索引才能命中
         const string lookupSql = """
             SELECT TOP 1 Id, Username, DisplayName
             FROM dbo.MT_Users
-            WHERE LOWER(Username) = LOWER(@Email) OR LOWER(Email) = LOWER(@Email);
+            WHERE Username = @Email OR Email = @Email;
             """;
         var existing = await conn.QueryFirstOrDefaultAsync<(int Id, string Username, string DisplayName)?>(
             lookupSql, new { req.Email });
@@ -636,7 +651,7 @@ public class TeacherService : ITeacherService
                     throw new InvalidOperationException("系統尚未建立「預設教師」角色，請先至角色管理建立。");
 
                 // 建立 MT_Users
-                var passwordHash = AuthService.ComputePasswordHash(DefaultTeacherPassword);
+                var passwordHash = AuthService.HashPassword(DefaultTeacherPassword);
                 const string insertUserSql = """
                     INSERT INTO dbo.MT_Users
                         (Username, DisplayName, Email, PasswordHash, RoleId, Status, IsFirstLogin)
@@ -852,7 +867,7 @@ public class TeacherService : ITeacherService
         var userId = await conn.QuerySingleOrDefaultAsync<int?>(userIdSql, new { Id = teacherId });
         if (!userId.HasValue) throw new InvalidOperationException("找不到教師資料。");
 
-        var passwordHash = AuthService.ComputePasswordHash(DefaultTeacherPassword);
+        var passwordHash = AuthService.HashPassword(DefaultTeacherPassword);
 
         const string sql = """
             UPDATE dbo.MT_Users

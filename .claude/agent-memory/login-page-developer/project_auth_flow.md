@@ -7,7 +7,7 @@ type: project
 ## 認證流程（Blazor 無法直接寫 Cookie 的繞道機制）
 
 1. `Login.razor` 的 `HandleLogin()` 先呼叫 `AuthService.ValidateLoginAsync(username, password, browserUserAgent)`
-2. 驗證成功後呼叫 `AuthService.PrepareSignIn(user, rememberMe)` 暫存資料並取得一次性 key（有效期 60 秒，超過視為過期）
+2. 驗證成功後呼叫 `AuthService.PrepareSignIn(user)` 暫存資料並取得一次性 key（有效期 60 秒，超過視為過期）
 3. 用 `Navigation.NavigateTo($"auth/login?key={loginKey}", forceLoad: true)` 觸發 HTTP request
 4. `Program.cs` 的 `/auth/login` endpoint 呼叫 `CompleteSignInAsync(key, httpContext)` 寫 Cookie
 5. `CompleteSignInAsync` 完成後：清除暫時鎖定 → 寫 LoginLog（成功，EventType=1）→ 更新 LastLoginAt
@@ -17,8 +17,9 @@ type: project
 
 ## Cookie 設定
 
-- RememberMe=true：`IsPersistent=true`，`ExpiresUtc = UtcNow + 90 天`，`AllowRefresh=false`
-- RememberMe=false：`IsPersistent=false`，`ExpiresUtc=null`（由 Program.cs 的 `ExpireTimeSpan=2h` 控制），`AllowRefresh=true`（滑動視窗）
+- 一律 Session Cookie：`IsPersistent=false`、`ExpiresUtc=null`、`AllowRefresh=true`
+- 關瀏覽器即失效需重登（資安考量，不提供「記住登入」）
+- Program.cs 設 `ExpireTimeSpan=24h` + `SlidingExpiration=true` 作為 cookie 外洩防護的安全網（實務上關瀏覽器就清除，不會走到此邊界）
 
 ## Cookie Claim 清單
 

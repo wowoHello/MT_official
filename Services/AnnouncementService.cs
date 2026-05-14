@@ -25,40 +25,30 @@ public class AnnouncementService : IAnnouncementService
     private readonly IDatabaseService _db;
     private readonly ILogger<AnnouncementService> _logger;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IMembershipService _membership;
 
-    public AnnouncementService(IDatabaseService db, ILogger<AnnouncementService> logger, IHttpContextAccessor httpContextAccessor)
+    public AnnouncementService(
+        IDatabaseService db,
+        ILogger<AnnouncementService> logger,
+        IHttpContextAccessor httpContextAccessor,
+        IMembershipService membership)
     {
         _db = db;
         _logger = logger;
         _httpContextAccessor = httpContextAccessor;
+        _membership = membership;
     }
 
     // ─── 權限門鎖：寫入動作前必過 ───
-    // 任一系統角色或當前梯次角色於 MT_RolePermissions 對 ModuleKey='Announcements' 啟用即放行
-    // 注意：DB 實際存的 ModuleKey 為「首字大寫」（如 Announcements），比對採大小寫不敏感避免拼錯
-    private static async Task EnsureCanEditAsync(IDbConnection conn, int operatorId)
+    // 任一系統角色或梯次角色於 MT_RolePermissions 對 ModuleKey='announcements' 啟用即放行
+    // 走 IMembershipService 30 秒短 TTL Cache，連續編輯多筆公告時免重複查 DB
+    private async Task EnsureCanEditAsync(int operatorId)
     {
         if (operatorId <= 0)
             throw new UnauthorizedAccessException("尚未登入或登入逾期，請重新登入。");
 
-        const string sql = """
-            SELECT TOP 1 1
-            FROM dbo.MT_RolePermissions rp
-            INNER JOIN dbo.MT_Modules m ON m.Id = rp.ModuleId
-            WHERE LOWER(m.ModuleKey) = 'announcements'
-              AND rp.IsEnabled = 1
-              AND rp.RoleId IN (
-                  SELECT u.RoleId FROM dbo.MT_Users u WHERE u.Id = @UserId
-                  UNION
-                  SELECT pmr.RoleId
-                  FROM dbo.MT_ProjectMembers pm
-                  INNER JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
-                  WHERE pm.UserId = @UserId
-              );
-            """;
-
-        var hasPermission = await conn.ExecuteScalarAsync<int?>(sql, new { UserId = operatorId });
-        if (hasPermission != 1)
+        var canEdit = await _membership.HasModulePermissionAsync(operatorId, null, "announcements");
+        if (!canEdit)
             throw new UnauthorizedAccessException("您沒有公告管理權限。");
     }
 
@@ -131,7 +121,7 @@ public class AnnouncementService : IAnnouncementService
         using var conn = _db.CreateConnection();
         conn.Open();
 
-        await EnsureCanEditAsync(conn, operatorId);
+        await EnsureCanEditAsync(operatorId);
 
         using var tx = conn.BeginTransaction();
 
@@ -198,7 +188,7 @@ public class AnnouncementService : IAnnouncementService
         using var conn = _db.CreateConnection();
         conn.Open();
 
-        await EnsureCanEditAsync(conn, operatorId);
+        await EnsureCanEditAsync(operatorId);
 
         using var tx = conn.BeginTransaction();
 
@@ -263,7 +253,7 @@ public class AnnouncementService : IAnnouncementService
         using var conn = _db.CreateConnection();
         conn.Open();
 
-        await EnsureCanEditAsync(conn, operatorId);
+        await EnsureCanEditAsync(operatorId);
 
         using var tx = conn.BeginTransaction();
 
@@ -330,7 +320,7 @@ public class AnnouncementService : IAnnouncementService
         using var conn = _db.CreateConnection();
         conn.Open();
 
-        await EnsureCanEditAsync(conn, operatorId);
+        await EnsureCanEditAsync(operatorId);
 
         using var tx = conn.BeginTransaction();
 
@@ -402,7 +392,7 @@ public class AnnouncementService : IAnnouncementService
         using var conn = _db.CreateConnection();
         conn.Open();
 
-        await EnsureCanEditAsync(conn, operatorId);
+        await EnsureCanEditAsync(operatorId);
 
         using var tx = conn.BeginTransaction();
 

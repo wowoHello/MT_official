@@ -59,7 +59,7 @@ JS interop 檔位於 `wwwroot/js/`：`login-interop.js`、`quill-interop.js`、`
 ## 高層架構（big picture）
 
 ### 啟動流程（`Program.cs`）
-1. 註冊 `RazorComponents` + `SignalR` + `Cookie Auth`（2 小時滑動，「記住登入」於 `AuthService.CompleteSignInAsync` 改 90 天絕對期限）。
+1. 註冊 `RazorComponents` + `SignalR` + `Cookie Auth`（Session Cookie 為主，`ExpireTimeSpan=24h` 滑動延長作為 cookie 外洩防護的安全網，無「記住登入」）。
 2. **註冊 13 個 Scoped Service**（每行已用註解標明所屬頁面，Service 與頁面是一對一對應）：`ICaptchaService`、`IDatabaseService`、`IAuthService`、`IEmailService`、`IPasswordResetService`、`IProjectService`、`IRoleService`、`IAnnouncementService`、`ITeacherService`、`IQuestionService`、`IReviewService`、`IOverviewService`、`IHomeService`、`IDashboardService`。
 3. Pipeline：`UsePathBase`（讀 `Configuration["PathBase"]`，IIS 子應用程式用 `/MT`，本機留空）→ `UseStatusCodePagesWithReExecute("/not-found")` → Auth/Authorization/Antiforgery → `MapStaticAssets` → `MapRazorComponents<App>` → `MapHub<ProjectsHub>("/hubs/projects")`。
 4. 兩個 Auth 端點（一定要走 HTTP request 才能寫 Cookie）：
@@ -102,7 +102,7 @@ JS interop 檔位於 `wwwroot/js/`：`login-interop.js`、`quill-interop.js`、`
   1. `Login.razor` 呼叫 `AuthService.PrepareSignIn` 把 ClaimsPrincipal 暫存。
   2. 用 `NavigationManager.NavigateTo("/auth/login?key=...", forceLoad: true)` 觸發真正的 HTTP request。
   3. `Program.cs` 的 `/auth/login` endpoint 才呼叫 `CompleteSignInAsync` 寫 Cookie。
-- 「記住登入」勾選後 `IsPersistent=true` 且絕對期限 90 天；未勾為 sliding 2 小時。
+- 一律 Session Cookie（`IsPersistent=false`）：關瀏覽器即失效需重登；`ExpireTimeSpan=24h` + 滑動延長作為安全網，不提供「記住登入」。
 - **全站活動 vs 梯次內活動**：
   - 全站活動（登入登出、人員/角色/教師 CUD、專案 CUD、公告 CUD）由 `SystemLogs.razor`（路由 `/system-logs`）統一呈現，資料源為 `MT_LoginLogs` + `MT_AuditLogs WHERE ProjectId IS NULL`
   - 梯次內活動（試題 CUD、審題 CUD）由 `Dashboard.razor` 呈現，資料源為 `MT_AuditLogs WHERE ProjectId = @pid AND TargetType IN (3, 6)`
@@ -138,7 +138,8 @@ JS interop 檔位於 `wwwroot/js/`：`login-interop.js`、`quill-interop.js`、`
 - **互審**：命題教師互審，**只能給意見**，沒有採用/退回按鈕；自己命的題目絕不分配給自己。
 - **專審**：專家學者，可「採用」「改後再審」，**沒有不採用**。
 - **總審**：可「採用」「改後再審」「不採用」；**最多退回 2 次**，第 3 次由總審親自修並下最終裁決。
-- 多名總召時，若某總召在專審階段審過某題，該題進入總審必分給其他總召。
+- **初次分配迴避**：總召集人若同時為專審委員，分配題目時不可拿到自己專審過的題目。
+- **總召 Sticky（修題重送）**：總召判「改後再審」後，命題教師重送的題目必須回到原判決的同一位總召（不重新分配）。
 - 結案：僅「採用」入庫，其餘一律不採用。
 
 ### 命題任務頁三 Tab

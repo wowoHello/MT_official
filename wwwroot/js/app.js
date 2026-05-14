@@ -71,6 +71,149 @@ window.swalToast = (icon, title, timer) => {
 
 
 // ============================================================
+//  1b. MT Toast — 莫蘭迪風格輕量通知（取代 swal 蓋板）
+//      右上滑入、自動 3.5s 消失、hover 暫停、可堆疊、無遮罩、不偷焦點
+//      呼叫：mtToast.show({ type, title, subtitle, duration })
+//      type: 'success' | 'info' | 'warning' | 'error'
+//      duration: 毫秒；0 = 不自動關閉（須手動按 ×）
+// ============================================================
+
+window.mtToast = (() => {
+    let containerEl = null;
+    let stylesInjected = false;
+
+    // 莫蘭迪語意配色
+    const PALETTE = {
+        success: '#8EAB94',  // 鼠尾草綠
+        info:    '#6B8EAD',  // 灰藍
+        warning: '#D98A6C',  // 溫暖赤陶
+        error:   '#B45454'   // 低飽和深紅
+    };
+
+    // 內嵌 SVG 圖示（Heroicons outline 風）
+    const ICONS = {
+        success: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 10.5l3 3 7-7"/></svg>',
+        info:    '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10" cy="10" r="7.5" fill="none"/><path d="M10 6.5v.01M10 9v5"/></svg>',
+        warning: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3l8 14H2L10 3zM10 8v3M10 13.5v.01"/></svg>',
+        error:   '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10" cy="10" r="7.5" fill="none"/><path d="M7 7l6 6M13 7l-6 6"/></svg>'
+    };
+
+    /** 一次性注入 CSS（首次 show 時觸發） */
+    const injectStyles = () => {
+        if (stylesInjected) return;
+        stylesInjected = true;
+        const style = document.createElement('style');
+        style.textContent = `
+            .mt-toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 9999;
+                display: flex; flex-direction: column; gap: .5rem; pointer-events: none; }
+            .mt-toast { pointer-events: auto; display: flex; width: 22rem; max-width: calc(100vw - 2rem);
+                background: #FBF9F6; border: 1px solid rgba(231,229,228,.6); border-radius: .75rem;
+                box-shadow: 0 10px 25px -5px rgba(55,65,81,.12), 0 4px 10px -3px rgba(55,65,81,.08);
+                overflow: hidden; transform: translateX(20px); opacity: 0;
+                transition: transform 250ms cubic-bezier(.22,1,.36,1), opacity 250ms ease-out; }
+            .mt-toast.mt-toast-show { transform: translateX(0); opacity: 1; }
+            .mt-toast.mt-toast-hide { transform: translateX(8px); opacity: 0;
+                transition: transform 180ms ease-in, opacity 180ms ease-in; }
+            .mt-toast-bar { width: 4px; align-self: stretch; flex-shrink: 0; }
+            .mt-toast-body { flex: 1; padding: .75rem 1rem; display: flex; align-items: flex-start;
+                gap: .75rem; min-width: 0; }
+            .mt-toast-icon { width: 1.25rem; height: 1.25rem; margin-top: .125rem; flex-shrink: 0; }
+            .mt-toast-text { flex: 1; min-width: 0; }
+            .mt-toast-title { font-size: .875rem; font-weight: 600; color: #374151; line-height: 1.375; }
+            .mt-toast-subtitle { font-size: .75rem; color: #6B7280; line-height: 1.5;
+                margin-top: .125rem; word-break: break-word; }
+            .mt-toast-close { flex-shrink: 0; width: 1.75rem; height: 1.75rem;
+                margin: -.375rem -.375rem -.375rem 0; padding: 0; background: transparent; border: 0;
+                border-radius: .375rem; cursor: pointer; color: #9CA3AF; display: inline-flex;
+                align-items: center; justify-content: center;
+                transition: background 150ms ease-out, color 150ms ease-out; }
+            .mt-toast-close:hover { background: rgba(120,113,108,.08); color: #374151; }
+            .mt-toast-close:focus-visible { outline: 2px solid #6B8EAD; outline-offset: 1px; }
+            @media (prefers-reduced-motion: reduce) {
+                .mt-toast, .mt-toast.mt-toast-hide { transition: opacity 100ms ease-out !important;
+                    transform: none !important; }
+            }
+        `;
+        document.head.appendChild(style);
+    };
+
+    /** 取得（或建立）右上角的 toast 容器 */
+    const ensureContainer = () => {
+        if (containerEl && document.body.contains(containerEl)) return containerEl;
+        containerEl = document.createElement('div');
+        containerEl.className = 'mt-toast-container';
+        containerEl.setAttribute('aria-live', 'polite');   // 不偷焦點，僅報讀
+        containerEl.setAttribute('aria-atomic', 'false');
+        document.body.appendChild(containerEl);
+        return containerEl;
+    };
+
+    /** XSS 防護：把 < > & " ' 轉義 */
+    const escapeHtml = (str) => str == null ? '' : String(str).replace(/[&<>"']/g, ch => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[ch]));
+
+    return {
+        show(opts) {
+            opts = opts || {};
+            injectStyles();
+            const container = ensureContainer();
+
+            const type     = PALETTE[opts.type] ? opts.type : 'info';
+            const color    = PALETTE[type];
+            const iconSvg  = ICONS[type];
+            const duration = (opts.duration != null) ? Number(opts.duration) : 3500;
+            const title    = escapeHtml(opts.title || '');
+            const subtitle = opts.subtitle ? escapeHtml(opts.subtitle) : '';
+
+            const toast = document.createElement('div');
+            toast.className = 'mt-toast';
+            toast.setAttribute('role', 'status');
+            toast.innerHTML = `
+                <div class="mt-toast-bar" style="background:${color}"></div>
+                <div class="mt-toast-body">
+                    <span class="mt-toast-icon" style="color:${color}" aria-hidden="true">${iconSvg}</span>
+                    <div class="mt-toast-text">
+                        <div class="mt-toast-title">${title}</div>
+                        ${subtitle ? `<div class="mt-toast-subtitle">${subtitle}</div>` : ''}
+                    </div>
+                    <button type="button" class="mt-toast-close" aria-label="關閉通知">
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M2.5 2.5L11.5 11.5M11.5 2.5L2.5 11.5"/></svg>
+                    </button>
+                </div>
+            `;
+            container.appendChild(toast);
+
+            // 雙 RAF 確保 transition 觸發（避免初始 class 與 show class 在同一 frame 套用而失效）
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => toast.classList.add('mt-toast-show'));
+            });
+
+            let dismissTimer = null;
+            const dismiss = () => {
+                if (toast.dataset.dismissed) return;
+                toast.dataset.dismissed = '1';
+                clearTimeout(dismissTimer);
+                toast.classList.remove('mt-toast-show');
+                toast.classList.add('mt-toast-hide');
+                setTimeout(() => toast.remove(), 220);
+            };
+
+            const startTimer = () => {
+                if (duration > 0) dismissTimer = setTimeout(dismiss, duration);
+            };
+            startTimer();
+
+            // hover 暫停倒數（年長者讀字慢時更友善）
+            toast.addEventListener('mouseenter', () => clearTimeout(dismissTimer));
+            toast.addEventListener('mouseleave', () => { if (!toast.dataset.dismissed) startTimer(); });
+            toast.querySelector('.mt-toast-close').addEventListener('click', dismiss);
+        }
+    };
+})();
+
+
+// ============================================================
 //  2. 登入與身分
 // ============================================================
 

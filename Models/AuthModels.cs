@@ -6,7 +6,6 @@ public sealed class LoginFormModel
     public string Username { get; set; } = "";
     public string Password { get; set; } = "";
     public string CaptchaInput { get; set; } = "";
-    public bool RememberMe { get; set; } = false;
 }
 
 /// <summary>首次登入強制改密碼表單（FirstLoginPassword.razor）。</summary>

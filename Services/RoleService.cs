@@ -56,18 +56,32 @@ public class RoleService : IRoleService
     private readonly ILogger<RoleService> _logger;
     private readonly IHubContext<ProjectsHub> _hubContext;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IMembershipService _membership;
 
-    public RoleService(IDatabaseService db, ILogger<RoleService> logger, IHubContext<ProjectsHub> hubContext, IHttpContextAccessor httpContextAccessor)
+    public RoleService(
+        IDatabaseService db,
+        ILogger<RoleService> logger,
+        IHubContext<ProjectsHub> hubContext,
+        IHttpContextAccessor httpContextAccessor,
+        IMembershipService membership)
     {
         _db = db;
         _logger = logger;
         _hubContext = hubContext;
         _httpContextAccessor = httpContextAccessor;
+        _membership = membership;
     }
 
-    /// <summary>廣播角色/權限變更事件，通知所有客戶端重載模組權限。</summary>
+    /// <summary>
+    /// 廣播角色/權限變更事件，通知所有客戶端重載模組權限。
+    /// 同時清空 IMembershipService 全 user cache，避免 30 秒 TTL 內客戶端重整看到舊權限。
+    /// </summary>
     private async Task BroadcastRoleChangedAsync()
     {
+        // 先清 cache（同步、零失敗風險）
+        _membership.InvalidateAll();
+
+        // 再廣播 SignalR（失敗不阻擋）
         try
         {
             await _hubContext.Clients.All.SendAsync("ReceiveRoleChanged");
@@ -174,10 +188,11 @@ public class RoleService : IRoleService
         using var conn = (System.Data.Common.DbConnection)_db.CreateConnection();
         await conn.OpenAsync();
 
-        await EnsureUsernameUniqueAsync(conn, req.Username, excludeUserId: null);
         await EnsureRoleIsInternalAsync(conn, req.RoleId);
+        // Username/Email 重複改由 DB UNIQUE 約束擋（UQ_MT_Users_Username / UQ_MT_Users_Email），
+        // 違反時 SqlException 2601/2627 會被下方 INSERT 的 catch 翻譯成人話訊息
 
-        var passwordHash = AuthService.ComputePasswordHash(DefaultInternalPassword);
+        var passwordHash = AuthService.HashPassword(DefaultInternalPassword);
 
         const string insertSql = """
             INSERT INTO dbo.MT_Users
@@ -364,7 +379,7 @@ public class RoleService : IRoleService
         using var conn = (System.Data.Common.DbConnection)_db.CreateConnection();
         await conn.OpenAsync();
 
-        var passwordHash = AuthService.ComputePasswordHash(DefaultInternalPassword);
+        var passwordHash = AuthService.HashPassword(DefaultInternalPassword);
 
         const string sql = """
             UPDATE dbo.MT_Users
@@ -798,37 +813,11 @@ public class RoleService : IRoleService
     /// 權限判定：系統角色(MT_Users.RoleId) ∪ 梯次角色(MT_ProjectMemberRoles) 的聯集。
     /// 若 projectId 為 null，僅依系統角色判定。
     /// </summary>
-    public async Task<List<UserModuleCard>> GetUserModuleCardsAsync(int userId, int? projectId)
+    public Task<List<UserModuleCard>> GetUserModuleCardsAsync(int userId, int? projectId)
     {
-        using var conn = _db.CreateConnection();
-
-        const string sql = """
-            SELECT
-                m.Id, m.ModuleKey, m.Name, m.Icon, m.PageUrl,
-                m.Description, m.ColorClass, m.BgColorClass, m.SortOrder,
-                -- 只要任一角色有啟用該模組即視為有權限
-                CASE WHEN EXISTS (
-                    SELECT 1
-                    FROM dbo.MT_RolePermissions rp
-                    WHERE rp.ModuleId = m.Id AND rp.IsEnabled = 1
-                      AND rp.RoleId IN (
-                          -- ① 系統角色
-                          SELECT u.RoleId FROM dbo.MT_Users u WHERE u.Id = @UserId
-                          UNION
-                          -- ② 當前梯次的所有角色（projectId 為 NULL 時此段不回傳資料）
-                          SELECT pmr.RoleId
-                          FROM dbo.MT_ProjectMembers pm
-                          INNER JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
-                          WHERE pm.UserId = @UserId AND pm.ProjectId = @ProjectId
-                      )
-                ) THEN 1 ELSE 0 END AS IsEnabled
-            FROM dbo.MT_Modules m
-            WHERE m.IsActive = 1
-            ORDER BY m.SortOrder;
-            """;
-
-        var rows = await conn.QueryAsync<UserModuleCard>(sql, new { UserId = userId, ProjectId = projectId });
-        return rows.ToList();
+        // SQL 邏輯已搬到 IMembershipService，這裡只做 thin wrapper 維持既有 API 對外不變
+        // 30 秒短 TTL Cache，相同 userId+projectId 連續呼叫直接走記憶體
+        return _membership.GetUserModuleCardsAsync(userId, projectId);
     }
 
     // ==================================================================
@@ -864,18 +853,6 @@ public class RoleService : IRoleService
         1 => "外部",
         _ => "未知",
     };
-
-    private static async Task EnsureUsernameUniqueAsync(IDbConnection conn, string username, int? excludeUserId)
-    {
-        const string sql = """
-            SELECT COUNT(*)
-            FROM dbo.MT_Users
-            WHERE LOWER(Username) = LOWER(@Username)
-              AND (@ExcludeId IS NULL OR Id <> @ExcludeId);
-            """;
-        var count = await conn.ExecuteScalarAsync<int>(sql, new { Username = username, ExcludeId = excludeUserId });
-        if (count > 0) throw new InvalidOperationException($"登入帳號「{username}」已被使用。");
-    }
 
     private static async Task EnsureRoleIsInternalAsync(IDbConnection conn, int roleId)
     {
@@ -1095,20 +1072,21 @@ public class RoleService : IRoleService
 
         // 讀取當前密碼雜湊
         const string readSql = "SELECT PasswordHash FROM dbo.MT_Users WHERE Id = @Id;";
-        var currentHash = await conn.QuerySingleOrDefaultAsync<byte[]>(readSql, new { Id = userId });
-        if (currentHash is null) throw new InvalidOperationException("找不到使用者。");
+        var currentHash = await conn.QuerySingleOrDefaultAsync<string?>(readSql, new { Id = userId });
+        if (string.IsNullOrEmpty(currentHash)) throw new InvalidOperationException("找不到使用者。");
 
-        // 驗證舊密碼
-        var oldHash = AuthService.ComputePasswordHash(oldPassword);
-        if (!oldHash.SequenceEqual(currentHash))
+        // 驗證舊密碼（支援新舊格式；驗證成功不在此處自動升級，因為下面馬上會用新密碼覆蓋）
+        var (oldOk, _) = AuthService.VerifyPassword(oldPassword, currentHash);
+        if (!oldOk)
             throw new InvalidOperationException("舊密碼不正確。");
 
-        // 驗證新舊不同
-        var newHash = AuthService.ComputePasswordHash(newPassword);
-        if (newHash.SequenceEqual(currentHash))
+        // 驗證新舊不同（對新密碼明文驗證舊 hash，通過代表新舊相同）
+        var (sameAsOld, _) = AuthService.VerifyPassword(newPassword, currentHash);
+        if (sameAsOld)
             throw new InvalidOperationException("新密碼不可與舊密碼相同。");
 
-        // 更新密碼
+        // 計算新密碼雜湊（PBKDF2-SHA256）並更新
+        var newHash = AuthService.HashPassword(newPassword);
         const string updateSql = """
             UPDATE dbo.MT_Users
             SET PasswordHash = @PasswordHash,

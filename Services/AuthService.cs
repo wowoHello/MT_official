@@ -22,7 +22,7 @@ public interface IAuthService
     Task LogLogoutAsync(int userId, string? ip);
 
     /// <summary>暫存登入資料，回傳一次性 key，供 HTTP 端點完成 Cookie 寫入</summary>
-    string PrepareSignIn(UserInfo user, bool rememberMe);
+    string PrepareSignIn(UserInfo user);
 
     /// <summary>由 HTTP 端點呼叫，使用一次性 key 完成 Cookie 寫入，回傳是否為首次登入以決定導向</summary>
     Task<(bool Success, bool IsFirstLogin)> CompleteSignInAsync(string key, HttpContext httpContext);
@@ -41,7 +41,7 @@ public class AuthService : IAuthService
     private readonly IHttpContextAccessor _httpContextAccessor;
 
     // 一次性暫存：Blazor 元件驗證通過後暫存，HTTP 端點取用後立即移除
-    private static readonly ConcurrentDictionary<string, (UserInfo User, bool RememberMe, DateTime CreatedAt)> _pendingLogins = new();
+    private static readonly ConcurrentDictionary<string, (UserInfo User, DateTime CreatedAt)> _pendingLogins = new();
 
     public AuthService(IDatabaseService db, IHttpContextAccessor httpContextAccessor)
     {
@@ -49,16 +49,87 @@ public class AuthService : IAuthService
         _httpContextAccessor = httpContextAccessor;
     }
 
-    /// <summary>SHA256 雜湊（UTF-16LE 編碼，與 MSSQL HASHBYTES('SHA2_256', N'...') 一致）</summary>
-    public static byte[] ComputePasswordHash(string password)
-        => SHA256.HashData(Encoding.Unicode.GetBytes(password));
+    // === 密碼雜湊 ===========================================================
+    // 新格式：PBKDF2-SHA256 + 16 byte salt + 100,000 iterations
+    //   "PBKDF2.v1$<iter>$<salt-base64>$<hash-base64>"
+    // 舊格式（向後相容）：純 Base64 編碼的 32 byte SHA256(UTF-16LE)
+    //   驗證成功會自動升級到新格式（見 ValidateLoginAsync）
+
+    private const string Pbkdf2Prefix = "PBKDF2.v1$";
+    private const int Pbkdf2Iterations = 100_000;
+    private const int Pbkdf2SaltSize = 16;
+    private const int Pbkdf2HashSize = 32;
+
+    /// <summary>產生新密碼雜湊（PBKDF2-SHA256，含密碼學安全 salt）。回傳字串長度約 90 字元。</summary>
+    public static string HashPassword(string password)
+    {
+        byte[] salt = RandomNumberGenerator.GetBytes(Pbkdf2SaltSize);
+        byte[] hash = Rfc2898DeriveBytes.Pbkdf2(
+            password, salt, Pbkdf2Iterations, HashAlgorithmName.SHA256, Pbkdf2HashSize);
+        return $"{Pbkdf2Prefix}{Pbkdf2Iterations}${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
+    }
+
+    /// <summary>
+    /// 驗證密碼。同時支援新（PBKDF2）與舊（裸 SHA256 Base64）格式。
+    /// </summary>
+    /// <returns>
+    /// IsValid：密碼是否正確；
+    /// NeedsUpgrade：true 表示驗證走的是舊格式，呼叫端應在驗證成功後重 hash 寫回 DB。
+    /// </returns>
+    public static (bool IsValid, bool NeedsUpgrade) VerifyPassword(string password, string storedHash)
+    {
+        if (string.IsNullOrEmpty(storedHash))
+            return (false, false);
+
+        if (storedHash.StartsWith(Pbkdf2Prefix, StringComparison.Ordinal))
+            return (VerifyPbkdf2(password, storedHash), false);
+
+        // 舊格式：純 Base64 編碼的 32 byte SHA256
+        return (VerifyLegacySha256(password, storedHash), true);
+    }
+
+    private static bool VerifyPbkdf2(string password, string storedHash)
+    {
+        // 格式：PBKDF2.v1$<iter>$<salt-base64>$<hash-base64>
+        var parts = storedHash.Split('$');
+        if (parts.Length != 4) return false;
+        if (!int.TryParse(parts[1], out int iterations) || iterations <= 0) return false;
+
+        try
+        {
+            byte[] salt = Convert.FromBase64String(parts[2]);
+            byte[] expectedHash = Convert.FromBase64String(parts[3]);
+            byte[] computedHash = Rfc2898DeriveBytes.Pbkdf2(
+                password, salt, iterations, HashAlgorithmName.SHA256, expectedHash.Length);
+            return CryptographicOperations.FixedTimeEquals(computedHash, expectedHash);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
+    private static bool VerifyLegacySha256(string password, string storedBase64)
+    {
+        try
+        {
+            byte[] storedHash = Convert.FromBase64String(storedBase64);
+            if (storedHash.Length != 32) return false;
+            byte[] computedHash = SHA256.HashData(Encoding.Unicode.GetBytes(password));
+            return CryptographicOperations.FixedTimeEquals(computedHash, storedHash);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
 
     private sealed class UserAuthRow
     {
         public int Id { get; set; }
         public string Username { get; set; } = "";
         public string DisplayName { get; set; } = "";
-        public byte[] PasswordHash { get; set; } = [];
+        public string PasswordHash { get; set; } = "";
         public int RoleId { get; set; }
         public int Status { get; set; }
         public bool IsFirstLogin { get; set; }
@@ -115,9 +186,9 @@ public class AuthService : IAuthService
             await ClearTemporaryLockoutAsync(authRow.Id);
         }
 
-        var inputHash = ComputePasswordHash(password);
+        var (isValid, needsUpgrade) = VerifyPassword(password, authRow.PasswordHash);
 
-        if (!inputHash.SequenceEqual(authRow.PasswordHash))
+        if (!isValid)
         {
             await LogLoginAttemptAsync(authRow.Id, authRow.Username, false, InvalidCredentialMessage, clientIp, normalizedUserAgent);
 
@@ -132,6 +203,20 @@ public class AuthService : IAuthService
             return (false, BuildRemainingAttemptsMessage(recentFailedCount), null);
         }
 
+        // 驗證成功且偵測到舊格式 hash → 自動升級為 PBKDF2 寫回 DB
+        // 失敗不阻擋登入流程（最差就是下次登入再試一次升級）
+        if (needsUpgrade)
+        {
+            try
+            {
+                await UpgradePasswordHashAsync(authRow.Id, password);
+            }
+            catch
+            {
+                // 升級失敗不影響登入；下次登入會再嘗試
+            }
+        }
+
         var userInfo = new UserInfo
         {
             Id = authRow.Id,
@@ -144,6 +229,19 @@ public class AuthService : IAuthService
         };
 
         return (true, "登入成功", userInfo);
+    }
+
+    /// <summary>把舊格式（裸 SHA256 Base64）的 hash 升級為 PBKDF2 寫回 DB。</summary>
+    private async Task UpgradePasswordHashAsync(int userId, string plainPassword)
+    {
+        using var conn = _db.CreateConnection();
+        var newHash = HashPassword(plainPassword);
+        await conn.ExecuteAsync(
+            @"UPDATE dbo.MT_Users
+              SET PasswordHash = @PasswordHash,
+                  UpdatedAt = SYSDATETIME()
+              WHERE Id = @UserId",
+            new { UserId = userId, PasswordHash = newHash });
     }
 
     public async Task<List<ModulePermission>> GetUserPermissionsAsync(int roleId)
@@ -210,7 +308,7 @@ public class AuthService : IAuthService
             new { UserId = userId });
     }
 
-    public string PrepareSignIn(UserInfo user, bool rememberMe)
+    public string PrepareSignIn(UserInfo user)
     {
         // 清理超過 60 秒的過期暫存（防止累積）
         var cutoff = DateTime.UtcNow.AddSeconds(-60);
@@ -221,7 +319,7 @@ public class AuthService : IAuthService
         }
 
         var key = Guid.NewGuid().ToString("N");
-        _pendingLogins[key] = (user, rememberMe, DateTime.UtcNow);
+        _pendingLogins[key] = (user, DateTime.UtcNow);
         return key;
     }
 
@@ -240,7 +338,9 @@ public class AuthService : IAuthService
             new(ClaimTypes.Name, data.User.Username),
             new("DisplayName", data.User.DisplayName),
             new(ClaimTypes.Role, data.User.RoleName),
-            new("RoleId", data.User.RoleId.ToString())
+            new("RoleId", data.User.RoleId.ToString()),
+            // 給 Login.razor 用：偵測首次登入按上一頁繞回首頁，強制導回改密碼頁
+            new("IsFirstLogin", data.User.IsFirstLogin ? "true" : "false")
         };
 
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
@@ -251,11 +351,10 @@ public class AuthService : IAuthService
             principal,
             new AuthenticationProperties
             {
-                // RememberMe=true  → Persistent Cookie，絕對 90 天（關瀏覽器回來仍登入）
-                // RememberMe=false → Session Cookie，套用 ExpireTimeSpan（2 小時滑動）+ 關瀏覽器即失效
-                IsPersistent = data.RememberMe,
-                ExpiresUtc = data.RememberMe ? DateTimeOffset.UtcNow.AddDays(90) : null,
-                AllowRefresh = !data.RememberMe
+                // 一律 Session Cookie：關瀏覽器即失效 + 套用 ExpireTimeSpan（2 小時滑動）
+                IsPersistent = false,
+                ExpiresUtc = null,
+                AllowRefresh = true
             });
 
         var clientIp = ResolveIpAddress(httpContext);
