@@ -1,11 +1,13 @@
 @* ====================================================================== *@
 @*  ReviewHistoryTimeline — 歷程軌跡（卡片 + timeline 連線版面）             *@
-@*  資料源：union of MT_AuditLogs + MT_ReviewAssignments + MT_RevisionReplies *@
+@*  資料源：MT_ReviewAssignments（審題意見）+ MT_RevisionReplies（修題說明） *@
 @*  視覺：                                                                   *@
 @*    - 每筆紀錄獨立成卡片，左側保留垂直連線與圓點節點                       *@
-@*    - 三色 Kind：QuestionEvent (sage)、ReviewComment (morandi)、RevisionReply (terracotta) *@
+@*    - 兩色 Kind：ReviewComment (morandi)、RevisionReply (terracotta)        *@
 @*  匿名行為：ShowActorName=false（預設，Reviews 用，公平性匿名）             *@
 @*           ShowActorName=true（Overview 管理員視角，顯示真名）             *@
+@*  單元歸屬：ShowUnitBadge=true（Overview 彙整視角，顯示題號 Q-XXX-XXXXX-NN）*@
+@*           ShowUnitBadge=false（預設，Reviews 單元視角不需要）              *@
 @* ====================================================================== *@
 
 <details class="border-b border-gray-100" open>
@@ -96,6 +98,12 @@
                                 <i class="fa-solid fa-user-circle @iconCss text-base"></i>
                                 <span class="text-xs font-bold text-slate-main">@displayName</span>
                                 <span class="inline-block px-2 py-0.5 rounded text-xs font-bold border @badgeCss">@entry.Label</span>
+                                @if (ShowUnitBadge && !string.IsNullOrEmpty(entry.UnitDisplayCode))
+                                {
+                                    <span class="inline-block px-2 py-0.5 rounded text-xs font-bold bg-slate-main/10 text-slate-main border border-slate-main/20 font-mono tracking-tight">
+                                        @entry.UnitDisplayCode
+                                    </span>
+                                }
                             </div>
                             <span class="text-xs text-gray-500">@entry.At.ToString("yyyy/MM/dd HH:mm")</span>
                         </div>
@@ -139,4 +147,10 @@
     /// false = 顯示角色稱謂（審題公平性，如 Reviews）。預設 false 維持原行為。
     /// </summary>
     [Parameter] public bool ShowActorName { get; set; } = false;
+
+    /// <summary>
+    /// true = 顯示單元歸屬題號 badge（彙整視角，如 Overview，避免題組類多子題歷程混淆）；
+    /// false = 不顯示（單元視角，如 Reviews modal 已知當前單元）。預設 false。
+    /// </summary>
+    [Parameter] public bool ShowUnitBadge { get; set; } = false;
 }

@@ -20,12 +20,18 @@ public class PasswordResetService : IPasswordResetService
     private readonly IDatabaseService _db;
     private readonly IEmailService _emailService;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly ILogger<PasswordResetService> _logger;
 
-    public PasswordResetService(IDatabaseService db, IEmailService emailService, IHttpContextAccessor httpContextAccessor)
+    public PasswordResetService(
+        IDatabaseService db,
+        IEmailService emailService,
+        IHttpContextAccessor httpContextAccessor,
+        ILogger<PasswordResetService> logger)
     {
         _db = db;
         _emailService = emailService;
         _httpContextAccessor = httpContextAccessor;
+        _logger = logger;
     }
 
     private sealed class TokenRow
@@ -65,7 +71,6 @@ public class PasswordResetService : IPasswordResetService
         var token = Guid.NewGuid().ToString("N");
         var expiresAt = DateTime.Now.AddMinutes(ResetTokenLifetimeMinutes);
         var requestIp = ResolveIpAddress();
-        int tokenId;
 
         await using var tx = await conn.BeginTransactionAsync();
 
@@ -78,9 +83,8 @@ public class PasswordResetService : IPasswordResetService
                     AND IsUsed = 0",
                 new { UserId = user.Id }, tx);
 
-            tokenId = await conn.ExecuteScalarAsync<int>(
+            await conn.ExecuteAsync(
                 @"INSERT INTO dbo.MT_PasswordResetTokens (UserId, Token, RequestIp, ExpiresAt, IsUsed)
-                  OUTPUT INSERTED.Id
                   VALUES (@UserId, @Token, @RequestIp, @ExpiresAt, 0)",
                 new
                 {
@@ -99,27 +103,32 @@ public class PasswordResetService : IPasswordResetService
             throw new InvalidOperationException($"建立密碼重設連結失敗：{ex.Message}", ex);
         }
 
-        try
-        {
-            var resetPasswordUrl = new Uri(new Uri(baseUri), $"resetpassword?token={Uri.EscapeDataString(token)}").ToString();
-            await _emailService.SendResetPWEmailAsync(
-                user.Email,
-                "CWT 命題工作平臺 - 密碼重設通知",
-                baseUri,
-                resetPasswordUrl);
+        // Fire-and-forget：DB token 已 commit，立即回應使用者；寄信改背景執行避免 SMTP 卡住前端。
+        // 寄信失敗的補救：token 自帶 10 分鐘 ExpiresAt 會自然失效，使用者收不到信時直接重申請即可。
+        var resetPasswordUrl = new Uri(new Uri(baseUri), $"resetpassword?token={Uri.EscapeDataString(token)}").ToString();
+        var toEmail = user.Email;
+        var userIdForLog = user.Id;
+        var emailService = _emailService;
+        var logger = _logger;
 
-            return (true, successMessage);
-        }
-        catch
+        _ = Task.Run(async () =>
         {
-            await conn.ExecuteAsync(
-                @"UPDATE dbo.MT_PasswordResetTokens
-                  SET IsUsed = 1
-                  WHERE Id = @TokenId",
-                new { TokenId = tokenId });
+            try
+            {
+                await emailService.SendResetPWEmailAsync(
+                    toEmail,
+                    "CWT 命題工作平臺 - 密碼重設通知",
+                    baseUri,
+                    resetPasswordUrl);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "背景寄送密碼重設信失敗 UserId={UserId}，token 將於 10 分鐘後自然失效。", userIdForLog);
+            }
+        });
 
-            throw;
-        }
+        return (true, successMessage);
     }
 
     public async Task<(bool Success, string Message, int UserId, int TokenId)> ValidateTokenAsync(string token)

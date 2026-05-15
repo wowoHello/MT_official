@@ -40,14 +40,7 @@
                     }
                     else if (data is not null)
                     {
-                        <span class="font-black text-slate-main text-base shrink-0">@data.Question.QuestionCode</span>
-                        @if (data.SubQuestionId is not null)
-                        {
-                            @* Stage B-4-2：子題單元徽章 — 取該子題在母題裡的順序索引（找不到時直接顯示 sub.Id） *@
-                            <span class="px-2.5 py-0.5 bg-morandi/15 text-morandi rounded-md text-xs font-bold border border-morandi/30 shrink-0">
-                                <i class="fa-solid fa-list-ol mr-1"></i> 第 @SubLabelNumber 子題
-                            </span>
-                        }
+                        <span class="font-black text-slate-main text-base shrink-0">@HeaderDisplayCode</span>
                         <span class="px-2.5 py-0.5 bg-gray-100 text-gray-700 rounded-md text-xs font-bold border border-gray-200 shrink-0">
                             @QuestionConstants.TypeLabels.GetValueOrDefault(data.Question.QuestionType, "未知題型")
                         </span>
@@ -881,14 +874,19 @@
         : QuestionConstants.DifficultyLabels.GetValueOrDefault(data.Question.Difficulty.Value, "");
 
     /// <summary>
-    /// Stage B-4-2：子題單元徽章顯示用 — 找出 data.SubQuestionId 在當前題型的子題清單中的位置（+1 起算）。
-    /// 找不到時顯示 sub.Id 作為 fallback，避免 0/「找不到」造成困惑。
+    /// Header 顯示用題目編號：母題視角顯示母題碼；子題視角組合 {母題碼}-{NN}（例 Q-115-00035-01）。
+    /// 子題序號取自當前題型子題清單的 FindIndex+1（GetByIdAsync 端已按 SortOrder 載入，
+    /// UpsertSubQuestionsAsync 會在刪除中間子題後重編 SortOrder 為連續，故 index+1 = SortOrder）。
+    /// 找不到子題索引時 fallback 顯示母題碼。
     /// </summary>
-    private string SubLabelNumber
+    private string HeaderDisplayCode
     {
         get
         {
-            if (data?.SubQuestionId is null) return "";
+            if (data is null) return "";
+            var parentCode = data.Question.QuestionCode;
+            if (data.SubQuestionId is null) return parentCode;
+
             var subId = data.SubQuestionId.Value;
             int idx = data.Question.QuestionType switch
             {
@@ -897,7 +895,7 @@
                 QuestionTypeCodes.ListenGroup  => data.Question.ListenGroupSubQuestions.FindIndex(s => s.Id == subId),
                 _                              => -1
             };
-            return idx >= 0 ? (idx + 1).ToString() : $"#{subId}";
+            return idx >= 0 ? QuestionCodeHelper.SubCode(parentCode, idx + 1) : parentCode;
         }
     }
 

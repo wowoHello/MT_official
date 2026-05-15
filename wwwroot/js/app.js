@@ -11,7 +11,8 @@
  *   3. 表單驗證 UI                — scrollToFirstInvalid
  *   4. 純文字輸入助手             — TextareaHelper
  *   5. 檔案上傳                   — ImageUpload / AudioUpload
- *   6. 字體縮放控制器             — FontController
+ *   6. 聘書 Canvas 繪製           — AppointmentCert
+ *   7. 字體縮放控制器             — FontController
  */
 
 
@@ -303,7 +304,8 @@ window.ImageUpload = {
             const fd = new FormData();
             fd.append('file', file);
             try {
-                const res = await fetch('/api/upload', { method: 'POST', body: fd });
+                // 相對路徑（無開頭 '/'）以支援 IIS 子應用程式（PathBase=/MT），由 <base href> 自動補前綴
+                const res = await fetch('api/upload', { method: 'POST', body: fd });
                 const data = await res.json();
                 if (!res.ok) {
                     reject(data.error || '圖片上傳失敗');
@@ -341,7 +343,8 @@ window.AudioUpload = {
             const fd = new FormData();
             fd.append('file', file);
             try {
-                const res = await fetch('/api/upload-audio', { method: 'POST', body: fd });
+                // 相對路徑（無開頭 '/'）以支援 IIS 子應用程式（PathBase=/MT），由 <base href> 自動補前綴
+                const res = await fetch('api/upload-audio', { method: 'POST', body: fd });
                 const data = await res.json();
                 if (!res.ok) {
                     reject(data.error || '音檔上傳失敗');
@@ -360,7 +363,206 @@ window.AudioUpload = {
 
 
 // ============================================================
-//  6. 字體縮放控制器
+//  6. 聘書 Canvas 繪製
+//     由 Projects / Teachers 儲存後或進頁面時呼叫 drawAndUpload(drafts, pathBase)。
+//     - 載入 wwwroot/img/appointment.png 為背景（首次載入後快取 Image 物件）
+//     - 對每筆 draft 用 Canvas 疊字 → toBlob → POST /api/appointment-cert/upload
+//     - 多筆時顯示 SweetAlert 進度（silent=true 時靜默補畫）
+//
+//     座標常數（FIELD_POSITIONS）為第一版「合理估計值」，請依實際 appointment.png
+//     效果用 user 提供的測量結果調整。
+// ============================================================
+
+window.AppointmentCert = (() => {
+    // 8 個欄位座標（標楷體；座標為 px，原點左上）
+    // appointment.png 實際尺寸 1055×1491；座標需依實圖效果再校
+    const FIELD_POSITIONS = {
+        certNumber: { x: 680, y: 700,  font: '28px 標楷體', align: 'center' }, // 右上小框內置中
+        school:     { x: 208, y: 832,  font: '50px 標楷體', align: 'left'   }, // 茲敦聘下方
+        nameTitle:  { x: 590, y: 832,  font: '50px 標楷體', align: 'left'   }, // 學校右側
+        roleName:   { x: 685, y: 898,  font: '44px 標楷體', align: 'left'   }, // 「中文能力測驗中心」後
+        period:     { x: 340, y: 965, font: '36px 標楷體', align: 'left'   }, // 「聘期自」後（縮小避免超寬）
+        yearROC:    { x: 510, y: 1380, font: '44px 標楷體', align: 'center' }, // 年
+        month:      { x: 650, y: 1380, font: '44px 標楷體', align: 'center' }, // 月
+        day:        { x: 780, y: 1380, font: '44px 標楷體', align: 'center' }  // 日
+    };
+
+    let cachedImage = null;
+
+    const loadImage = (src) => new Promise((resolve, reject) => {
+        if (cachedImage) return resolve(cachedImage);
+        const img = new Image();
+        img.onload = () => { cachedImage = img; resolve(img); };
+        img.onerror = () => reject(new Error('appointment.png 載入失敗'));
+        img.src = src;
+    });
+
+    const drawField = (ctx, text, pos) => {
+        if (text === null || text === undefined || text === '') return;
+        ctx.font = pos.font;
+        ctx.textAlign = pos.align;
+        ctx.fillStyle = 'black';
+        ctx.fillText(String(text), pos.x, pos.y);
+    };
+
+    /**
+     * 分散對齊繪製：第一字頂左邊（pos.x）、最後字頂右邊（pos.x + totalWidth）、
+     * 中間字元等距均分。常見於行政文件對齊到欄寬。
+     *
+     * 若文字過長（即使 step-down 到 minSize 仍超出 totalWidth），會接受 overflow 但不壓字。
+     */
+    const drawFieldJustified = (ctx, text, pos, totalWidth, minSize) => {
+        if (text === null || text === undefined || text === '') return;
+        const text2 = String(text);
+        const chars = [...text2]; // 用 spread 支援 surrogate pair（保險）
+        if (chars.length <= 1) return drawField(ctx, text2, pos);
+
+        const fontMatch = pos.font.match(/(\d+)px\s+(.+)/);
+        if (!fontMatch) return drawField(ctx, text2, pos);
+
+        let size = parseInt(fontMatch[1], 10);
+        const family = fontMatch[2];
+        const minS = minSize || 24;
+
+        // 先 step-down 字級嘗試 fit；觸底仍超出時接受 overflow（不橫向壓字）
+        ctx.font = `${size}px ${family}`;
+        while (size > minS) {
+            const total = chars.reduce((sum, c) => sum + ctx.measureText(c).width, 0);
+            if (total <= totalWidth) break;
+            size -= 2;
+            ctx.font = `${size}px ${family}`;
+        }
+
+        // 最終字級下重量各字寬度
+        const widths = chars.map(c => ctx.measureText(c).width);
+
+        // CJK 排版慣例：等距「字元中心」+ 字元置中於自己中心點
+        // 第一字中心位於 pos.x + widths[0]/2、末字中心位於 pos.x + totalWidth - widths[last]/2，
+        // 中間字元中心線性內插。半形（數字）與全形（漢字）混排時視覺節奏仍對齊。
+        const firstCenter = pos.x + widths[0] / 2;
+        const lastCenter = pos.x + totalWidth - widths[chars.length - 1] / 2;
+        const cellSpacing = (lastCenter - firstCenter) / (chars.length - 1);
+
+        ctx.textAlign = 'left';
+        ctx.fillStyle = 'black';
+        for (let i = 0; i < chars.length; i++) {
+            const center = firstCenter + i * cellSpacing;
+            ctx.fillText(chars[i], center - widths[i] / 2, pos.y);
+        }
+    };
+
+    /**
+     * 自動縮字級繪製：先用 pos.font 量字寬，若超過 maxWidth 就 step-down 2px 直到 fit 或觸底 minSize。
+     * 不會壓扁字體（不用 ctx.fillText 的第 4 參數 maxWidth，避免中文橫向擠壓變醜）。
+     */
+    const drawFieldAutoFit = (ctx, text, pos, maxWidth, minSize) => {
+        if (text === null || text === undefined || text === '') return;
+        const text2 = String(text);
+        const fontMatch = pos.font.match(/(\d+)px\s+(.+)/);
+        if (!fontMatch) return drawField(ctx, text2, pos);
+
+        let size = parseInt(fontMatch[1], 10);
+        const family = fontMatch[2];
+        ctx.font = `${size}px ${family}`;
+        while (ctx.measureText(text2).width > maxWidth && size > minSize) {
+            size -= 2;
+            ctx.font = `${size}px ${family}`;
+        }
+        ctx.textAlign = pos.align;
+        ctx.fillStyle = 'black';
+        ctx.fillText(text2, pos.x, pos.y);
+    };
+
+    const drawOne = (img, draft) => new Promise((resolve, reject) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        // ① 字號長度固定，不需 autoFit
+        drawField(ctx, draft.certNumberText, FIELD_POSITIONS.certNumber);
+
+        // ② 學校：用 nameTitle.x - school.x - 20 作為可用寬度，過長自動縮字級
+        const schoolMaxW = FIELD_POSITIONS.nameTitle.x - FIELD_POSITIONS.school.x - 20;
+        drawFieldAutoFit(ctx, draft.school, FIELD_POSITIONS.school, schoolMaxW, 28);
+
+        // ③ 姓名+職稱：右側到畫布邊緣前留 30px 邊距
+        const nameTitleMaxW = canvas.width - FIELD_POSITIONS.nameTitle.x - 30;
+        drawFieldAutoFit(ctx, `${draft.displayName} ${draft.title}`.trim(), FIELD_POSITIONS.nameTitle, nameTitleMaxW, 28);
+
+        // ④ 身份：右側到畫布邊緣前留 30px 邊距（極端「教育部國民及學前教育署中部辦公室專員」也能容身）
+        const roleMaxW = canvas.width - FIELD_POSITIONS.roleName.x - 30;
+        drawFieldAutoFit(ctx, `${draft.roleName}，`, FIELD_POSITIONS.roleName, roleMaxW, 28);
+
+        // ⑤ 聘期：左對齊、字元自然緊鄰；過長時自動縮字級
+        const periodMaxW = canvas.width - FIELD_POSITIONS.period.x - 30;
+        drawFieldAutoFit(ctx, draft.periodText, FIELD_POSITIONS.period, periodMaxW, 28);
+
+        // ⑥⑦⑧ 日期數字最多 3 位，不需 autoFit
+        drawField(ctx, draft.issuedYearROC, FIELD_POSITIONS.yearROC);
+        drawField(ctx, draft.issuedMonth, FIELD_POSITIONS.month);
+        drawField(ctx, draft.issuedDay, FIELD_POSITIONS.day);
+
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('canvas.toBlob 失敗')), 'image/jpeg', 0.92);
+    });
+
+    return {
+        /**
+         * @param {Array} drafts        AppointmentDraftDto 陣列（PascalCase 屬性由 Blazor 序列化成 camelCase）
+         * @param {string} _pathBase    保留參數位但不再使用（改靠 base href 自動解析相對路徑，支援本機與 IIS 子應用程式）
+         * @param {boolean} silent      true = 不顯示 SweetAlert 進度（OnInitializedAsync 補畫場景）
+         */
+        drawAndUpload: async (drafts, _pathBase, silent) => {
+            if (!Array.isArray(drafts) || drafts.length === 0) return { ok: true, count: 0 };
+
+            // 用相對路徑 'img/...' / 'api/...'（無開頭 '/'），由 <base href="..."> 自動補上 PathBase。
+            // 開頭 '/' 是 absolute path 會走 host root，IIS 子應用程式（PathBase=/MT）下會跳過 /MT 前綴導致 404。
+            const img = await loadImage('img/appointment.png');
+            const total = drafts.length;
+
+            if (!silent && window.Swal) {
+                Swal.fire({
+                    title: '正在簽發聘書',
+                    html: `<span id="cert-progress">0 / ${total}</span>`,
+                    allowOutsideClick: false,
+                    showConfirmButton: false,
+                    didOpen: () => Swal.showLoading()
+                });
+            }
+
+            let done = 0;
+            let failed = 0;
+            for (const d of drafts) {
+                try {
+                    const blob = await drawOne(img, d);
+                    const fd = new FormData();
+                    fd.append('certId', String(d.certId));
+                    fd.append('file', blob, d.targetFileName);
+
+                    const res = await fetch('api/appointment-cert/upload', {
+                        method: 'POST',
+                        body: fd,
+                        credentials: 'include'
+                    });
+                    if (!res.ok) failed++;
+                } catch {
+                    failed++;
+                }
+                done++;
+                const el = document.getElementById('cert-progress');
+                if (el) el.textContent = `${done} / ${total}`;
+            }
+
+            if (!silent && window.Swal) Swal.close();
+            return { ok: failed === 0, count: done, failed };
+        }
+    };
+})();
+
+
+// ============================================================
+//  7. 字體縮放控制器
 //     縮放套用 + 拖拽 + 邊緣吸附 + 閒置半透明 + 位置記憶
 // ============================================================
 

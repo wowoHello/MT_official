@@ -584,27 +584,58 @@ public class QuestionService(
         //   啟用條件：filter.Tab == "revision" 或 filter.IncludeSubRows（Overview 用後者明示啟用）。
         var includeSubRows = filter.Tab == "revision" || filter.IncludeSubRows;
 
-        // 子題列 status 過濾（subRows 用）— 採用 sq.Status，與母題列共用 @Statuses 參數
-        // 子題的「HasRepliedThisStage」需要 JOIN MT_RevisionReplies 並比對 SubQuestionId
-        // Plan_012 + Plan_013：HasReplied 條件 — 僅在 @HasReplied 非 null 時生效。
-        // 條件意義：當前單元 Status∈{4,6,8} 且本人在「本輪」當前 Stage 是否已寫過 MT_RevisionReplies。
-        // Plan_013：只看本輪（CreatedAt > 上次總審退回時間 MAX DecidedAt），舊輪 reply 不算。
-        // Stage B-4-2：RevisionReplies 也以 SubQuestionId NULL-safe 比對（母題對 NULL、子題對自身 Id）
-        string MakeRepliedClause(string statusExpr, string subIdExpr) => $"""
-              AND (@HasReplied IS NULL OR
-                   ({statusExpr} IN (4, 6, 8) AND
-                    @HasReplied = CAST(CASE WHEN EXISTS (
-                        SELECT 1 FROM dbo.MT_RevisionReplies rr
-                        WHERE rr.QuestionId = q.Id
-                          AND ISNULL(rr.SubQuestionId, -1) = ISNULL({subIdExpr}, -1)
-                          AND rr.UserId     = q.CreatorId
-                          AND rr.Stage      = {statusExpr}
-                          AND rr.CreatedAt > ISNULL((SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt WHERE QuestionId = q.Id), '1900-01-01')
-                    ) THEN 1 ELSE 0 END AS BIT)))
+        // Plan_DB_PerfReview 第二波 #9：原 per-row inline EXISTS 改 CTE 預聚合 + LEFT JOIN
+        // 3 個 CTE 各掃一次（hash aggregate），主 SELECT 1:1 LEFT JOIN，消除 per-row subquery
+        // 對拍腳本：.claude/rules/sql/verify_listasync_cte_rewrite.sql（已驗證 4 段 PASS）
+        const string cteHeader = """
+            WITH
+            -- 母題層級 HasReplied：本人在「本輪」當前 Stage 已寫過 RevisionReply（SubQuestionId IS NULL）
+            MasterReplied AS (
+                SELECT q.Id AS QId, 1 AS HasReplied
+                FROM dbo.MT_Questions q
+                INNER JOIN dbo.MT_RevisionReplies rr
+                    ON  rr.QuestionId    = q.Id
+                    AND rr.SubQuestionId IS NULL
+                    AND rr.UserId        = q.CreatorId
+                    AND rr.Stage         = q.Status
+                LEFT JOIN dbo.vw_QuestionRoundStartedAt rs ON rs.QuestionId = q.Id
+                WHERE q.ProjectId = @ProjectId
+                  AND q.Status IN (4, 6, 8)
+                  AND rr.CreatedAt > ISNULL(rs.RoundStartedAt, '1900-01-01')
+                GROUP BY q.Id
+            ),
+            -- 子題層級 HasReplied（同模式，比對 SubQuestionId = sq.Id）
+            SubReplied AS (
+                SELECT sq.Id AS SubId, 1 AS HasReplied
+                FROM dbo.MT_SubQuestions sq
+                INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                INNER JOIN dbo.MT_RevisionReplies rr
+                    ON  rr.QuestionId    = q.Id
+                    AND rr.SubQuestionId = sq.Id
+                    AND rr.UserId        = q.CreatorId
+                    AND rr.Stage         = sq.Status
+                LEFT JOIN dbo.vw_QuestionRoundStartedAt rs ON rs.QuestionId = q.Id
+                WHERE q.ProjectId = @ProjectId
+                  AND sq.Status IN (4, 6, 8)
+                  AND rr.CreatedAt > ISNULL(rs.RoundStartedAt, '1900-01-01')
+                GROUP BY sq.Id
+            ),
+            -- 各題子題數（取代原 per-row COUNT subquery）
+            SubCounts AS (
+                SELECT sq.ParentQuestionId AS QId, COUNT(*) AS Cnt
+                FROM dbo.MT_SubQuestions sq
+                INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                WHERE q.ProjectId = @ProjectId
+                GROUP BY sq.ParentQuestionId
+            )
             """;
 
-        var repliedClauseMaster = MakeRepliedClause("q.Status", "CAST(NULL AS INT)");
-        var repliedClauseSub    = MakeRepliedClause("sq.Status", "sq.Id");
+        // HasReplied filter：取代原 MakeRepliedClause lambda 套 master / sub 兩個版本
+        // 條件意義：當前單元 Status∈{4,6,8} 且本輪內已寫 RevisionReply
+        const string masterRepliedFilter =
+              "AND (@HasReplied IS NULL OR (q.Status IN (4, 6, 8) AND @HasReplied = CAST(ISNULL(mr.HasReplied, 0) AS BIT)))";
+        const string subRepliedFilter =
+              "AND (@HasReplied IS NULL OR (sq.Status IN (4, 6, 8) AND @HasReplied = CAST(ISNULL(sr.HasReplied, 0) AS BIT)))";
 
         // count 查詢 — revision tab 用 UNION ALL（母題 + 子題分別計數）
         // 其他 Tab：原本的 master-only count
@@ -614,10 +645,12 @@ public class QuestionService(
         if (includeSubRows)
         {
             countSql = $"""
-                WITH combined AS (
-                    SELECT q.Id AS QId, CAST(NULL AS INT) AS SubId
+                {cteHeader},
+                combined AS (
+                    SELECT q.Id AS QId
                     FROM dbo.MT_Questions q
                     {countJoin}
+                    LEFT JOIN MasterReplied mr ON mr.QId = q.Id
                     WHERE q.ProjectId = @ProjectId
                       {deletedClauseQ}
                       AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
@@ -625,14 +658,15 @@ public class QuestionService(
                       AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
                       AND (@Level IS NULL OR q.Level = @Level)
                       {keywordClause}
-                      {repliedClauseMaster}
+                      {masterRepliedFilter}
 
                     UNION ALL
 
-                    SELECT q.Id AS QId, sq.Id AS SubId
+                    SELECT q.Id AS QId
                     FROM dbo.MT_SubQuestions sq
                     INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
                     {countJoin}
+                    LEFT JOIN SubReplied sr ON sr.SubId = sq.Id
                     WHERE q.ProjectId = @ProjectId
                       {deletedClauseQ}
                       AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
@@ -640,7 +674,7 @@ public class QuestionService(
                       AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
                       AND (@Level IS NULL OR q.Level = @Level)
                       AND (@Keyword IS NULL OR sq.Stem LIKE '%' + @Keyword + '%' OR q.QuestionCode LIKE '%' + @Keyword + '%')
-                      {repliedClauseSub}
+                      {subRepliedFilter}
                 )
                 SELECT COUNT(*) FROM combined;
                 """;
@@ -648,9 +682,11 @@ public class QuestionService(
         else
         {
             countSql = $"""
+                {cteHeader}
                 SELECT COUNT(*)
                 FROM dbo.MT_Questions q
                 {countJoin}
+                LEFT JOIN MasterReplied mr ON mr.QId = q.Id
                 WHERE q.ProjectId = @ProjectId
                   {deletedClauseQ}
                   AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
@@ -658,11 +694,12 @@ public class QuestionService(
                   AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
                   AND (@Level IS NULL OR q.Level = @Level)
                   {keywordClause}
-                  {repliedClauseMaster};
+                  {masterRepliedFilter};
                 """;
         }
 
-        // 母題列 SELECT（兩種模式共用）— SubQuestionId / SubSortOrder 為 NULL
+        // 母題列 SELECT 主體（兩種模式共用）— SubQuestionId / SubSortOrder 為 NULL
+        // HasRepliedThisStage 與 SubQuestionCount 改用 CTE LEFT JOIN 取結果，消除 per-row subquery
         string masterSelectSql = $"""
             SELECT
                 q.Id, q.QuestionCode,
@@ -672,22 +709,15 @@ public class QuestionService(
                 CASE WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent ELSE q.Stem END AS SummaryHtml,
                 q.CreatedAt, q.UpdatedAt,
                 q.IsDeleted,
-                (SELECT COUNT(*) FROM dbo.MT_SubQuestions sq
-                 WHERE sq.ParentQuestionId = q.Id) AS SubQuestionCount,
+                ISNULL(sc.Cnt, 0) AS SubQuestionCount,
                 ISNULL(u.DisplayName, '') AS CreatorName,
-                CAST(CASE WHEN EXISTS (
-                    SELECT 1 FROM dbo.MT_RevisionReplies rr
-                    WHERE rr.QuestionId = q.Id
-                      AND rr.SubQuestionId IS NULL
-                      AND rr.UserId     = q.CreatorId
-                      AND rr.Stage      = q.Status
-                      AND q.Status IN (4, 6, 8)
-                      AND rr.CreatedAt > ISNULL((SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt WHERE QuestionId = q.Id), '1900-01-01')
-                ) THEN 1 ELSE 0 END AS BIT) AS HasRepliedThisStage,
+                CAST(ISNULL(mr.HasReplied, 0) AS BIT) AS HasRepliedThisStage,
                 CAST(NULL AS INT) AS SubQuestionId,
                 CAST(NULL AS INT) AS SubSortOrder
             FROM dbo.MT_Questions q
-            LEFT JOIN dbo.MT_Users u ON u.Id = q.CreatorId
+            LEFT JOIN dbo.MT_Users u   ON u.Id  = q.CreatorId
+            LEFT JOIN MasterReplied mr ON mr.QId = q.Id
+            LEFT JOIN SubCounts     sc ON sc.QId = q.Id
             WHERE q.ProjectId = @ProjectId
               {deletedClauseQ}
               AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
@@ -695,10 +725,10 @@ public class QuestionService(
               AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
               AND (@Level IS NULL OR q.Level = @Level)
               {keywordClause}
-              {repliedClauseMaster}
+              {masterRepliedFilter}
             """;
 
-        // 子題列 SELECT（僅 revision tab 啟用）
+        // 子題列 SELECT 主體（僅 revision tab 啟用）
         string subSelectSql = $"""
             SELECT
                 q.Id, q.QuestionCode,
@@ -711,20 +741,13 @@ public class QuestionService(
                 q.IsDeleted,
                 0 AS SubQuestionCount,
                 ISNULL(u.DisplayName, '') AS CreatorName,
-                CAST(CASE WHEN EXISTS (
-                    SELECT 1 FROM dbo.MT_RevisionReplies rr
-                    WHERE rr.QuestionId    = q.Id
-                      AND rr.SubQuestionId = sq.Id
-                      AND rr.UserId        = q.CreatorId
-                      AND rr.Stage         = sq.Status
-                      AND sq.Status IN (4, 6, 8)
-                      AND rr.CreatedAt > ISNULL((SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt WHERE QuestionId = q.Id), '1900-01-01')
-                ) THEN 1 ELSE 0 END AS BIT) AS HasRepliedThisStage,
+                CAST(ISNULL(sr.HasReplied, 0) AS BIT) AS HasRepliedThisStage,
                 sq.Id        AS SubQuestionId,
                 sq.SortOrder AS SubSortOrder
             FROM dbo.MT_SubQuestions sq
             INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
             LEFT JOIN dbo.MT_Users u ON u.Id = q.CreatorId
+            LEFT JOIN SubReplied   sr ON sr.SubId = sq.Id
             WHERE q.ProjectId = @ProjectId
               {deletedClauseQ}
               AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
@@ -732,7 +755,7 @@ public class QuestionService(
               AND (@QuestionTypeId IS NULL OR q.QuestionTypeId = @QuestionTypeId)
               AND (@Level IS NULL OR q.Level = @Level)
               AND (@Keyword IS NULL OR sq.Stem LIKE '%' + @Keyword + '%' OR q.QuestionCode LIKE '%' + @Keyword + '%')
-              {repliedClauseSub}
+              {subRepliedFilter}
             """;
 
         // 列出 SQL：revision tab 用 UNION ALL；其他 Tab master-only
@@ -742,7 +765,8 @@ public class QuestionService(
         if (includeSubRows)
         {
             listSql = $"""
-                WITH combined AS (
+                {cteHeader},
+                combined AS (
                     {masterSelectSql}
                     UNION ALL
                     {subSelectSql}
@@ -760,6 +784,7 @@ public class QuestionService(
         else
         {
             listSql = $"""
+                {cteHeader}
                 {masterSelectSql}
                 ORDER BY
                     CASE WHEN q.Status = 0 THEN 0

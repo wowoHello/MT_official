@@ -141,6 +141,12 @@ public class ReviewHistoryEntry
 
     /// <summary>內容（HTML 已淨化），可能為空（純事件無內文）</summary>
     public string? ContentHtml { get; set; }
+
+    /// <summary>
+    /// 單元歸屬完整題號（彙整視角才填，例：母題 Q-115-00042、子題 Q-115-00042-01）；
+    /// 精準視角下為 null（呼叫端 UI 不顯示此標籤）。
+    /// </summary>
+    public string? UnitDisplayCode { get; set; }
 }
 
 /// <summary>相似題比對單筆</summary>

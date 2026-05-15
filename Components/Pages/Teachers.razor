@@ -7,6 +7,7 @@
 @* ====================================================================== *@
 @page "/teachers"
 @inject ITeacherService TeacherService
+@inject IAppointmentService AppointmentService
 @inject ILogger<Teachers> Logger
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
@@ -36,6 +37,10 @@
                 <p class="text-sm text-gray-500 mt-1">教師人才庫、跨梯次命審歷程與帳號管理。</p>
             </div>
             <div class="flex gap-2">
+                <button type="button" @onclick='() => ShowComingSoonAsync("批次匯入教師")'
+                    class="cursor-pointer px-4 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm focus:outline-none flex items-center gap-2">
+                    <i class="fa-solid fa-file-import"></i> 批次匯入
+                </button>
                 <button type="button" @onclick="HandleExport"
                     class="cursor-pointer px-4 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm focus:outline-none flex items-center gap-2">
                     <i class="fa-solid fa-file-export"></i> 匯出名單
@@ -303,8 +308,14 @@
                             <!-- 篩選 + 列表 -->
                             <div class="bg-white rounded-lg border border-gray-100">
                                 <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                                    <span class="font-bold text-sm text-gray-800">跨專案命題歷程</span>
-                                    <select @bind="composeFilterProjectId" @bind:after="LoadComposeHistoryAsync"
+                                    <span class="font-bold text-sm text-gray-800">
+                                        跨專案命題歷程
+                                        @if (composeResult.TotalCount > 0)
+                                        {
+                                            <span class="ml-2 text-xs font-normal text-gray-500">共 <span class="text-morandi font-bold">@composeResult.TotalCount</span> 筆</span>
+                                        }
+                                    </span>
+                                    <select @bind="composeFilterProjectId" @bind:after="OnComposeFilterChangedAsync"
                                         class="text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-morandi cursor-pointer bg-white">
                                         <option value="">全部專案</option>
                                         @foreach (var p in projectFilterOptions)
@@ -313,7 +324,7 @@
                                         }
                                     </select>
                                 </div>
-                                @if (composeHistory.Count == 0)
+                                @if (composeResult.Items.Count == 0)
                                 {
                                     <div class="p-4">
                                         <EmptyState IconClass="fa-clock-rotate-left" Message="尚無命題歷程"
@@ -322,7 +333,7 @@
                                 }
                                 else
                                 {
-                                    @foreach (var item in composeHistory)
+                                    @foreach (var item in composeResult.Items)
                                     {
                                         <div class="flex items-center justify-between px-4 py-3 border-b border-gray-50 last:border-b-0 hover:bg-gray-50/50">
                                             <div class="flex items-center gap-3">
@@ -336,6 +347,10 @@
                                             </div>
                                         </div>
                                     }
+                                    <Pagination CurrentPage="@composePage"
+                                                TotalPages="@composeResult.PageCount"
+                                                IsLoading="@isLoadingCompose"
+                                                OnPageChanged="OnComposePageChangedAsync" />
                                 }
                             </div>
                         }
@@ -361,8 +376,14 @@
                             <!-- 篩選 + 列表 -->
                             <div class="bg-white rounded-lg border border-gray-100">
                                 <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                                    <span class="font-bold text-sm text-gray-800">跨專案審題歷程</span>
-                                    <select @bind="reviewFilterProjectId" @bind:after="LoadReviewHistoryAsync"
+                                    <span class="font-bold text-sm text-gray-800">
+                                        跨專案審題歷程
+                                        @if (reviewResult.TotalCount > 0)
+                                        {
+                                            <span class="ml-2 text-xs font-normal text-gray-500">共 <span class="text-morandi font-bold">@reviewResult.TotalCount</span> 筆</span>
+                                        }
+                                    </span>
+                                    <select @bind="reviewFilterProjectId" @bind:after="OnReviewFilterChangedAsync"
                                         class="text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-morandi cursor-pointer bg-white">
                                         <option value="">全部專案</option>
                                         @foreach (var p in projectFilterOptions)
@@ -371,7 +392,7 @@
                                         }
                                     </select>
                                 </div>
-                                @if (reviewHistory.Count == 0)
+                                @if (reviewResult.Items.Count == 0)
                                 {
                                     <div class="p-4">
                                         <EmptyState IconClass="fa-clipboard-check" Message="尚無審題歷程"
@@ -380,7 +401,7 @@
                                 }
                                 else
                                 {
-                                    @foreach (var item in reviewHistory)
+                                    @foreach (var item in reviewResult.Items)
                                     {
                                         <div class="flex items-center justify-between px-4 py-3 border-b border-gray-50 last:border-b-0 hover:bg-gray-50/50">
                                             <div class="flex items-center gap-3">
@@ -395,6 +416,10 @@
                                             </div>
                                         </div>
                                     }
+                                    <Pagination CurrentPage="@reviewPage"
+                                                TotalPages="@reviewResult.PageCount"
+                                                IsLoading="@isLoadingReview"
+                                                OnPageChanged="OnReviewPageChangedAsync" />
                                 }
                             </div>
                         }
@@ -462,22 +487,41 @@
                                                     }
                                                 </div>
                                             }
-                                            <!-- 統計列 -->
-                                            <div class="flex items-center gap-5 text-sm text-gray-600">
-                                                <span class="flex items-center gap-1.5">
-                                                    <i class="fa-solid fa-pen-to-square text-morandi"></i>
-                                                    命題 <span class="font-bold text-slate-main">@project.QuestionCount</span> 題
-                                                </span>
-                                                <span class="flex items-center gap-1.5">
-                                                    <i class="fa-solid fa-circle-check text-sage"></i>
-                                                    採用 <span class="font-bold text-slate-main">@project.AdoptedCount</span> 題
-                                                </span>
-                                                @if (project.QuestionCount > 0)
-                                                {
+                                            <!-- 統計列 + 下載聘書 -->
+                                            <div class="flex items-center justify-between gap-3 text-sm text-gray-600">
+                                                <div class="flex items-center gap-5">
                                                     <span class="flex items-center gap-1.5">
-                                                        <i class="fa-solid fa-chart-line text-terracotta"></i>
-                                                        採用率 <span class="font-bold text-slate-main">@project.AdoptionRateText</span>
+                                                        <i class="fa-solid fa-pen-to-square text-morandi"></i>
+                                                        命題 <span class="font-bold text-slate-main">@project.QuestionCount</span> 題
                                                     </span>
+                                                    <span class="flex items-center gap-1.5">
+                                                        <i class="fa-solid fa-circle-check text-sage"></i>
+                                                        採用 <span class="font-bold text-slate-main">@project.AdoptedCount</span> 題
+                                                    </span>
+                                                    @if (project.QuestionCount > 0)
+                                                    {
+                                                        <span class="flex items-center gap-1.5">
+                                                            <i class="fa-solid fa-chart-line text-terracotta"></i>
+                                                            採用率 <span class="font-bold text-slate-main">@project.AdoptionRateText</span>
+                                                        </span>
+                                                    }
+                                                </div>
+                                                @if (project.HasDownloadableCerts)
+                                                {
+                                                    <div class="flex items-center gap-2 flex-wrap justify-end">
+                                                        <button type="button" @onclick="() => OpenEditPeriodModal(selectedDetail!.UserId, project.ProjectId)"
+                                                            title="編輯此教師在本梯次的聘期（儲存後自動重產聘書）"
+                                                            class="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-main border border-slate-main/30 rounded-lg hover:bg-slate-main/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-main/40 transition-colors whitespace-nowrap">
+                                                            <i class="fa-solid fa-pen-to-square"></i> 編輯聘期
+                                                        </button>
+                                                        <a href="@($"api/appointment-cert/download/{project.ProjectId}/user/{selectedDetail!.UserId}")"
+                                                           target="_blank"
+                                                           rel="noopener"
+                                                           title="下載此教師在本梯次的聘書（1 份直下 jpg、多份打包 zip）"
+                                                           class="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-morandi border border-morandi/30 rounded-lg hover:bg-morandi/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-morandi/40 transition-colors whitespace-nowrap no-underline">
+                                                            <i class="fa-solid fa-award"></i> 下載聘書
+                                                        </a>
+                                                    </div>
                                                 }
                                             </div>
                                         </div>
@@ -500,6 +544,17 @@
     <ChildContent>
         <EditForm Model="formModel" OnValidSubmit="HandleSaveTeacher" FormName="teacherForm">
             <div class="space-y-8">
+                <!-- 聘書相關欄位提醒：跨區塊提示，避免使用者忽略職稱必填 -->
+                <div class="px-4 py-3 bg-morandi/10 border border-morandi/30 rounded-lg flex items-start gap-2.5 text-sm text-morandi">
+                    <i class="fa-solid fa-award mt-0.5 flex-shrink-0 text-base"></i>
+                    <span class="leading-relaxed">
+                        <span class="font-bold">教師姓名</span>、
+                        <span class="font-bold">任教學校</span>、
+                        <span class="font-bold">職稱</span>
+                        會用於產聘書，請務必正確填寫。
+                    </span>
+                </div>
+
                 <!-- 區塊 1: 基本資料 -->
                 <div class="space-y-4">
                     <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
@@ -566,7 +621,7 @@
                                 class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm" />
                         </div>
                         <div>
-                            <label class="block text-sm font-medium mb-1 text-gray-700">職稱</label>
+                            <label class="block text-sm font-medium mb-1 text-gray-700">職稱 <span class="text-red-500">*</span></label>
                             <InputSelect @bind-Value="formModel.Title"
                                 class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm bg-white cursor-pointer">
                                 <option value="">請選擇</option>
@@ -711,12 +766,62 @@
     </FooterContent>
 </CustomModal>
 
+@* 編輯聘期 Modal（共用元件） *@
+<EditAppointmentPeriodModal @bind-IsVisible="showEditPeriodModal"
+                             UserId="editPeriodUserId"
+                             ProjectId="editPeriodProjectId"
+                             OnSaved="HandleEditPeriodSaved" />
+
 @* ══════════════════════════════════════════════════════════════════════ *@
 @*  @code                                                               *@
 @* ══════════════════════════════════════════════════════════════════════ *@
 @code {
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
     [CascadingParameter(Name = "CurrentProject")] private ProjectSwitcherItem? CurrentProject { get; set; }
+
+    /// <summary>
+    /// 加入梯次後即時繪製該專案所有「未完成」聘書並上傳。
+    /// 無 pending 時靜默略過。
+    /// </summary>
+    private async Task DrawPendingAppointmentsAsync(int projectId)
+    {
+        try
+        {
+            var pending = await AppointmentService.GetPendingDraftsByProjectAsync(projectId);
+            if (pending.Count == 0) return;
+            await JS.InvokeVoidAsync("AppointmentCert.drawAndUpload", pending, "", false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "聘書繪製失敗 (projectId={ProjectId})", projectId);
+        }
+    }
+
+    // ──── 編輯聘期 Modal 狀態 ────
+    private bool showEditPeriodModal = false;
+    private int? editPeriodUserId;
+    private int? editPeriodProjectId;
+
+    private void OpenEditPeriodModal(int userId, int projectId)
+    {
+        editPeriodUserId = userId;
+        editPeriodProjectId = projectId;
+        showEditPeriodModal = true;
+    }
+
+    /// <summary>編輯聘期儲存後：觸發 client 重畫對應 cert（FileName 已被 UpdateCustomPeriodsAsync 設為 NULL）。</summary>
+    private async Task HandleEditPeriodSaved()
+    {
+        if (editPeriodProjectId is int pid)
+        {
+            await DrawPendingAppointmentsAsync(pid);
+            // 重畫完成後可能需要更新「HasDownloadableCerts」狀態（暫時保留下次重載觸發即可）
+            if (selectedDetail is not null)
+            {
+                await SelectTeacher(selectedDetail.Id);
+            }
+        }
+    }
 
     // ──── 列表狀態 ────
     private List<TeacherListItem> allTeachers = [];
@@ -732,14 +837,19 @@
     private bool isActionBusy = false;
 
     // ──── 命題歷程 ────
+    private const int HistoryPageSize = 10;
     private TeacherComposeStats composeStats = new();
-    private List<TeacherComposeItem> composeHistory = [];
+    private TeacherComposeHistoryResult composeResult = new() { PageSize = HistoryPageSize };
     private string composeFilterProjectId = "";
+    private int composePage = 1;
+    private bool isLoadingCompose = false;
 
     // ──── 審題歷程 ────
     private TeacherReviewStats reviewStats = new();
-    private List<TeacherReviewItem> reviewHistory = [];
+    private TeacherReviewHistoryResult reviewResult = new() { PageSize = HistoryPageSize };
     private string reviewFilterProjectId = "";
+    private int reviewPage = 1;
+    private bool isLoadingReview = false;
 
     // ──── 參與專案 ────
     private List<TeacherProjectItem> teacherProjects = [];
@@ -819,6 +929,8 @@
         detailTab = "info";
         composeFilterProjectId = "";
         reviewFilterProjectId = "";
+        composePage = 1;
+        reviewPage = 1;
 
         try
         {
@@ -844,18 +956,64 @@
     private async Task LoadComposeHistoryAsync()
     {
         if (selectedDetail is null) return;
-        var projectId = string.IsNullOrEmpty(composeFilterProjectId) ? (int?)null : int.Parse(composeFilterProjectId);
-        composeStats = await TeacherService.GetTeacherComposeStatsAsync(selectedDetail.UserId, projectId);
-        composeHistory = await TeacherService.GetTeacherComposeHistoryAsync(selectedDetail.UserId, projectId);
+        isLoadingCompose = true;
+        try
+        {
+            var projectId = string.IsNullOrEmpty(composeFilterProjectId) ? (int?)null : int.Parse(composeFilterProjectId);
+            composeStats = await TeacherService.GetTeacherComposeStatsAsync(selectedDetail.UserId, projectId);
+            composeResult = await TeacherService.GetTeacherComposeHistoryAsync(selectedDetail.UserId, projectId, composePage, HistoryPageSize);
+        }
+        finally
+        {
+            isLoadingCompose = false;
+        }
+    }
+
+    // 切換梯次篩選時重設為第 1 頁
+    private async Task OnComposeFilterChangedAsync()
+    {
+        composePage = 1;
+        await LoadComposeHistoryAsync();
+    }
+
+    // 分頁器回呼
+    private async Task OnComposePageChangedAsync(int page)
+    {
+        if (page < 1 || page > composeResult.PageCount || page == composePage) return;
+        composePage = page;
+        await LoadComposeHistoryAsync();
     }
 
     // ──── 審題歷程載入 ────
     private async Task LoadReviewHistoryAsync()
     {
         if (selectedDetail is null) return;
-        var projectId = string.IsNullOrEmpty(reviewFilterProjectId) ? (int?)null : int.Parse(reviewFilterProjectId);
-        reviewStats = await TeacherService.GetTeacherReviewStatsAsync(selectedDetail.UserId, projectId);
-        reviewHistory = await TeacherService.GetTeacherReviewHistoryAsync(selectedDetail.UserId, projectId);
+        isLoadingReview = true;
+        try
+        {
+            var projectId = string.IsNullOrEmpty(reviewFilterProjectId) ? (int?)null : int.Parse(reviewFilterProjectId);
+            reviewStats = await TeacherService.GetTeacherReviewStatsAsync(selectedDetail.UserId, projectId);
+            reviewResult = await TeacherService.GetTeacherReviewHistoryAsync(selectedDetail.UserId, projectId, reviewPage, HistoryPageSize);
+        }
+        finally
+        {
+            isLoadingReview = false;
+        }
+    }
+
+    // 切換梯次篩選時重設為第 1 頁
+    private async Task OnReviewFilterChangedAsync()
+    {
+        reviewPage = 1;
+        await LoadReviewHistoryAsync();
+    }
+
+    // 分頁器回呼
+    private async Task OnReviewPageChangedAsync(int page)
+    {
+        if (page < 1 || page > reviewResult.PageCount || page == reviewPage) return;
+        reviewPage = page;
+        await LoadReviewHistoryAsync();
     }
 
     // ──── 新增教師 ────
@@ -910,6 +1068,11 @@
         if (string.IsNullOrWhiteSpace(formModel.School))
         {
             await JS.InvokeVoidAsync("Swal.fire", new { icon = "warning", title = "請填寫任教學校", confirmButtonColor = "#6B8EAD" });
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(formModel.Title))
+        {
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "warning", title = "請選擇職稱", confirmButtonColor = "#6B8EAD" });
             return;
         }
 
@@ -1086,6 +1249,18 @@
         await JS.InvokeVoidAsync("Swal.fire", new { icon = "info", title = "功能開發中", text = "匯出名單功能將於後續版本提供。", confirmButtonColor = "#6B8EAD" });
     }
 
+    // ──── 共用：尚未上線功能的提示（批次匯入、下載聘書等開發中按鈕共用）────
+    private async Task ShowComingSoonAsync(string featureName)
+    {
+        await JS.InvokeVoidAsync("Swal.fire", new
+        {
+            icon = "info",
+            title = $"「{featureName}」即將推出",
+            text = "此功能正在開發中，敬請期待。",
+            confirmButtonColor = "#6B8EAD"
+        });
+    }
+
     // ──── 加入梯次 ────
     private async Task OpenAssignModal()
     {
@@ -1144,6 +1319,10 @@
 
             // 立即關閉視窗並以非同步方式播放 SweetAlert，不阻塞後續資料刷新
             showAssignModal = false;
+
+            // 即時繪製新加入的聘書（每個身份一張）
+            await DrawPendingAppointmentsAsync(assignProjectId);
+
             _ = JS.InvokeVoidAsync("Swal.fire", new { icon = "success", title = "已加入梯次", toast = true, position = "top-end", showConfirmButton = false, timer = 1500 });
             StateHasChanged();
 

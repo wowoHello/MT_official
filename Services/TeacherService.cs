@@ -21,11 +21,11 @@ public interface ITeacherService
 
     // === 命題歷程 (Tab 2a) ===
     Task<TeacherComposeStats> GetTeacherComposeStatsAsync(int teacherUserId, int? filterProjectId);
-    Task<List<TeacherComposeItem>> GetTeacherComposeHistoryAsync(int teacherUserId, int? filterProjectId);
+    Task<TeacherComposeHistoryResult> GetTeacherComposeHistoryAsync(int teacherUserId, int? filterProjectId, int page = 1, int pageSize = 10);
 
     // === 審題歷程 (Tab 2b) ===
     Task<TeacherReviewStats> GetTeacherReviewStatsAsync(int teacherUserId, int? filterProjectId);
-    Task<List<TeacherReviewItem>> GetTeacherReviewHistoryAsync(int teacherUserId, int? filterProjectId);
+    Task<TeacherReviewHistoryResult> GetTeacherReviewHistoryAsync(int teacherUserId, int? filterProjectId, int page = 1, int pageSize = 10);
 
     // === 參與專案 (Tab 3) ===
     Task<List<TeacherProjectItem>> GetTeacherProjectsAsync(int teacherUserId);
@@ -58,17 +58,20 @@ public class TeacherService : ITeacherService
     private readonly ILogger<TeacherService> _logger;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IQuestionTypeCatalog _typeCatalog;
+    private readonly IAppointmentService _appointmentSvc;
 
     public TeacherService(
         IDatabaseService db,
         ILogger<TeacherService> logger,
         IHttpContextAccessor httpContextAccessor,
-        IQuestionTypeCatalog typeCatalog)
+        IQuestionTypeCatalog typeCatalog,
+        IAppointmentService appointmentSvc)
     {
         _db = db;
         _logger = logger;
         _httpContextAccessor = httpContextAccessor;
         _typeCatalog = typeCatalog;
+        _appointmentSvc = appointmentSvc;
     }
 
     // ==================================================================
@@ -234,13 +237,26 @@ public class TeacherService : ITeacherService
     }
 
     /// <summary>
-    /// 取得教師命題歷程列表，可依梯次篩選。
+    /// 取得教師命題歷程分頁列表，可依梯次篩選。
+    /// 一次連線跑兩段 SQL（COUNT + OFFSET FETCH），由分頁器導頁。
     /// </summary>
-    public async Task<List<TeacherComposeItem>> GetTeacherComposeHistoryAsync(int teacherUserId, int? filterProjectId)
+    public async Task<TeacherComposeHistoryResult> GetTeacherComposeHistoryAsync(
+        int teacherUserId, int? filterProjectId, int page = 1, int pageSize = 10)
     {
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 10;
+
         using var conn = _db.CreateConnection();
 
-        const string sql = """
+        const string countSql = """
+            SELECT COUNT(*)
+            FROM dbo.MT_Questions q
+            WHERE q.CreatorId = @UserId
+              AND q.IsDeleted = 0
+              AND (@ProjectId IS NULL OR q.ProjectId = @ProjectId);
+            """;
+
+        const string listSql = """
             SELECT
                 q.Id AS QuestionId,
                 q.QuestionCode,
@@ -255,20 +271,33 @@ public class TeacherService : ITeacherService
             WHERE q.CreatorId = @UserId
               AND q.IsDeleted = 0
               AND (@ProjectId IS NULL OR q.ProjectId = @ProjectId)
-            ORDER BY q.UpdatedAt DESC;
+            ORDER BY q.UpdatedAt DESC
+            OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
             """;
 
-        var rows = (await conn.QueryAsync<TeacherComposeItem>(sql, new
+        var args = new
         {
             UserId = teacherUserId,
-            ProjectId = filterProjectId
-        })).ToList();
+            ProjectId = filterProjectId,
+            Offset = (page - 1) * pageSize,
+            PageSize = pageSize
+        };
+
+        var total = await conn.ExecuteScalarAsync<int>(countSql, args);
+        var rows = (await conn.QueryAsync<TeacherComposeItem>(listSql, args)).ToList();
 
         foreach (var row in rows)
         {
             row.TypeName = _typeCatalog.GetName(row.QuestionTypeId);
         }
-        return rows;
+
+        return new TeacherComposeHistoryResult
+        {
+            Items = rows,
+            TotalCount = total,
+            Page = page,
+            PageSize = pageSize
+        };
     }
 
     // ==================================================================
@@ -300,13 +329,25 @@ public class TeacherService : ITeacherService
     }
 
     /// <summary>
-    /// 取得教師審題歷程列表，可依梯次篩選。
+    /// 取得教師審題歷程分頁列表，可依梯次篩選。
+    /// 一次連線跑兩段 SQL（COUNT + OFFSET FETCH），由分頁器導頁。
     /// </summary>
-    public async Task<List<TeacherReviewItem>> GetTeacherReviewHistoryAsync(int teacherUserId, int? filterProjectId)
+    public async Task<TeacherReviewHistoryResult> GetTeacherReviewHistoryAsync(
+        int teacherUserId, int? filterProjectId, int page = 1, int pageSize = 10)
     {
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 10;
+
         using var conn = _db.CreateConnection();
 
-        const string sql = """
+        const string countSql = """
+            SELECT COUNT(*)
+            FROM dbo.MT_ReviewAssignments ra
+            WHERE ra.ReviewerId = @UserId
+              AND (@ProjectId IS NULL OR ra.ProjectId = @ProjectId);
+            """;
+
+        const string listSql = """
             SELECT
                 ra.Id AS ReviewAssignmentId,
                 q.QuestionCode,
@@ -325,20 +366,33 @@ public class TeacherService : ITeacherService
             INNER JOIN dbo.MT_Projects p ON p.Id = ra.ProjectId
             WHERE ra.ReviewerId = @UserId
               AND (@ProjectId IS NULL OR ra.ProjectId = @ProjectId)
-            ORDER BY ra.CreatedAt DESC;
+            ORDER BY ra.CreatedAt DESC
+            OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
             """;
 
-        var rows = (await conn.QueryAsync<TeacherReviewItem>(sql, new
+        var args = new
         {
             UserId = teacherUserId,
-            ProjectId = filterProjectId
-        })).ToList();
+            ProjectId = filterProjectId,
+            Offset = (page - 1) * pageSize,
+            PageSize = pageSize
+        };
+
+        var total = await conn.ExecuteScalarAsync<int>(countSql, args);
+        var rows = (await conn.QueryAsync<TeacherReviewItem>(listSql, args)).ToList();
 
         foreach (var row in rows)
         {
             row.TypeName = _typeCatalog.GetName(row.QuestionTypeId);
         }
-        return rows;
+
+        return new TeacherReviewHistoryResult
+        {
+            Items = rows,
+            TotalCount = total,
+            Page = page,
+            PageSize = pageSize
+        };
     }
 
     // ==================================================================
@@ -411,6 +465,9 @@ public class TeacherService : ITeacherService
         var questionRows = (await conn.QueryAsync(questionSql, new { UserId = teacherUserId })).ToList();
         var questionMap = questionRows.ToDictionary(r => (int)r.ProjectId);
 
+        // 批次查「有可下載聘書」的 ProjectId 集合（給下載按鈕條件渲染用，避免 404）
+        var downloadableProjectIds = await _appointmentSvc.GetDownloadableProjectIdsForUserAsync(teacherUserId);
+
         foreach (var project in projects)
         {
             if (roleMap.TryGetValue(project.ProjectId, out var roles))
@@ -421,6 +478,8 @@ public class TeacherService : ITeacherService
                 project.QuestionCount = (int)qs.QuestionCount;
                 project.AdoptedCount = (int)qs.AdoptedCount;
             }
+
+            project.HasDownloadableCerts = downloadableProjectIds.Contains(project.ProjectId);
         }
 
         return projects;
@@ -510,6 +569,9 @@ public class TeacherService : ITeacherService
                     new { ProjectMemberId = memberId, RoleId = roleId }, transaction: trans);
             }
 
+            // 同步聘書 metadata（每個新身份 INSERT 占位；FileName 由 client 繪製後上傳補上）
+            await _appointmentSvc.SyncCertificatesAsync(req.ProjectId, conn, trans);
+
             await WriteAuditAsync(conn, operatorId, AuditAction.Update, AuditTargetType.Teachers,
                 req.TeacherUserId,
                 JsonSerializer.Serialize(new { Action = "AssignProject", req.ProjectId, req.RoleIds }),
@@ -564,6 +626,9 @@ public class TeacherService : ITeacherService
             await conn.ExecuteAsync(
                 "DELETE FROM dbo.MT_ProjectMembers WHERE Id = @Id;",
                 new { Id = memberId.Value }, transaction: trans);
+
+            // 同步聘書 metadata（移除身份 → 撤銷對應聘書 IsRevoked=1，保留檔案以便日後恢復）
+            await _appointmentSvc.SyncCertificatesAsync(projectId, conn, trans);
 
             await WriteAuditAsync(conn, operatorId, AuditAction.Delete, AuditTargetType.Teachers,
                 teacherUserId,

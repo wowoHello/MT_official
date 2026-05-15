@@ -119,6 +119,16 @@ public class TeacherComposeItem
     };
 }
 
+// ─── 命題歷程分頁結果 ───
+public class TeacherComposeHistoryResult
+{
+    public List<TeacherComposeItem> Items { get; set; } = [];
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int PageCount => PageSize > 0 ? (TotalCount + PageSize - 1) / PageSize : 0;
+}
+
 // ─── 審題歷程統計 ───
 public class TeacherReviewStats
 {
@@ -182,6 +192,16 @@ public class TeacherReviewItem
         };
 }
 
+// ─── 審題歷程分頁結果 ───
+public class TeacherReviewHistoryResult
+{
+    public List<TeacherReviewItem> Items { get; set; } = [];
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public int PageCount => PageSize > 0 ? (TotalCount + PageSize - 1) / PageSize : 0;
+}
+
 // ─── 參與專案列表項目 ───
 public class TeacherProjectItem
 {
@@ -196,6 +216,9 @@ public class TeacherProjectItem
     public List<RoleTag> Roles { get; set; } = [];
     public int QuestionCount { get; set; }
     public int AdoptedCount { get; set; }
+
+    /// <summary>該教師在此專案是否有「可下載聘書」（FileName IS NOT NULL AND IsRevoked=0），給下載按鈕條件渲染用。</summary>
+    public bool HasDownloadableCerts { get; set; }
 
     public string AdoptionRateText
     {

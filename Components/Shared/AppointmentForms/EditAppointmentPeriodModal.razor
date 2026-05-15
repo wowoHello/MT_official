@@ -1,0 +1,266 @@
+@* ====================================================================== *@
+@*  EditAppointmentPeriodModal — 編輯某 (UserId, ProjectId) 的所有 cert 聘期 *@
+@*  - 一個 (UserId, ProjectId) 對應多張 cert（多身份），同 Modal 內逐 cert 編輯  *@
+@*  - 成對原則：CustomStart/End 兩者必須同時為 NULL 或同時有值                *@
+@*  - 儲存後立即觸發 OnSaved（caller 應呼叫 DrawPendingAppointmentsAsync 重畫）  *@
+@* ====================================================================== *@
+@inject IAppointmentService AppointmentService
+@inject IJSRuntime JS
+@inject IWebHostEnvironment Env
+
+<CustomModal IsVisible="IsVisible" IsVisibleChanged="OnInnerVisibleChanged" Type="CustomModal.ModalType.Center" Title="編輯聘期" MaxWidth="max-w-2xl">
+    <ChildContent>
+        @if (isLoading)
+        {
+            <div class="py-12 text-center text-gray-400 text-sm">
+                <i class="fa-solid fa-spinner fa-spin mr-1.5"></i> 載入中…
+            </div>
+        }
+        else if (data is null)
+        {
+            <div class="py-12 text-center text-gray-500 text-sm">
+                <i class="fa-solid fa-circle-info mr-1.5"></i> 找不到此教師在本梯次的聘書。
+            </div>
+        }
+        else
+        {
+            <div class="space-y-5">
+                @* 頭部：教師 + 梯次 + 預設聘期（helper text） *@
+                <div class="px-4 py-3 bg-morandi/10 border border-morandi/30 rounded-lg flex items-start gap-2.5 text-sm">
+                    <i class="fa-solid fa-circle-info mt-0.5 flex-shrink-0 text-base text-morandi"></i>
+                    <div class="leading-relaxed flex-1 min-w-0">
+                        <div class="text-slate-main">
+                            <span class="font-bold">@data.DisplayName</span>
+                            <span class="text-gray-400 mx-1.5">·</span>
+                            <span>@data.ProjectName</span>
+                        </div>
+                        <div class="text-xs text-gray-600 mt-1">
+                            預設聘期：<span class="font-mono">@data.DefaultStart.ToString("yyyy/MM/dd")</span>
+                            <span class="mx-1">~</span>
+                            <span class="font-mono">@data.DefaultEnd.ToString("yyyy/MM/dd")</span>
+                            （留空兩個欄位即沿用預設）
+                        </div>
+                    </div>
+                </div>
+
+                @* 每張 cert（每個身份）一個編輯區塊 *@
+                <div class="space-y-3">
+                    @for (var i = 0; i < workingCerts.Count; i++)
+                    {
+                        var idx = i;
+                        var cert = workingCerts[idx];
+                        var isCustomized = cert.CustomStartDate.HasValue && cert.CustomEndDate.HasValue;
+
+                        <div class="border border-gray-200 rounded-lg p-4 space-y-3 @(isCustomized ? "bg-sage/5 border-sage/30" : "bg-white")">
+                            <div class="flex items-center justify-between gap-3 flex-wrap">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <StatusBadge StatusText="@cert.RoleName" IsInternal="false" Compact="true" ShowIcon="false" />
+                                    <span class="text-xs font-mono text-gray-500">@cert.CertNumberText</span>
+                                    @if (isCustomized)
+                                    {
+                                        <span class="text-xs font-bold text-sage flex items-center gap-1">
+                                            <i class="fa-solid fa-pen-to-square"></i> 已客製
+                                        </span>
+                                    }
+                                </div>
+                                @if (isCustomized)
+                                {
+                                    <button type="button" @onclick="() => ResetOne(idx)"
+                                            class="cursor-pointer text-xs font-bold text-gray-500 hover:text-terracotta px-2 py-1 rounded transition-colors flex items-center gap-1">
+                                        <i class="fa-solid fa-arrow-rotate-left"></i> 重設為預設
+                                    </button>
+                                }
+                            </div>
+
+                            @{
+                                var invalid = IsInvalidRange(cert);
+                                var inputBaseCss = "w-full px-3 py-2 border rounded text-sm focus:ring-1 focus:outline-none";
+                                var inputCss = invalid
+                                    ? $"{inputBaseCss} border-terracotta focus:ring-terracotta focus:border-terracotta"
+                                    : $"{inputBaseCss} border-gray-300 focus:ring-morandi focus:border-morandi";
+                            }
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">自訂開始日期</label>
+                                    <InputDate @bind-Value="workingCerts[idx].CustomStartDate" class="@inputCss" />
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">自訂結束日期</label>
+                                    <InputDate @bind-Value="workingCerts[idx].CustomEndDate" class="@inputCss" />
+                                </div>
+                            </div>
+                            @if (invalid)
+                            {
+                                <p class="text-xs text-terracotta font-bold flex items-center gap-1">
+                                    <i class="fa-solid fa-circle-exclamation"></i>
+                                    開始日期不可晚於結束日期。
+                                </p>
+                            }
+                            else
+                            {
+                                <p class="text-xs text-gray-400">
+                                    <i class="fa-solid fa-circle-info mr-0.5"></i>
+                                    兩個日期須同時填寫才會套用客製化（只填一邊視為未客製）。
+                                </p>
+                            }
+                        </div>
+                    }
+                </div>
+
+                @* 底部按鈕 *@
+                <div class="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+                    <button type="button" @onclick="Cancel" disabled="@isSaving"
+                            class="cursor-pointer px-4 py-2 text-sm font-bold text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50">
+                        取消
+                    </button>
+                    <button type="button" @onclick="Save" disabled="@isSaving"
+                            class="cursor-pointer px-4 py-2 text-sm font-bold text-white bg-morandi rounded-lg hover:bg-morandi/90 transition-colors disabled:opacity-50 flex items-center gap-1.5">
+                        @if (isSaving)
+                        {
+                            <i class="fa-solid fa-spinner fa-spin"></i>
+                            <span>儲存中…</span>
+                        }
+                        else
+                        {
+                            <i class="fa-solid fa-check"></i>
+                            <span>儲存並重新產聘書</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        }
+    </ChildContent>
+</CustomModal>
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
+
+    /// <summary>目標 (UserId, ProjectId)。父層改變時自動 reload。</summary>
+    [Parameter] public int? UserId { get; set; }
+    [Parameter] public int? ProjectId { get; set; }
+
+    /// <summary>儲存成功通知父層（父層應呼叫 DrawPendingAppointmentsAsync 觸發 client 重畫）。</summary>
+    [Parameter] public EventCallback OnSaved { get; set; }
+
+    private CertEditPanelData? data;
+    private List<CertEditInfo> workingCerts = new();
+    private bool isLoading;
+    private bool isSaving;
+    private int? loadedUserId;
+    private int? loadedProjectId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!IsVisible) return;
+        if (UserId is not int uid || ProjectId is not int pid) return;
+        if (loadedUserId == uid && loadedProjectId == pid) return;
+
+        loadedUserId = uid;
+        loadedProjectId = pid;
+        await LoadAsync(uid, pid);
+    }
+
+    private async Task LoadAsync(int userId, int projectId)
+    {
+        isLoading = true;
+        try
+        {
+            data = await AppointmentService.GetCertEditPanelAsync(userId, projectId);
+            // 複製一份給編輯（避免直接動原物件，取消時不需要還原）
+            workingCerts = data?.Certs
+                .Select(c => new CertEditInfo
+                {
+                    CertId          = c.CertId,
+                    RoleName        = c.RoleName,
+                    CertNumberText  = c.CertNumberText,
+                    CustomStartDate = c.CustomStartDate,
+                    CustomEndDate   = c.CustomEndDate
+                }).ToList() ?? new();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ResetOne(int idx)
+    {
+        if (idx < 0 || idx >= workingCerts.Count) return;
+        workingCerts[idx].CustomStartDate = null;
+        workingCerts[idx].CustomEndDate = null;
+    }
+
+    /// <summary>
+    /// 開始 > 結束 視為無效（兩端皆有值才檢查；只填一邊或都沒填都算 OK，後者會被 service normalize 成未客製）。
+    /// </summary>
+    private static bool IsInvalidRange(CertEditInfo c)
+        => c.CustomStartDate.HasValue && c.CustomEndDate.HasValue && c.CustomStartDate.Value > c.CustomEndDate.Value;
+
+    private async Task Save()
+    {
+        if (isSaving) return;
+
+        // 阻擋：任一 cert 起始 > 結束 → 不送出，跳警示讓 user 修正
+        if (workingCerts.Any(IsInvalidRange))
+        {
+            await JS.InvokeVoidAsync("Swal.fire", new
+            {
+                icon = "warning",
+                title = "聘期日期錯誤",
+                text = "有身份的「開始日期晚於結束日期」，請修正後再儲存。",
+                confirmButtonColor = "#6B8EAD"
+            });
+            return;
+        }
+
+        isSaving = true;
+        try
+        {
+            var updates = workingCerts.Select(c => new CertPeriodUpdate(c.CertId, c.CustomStartDate, c.CustomEndDate));
+            await AppointmentService.UpdateCustomPeriodsAsync(updates, Env.WebRootPath);
+
+            await JS.InvokeVoidAsync("swalToast", "success", "聘期已更新，正在重新產聘書…", 1800);
+
+            // 通知父層觸發重畫
+            await OnSaved.InvokeAsync();
+            await Close();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", new
+            {
+                icon = "error",
+                title = "儲存失敗",
+                text = ex.Message,
+                confirmButtonColor = "#6B8EAD"
+            });
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task Cancel() => await Close();
+
+    /// <summary>
+    /// 內層 CustomModal 透過 X 按鈕 / 背景點擊關閉時觸發 — 改走 Close() 確保
+    /// 我 Modal 的內部狀態（loadedUserId/Id、data）被清掉並且 propagate 到父層，
+    /// 否則父層 showEditPeriodModal 仍為 true，下次點按鈕值沒變 Blazor 不會 re-render。
+    /// </summary>
+    private async Task OnInnerVisibleChanged(bool newValue)
+    {
+        if (!newValue) await Close();
+    }
+
+    private async Task Close()
+    {
+        IsVisible = false;
+        loadedUserId = null;
+        loadedProjectId = null;
+        data = null;
+        workingCerts.Clear();
+        await IsVisibleChanged.InvokeAsync(false);
+    }
+}

@@ -6,6 +6,7 @@
 @inject IProjectService ProjectService
 @inject IRoleService RoleService
 @inject IMembershipService MembershipService
+@inject IAppointmentService AppointmentService
 @inject ProtectedLocalStorage ProtectedLocalStorage
 @inject ILogger<MainLayout> Logger
 @rendermode InteractiveServer
@@ -192,26 +193,40 @@
         }
         else if (userProfile is not null)
         {
+            var hasCurrentBatchRole = currentProject is not null && userProfile.ProjectRoles.Count > 0;
             <div class="space-y-5">
-                <!-- 頭部：頭像 + 姓名 + 角色 + 狀態 -->
-                <div class="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
-                    <div class="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl flex-shrink-0 @(userProfile.Status == 1 ? "bg-morandi" : "bg-gray-400")">
-                        @(string.IsNullOrEmpty(userProfile.DisplayName) ? "?" : userProfile.DisplayName[..1])
-                    </div>
-                    <div>
-                        <div class="text-lg font-bold text-slate-main">@userProfile.DisplayName</div>
-                        <div class="flex items-center gap-2 mt-1 flex-wrap">
-                            @* 永遠顯示系統角色（如：系統管理員），再串接當前梯次的所有身分標籤；同名者去重 *@
-                            <StatusBadge StatusText="@userProfile.RoleName" IsInternal="@(userProfile.RoleCategory == 0)" Compact="true" ShowIcon="false" />
-                            @foreach (var role in userProfile.ProjectRoles.Where(r => !string.Equals(r.Name, userProfile.RoleName, StringComparison.Ordinal)))
-                            {
-                                <StatusBadge StatusText="@role.Name" IsInternal="@(role.Category == 0)" Compact="true" ShowIcon="false" />
-                            }
-                            <span class="text-xs font-bold px-2 py-0.5 rounded @(userProfile.Status == 1 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700")">
-                                @(userProfile.Status == 1 ? "啟用" : "停用")
-                            </span>
+                <!-- 頭部：頭像 + 姓名 + 角色 + 狀態（右側放下載聘書按鈕） -->
+                <div class="flex items-center justify-between gap-3 p-4 bg-gray-50 rounded-xl">
+                    <div class="flex items-center gap-4 min-w-0">
+                        <div class="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl flex-shrink-0 @(userProfile.Status == 1 ? "bg-morandi" : "bg-gray-400")">
+                            @(string.IsNullOrEmpty(userProfile.DisplayName) ? "?" : userProfile.DisplayName[..1])
+                        </div>
+                        <div class="min-w-0">
+                            <div class="text-lg font-bold text-slate-main truncate">@userProfile.DisplayName</div>
+                            <div class="flex items-center gap-2 mt-1 flex-wrap">
+                                @* 永遠顯示系統角色（如：系統管理員），再串接當前梯次的所有身分標籤；同名者去重 *@
+                                <StatusBadge StatusText="@userProfile.RoleName" IsInternal="@(userProfile.RoleCategory == 0)" Compact="true" ShowIcon="false" />
+                                @foreach (var role in userProfile.ProjectRoles.Where(r => !string.Equals(r.Name, userProfile.RoleName, StringComparison.Ordinal)))
+                                {
+                                    <StatusBadge StatusText="@role.Name" IsInternal="@(role.Category == 0)" Compact="true" ShowIcon="false" />
+                                }
+                                <span class="text-xs font-bold px-2 py-0.5 rounded @(userProfile.Status == 1 ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700")">
+                                    @(userProfile.Status == 1 ? "啟用" : "停用")
+                                </span>
+                            </div>
                         </div>
                     </div>
+                    <!-- 下載本梯次聘書 — 直接導向 zip endpoint，多身份打包成單一 zip -->
+                    @if (hasCurrentBatchRole && hasDownloadableCertsForCurrentProject && currentProject is not null)
+                    {
+                        <a href="@($"api/appointment-cert/download/{currentProject.Id}")"
+                           target="_blank"
+                           rel="noopener"
+                           title="下載您在本梯次的聘書（1 份直下 jpg、多份打包 zip）"
+                           class="cursor-pointer flex-shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-sage border border-sage/40 bg-white rounded-lg hover:bg-sage/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sage/40 transition-colors no-underline">
+                            <i class="fa-solid fa-award"></i> 下載聘書
+                        </a>
+                    }
                 </div>
 
                 <!-- 資訊列表 -->
@@ -257,10 +272,16 @@
                             <h4 class="text-sm font-bold text-slate-main flex items-center gap-2">
                                 <i class="fa-solid fa-key text-morandi"></i> 變更密碼
                             </h4>
+                            @* 隱藏 username 欄位：純粹給密碼管理員識別「這個密碼是哪個帳號的」，
+                               讓 Chrome / 1Password / Bitwarden 自動跳出「點一下填入舊密碼」提示。
+                               帳號本身在 modal 上方已可見地顯示，所以這裡 hidden 不是隱藏資訊、是消去重複。*@
+                            <input type="text" name="changePasswordUsername" value="@userProfile.Username"
+                                   autocomplete="username" hidden readonly aria-hidden="true" />
                             <div>
                                 <label class="block text-xs font-medium mb-1 text-gray-600">舊密碼</label>
                                 <div class="relative">
                                     <input type="@(showPwdOld ? "text" : "password")" @bind="pwdOld" placeholder="請輸入目前密碼"
+                                           autocomplete="current-password"
                                            class="w-full px-3 py-2 pr-10 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
                                     <button type="button" tabindex="-1" @onclick="() => showPwdOld = !showPwdOld"
                                             class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer focus:outline-none">
@@ -272,6 +293,7 @@
                                 <label class="block text-xs font-medium mb-1 text-gray-600">新密碼 <span class="text-gray-400 font-normal">(至少 6 碼)</span></label>
                                 <div class="relative">
                                     <input type="@(showPwdNew ? "text" : "password")" @bind="pwdNew" placeholder="請輸入新密碼"
+                                           autocomplete="new-password"
                                            class="w-full px-3 py-2 pr-10 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
                                     <button type="button" tabindex="-1" @onclick="() => showPwdNew = !showPwdNew"
                                             class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer focus:outline-none">
@@ -283,6 +305,7 @@
                                 <label class="block text-xs font-medium mb-1 text-gray-600">確認新密碼</label>
                                 <div class="relative">
                                     <input type="@(showPwdConfirm ? "text" : "password")" @bind="pwdConfirm" placeholder="請再次輸入新密碼"
+                                           autocomplete="new-password"
                                            class="w-full px-3 py-2 pr-10 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm">
                                     <button type="button" tabindex="-1" @onclick="() => showPwdConfirm = !showPwdConfirm"
                                             class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer focus:outline-none">
@@ -688,6 +711,7 @@
     private bool showProfileModal = false;
     private UserProfileDto? userProfile;
     private bool isLoadingProfile = false;
+    private bool hasDownloadableCertsForCurrentProject = false;
     private string pwdOld = "";
     private string pwdNew = "";
     private string pwdConfirm = "";
@@ -705,7 +729,16 @@
         try
         {
             if (currentUserId is int uid)
+            {
                 userProfile = await RoleService.GetUserProfileAsync(uid, currentProject?.Id);
+
+                // 同步檢查當前梯次是否有可下載聘書（FileName IS NOT NULL AND IsRevoked=0），
+                // 給「下載聘書」按鈕條件渲染用，避免「有 Role 但沒生聘書」時點按鈕 404
+                if (currentProject is not null)
+                    hasDownloadableCertsForCurrentProject = await AppointmentService.HasDownloadableCertsAsync(uid, currentProject.Id);
+                else
+                    hasDownloadableCertsForCurrentProject = false;
+            }
         }
         catch (Exception ex)
         {
@@ -791,6 +824,18 @@
         {
             isChangingPassword = false;
         }
+    }
+
+    // ──── 共用：尚未上線功能的提示（下載聘書按鈕等開發中按鈕共用）────
+    private async Task ShowComingSoonAsync(string featureName)
+    {
+        await JS.InvokeVoidAsync("Swal.fire", new
+        {
+            icon = "info",
+            title = $"「{featureName}」即將推出",
+            text = "此功能正在開發中，敬請期待。",
+            confirmButtonColor = "#6B8EAD"
+        });
     }
 
     private async Task Logout()

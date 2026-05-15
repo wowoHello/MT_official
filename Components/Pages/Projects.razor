@@ -5,6 +5,9 @@
 @* ====================================================================== *@
 @page "/projects"
 @inject IProjectService ProjectService
+@inject IAppointmentService AppointmentService
+@inject IJSRuntime JS
+@inject NavigationManager Nav
 @inject ILogger<Projects> Logger
 
 <div class="mx-auto flex w-full flex-grow flex-col min-h-[calc(100vh-4rem)] lg:h-[calc(100vh-4rem)] lg:overflow-hidden">
@@ -154,9 +157,9 @@
                                 </div>
                             </div>
                             <!-- 操作按鈕 -->
-                            <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-shrink-0 sm:items-end">
-                                @if (!selectedDetail.IsClosed)
-                                {
+                            @if (!selectedDetail.IsClosed)
+                            {
+                                <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-shrink-0 sm:items-end">
                                     <button type="button" @onclick="OpenEditProjectModalAsync"
                                         class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors shadow-sm flex items-center gap-2">
                                         <i class="fa-solid fa-pen-to-square text-morandi"></i> 編輯專案
@@ -165,12 +168,22 @@
                                         class="cursor-pointer px-4 py-2 bg-slate-main text-white rounded-lg text-sm font-bold hover:opacity-90 transition-colors shadow-sm flex items-center gap-2">
                                         <i class="fa-solid fa-box-archive"></i> 結案入庫
                                     </button>
-                                }
-                                <button type="button" @onclick="HandleDeleteProject"
-                                    class="cursor-pointer px-4 py-2 bg-white border border-red-300 text-red-500 rounded-lg text-sm font-bold hover:bg-red-50 transition-colors shadow-sm flex items-center gap-2">
-                                    <i class="fa-solid fa-trash-can"></i> 移除專案
+                                    <button type="button" @onclick="HandleDeleteProject"
+                                        class="cursor-pointer px-4 py-2 bg-white border border-red-300 text-red-500 rounded-lg text-sm font-bold hover:bg-red-50 transition-colors shadow-sm flex items-center gap-2">
+                                        <i class="fa-solid fa-trash-can"></i> 移除專案
+                                    </button>
+                                </div>
+                            }
+                            else
+                            {
+                                @* 已結案的梯次不可移除，右側單顆主角按鈕：card-button 撐滿左側資訊高度 *@
+                                <button type="button" @onclick='() => ShowComingSoonAsync("下載結案資料")'
+                                    class="group cursor-pointer w-full sm:w-auto sm:self-stretch sm:min-w-[200px] px-6 py-5 bg-sage text-white rounded-xl shadow-sm hover:shadow-lg hover:bg-[#7b9c81] focus:outline-none focus-visible:ring-2 focus-visible:ring-sage/40 focus-visible:ring-offset-2 transition-all flex flex-col items-center justify-center gap-2">
+                                    <i class="fa-solid fa-file-arrow-down text-3xl group-hover:scale-110 group-hover:-translate-y-0.5 transition-transform duration-200"></i>
+                                    <span class="text-base font-bold tracking-wide">下載結案資料</span>
+                                    <span class="text-xs font-normal opacity-90">Excel 含採用題目與統計</span>
                                 </button>
-                            </div>
+                            }
                         </div>
 
                         @* 過期未結案提示：產學區間 EndDate 已過但 ClosedAt 仍是 null —— 引導管理員手動點擊結案入庫 *@
@@ -350,17 +363,36 @@
                                                         <div class="text-xs text-gray-500">@(m.TeacherCode ?? "")</div>
                                                     </div>
                                                 </div>
-                                                <div class="flex flex-wrap justify-end gap-1 max-w-[55%]">
-                                                    @if (m.Roles.Count == 0)
-                                                    {
-                                                        <span class="text-xs px-2 py-0.5 rounded bg-gray-50 border border-gray-200 text-gray-400 font-bold whitespace-nowrap">未指定</span>
-                                                    }
-                                                    else
-                                                    {
-                                                        @foreach (var role in m.Roles)
+                                                <div class="flex items-center gap-2 max-w-[60%]">
+                                                    <div class="flex flex-wrap justify-end gap-1 flex-1 min-w-0">
+                                                        @if (m.Roles.Count == 0)
                                                         {
-                                                            <StatusBadge StatusText="@role.Name" IsInternal="@(role.Category == 0)" Compact="true" ShowIcon="false" />
+                                                            <span class="text-xs px-2 py-0.5 rounded bg-gray-50 border border-gray-200 text-gray-400 font-bold whitespace-nowrap">未指定</span>
                                                         }
+                                                        else
+                                                        {
+                                                            @foreach (var role in m.Roles)
+                                                            {
+                                                                <StatusBadge StatusText="@role.Name" IsInternal="@(role.Category == 0)" Compact="true" ShowIcon="false" />
+                                                            }
+                                                        }
+                                                    </div>
+                                                    @if (selectedDetail is not null && m.HasDownloadableCerts)
+                                                    {
+                                                        <button type="button" @onclick="() => OpenEditPeriodModal(m.UserId, selectedDetail.Id)"
+                                                                aria-label="編輯聘期"
+                                                                title="編輯此成員在本梯次的聘期（儲存後自動重產聘書）"
+                                                                class="cursor-pointer flex-shrink-0 w-9 h-9 flex items-center justify-center text-slate-main/70 hover:text-slate-main hover:bg-slate-main/10 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-main/40 transition-colors">
+                                                            <i class="fa-solid fa-pen-to-square text-sm"></i>
+                                                        </button>
+                                                        <a href="@($"api/appointment-cert/download/{selectedDetail.Id}/user/{m.UserId}")"
+                                                           target="_blank"
+                                                           rel="noopener"
+                                                           aria-label="下載聘書"
+                                                           title="下載此成員在本梯次的聘書（1 份直下 jpg、多份打包 zip）"
+                                                           class="cursor-pointer flex-shrink-0 w-9 h-9 flex items-center justify-center text-morandi/70 hover:text-morandi hover:bg-morandi/10 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-morandi/40 transition-colors no-underline">
+                                                            <i class="fa-solid fa-award text-sm"></i>
+                                                        </a>
                                                     }
                                                 </div>
                                             </div>
@@ -740,8 +772,53 @@
     </FooterContent>
 </CustomModal>
 
+@* 編輯聘期 Modal（共用元件） *@
+<EditAppointmentPeriodModal @bind-IsVisible="showEditPeriodModal"
+                             UserId="editPeriodUserId"
+                             ProjectId="editPeriodProjectId"
+                             OnSaved="HandleEditPeriodSaved" />
+
 @code {
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    /// <summary>
+    /// 儲存/更新專案後，呼叫 JS Canvas 繪製該專案所有「未完成」聘書並上傳。
+    /// 若無 pending（user 沒新增成員），靜默略過不彈視窗。
+    /// </summary>
+    private async Task DrawPendingAppointmentsAsync(int projectId)
+    {
+        try
+        {
+            var pending = await AppointmentService.GetPendingDraftsByProjectAsync(projectId);
+            if (pending.Count == 0) return;
+            await JS.InvokeVoidAsync("AppointmentCert.drawAndUpload", pending, "", false);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "聘書繪製失敗 (projectId={ProjectId})", projectId);
+        }
+    }
+
+    // ──── 編輯聘期 Modal 狀態 ────
+    private bool showEditPeriodModal = false;
+    private int? editPeriodUserId;
+    private int? editPeriodProjectId;
+
+    private void OpenEditPeriodModal(int userId, int projectId)
+    {
+        editPeriodUserId = userId;
+        editPeriodProjectId = projectId;
+        showEditPeriodModal = true;
+    }
+
+    /// <summary>編輯聘期儲存後：觸發 client 重畫對應 cert（FileName 已被 UpdateCustomPeriodsAsync 設為 NULL）。</summary>
+    private async Task HandleEditPeriodSaved()
+    {
+        if (editPeriodProjectId is int pid)
+        {
+            await DrawPendingAppointmentsAsync(pid);
+        }
+    }
 
     private bool showProjectModal = false;
     private bool isEditMode = false;
@@ -1305,6 +1382,18 @@
         public string? Value { get; set; }
     }
 
+    // ──── 共用：尚未上線功能的提示（下載聘書、下載結案資料等開發中按鈕共用）────
+    private async Task ShowComingSoonAsync(string featureName)
+    {
+        await JS.InvokeVoidAsync("Swal.fire", new
+        {
+            icon = "info",
+            title = $"「{featureName}」即將推出",
+            text = "此功能正在開發中，敬請期待。",
+            confirmButtonColor = "#6B8EAD"
+        });
+    }
+
     // ──── 內部模型類別 ────
 
     private async Task HandleDeleteProject()
@@ -1442,16 +1531,18 @@
                 };
 
                 await ProjectService.UpdateProjectAsync(updateReq);
-                await ShowAlertAsync("success", "修改成功", "專案設定已更新。");
                 showProjectModal = false;
+                await DrawPendingAppointmentsAsync(updateReq.ProjectId);
+                await ShowAlertAsync("success", "修改成功", "專案設定已更新。");
                 await LoadProjectsAsync();
                 await SelectProject(updateReq.ProjectId);
             }
             else
             {
-                await ProjectService.CreateProjectAsync(req);
-                await ShowAlertAsync("success", "新增成功", "專案與所有設定已寫入資料庫！");
+                var newProjectId = await ProjectService.CreateProjectAsync(req);
                 showProjectModal = false;
+                await DrawPendingAppointmentsAsync(newProjectId);
+                await ShowAlertAsync("success", "新增成功", "專案與所有設定已寫入資料庫！");
                 await LoadProjectsAsync();
             }
         }

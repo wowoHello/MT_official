@@ -245,7 +245,7 @@
                             <tbody>
                                 @foreach (var item in listResult.Items)
                                 {
-                                    @* Stage B-4-2：revision tab 拆 N+1 列，子題列加左 border 視覺縮排 + 第 N 子題 badge *@
+                                    @* Stage B-4-2：revision tab 拆 N+1 列，子題列加 ↳ 視覺縮排與完整子題碼（Q-XXX-XXXXX-NN） *@
                                     var isSubRow = item.SubQuestionId is not null;
                                     var rowExtraClass = isSubRow ? "bg-morandi/2" : "";
                                     <tr @onclick="() => OpenRowAsync(item.Id, item.Status, item.SubQuestionId)"

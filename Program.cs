@@ -1,7 +1,7 @@
 using MT.Components;
+using MT.Endpoints;
 using MT.Hubs;
 using MT.Services;
-using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -114,6 +114,9 @@ builder.Services.AddSingleton<IQuestionTypeCatalog, QuestionTypeCatalog>();
 // 服務的場景：MainLayout / Home / Announcements 編輯 / 任何權限快速判斷
 builder.Services.AddScoped<IMembershipService, MembershipService>();
 
+// 聘書 Canvas 繪製 + zip 打包下載
+builder.Services.AddScoped<IAppointmentService, AppointmentService>();
+
 var app = builder.Build();
 
 // 預先載入題型字典（fail-fast：DB 連不上就讓站台不啟動，避免帶空資料上線）
@@ -146,6 +149,12 @@ app.UseAntiforgery();
 // =========================================================
 // UI / 靜態資源 / 即時通道
 // =========================================================
+// UseStaticFiles：服務 wwwroot/ 下「runtime 寫入」的檔案
+//   - wwwroot/uploads/       Quill 編輯器附圖、聽力音檔（POST /api/upload 寫入後立即可讀）
+//   - wwwroot/files/         聘書 jpg（POST /api/appointment-cert/upload 寫入後立即可讀）
+// MapStaticAssets 只認發佈期就存在的檔案（含 fingerprint / Brotli 優化），
+// 不會服務 runtime 上傳檔；兩者需並存。
+app.UseStaticFiles();
 app.MapStaticAssets();
 
 app.MapRazorComponents<App>()
@@ -155,131 +164,10 @@ app.MapRazorComponents<App>()
 app.MapHub<ProjectsHub>("/hubs/projects");
 
 // =========================================================
-// Auth 相關端點
+// HTTP Endpoints（詳見 Endpoints/ 各檔案）
 // =========================================================
-// 目的：
-// Login.razor 先透過 AuthService.PrepareSignIn 準備登入資料，
-// 再導到這個端點，由真正的 HTTP 要求完成 Cookie 寫入。
-app.MapGet("/auth/login", async (string key, IAuthService authService, HttpContext context) =>
-{
-    var (success, isFirstLogin) = await authService.CompleteSignInAsync(key, context);
-
-    if (!success)
-        return Results.Redirect("~/login");
-
-    // 首次登入強制改密碼
-    return Results.Redirect(isFirstLogin ? "~/first-login-password" : "~/");
-});
-
-// 清除目前登入 Cookie，並回登入頁（登出前寫入稽核紀錄）
-// 稽核失敗不應阻擋登出流程，因此用 try-catch 保護
-app.MapGet("/auth/logout", async (IAuthService authService, HttpContext context) =>
-{
-    try
-    {
-        var userIdClaim = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-        if (int.TryParse(userIdClaim, out var userId))
-        {
-            var ip = context.Request.Headers["X-Forwarded-For"].FirstOrDefault()?.Split(',')[0].Trim()
-                     ?? context.Connection.RemoteIpAddress?.ToString();
-            await authService.LogLogoutAsync(userId, ip);
-        }
-    }
-    catch
-    {
-        // 稽核紀錄寫入失敗不影響登出
-    }
-
-    await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-    return Results.Redirect("~/login");
-});
-
-// =========================================================
-// 編輯器上傳 API
-// =========================================================
-// 給 Quill 編輯器上傳圖片使用，成功後回傳可存取的靜態網址
-app.MapPost("/api/upload", async (HttpRequest request, IWebHostEnvironment env) =>
-{
-    var form = await request.ReadFormAsync();
-    var file = form.Files.GetFile("file");
-
-    if (file is null || file.Length == 0)
-    {
-        return Results.BadRequest(new { error = "未收到上傳檔案。" });
-    }
-
-    if (file.Length > 5 * 1024 * 1024)
-    {
-        return Results.BadRequest(new { error = "檔案大小不可超過 5MB。" });
-    }
-
-    var allowedTypes = new[] { "image/png", "image/jpeg", "image/gif", "image/webp" };
-    if (!allowedTypes.Contains(file.ContentType))
-    {
-        return Results.BadRequest(new { error = "僅支援 PNG、JPEG、GIF、WebP 圖片。" });
-    }
-
-    var uploadsDir = Path.Combine(env.WebRootPath, "uploads");
-    Directory.CreateDirectory(uploadsDir);
-
-    var ext = Path.GetExtension(file.FileName);
-    var fileName = $"{Guid.NewGuid():N}{ext}";
-    var filePath = Path.Combine(uploadsDir, fileName);
-
-    await using var stream = new FileStream(filePath, FileMode.Create);
-    await file.CopyToAsync(stream);
-
-    var pathBase = request.PathBase.HasValue ? request.PathBase.Value : "";
-    return Results.Ok(new { url = $"{pathBase}/uploads/{fileName}" });
-})
-.DisableAntiforgery()
-.RequireAuthorization();
-
-// 給聽力題型上傳音檔使用，成功後回傳可存取的靜態網址
-app.MapPost("/api/upload-audio", async (HttpRequest request, IWebHostEnvironment env) =>
-{
-    var form = await request.ReadFormAsync();
-    var file = form.Files.GetFile("file");
-
-    if (file is null || file.Length == 0)
-    {
-        return Results.BadRequest(new { error = "未收到上傳檔案。" });
-    }
-
-    if (file.Length > 10 * 1024 * 1024)
-    {
-        return Results.BadRequest(new { error = "音檔大小不可超過 10MB。" });
-    }
-
-    // MIME 白名單：MP3 / WAV / OGG / M4A
-    // 各家瀏覽器送出的 MIME 不一致，因此同時以副檔名兜底
-    var allowedMime = new[]
-    {
-        "audio/mpeg", "audio/mp3",
-        "audio/wav", "audio/wave", "audio/x-wav", "audio/vnd.wave",
-        "audio/ogg", "application/ogg",
-        "audio/mp4", "audio/x-m4a", "audio/m4a"
-    };
-    var allowedExt = new[] { ".mp3", ".wav", ".ogg", ".m4a" };
-    var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-    if (!allowedExt.Contains(ext) && !allowedMime.Contains(file.ContentType))
-    {
-        return Results.BadRequest(new { error = "僅支援 MP3、WAV、OGG、M4A 音檔。" });
-    }
-
-    var audioDir = Path.Combine(env.WebRootPath, "uploads", "audio");
-    Directory.CreateDirectory(audioDir);
-
-    var fileName = $"{Guid.NewGuid():N}{ext}";
-    var filePath = Path.Combine(audioDir, fileName);
-
-    await using var stream = new FileStream(filePath, FileMode.Create);
-    await file.CopyToAsync(stream);
-
-    var pathBase = request.PathBase.HasValue ? request.PathBase.Value : "";
-    return Results.Ok(new { url = $"{pathBase}/uploads/audio/{fileName}" });
-})
-.DisableAntiforgery()
-.RequireAuthorization();
+app.MapAuthEndpoints();              // /auth/login、/auth/logout
+app.MapUploadEndpoints();            // /api/upload（Quill）、/api/upload-audio（聽力）
+app.MapAppointmentCertEndpoints();   // /api/appointment-cert/upload、.../zip/{projectId}
 
 app.Run();

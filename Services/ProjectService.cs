@@ -85,6 +85,7 @@ public class ProjectService : IProjectService
     private readonly IHubContext<ProjectsHub> _projectsHubContext;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IQuestionTypeCatalog _typeCatalog;
+    private readonly IAppointmentService _appointmentSvc;
 
     /// <summary>
     /// 初始化專案服務所需的資料庫、記錄器與即時同步依賴。
@@ -94,13 +95,15 @@ public class ProjectService : IProjectService
         ILogger<ProjectService> logger,
         IHubContext<ProjectsHub> projectsHubContext,
         IHttpContextAccessor httpContextAccessor,
-        IQuestionTypeCatalog typeCatalog)
+        IQuestionTypeCatalog typeCatalog,
+        IAppointmentService appointmentSvc)
     {
         _db = db;
         _logger = logger;
         _projectsHubContext = projectsHubContext;
         _httpContextAccessor = httpContextAccessor;
         _typeCatalog = typeCatalog;
+        _appointmentSvc = appointmentSvc;
     }
 
     /// <summary>
@@ -290,7 +293,17 @@ public class ProjectService : IProjectService
                         .Select(grp => grp.First())
                         .ToList()
                 }).ToList();
-                
+
+            // 批次查「有可下載聘書」的 UserId 集合（給成員下載按鈕條件渲染用）
+            if (detail.Members.Count > 0)
+            {
+                var downloadableUserIds = await _appointmentSvc.GetDownloadableUserIdsInProjectAsync(projectId);
+                foreach (var m in detail.Members)
+                {
+                    m.HasDownloadableCerts = downloadableUserIds.Contains(m.UserId);
+                }
+            }
+
             return detail;
         }
         catch (Exception ex)
@@ -557,6 +570,9 @@ public class ProjectService : IProjectService
                 req.MemberAllocations,
                 shouldClearExisting: false);
 
+            // 同步聘書 metadata（新成員 → INSERT 占位；FileName 由 client 繪製後上傳補上）
+            await _appointmentSvc.SyncCertificatesAsync(projectId, conn, trans);
+
             // 全站活動：ProjectId 留 NULL；改用 AuditLogJsonHelper（camelCase + targetDisplayName）
             var jsonValue = AuditLogJsonHelper.Serialize(new
             {
@@ -667,6 +683,9 @@ public class ProjectService : IProjectService
                 req.Targets,
                 req.MemberAllocations,
                 shouldClearExisting: true);
+
+            // 同步聘書 metadata（新增/撤銷/恢復；新增者佔位等 client 繪製上傳）
+            await _appointmentSvc.SyncCertificatesAsync(req.ProjectId, conn, trans);
 
             var newSnapshot = await GetProjectEditAsync(conn, trans, req.ProjectId)
                 ?? throw new InvalidOperationException("專案更新後無法重新讀取資料。");

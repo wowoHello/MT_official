@@ -939,6 +939,7 @@ public class RoleService : IRoleService
 
     /// <summary>
     /// 以「先清後寫」方式同步角色對每個模組的權限。呼叫端必須提供 Transaction 以維持原子性。
+    /// 改寫策略：DELETE 1 次 + 單一多列 INSERT 1 次 = 共 2 round-trip（原本 N+1 次）。
     /// </summary>
     private static async Task MergeRolePermissionsAsync(
         IDbConnection conn,
@@ -953,20 +954,21 @@ public class RoleService : IRoleService
         if (permissions.Count == 0) return;
 
         // Permissions 為預留欄位（區塊細部權限），交由 DB 預設值處理
-        const string insertSql = """
-            INSERT INTO dbo.MT_RolePermissions (RoleId, ModuleId, IsEnabled)
-            VALUES (@RoleId, @ModuleId, @IsEnabled);
-            """;
+        // 動態拼 VALUES (@M0, @E0), (@M1, @E1), ... 一次 INSERT 所有列
+        var sb = new System.Text.StringBuilder(
+            "INSERT INTO dbo.MT_RolePermissions (RoleId, ModuleId, IsEnabled) VALUES ");
+        var args = new DynamicParameters();
+        args.Add("RoleId", roleId);
 
-        foreach (var p in permissions)
+        for (var i = 0; i < permissions.Count; i++)
         {
-            await conn.ExecuteAsync(insertSql, new
-            {
-                RoleId = roleId,
-                p.ModuleId,
-                p.IsEnabled,
-            }, transaction: trans);
+            if (i > 0) sb.Append(", ");
+            sb.Append($"(@RoleId, @M{i}, @E{i})");
+            args.Add($"M{i}", permissions[i].ModuleId);
+            args.Add($"E{i}", permissions[i].IsEnabled);
         }
+
+        await conn.ExecuteAsync(sb.ToString(), args, transaction: trans);
     }
 
     /// <summary>

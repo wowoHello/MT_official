@@ -166,18 +166,16 @@
     }
 
     /// <summary>
-    /// 解析折疊區（<details open>，預設展開）。
-    /// amber 配色表示「審題者私有資訊」視覺位階。
+    /// 解析折疊區內部標籤 + 內容卡片（無 details 外殼，由呼叫端包裹）。
+    /// 莫蘭迪灰藍標題 + amber 圓徽章 + 白底內卡片，視覺層次：徽章 → 標題 → 內容；
+    /// 字體升級到 text-base leading-loose，年長使用者護眼可讀。
     /// </summary>
     private RenderFragment InlineAnalysis(string label, string icon, string? content, string fieldKey = "analysis") => __builder =>
     {
         if (!HasContent(content)) return;
-        <div class="pt-3 mt-3 border-t border-amber-100">
-            <p class="text-xs font-bold text-amber-600 mb-2 tracking-wider">
-                <i class="fa-solid @icon mr-1"></i> @label
-            </p>
-            <div class="pl-3 border-l-2 border-amber-200">
-                <div class="prose prose-sm max-w-none font-serif text-sm leading-relaxed text-gray-700"
+        <div>
+            <div class="rounded-xl border border-stone-200/70 bg-white px-4 py-3.5 shadow-sm">
+                <div class="prose max-w-none font-serif text-base leading-loose text-slate-700"
                      data-annot-target="@fieldKey">
                     @((MarkupString)content!)
                 </div>
@@ -631,13 +629,18 @@
     {
         if (!HaveAnyAnalysis()) return;
 
-        <details open class="bg-white rounded-xl shadow-sm border border-amber-100 overflow-hidden">
-            <summary class="px-5 py-3 cursor-pointer text-xs font-bold text-amber-700 flex items-center gap-1.5 hover:bg-amber-50/60 transition list-none select-none">
-                <i class="fa-solid fa-lock text-amber-500 text-xs"></i>
-                <span>審題輔助資訊（解析 / 批閱說明）</span>
-                <i class="fa-solid fa-chevron-down ml-auto text-xs text-amber-400"></i>
+        <details open class="group overflow-hidden rounded-2xl border border-stone-200/80 bg-white shadow-md">
+            <summary class="flex cursor-pointer list-none select-none items-center gap-3 bg-morandi/10 px-5 py-3.5 transition-colors hover:bg-morandi/20">
+                <span class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-morandi/10 ring-1 ring-inset ring-morandi/20">
+                    <i class="fa-solid fa-lock text-sm text-morandi/80"></i>
+                </span>
+                <div class="flex flex-col leading-tight">
+                    <span class="text-xs font-medium tracking-wider text-slate-500">命題教師專屬</span>
+                    <span class="text-sm font-bold text-slate-700">審題輔助資訊（解析 / 批閱說明）</span>
+                </div>
+                <i class="fa-solid fa-chevron-down ml-auto text-sm text-slate-400 transition-transform duration-200 group-open:rotate-180"></i>
             </summary>
-            <div class="px-5 pb-5 pt-1">
+            <div class="border-t border-stone-200/80 px-5 pb-5 pt-4">
                 @switch (Question.QuestionType)
                 {
                     case QuestionTypeCodes.LongText:

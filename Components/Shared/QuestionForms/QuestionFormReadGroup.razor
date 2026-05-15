@@ -55,7 +55,8 @@
 
     <FormSectionCard Title="子題區" Icon="fa-layer-group" BodyClass="p-5">
         <HeaderRight>
-            @if (Status == QuestionStatus.Draft && !IsFocusMode)
+            @* 命題階段（Draft / Completed）開放新增子題；送審後鎖定，避免破壞審題分配 pipeline *@
+            @if (Status <= QuestionStatus.Completed && !IsFocusMode)
             {
                 <button type="button" @onclick="AddSubQuestion"
                     class="px-3 py-1.5 text-xs font-bold text-white bg-sage rounded-lg hover:bg-[#7a9a82] transition-colors cursor-pointer shadow-sm flex items-center gap-1">
@@ -89,8 +90,8 @@
                                 <span class="text-xs text-gray-400 font-normal font-mono">@QuestionCodeHelper.SubCode(ParentQuestionCode, n)</span>
                             }
                         </span>
-                        @* 刪除子題僅在草稿狀態 + 非 focus 模式時開放；命題完成後鎖定，避免送審/審題流程斷鏈 *@
-                        @if (Status == QuestionStatus.Draft && SubQuestions.Count > 1 && !IsFocusMode)
+                        @* 命題階段（Draft / Completed）開放刪除子題；送審後鎖定，避免送審/審題流程斷鏈 *@
+                        @if (Status <= QuestionStatus.Completed && SubQuestions.Count > 1 && !IsFocusMode)
                         {
                             <button type="button" @onclick="() => RemoveSubQuestion(idx)"
                                 class="text-xs text-red-400 hover:text-red-600 transition-colors cursor-pointer flex items-center gap-1">
@@ -184,7 +185,7 @@
     [Parameter] public List<QuestionImage> Images { get; set; } = [];
     [Parameter] public EventCallback<List<QuestionImage>> ImagesChanged { get; set; }
 
-    /// <summary>當前題目狀態，僅 Draft 開放刪除子題；其餘狀態（命題完成 / 送審後）按鈕隱藏</summary>
+    /// <summary>當前題目狀態，命題階段（Draft / Completed）開放新增/刪除子題；送審後（&gt;= Submitted）按鈕隱藏</summary>
     [Parameter] public byte Status { get; set; } = QuestionStatus.Draft;
 
     /// <summary>母題編號（Q-{Year}-{NNNNN}），用於在子題卡頭顯示子題碼。新題尚未配發碼時可為空字串。</summary>

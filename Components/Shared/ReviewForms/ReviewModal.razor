@@ -38,7 +38,7 @@
                 }
                 else if (data is not null)
                 {
-                    <span class="font-black text-slate-main text-base shrink-0">@data.Question.QuestionCode</span>
+                    <span class="font-black text-slate-main text-base shrink-0">@HeaderDisplayCode</span>
                     <span class="px-2.5 py-0.5 bg-gray-100 text-gray-700 rounded-md text-xs font-bold border border-gray-200 shrink-0">
                         @QuestionConstants.TypeLabels.GetValueOrDefault(data.Question.QuestionType, "未知題型")
                     </span>
@@ -280,6 +280,25 @@
     /// - IsHistoricalFromService → Service 端判定此行為歷史行（stage != active stage），唯讀
     /// </summary>
     private bool IsHistoricalAssignment => data?.MyAssignment is null || IsHistoricalFromService;
+
+    /// <summary>
+    /// Header 顯示用題目編號：母題視角顯示母題碼；子題視角組合 {母題碼}-{SortOrder:D2}（例 Q-115-00044-01）。
+    /// SortOrder 來自 data.SiblingUnits（Service 端已按 stage 撈出兄弟單元）。
+    /// </summary>
+    private string HeaderDisplayCode
+    {
+        get
+        {
+            if (data is null) return "";
+            if (currentSubId is int subId)
+            {
+                var sortOrder = data.SiblingUnits.FirstOrDefault(s => s.SubQuestionId == subId)?.SortOrder;
+                if (sortOrder is int so)
+                    return QuestionCodeHelper.SubCode(data.Question.QuestionCode, so);
+            }
+            return data.Question.QuestionCode;
+        }
+    }
 
     private ReviewModalData? data;
     private bool isLoading;

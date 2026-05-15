@@ -169,6 +169,9 @@ public class MemberDetailDto
     public string DisplayName { get; set; } = string.Empty;
     public string? TeacherCode { get; set; }
     public List<RoleTag> Roles { get; set; } = new();
+
+    /// <summary>該成員在此專案是否有「可下載聘書」（FileName IS NOT NULL AND IsRevoked=0），給下載按鈕條件渲染用。</summary>
+    public bool HasDownloadableCerts { get; set; }
 }
 
 public enum ProjectLifecycleStatus : byte
