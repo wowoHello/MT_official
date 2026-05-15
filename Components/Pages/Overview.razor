@@ -581,7 +581,8 @@
 
         // 並行載入題目詳情、審題歷程、劃記評語
         var dataTask        = OverviewService.GetDetailAsync(questionId);
-        var historyTask     = OverviewService.GetReviewHistoryAsync(questionId);
+        // 單元視角：母題列只看母題歷程、子題列只看該子題歷程（不混合，避免管理員誤判）
+        var historyTask     = OverviewService.GetReviewHistoryAsync(questionId, subQuestionId);
         var annotationsTask = OverviewService.GetAnnotationsForUnitAsync(questionId, subQuestionId);
         await Task.WhenAll(dataTask, historyTask, annotationsTask);
         detailData        = dataTask.Result;
@@ -1183,7 +1184,7 @@
     /// SlideOver 內切換子題單元（不關閉 Modal）：
     ///   subId=null  → 切回母題模式（顯示文章/語音 + 子題索引卡）
     ///   subId≠null  → 切到該子題聚焦模式（顯示文章/語音作上下文 + 單一子題）
-    /// 同時重抓對應單元的劃記評語清單；清空螢光筆（含 snapshot），避免殘留。
+    /// 同時重抓對應單元的劃記評語清單與審題意見歷程；清空螢光筆（含 snapshot），避免殘留。
     /// </summary>
     private async Task SwitchSubUnitAsync(int? subId)
     {
@@ -1192,11 +1193,17 @@
         @* modalTitle / 題號 div 走 computed property，本方法不再手動賦值 *@
 
         detailAnnotations = new();
+        detailHistory     = new();
         pinnedAnnotationId = null;
         try { await JS.InvokeVoidAsync("annotation.clearAll"); } catch { }
         StateHasChanged();
 
-        detailAnnotations = await OverviewService.GetAnnotationsForUnitAsync(detailItem.Id, subId);
+        // 並行重抓單元層級的劃記評語與審題歷程，與 OpenDetailAsync 同步策略
+        var annotationsTask = OverviewService.GetAnnotationsForUnitAsync(detailItem.Id, subId);
+        var historyTask     = OverviewService.GetReviewHistoryAsync(detailItem.Id, subId);
+        await Task.WhenAll(annotationsTask, historyTask);
+        detailAnnotations = annotationsTask.Result;
+        detailHistory     = historyTask.Result;
         StateHasChanged();
     }
 }

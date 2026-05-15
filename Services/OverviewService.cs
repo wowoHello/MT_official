@@ -21,8 +21,11 @@ public interface IOverviewService
     /// <summary>復原已軟刪除題目（包裝 IQuestionService.RestoreAsync）。</summary>
     Task<bool> RestoreAsync(int questionId, int operatorUserId);
 
-    /// <summary>取此題的審題歷程（管理員監控用，不匿名）。委派 IReviewService。</summary>
-    Task<List<ReviewHistoryEntry>> GetReviewHistoryAsync(int questionId);
+    /// <summary>
+    /// 取此「單元」的審題歷程（管理員監控用，不匿名）。委派 IReviewService。
+    /// subQuestionId = null：母題單元歷程；非 null：該子題單元歷程。
+    /// </summary>
+    Task<List<ReviewHistoryEntry>> GetReviewHistoryAsync(int questionId, int? subQuestionId = null);
 
     /// <summary>
     /// 取此單元（母題=subQuestionId null / 子題=subQuestionId 值）所有審題者的劃記評語。
@@ -530,8 +533,8 @@ public class OverviewService(
     public Task<bool> RestoreAsync(int questionId, int operatorUserId)
         => _questionService.RestoreAsync(questionId, operatorUserId);
 
-    public Task<List<ReviewHistoryEntry>> GetReviewHistoryAsync(int questionId)
-        => _reviewService.GetHistoryByQuestionIdAsync(questionId);
+    public Task<List<ReviewHistoryEntry>> GetReviewHistoryAsync(int questionId, int? subQuestionId = null)
+        => _reviewService.GetHistoryByQuestionIdAsync(questionId, subQuestionId);
 
     public async Task<List<OverviewAnnotationCard>> GetAnnotationsForUnitAsync(int questionId, int? subQuestionId)
     {

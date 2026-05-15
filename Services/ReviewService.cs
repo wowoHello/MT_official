@@ -34,9 +34,11 @@ public interface IReviewService
 
     /// <summary>
     /// 取得指定題目的審題歷程（管理員監控用，不匿名）。
+    /// subQuestionId = null：母題單元歷程；非 null：該子題單元歷程；
+    /// 預設不再彙整全題（避免 Overview 母題/子題視角共用同一張列表造成混淆）。
     /// 內部複用 LoadHistoryAsync —— 避免在 OverviewService 重寫 union 三個來源的 SQL。
     /// </summary>
-    Task<List<ReviewHistoryEntry>> GetHistoryByQuestionIdAsync(int questionId);
+    Task<List<ReviewHistoryEntry>> GetHistoryByQuestionIdAsync(int questionId, int? subQuestionId = null);
 
     // ====== Phase 3.5：寫入 ======
     /// <summary>儲存審題意見草稿（不做決策、不變更 Question 狀態）。回傳是否成功。</summary>
@@ -270,11 +272,12 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         }).ToList();
     }
 
-    public async Task<List<ReviewHistoryEntry>> GetHistoryByQuestionIdAsync(int questionId)
+    public async Task<List<ReviewHistoryEntry>> GetHistoryByQuestionIdAsync(int questionId, int? subQuestionId = null)
     {
-        // OverviewService 整題彙整視角：管理員想看整題完整歷程（母題 + 所有子題）— 故走 aggregateAllUnits = true
+        // Overview 單元視角：母題單元（subQuestionId=null）僅看母題歷程、子題單元僅看該子題歷程
+        // aggregateAllUnits = false → LoadHistoryAsync 以 ISNULL(SubQuestionId,-1) = ISNULL(@SubQuestionId,-1) 精準過濾
         using var conn = _db.CreateConnection();
-        return await LoadHistoryAsync(conn, questionId, subQuestionId: null, aggregateAllUnits: true);
+        return await LoadHistoryAsync(conn, questionId, subQuestionId, aggregateAllUnits: false);
     }
 
     public async Task<ReviewModalData?> GetModalDataAsync(int questionId, int? subQuestionId, int currentUserId)
