@@ -44,7 +44,8 @@
 
             <!-- 子題選項：傳 SubQuestionIndex 給 PreviewChoiceOptions，由它依 (FieldType, SubQuestionIndex) 抓對應圖 -->
             <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer"
-                Images="@Images" SubQuestionIndex="idx" />
+                Images="@Images" SubQuestionIndex="idx"
+                HideOptionAnswerMarker="@HideOptionAnswerMarker" />
 
             <!-- 命題端 metadata（給命題者驗收，淡化處理） -->
             <div class="mt-2 pt-2 border-t border-dashed border-gray-200 flex flex-wrap items-center gap-2 text-xs font-sans">
@@ -78,6 +79,12 @@
     /// 預設 0；若 Overview 子題聚焦時傳入單一子題且該子題為原母題第 3 題，需傳 StartIndex=2。
     /// </summary>
     [Parameter] public int StartIndex { get; set; } = 0;
+
+    /// <summary>
+    /// true 時隱藏選項上的正解螢光筆（綠框 / sage 字色 / ✓ icon），底部「正解：(X)」虛線小標仍保留。
+    /// 用於唯讀檢視場景（如 Overview、Reviews 旁觀者視角），避免綠色 marker 影響閱讀。
+    /// </summary>
+    [Parameter] public bool HideOptionAnswerMarker { get; set; } = false;
 
     public class SubQuestionData
     {

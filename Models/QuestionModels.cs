@@ -483,6 +483,21 @@ public class QuestionListResult
     public int Page { get; set; }
     public int PageSize { get; set; }
     public int PageCount => PageSize > 0 ? (TotalCount + PageSize - 1) / PageSize : 0;
+
+    /// <summary>
+    /// 該 Tab 範圍內每個 QuestionTypeId 的題數計數。
+    /// 計算範圍：僅套用 ProjectId / CreatorId / IsDeleted / Tab status 範圍，
+    /// 刻意忽略使用者自選的 type / level / keyword / HasReplied filter —
+    /// 確保使用者選了 type filter 後，type dropdown 內的選項仍維持全集。
+    /// CwtList 篩選下拉「有項目才出現」設計使用。
+    /// </summary>
+    public Dictionary<int, int> TypeIdCounts { get; set; } = new();
+
+    /// <summary>
+    /// 該 Tab 範圍內每個 Level (byte) 的題數計數。
+    /// 計算範圍同 TypeIdCounts；Level 為 NULL 的題目不入此 dict。
+    /// </summary>
+    public Dictionary<byte, int> LevelCounts { get; set; } = new();
 }
 
 // ======================================================================

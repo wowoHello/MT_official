@@ -56,7 +56,8 @@
             <PreviewImageRow Images="subStemImages" />
 
             <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer"
-                                  Images="@Images" SubQuestionIndex="idx" />
+                                  Images="@Images" SubQuestionIndex="idx"
+                                  HideOptionAnswerMarker="@HideOptionAnswerMarker" />
         </div>
     }
 </div>
@@ -72,6 +73,12 @@
     /// 子題在原母題中的起始 index（用於子題聚焦模式正確顯示題號 + data-annot-target 對齊）。預設 0。
     /// </summary>
     [Parameter] public int StartIndex { get; set; } = 0;
+
+    /// <summary>
+    /// 是否隱藏選項上的正解螢光筆（綠框 + sage 文字色 + ✓ icon）。底部「正解：(X)」虛線小標不受此參數影響。
+    /// 預設 false（顯示螢光筆）；審修/檢視/審核結果頁應傳 true。
+    /// </summary>
+    [Parameter] public bool HideOptionAnswerMarker { get; set; } = false;
 
     public class SubQuestionData
     {

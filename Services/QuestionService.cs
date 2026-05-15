@@ -729,12 +729,16 @@ public class QuestionService(
             """;
 
         // 子題列 SELECT 主體（僅 revision tab 啟用）
+        // 聽力題組（TypeId=7）特例：母題不分難度／等級，子題的 FixedDifficulty (3=難度三 / 4=難度四) 屬於「等級」而非「易/中/難」，
+        // 因此將 FixedDifficulty 映射到 Level 欄位（讓 UI 的 LevelLabel 走 ListenLevelLabels 渲染為「難度三/四」），
+        // Difficulty 保持 NULL，避免被 DifficultyLabels 誤翻成「難」或空字串。
+        // 其他題組類（閱讀/短文）子題沿用母題的 Level / Difficulty。
         string subSelectSql = $"""
             SELECT
                 q.Id, q.QuestionCode,
                 q.QuestionTypeId AS TypeId,
-                q.Level,
-                COALESCE(sq.FixedDifficulty, q.Difficulty) AS Difficulty,
+                CASE WHEN q.QuestionTypeId = 7 THEN sq.FixedDifficulty ELSE q.Level END AS Level,
+                CASE WHEN q.QuestionTypeId = 7 THEN NULL ELSE q.Difficulty END AS Difficulty,
                 sq.Status,
                 sq.Stem AS SummaryHtml,
                 q.CreatedAt, q.UpdatedAt,
@@ -795,9 +799,92 @@ public class QuestionService(
                 """;
         }
 
+        // CwtList 篩選下拉「有項目才出現」用：
+        //   只套 Tab status 範圍 + ProjectId + CreatorId + IsDeleted，刻意忽略使用者自選的
+        //   type / level / keyword / HasReplied filter——這樣使用者切 filter 時 dropdown 不會動態消失。
+        //   設計與 Overview.StatusKeyCounts 同源語意。
+        //
+        //   revision tab 要 UNION ALL 母題 + 子題（兩邊 status 範圍各自比對）；其他 Tab master-only。
+        //   GROUP BY TypeId / Level 結果只當 boolean key 用（dropdown 出不出現），多列重複計數不影響行為。
+        string typeCountsSql;
+        string levelCountsSql;
+        if (includeSubRows)
+        {
+            typeCountsSql = $"""
+                SELECT TypeId, COUNT(*) AS Cnt FROM (
+                    SELECT q.QuestionTypeId AS TypeId
+                    FROM dbo.MT_Questions q
+                    WHERE q.ProjectId = @ProjectId
+                      {deletedClauseQ}
+                      AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
+                      {(statuses.Length > 0 ? "AND q.Status IN @Statuses" : "")}
+                    UNION ALL
+                    SELECT q.QuestionTypeId AS TypeId
+                    FROM dbo.MT_SubQuestions sq
+                    INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                    WHERE q.ProjectId = @ProjectId
+                      {deletedClauseQ}
+                      AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
+                      {(statuses.Length > 0 ? "AND sq.Status IN @Statuses" : "")}
+                ) AS u
+                GROUP BY TypeId;
+                """;
+            levelCountsSql = $"""
+                SELECT Level, COUNT(*) AS Cnt FROM (
+                    SELECT q.Level
+                    FROM dbo.MT_Questions q
+                    WHERE q.ProjectId = @ProjectId
+                      {deletedClauseQ}
+                      AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
+                      {(statuses.Length > 0 ? "AND q.Status IN @Statuses" : "")}
+                      AND q.Level IS NOT NULL
+                    UNION ALL
+                    SELECT q.Level
+                    FROM dbo.MT_SubQuestions sq
+                    INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                    WHERE q.ProjectId = @ProjectId
+                      {deletedClauseQ}
+                      AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
+                      {(statuses.Length > 0 ? "AND sq.Status IN @Statuses" : "")}
+                      AND q.Level IS NOT NULL
+                ) AS u
+                GROUP BY Level;
+                """;
+        }
+        else
+        {
+            typeCountsSql = $"""
+                SELECT q.QuestionTypeId AS TypeId, COUNT(*) AS Cnt
+                FROM dbo.MT_Questions q
+                WHERE q.ProjectId = @ProjectId
+                  {deletedClauseQ}
+                  AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
+                  {(statuses.Length > 0 ? "AND q.Status IN @Statuses" : "")}
+                GROUP BY q.QuestionTypeId;
+                """;
+            levelCountsSql = $"""
+                SELECT q.Level, COUNT(*) AS Cnt
+                FROM dbo.MT_Questions q
+                WHERE q.ProjectId = @ProjectId
+                  {deletedClauseQ}
+                  AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
+                  {(statuses.Length > 0 ? "AND q.Status IN @Statuses" : "")}
+                  AND q.Level IS NOT NULL
+                GROUP BY q.Level;
+                """;
+        }
+
+        // QueryMultipleAsync 一次 round-trip 帶 4 個 result set：count / list / typeCounts / levelCounts
+        // 原本 2 次（ExecuteScalar + Query）變 1 次。Dapper 自動處理同一連線串接 SQL 用 ";" 分隔。
+        var megaSql = $"{countSql}\n\n{listSql}\n\n{typeCountsSql}\n\n{levelCountsSql}";
+
         using var conn = _db.CreateConnection();
-        var total = await conn.ExecuteScalarAsync<int>(countSql, args);
-        var rows  = (await conn.QueryAsync<QuestionListRowDto>(listSql, args)).AsList();
+        using var multi = await conn.QueryMultipleAsync(megaSql, args);
+
+        var total        = await multi.ReadFirstAsync<int>();
+        var rows         = (await multi.ReadAsync<QuestionListRowDto>()).AsList();
+        var typeCountRows  = await multi.ReadAsync<(int TypeId, int Cnt)>();
+        var levelCountRows = await multi.ReadAsync<(byte Level, int Cnt)>();
 
         return new QuestionListResult
         {
@@ -821,7 +908,9 @@ public class QuestionService(
                 HasRepliedThisStage = r.HasRepliedThisStage,
                 SubQuestionId    = r.SubQuestionId,
                 SubSortOrder     = r.SubSortOrder
-            }).ToList()
+            }).ToList(),
+            TypeIdCounts = typeCountRows.ToDictionary(t => t.TypeId, t => t.Cnt),
+            LevelCounts  = levelCountRows.ToDictionary(t => t.Level, t => t.Cnt)
         };
     }
 
@@ -1044,6 +1133,29 @@ public class QuestionService(
                 WHERE ProjectId = @ProjectId
                   AND Status = @Completed
                   AND IsDeleted = 0;
+                """,
+                new
+                {
+                    ProjectId = projectId,
+                    Submitted = QuestionStatus.Submitted,
+                    Completed = QuestionStatus.Completed
+                }, tx);
+
+            // 4.5 Stage B-4：題組類子題 Status 同步升級 1 → 2（與母題狀態對齊）
+            //     不加此同步：CwtList 審修作業區、Reviews 子題列因 sq.Status 卡在 Completed(1)
+            //     而被「審題鎖定」狀態篩選 (sq.Status IN @Statuses) 排除，畫面上看不到子題列。
+            //     後續階段邊界 transition（互審→專審 等）的 sub-status 同步邏輯已存在於
+            //     EnsureBatchTransitionAsync，本處補上「命題→互審」首次入口的同步缺漏。
+            await conn.ExecuteAsync(
+                """
+                UPDATE sq
+                SET sq.Status = @Submitted
+                FROM dbo.MT_SubQuestions sq
+                INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                WHERE q.ProjectId = @ProjectId
+                  AND q.IsDeleted = 0
+                  AND sq.IsDeleted = 0
+                  AND sq.Status = @Completed;
                 """,
                 new
                 {

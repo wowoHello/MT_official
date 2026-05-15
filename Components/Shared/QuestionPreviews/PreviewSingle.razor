@@ -23,7 +23,8 @@
 <PreviewImageRow Images="StemImages" />
 
 <!-- ABCD 選項 -->
-<PreviewChoiceOptions Options="@Options" Answer="@Answer" Images="@Images" />
+<PreviewChoiceOptions Options="@Options" Answer="@Answer" Images="@Images"
+                      HideOptionAnswerMarker="@HideOptionAnswerMarker" />
 
 @code {
     [Parameter] public string QuestionType { get; set; } = "";
@@ -34,6 +35,9 @@
     [Parameter] public string[] Options { get; set; } = new string[4];
     [Parameter] public string Answer { get; set; } = "";
     [Parameter] public List<QuestionImage> Images { get; set; } = [];
+
+    /// <summary>透通至 PreviewChoiceOptions：唯讀／審題／審修情境傳 true 可隱藏選項上的正解標記。</summary>
+    [Parameter] public bool HideOptionAnswerMarker { get; set; } = false;
 
     private List<QuestionImage> StemImages =>
         Images.Where(i => i.FieldType == (byte)QuestionImageField.Stem && i.SubQuestionIndex == null)

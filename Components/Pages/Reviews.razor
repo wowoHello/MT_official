@@ -224,11 +224,15 @@
                                 <DebouncedSearchInput Value="@(queryKeyword ?? "")" ValueChanged="OnKeywordChanged"
                                     Placeholder="搜尋題號或關鍵字..." />
                             </div>
+                            @* 動態渲染：只列當前 Tab 原始集合內實際存在的選項（typeKeyCounts / levelKeyCounts / availableStatusKeys
+                               從未篩過的 assignments / historyItems 計算），避免使用者選了卻篩到 0 筆。
+                               注意：計算來源永遠是原始集合，使用者切 type/level filter 時本 dropdown 自身不會縮減。 *@
                             <select value="@queryType" @onchange="OnTypeFilterChanged"
                                 class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                                 <option value="all">所有題型</option>
                                 @foreach (var kv in QuestionConstants.TypeLabels)
                                 {
+                                    if (!typeKeyCounts.ContainsKey(kv.Key)) continue;
                                     <option value="@kv.Key">@kv.Value</option>
                                 }
                             </select>
@@ -237,6 +241,7 @@
                                 <option value="all">所有等級</option>
                                 @foreach (var kv in QuestionConstants.GeneralLevelLabels)
                                 {
+                                    if (!levelKeyCounts.ContainsKey(kv.Key)) continue;
                                     <option value="@kv.Key">@kv.Value</option>
                                 }
                             </select>
@@ -245,15 +250,15 @@
                                 @if (currentTab == "review")
                                 {
                                     <option value="all">所有狀態</option>
-                                    <option value="pending">待審</option>
-                                    <option value="completed">已審題</option>
-                                    <option value="historical">歷史紀錄</option>
+                                    @if (availableStatusKeys.Contains("pending"))    { <option value="pending">待審</option> }
+                                    @if (availableStatusKeys.Contains("completed"))  { <option value="completed">已審題</option> }
+                                    @if (availableStatusKeys.Contains("historical")) { <option value="historical">歷史紀錄</option> }
                                 }
                                 else
                                 {
                                     <option value="all">所有狀態</option>
-                                    <option value="adopted">已採用</option>
-                                    <option value="rejected">不採用</option>
+                                    @if (availableStatusKeys.Contains("adopted"))  { <option value="adopted">已採用</option> }
+                                    @if (availableStatusKeys.Contains("rejected")) { <option value="rejected">不採用</option> }
                                 }
                             </select>
                         </div>
@@ -808,6 +813,14 @@
     private int pageSize       = 10;
     private int currentPage    = 1;
 
+    // 下拉 Availability 快取（從未篩過的原始集合算，避免 filter 互相干擾）
+    // key = TypeKey(string)；value = 筆數（僅用來判斷 ContainsKey，不顯示數字）
+    private Dictionary<string, int> typeKeyCounts  = new();
+    // key = Level(byte)；value = 筆數
+    private Dictionary<byte, int>   levelKeyCounts = new();
+    // 狀態 key 集合（"pending"/"completed"/"historical" 或 "adopted"/"rejected"）
+    private HashSet<string>         availableStatusKeys = new();
+
     // ReviewModal 開關
     private bool showReviewModal;
     private int? selectedQuestionId;
@@ -1120,6 +1133,8 @@
         currentTab  = tab;
         currentPage = 1;
         // FilteredCount 會切換取 FilteredAssignments / FilteredHistory；cache 本身不需失效
+        // 但 source list 換了，下拉 availability 要依新 Tab 的集合重算
+        RecomputeFilterAvailability();
     }
 
     private void OnKeywordChanged(string? keyword)        { queryKeyword = keyword; currentPage = 1; InvalidateFilter(); }
@@ -1158,6 +1173,49 @@
     {
         cachedAssignments = null;
         cachedHistory     = null;
+        RecomputeFilterAvailability();
+    }
+
+    /// <summary>
+    /// 依當前 Tab 的原始集合（未篩選）重算下拉 availability 字典。
+    /// 使用原始集合（assignments / historyItems）而非 Filtered*，
+    /// 確保使用者切 type filter 時 type dropdown 本身選項不會縮減（與 Overview 鐵則一致）。
+    /// </summary>
+    private void RecomputeFilterAvailability()
+    {
+        if (currentTab == "review")
+        {
+            typeKeyCounts = assignments
+                .GroupBy(a => a.TypeKey)
+                .ToDictionary(g => g.Key, g => g.Count());
+
+            levelKeyCounts = assignments
+                .Where(a => a.Level.HasValue)
+                .GroupBy(a => a.Level!.Value)
+                .ToDictionary(g => g.Key, g => g.Count());
+
+            availableStatusKeys = new HashSet<string>();
+            if (assignments.Any(a => !a.IsHistorical && !a.IsCompleted)) availableStatusKeys.Add("pending");
+            if (assignments.Any(a => !a.IsHistorical &&  a.IsCompleted)) availableStatusKeys.Add("completed");
+            if (assignments.Any(a =>  a.IsHistorical))                   availableStatusKeys.Add("historical");
+        }
+        else
+        {
+            typeKeyCounts = historyItems
+                .GroupBy(h => h.TypeKey)
+                .ToDictionary(g => g.Key, g => g.Count());
+
+            levelKeyCounts = historyItems
+                .Where(h => h.Level.HasValue)
+                .GroupBy(h => h.Level!.Value)
+                .ToDictionary(g => g.Key, g => g.Count());
+
+            availableStatusKeys = new HashSet<string>();
+            if (historyItems.Any(h => h.FinalStatus is QuestionStatus.Adopted or QuestionStatus.Archived))
+                availableStatusKeys.Add("adopted");
+            if (historyItems.Any(h => h.FinalStatus is QuestionStatus.Rejected or QuestionStatus.ClosedNotAdopted))
+                availableStatusKeys.Add("rejected");
+        }
     }
 
     private IReadOnlyList<ReviewListItem> FilteredAssignments => cachedAssignments ??= assignments

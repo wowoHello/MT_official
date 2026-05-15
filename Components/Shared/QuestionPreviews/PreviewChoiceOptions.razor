@@ -31,12 +31,14 @@
         // 正解 ✓ 在 items-baseline 模式下需要 mt-1.5 才能視覺對齊文字基線
         var checkOffset = alignClass == "items-baseline" ? "mt-1.5" : "";
 
+        @* HideOptionAnswerMarker=true 時：選項不標綠框 / 不變 sage 字色 / 不顯示 ✓ icon（底部正解小標仍保留）*@
+        var showMarker = isAnswer && !HideOptionAnswerMarker;
         <div class="flex @alignClass gap-2 px-3 py-2 rounded
-                    border-l-2 @(isAnswer ? "border-sage bg-sage/5" : "border-transparent")">
+                    border-l-2 @(showMarker ? "border-sage bg-sage/5" : "border-transparent")">
             <span class="font-bold text-gray-700 flex-shrink-0 select-none">(@label)</span>
             <div class="flex-1 min-w-0">
                 @* fieldKey 直接 inline：母題 = optionA/B/C/D；子題 = subOptionA.{idx} 等 — 給審題劃記用 *@
-                <div class="prose prose-sm max-w-none leading-relaxed @(isAnswer ? "text-sage font-medium" : "text-gray-800")"
+                <div class="prose prose-sm max-w-none leading-relaxed @(showMarker ? "text-sage font-medium" : "text-gray-800")"
                      data-annot-target="@(SubQuestionIndex.HasValue ? $"subOption{label}.{SubQuestionIndex}" : $"option{label}")">
                     @if (hasText)
                     {
@@ -50,7 +52,7 @@
                 </div>
                 <PreviewImageRow Images="optionImages" />
             </div>
-            @if (isAnswer)
+            @if (showMarker)
             {
                 <i class="fa-solid fa-check text-sage text-xs flex-shrink-0 @checkOffset" title="正解"></i>
             }
@@ -80,6 +82,13 @@
     /// 非 null = 該子題的位置索引（ReadGroup / ListenGroup 子題）。
     /// </summary>
     [Parameter] public int? SubQuestionIndex { get; set; }
+
+    /// <summary>
+    /// 唯讀／審題／審修情境傳 true：隱藏選項上的正解標記（綠框、sage 字色、✓ icon）。
+    /// 底部「正解：(X)」虛線小標不受影響，仍照常顯示。
+    /// 命題者自己的「預覽」modal 保持預設 false，行為不變。
+    /// </summary>
+    [Parameter] public bool HideOptionAnswerMarker { get; set; } = false;
 
     private static readonly string[] Labels = { "A", "B", "C", "D" };
 

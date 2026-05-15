@@ -875,7 +875,8 @@
             case QuestionTypeCodes.Single:
             case QuestionTypeCodes.Select:
                 <PreviewSingle QuestionType="@typeLabel" Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
-                    Stem="@detailData.Stem" Options="@detailData.Options" Answer="@detailData.Answer" Images="@detailData.Images" />
+                    Stem="@detailData.Stem" Options="@detailData.Options" Answer="@detailData.Answer" Images="@detailData.Images"
+                    HideOptionAnswerMarker="true" />
                 @RenderAnalysisSection
                 break;
             case QuestionTypeCodes.LongText:
@@ -887,7 +888,8 @@
                 <PreviewListen Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
                     AudioFileName="@detailData.AudioUrl" Stem="@detailData.Stem"
                     Options="@detailData.Options" Answer="@detailData.Answer"
-                    Images="@detailData.Images" />
+                    Images="@detailData.Images"
+                    HideOptionAnswerMarker="true" />
                 @RenderAnalysisSection
                 break;
 
@@ -897,7 +899,8 @@
                     @* 母題模式：傳空 SubQuestions list，PreviewReadGroup 只渲染文章不展開子題 *@
                     <PreviewReadGroup Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
                         Passage="@detailData.ArticleContent" Images="@detailData.Images"
-                        SubQuestions="@(new List<PreviewReadGroup.SubQuestionData>())" />
+                        SubQuestions="@(new List<PreviewReadGroup.SubQuestionData>())"
+                        HideOptionAnswerMarker="true" />
                     @RenderSubIndexCards(detailData.ReadSubQuestions.Select(s => (s.Id, s.Stem)).ToList())
                 }
                 else
@@ -916,7 +919,8 @@
                                     Dimension = QuestionConstants.DecodeSubCoreAbility(focus.CoreAbility, QuestionTypeCodes.ReadGroup),
                                     Indicator = QuestionConstants.DecodeSubIndicator(focus.Indicator, QuestionTypeCodes.ReadGroup)
                                 }
-                            })" />
+                            })"
+                            HideOptionAnswerMarker="true" />
                         @RenderSubAnalysisSection(focus.Analysis, focusIdx)
                     }
                     else
@@ -969,7 +973,8 @@
                 {
                     <PreviewListenGroup Tags="@tags" AudioFileName="@detailData.AudioUrl"
                         Passage="@detailData.ArticleContent" Images="@detailData.Images"
-                        SubQuestions="@(new List<PreviewListenGroup.SubQuestionData>())" />
+                        SubQuestions="@(new List<PreviewListenGroup.SubQuestionData>())"
+                        HideOptionAnswerMarker="true" />
                     @RenderSubIndexCards(detailData.ListenGroupSubQuestions.Select(s => (s.Id, s.Stem)).ToList())
                 }
                 else
@@ -989,7 +994,8 @@
                                     DetailIndicator = QuestionConstants.DecodeSubIndicator(focus.DetailIndicator, QuestionTypeCodes.ListenGroup),
                                     Stem = focus.Stem, Options = focus.Options, Answer = focus.Answer
                                 }
-                            })" />
+                            })"
+                            HideOptionAnswerMarker="true" />
                         @RenderSubAnalysisSection(focus.Analysis, focusIdx)
                     }
                     else

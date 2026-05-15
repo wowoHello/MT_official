@@ -187,11 +187,15 @@
                             <DebouncedSearchInput Value="@(queryKeyword ?? "")" ValueChanged="OnKeywordChanged"
                                 Placeholder="搜尋題號或關鍵字..." />
                         </div>
+                        @* 動態渲染：dropdown 只列該 Tab 範圍實際存在的選項（listResult.TypeIdCounts / LevelCounts 由 QuestionService.ListAsync
+                           忽略 type / level / keyword / HasReplied filter 後計算），避免使用者選了卻篩到 0 筆。
+                           設計與 Overview.StatusKeyCounts 同源語意。 *@
                         <select value="@queryTypeId" @onchange="OnTypeFilterChanged"
                             class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                             <option value="">所有題型</option>
                             @foreach (var (id, key) in QuestionConstants.TypeIdToKey)
                             {
+                                if (!listResult.TypeIdCounts.ContainsKey(id)) continue;
                                 <option value="@id">@QuestionConstants.TypeLabels.GetValueOrDefault(key, key)</option>
                             }
                         </select>
@@ -200,6 +204,7 @@
                             <option value="">所有等級</option>
                             @foreach (var kv in QuestionConstants.GeneralLevelLabels)
                             {
+                                if (!listResult.LevelCounts.ContainsKey(kv.Key)) continue;
                                 <option value="@kv.Key">@kv.Value</option>
                             }
                         </select>
@@ -253,8 +258,10 @@
                                         <td class="px-4 py-3 font-bold text-slate-main group-hover:text-morandi whitespace-nowrap transition-colors">
                                             @if (isSubRow)
                                             {
-                                                @* 子題列：↳ 視覺縮排 + 完整子題碼 Q-{Year}-{NNNNN}-{NN}（SortOrder 從 1 起算） *@
-                                                <span class="text-gray-400 mr-1">↳</span>
+                                                @* 子題列：縮排 + 樹枝符號（與 Reviews.razor 視覺一致） + 完整子題碼 Q-{Year}-{NNNNN}-{NN} *@
+                                                <span class="inline-flex items-center gap-1 text-xs text-gray-400 mr-1" aria-hidden="true">
+                                                    <i class="fa-solid fa-turn-up rotate-90"></i>
+                                                </span>
                                                 <span class="text-gray-500 font-mono">@QuestionCodeHelper.SubCode(item.QuestionCode, item.SubSortOrder ?? 0)</span>
                                             }
                                             else
@@ -450,7 +457,8 @@
         case QuestionTypeCodes.Single:
         case QuestionTypeCodes.Select:
             <PreviewSingle QuestionType="@QuestionConstants.TypeLabels.GetValueOrDefault(formData.QuestionType, "")" Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel"
-                Tags="@GetPreviewTags()" Stem="@formData.Stem" Options="@formData.Options" Answer="@formData.Answer" Images="@formData.Images" />
+                Tags="@GetPreviewTags()" Stem="@formData.Stem" Options="@formData.Options" Answer="@formData.Answer" Images="@formData.Images"
+                HideOptionAnswerMarker="@(currentTab != "compose" || !IsEditableStatus(currentFormStatus))" />
             break;
         case QuestionTypeCodes.ReadGroup:
             <PreviewReadGroup Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel" Tags="@GetPreviewTags()"
@@ -459,7 +467,8 @@
                     Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer,
                     Dimension = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ReadGroup),
                     Indicator = QuestionConstants.DecodeSubIndicator(sq.Indicator, QuestionTypeCodes.ReadGroup)
-                }).ToList()" />
+                }).ToList()"
+                HideOptionAnswerMarker="@(currentTab != "compose" || !IsEditableStatus(currentFormStatus))" />
             break;
         case QuestionTypeCodes.LongText:
             <PreviewLongText Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel" Tags="@GetPreviewTags()"
@@ -477,7 +486,8 @@
         case QuestionTypeCodes.Listen:
             <PreviewListen Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel" Tags="@GetPreviewTags()"
                 AudioFileName="@formData.AudioUrl" Stem="@formData.Stem" Options="@formData.Options" Answer="@formData.Answer"
-                Images="@formData.Images" />
+                Images="@formData.Images"
+                HideOptionAnswerMarker="@(currentTab != "compose" || !IsEditableStatus(currentFormStatus))" />
             break;
         case QuestionTypeCodes.ListenGroup:
             <PreviewListenGroup Tags="@GetPreviewTags()" AudioFileName="@formData.AudioUrl" Passage="@formData.ArticleContent"
@@ -486,7 +496,8 @@
                     Level = QuestionConstants.ListenLevelLabels.GetValueOrDefault(sq.FixedDifficulty, ""),
                     CoreAbility = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ListenGroup),
                     DetailIndicator = QuestionConstants.DecodeSubIndicator(sq.DetailIndicator, QuestionTypeCodes.ListenGroup),
-                    Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer }).ToList()" />
+                    Stem = sq.Stem, Options = sq.Options, Answer = sq.Answer }).ToList()"
+                HideOptionAnswerMarker="@(currentTab != "compose" || !IsEditableStatus(currentFormStatus))" />
             break;
     }
 </QuestionPreviewModal>
