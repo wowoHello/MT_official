@@ -4,3 +4,6 @@
 - [Projects 狀態判斷邏輯](project_status_logic.md) — Preparing/Active/Closed 判斷規則，IsExpired 不等於自動結案
 - [SignalR 與 PhaseTransitionCoordinator](project_signalr_coordinator.md) — ProjectsHub 為純殼；協調器由 CwtList/Reviews/Overview 呼叫，非 Projects 頁自身
 - [命題階段結束鎖定機制](project_composition_lock.md) — 編輯模式命題階段結束後題數/配額/人員指派全鎖
+- [Projects 頁面整體架構（三檔現況）](project_projects_page_architecture.md) — 三檔行數、主要方法、IAppointmentService 依賴、#12 技術債、結案 6 步驟（2026-05-17）
+- [Projects 8 階段時程引擎](project_projects_phase_engine.md) — PhaseCode 1-8 預設天數、連動規則、DaysLeft、倒數提醒與首頁整合（2026-05-17）
+- [Projects 人員指派與配額分配引擎](project_projects_member_assignment.md) — PersonItem/AllocationItem 結構、配額自動分配演算法、DB 寫入策略、聘書欄位（2026-05-17）

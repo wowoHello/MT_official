@@ -1,6 +1,6 @@
 ---
 name: 登入認證流程細節
-description: Login.razor → AuthService 完整登入流程、Cookie 設定、鎖定邏輯、LoginLog/AuditLog 表
+description: Login.razor → AuthService 完整登入流程、Cookie 設定、PBKDF2 密碼、鎖定邏輯、LoginLog 表
 type: project
 ---
 
@@ -29,6 +29,7 @@ type: project
 - `"DisplayName"` = `user.DisplayName`
 - `ClaimTypes.Role` = `user.RoleName`
 - `"RoleId"` = `user.RoleId.ToString()`
+- `"IsFirstLogin"` = `"true"` 或 `"false"`（**重要**：用於 Login.razor 的 `OnInitializedAsync` 防止已登入使用者按上一頁繞回首頁，若為 true 強制導回 `/first-login-password`）
 
 ## 登入帳號支援
 
@@ -59,3 +60,11 @@ type: project
 ## 防枚舉設計
 
 `RequestPasswordResetAsync` 無論信箱是否存在，回傳訊息完全相同（避免洩漏帳號是否存在）
+
+## 密碼雜湊機制（2026-05-15 升級，附錄 A）
+
+- 新格式：`PBKDF2.v1$<iter>$<salt-base64>$<hash-base64>`，100,000 iterations，16 byte salt，SHA256，約 90 字元
+- 舊格式（向後相容）：純 Base64 編碼的 32 byte SHA256(UTF-16LE)，約 44 字元
+- `VerifyPassword()` 回傳 `(IsValid, NeedsUpgrade)`，NeedsUpgrade=true 代表走舊格式
+- 登入成功且 `NeedsUpgrade=true` → `UpgradePasswordHashAsync()` 靜默升級寫回 DB（失敗不阻擋登入）
+- `HashPassword()` 與 `VerifyPassword()` 為 `static` 方法，供 PasswordResetService、RoleService、TeacherService 共用呼叫

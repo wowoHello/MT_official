@@ -1,10 +1,10 @@
 ---
 name: 審題頁面現況快照（2026-05）
-description: Reviews.razor / ReviewService / ReviewModels 於 2026-05-13 的實作現況摘要，含狀態流轉、三審制度、迴避邏輯的落地方式
+description: Reviews.razor / ReviewService / ReviewModels 於 2026-05-17 的實作現況摘要，含狀態流轉、三審制度、迴避邏輯、效能優化歷史
 type: project
 ---
 
-## 現況摘要（最後更新：2026-05-13，commit 1b815f6）
+## 現況摘要（最後更新：2026-05-17）
 
 ### 三審制度現況實作（正確落地）
 - **互審（ReviewStage.Mutual=1）**：PhaseCode=3；分配排除命題者自身；ReviewDecisionBar 只顯示「儲存意見」/「修改意見」，無採用/退回鈕
@@ -42,12 +42,45 @@ PhaseCode → Stage 對照（在 GetMyAssignmentsAsync 中設值）：
 - BumpReturnCount 後 ReturnCount+1 >= 3 → CanEditByReviewer=1 → 解鎖「編輯題目」橘鈕
 - 母題與子題各自獨立計次（SubQuestionId NULL-safe 比對）
 
-### ReviewService 關鍵方法
+### 三檔行數量級（2026-05-17 量測）
+- `ReviewService.cs`：1588 行
+- `Reviews.razor`：1309 行
+- `ReviewModels.cs`：294 行
+- `Components/Shared/ReviewForms/`：6 個元件（ReviewModal / ReviewActionPanel / ReviewDecisionBar / ReviewQuestionDisplay / ReviewHistoryTimeline / ReviewSimilarityBanner）
+
+### ReviewService 關鍵方法（現況）
 - `GetMyAssignmentsAsync`：ROW_NUMBER CTE 去重同單元多筆，排除 Status IN (9,10,11,12)
 - `GetHistoryAsync`：篩 Status IN HistoryTabStatuses，歷史 Tab 專用
-- `GetModalDataAsync`：一次撈 題目+Assignment+歷程+相似題+ReturnCount+SiblingUnits 六項資料
-- `SubmitDecisionAsync`：僅更新 Assignment；題目狀態流轉由 PhaseTransitionCoordinator 負責
+- `GetModalDataAsync`：**第三波 #14 改寫後**，原 9 round-trip → QueryMultipleAsync 7 result-sets，總計 3-5 round-trip（GetByIdAsync 自帶 2-4 + 主連線 1）
+- `GetHistoryByQuestionIdAsync`：供 OverviewService 使用，aggregateAllUnits=false 精準模式
+- `LoadHistoryAsync`（private）：供 OverviewService 彙整模式（aggregateAllUnits=true，含 UnitInfo CTE）
+- `SubmitDecisionAsync`：寫入 Assignment + 觸發 BumpReturnCount；題目 Status 流轉在本方法內（非 PhaseTransitionCoordinator）
 - `FinalReviewerEditAndDecideAsync`（Plan_021）：單 tx 內 UPDATE 題目+Status(9/10)+Assignment+2筆 AuditLog
+- `SaveCommentDraftAsync`：互審只寫 Comment + ReviewStatus=Completed；非互審只寫 Comment（Decision IS NULL guard）
+
+### 效能優化歷史（影響 ReviewService 的部分）
+
+#### 第二波 #6 — `vw_QuestionRoundStartedAt` View（2026-05-15）
+原本「上次總審退回時間 MAX」的 correlated subquery 在全站 13 處複製；ReviewService 本身為 1 處單元級保留（行 2062 附近，含 SubQuestionId NULL-safe 比對，view 涵蓋不到）。
+**顯著消費點在 QuestionService / DashboardService / OverviewService / HomeService**，ReviewService 的消費點保留使用原始 scalar subquery 因有子題 SubQuestionId 比對的特殊需求。
+
+#### 第二波 #9 — LoadHistoryAsync bug 修補（2026-05-15）
+施工 QuestionService.ListAsync CTE 重寫時，實測觸發 `SqlException: 無效的資料行名稱 'QuestionId'`。
+**根本原因**：`ReviewService.cs:1209-1210` LoadHistoryAsync 的 UnitInfo CTE 寫 `sq.QuestionId`，但 MT_SubQuestions 正確欄位名是 `ParentQuestionId`。
+**觸發路徑**：Overview 頁詳情視角（aggregateAllUnits=true），命題任務頁不會觸發。
+**修補**：2 處 `sq.QuestionId` → `sq.ParentQuestionId`。
+此 bug 與 #9 改動無關，是既有 bug 因實測暴露。
+
+#### 第三波 #14 — GetModalDataAsync QueryMultipleAsync 重寫（2026-05-15）
+- 改寫前：GetByIdAsync（2-4）+ 7 個獨立 SELECT = 最多 11 round-trip
+- 改寫後：GetByIdAsync（2-4）+ 單一 QueryMultipleAsync（7 result-sets）= 3-5 round-trip
+- 7 個 result-set：#1 lastEdit / #2 creator / #3 myAssignment / #4 history（精準模式 inline SQL）/ #5 similar / #6 returnCount / #7 siblings（Stage 內嵌 subquery，無 Assignment 時自然 0 列）
+- siblings Stage 自帶 subquery：不需先讀 myAssignment 知道 Stage，內嵌 `WHERE ra.ReviewStage = (SELECT TOP 1 ReviewStage FROM ... WHERE ReviewerId = @ReviewerId)`
+- LoadHistoryAsync / LoadSimilaritiesAsync 兩個 helper **保留**，供 OverviewService 彙整模式使用
+
+#### 未處理（待第四波評估）
+- `UpsertFinalSubQuestionsAsync`：N+1 模式（SELECT existingIds + foreach UPDATE），觸發頻率低（僅總召代修子題路徑）+ 子題數量通常 2-5 個，ROI 偏低暫不動
+- 罐頭訊息：目前 8 則寫死在 ReviewActionPanel.razor，第四波計畫新增 `MT_CannedComments` 資料表讓管理員可編輯
 
 ### SystemAutoAuditReasons 排除清單（12 個）
 系統批次寫入的 Reason 字串（UserId=NULL），從 ReviewHistoryTimeline 與「最後編輯時間」計算中排除，避免污染歷程顯示。
@@ -84,5 +117,5 @@ PhaseCode → Stage 對照（在 GetMyAssignmentsAsync 中設值）：
 - 用於母題列顯示「子題索引卡」狀態（完成/待審）
 - 非題組或無 Assignment 時，SiblingUnits 為空 List
 
-**Why:** 2026-05-13 進行全面文件與程式碼對讀，確認實作與規格一致性後更新
-**How to apply:** 後續任何涉及 Reviews 頁面的任務，先對照此快照確認狀態編碼、PhaseCode 對應、DecisionBar 配置是否有變更
+**Why:** 2026-05-17 記憶刷新任務，補充效能優化歷史（第二波 #6/#9、第三波 #14）及三檔行數量級
+**How to apply:** 後續任何涉及 Reviews 頁面的任務，先對照此快照確認狀態編碼、PhaseCode 對應、DecisionBar 配置、以及 GetModalDataAsync 的 QueryMultiple 結構是否有變更

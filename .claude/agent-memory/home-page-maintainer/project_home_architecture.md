@@ -1,50 +1,56 @@
 ---
 name: 首頁三檔案架構現況
-description: Home.razor / HomeService.cs / HomeModel.cs 的實際結構與職責分工（2026-05-13 查核）
+description: Home.razor / HomeService.cs / HomeModel.cs 的實際結構與職責分工（2026-05-17 查核）
 type: project
 ---
 
-## 檔案結構
+## 檔案規模（2026-05-17）
 
-- `Components/Pages/Home.razor` — 路由 `/` 與 `/home`
-- `Services/HomeService.cs` — 實作 `IHomeService`
-- `Models/HomeModel.cs` — `UrgentAlertItem`、`AlertSeverity`、`AlertType` enum
+- `Components/Pages/Home.razor` — 474 行（UI + @code 合計）
+- `Services/HomeService.cs` — 468 行（IHomeService 介面 + HomeService 實作 + 6 個 private sealed class）
+- `Models/HomeModel.cs` — 48 行（2 個 enum + 1 個 class）
 
 ## Home.razor 架構重點
 
-- 注入：`IHomeService`、`IQuestionService`（用於命題配額與成員判斷）、`NavigationManager`
+- 注入：`IHomeService`、`IQuestionService`（命題配額與成員判斷）、`NavigationManager`
 - CascadingParameter：`AuthenticationState`、`ModuleCards`（`List<UserModuleCard>`，由 MainLayout 傳入）、`CurrentProject`（`ProjectSwitcherItem?`）
 - 功能卡片清單（`enabledModules`）由 `ModuleCards` 過濾 `IsEnabled` 產生，**不在 Home 自行查 DB**
-- 生命週期：`OnInitialized` 設定日期顯示；`OnParametersSetAsync` 偵測梯次切換後呼叫 `LoadHomeDataAsync`（無 `OnAfterRenderAsync`，卡片動畫直接用 inline style `animation: fadeIn 0.4s ease-out @(delay)ms both`）
+- 生命週期：`OnInitialized` 設定日期顯示；`OnParametersSetAsync` 偵測梯次切換後呼叫 `LoadHomeDataAsync`（無 `OnAfterRenderAsync`）
+- 卡片動畫：inline style `animation: fadeIn 0.4s ease-out @(delay)ms both`，keyframe 定義在 `wwwroot/css/input.css`
 - 無任何 EditForm（無表單需求）
 
-## 右側今日提醒看板
+## HomeService.cs 架構重點
 
-兩個子區塊：
-1. **急件 / 到期警示**（`urgentAlerts`）— 紅色背景、含計數 Badge；無資料時顯示笑臉 EmptyState
-2. **公告與通知**（`announcements`）— 可捲動列表；點擊開啟 `CustomModal` 顯示詳情
+- 依賴：`IDatabaseService`（Dapper）、`IAnnouncementService`（公告委派）、`ILogger<HomeService>`
+- **不依賴** `IMembershipService` 或 `IQuestionTypeCatalog`（第二波共用基底未整合至此）
+- 核心方法：`GetAnnouncementsAsync`（委派給 AnnouncementService）、`GetUrgentAlertsAsync`（主邏輯）
+- 內部 private sealed class：`PhaseRow`、`QuotaRow`、`StatusCountRow`、`StageCountRow`、`QuotaGapRow`、`OverdueRow`
 
-## 公告 Modal 顯示欄位
+## HomeModel.cs 架構重點
 
-全站廣播 vs 指定專案（`ProjectId is null` 判斷），顯示分類標籤、標題、發佈時間、作者名、富文本內容（`MarkupString`）。
+- `AlertSeverity` enum（Warning=0, Critical=1）
+- `AlertType` enum（PhaseCountdown=0, PersonalBacklog=1, QuotaGap=2, PhaseOverdue=3, AdminSummary=4）
+- `UrgentAlertItem` class（AlertType, Severity, PhaseCode, DaysLeft, Title, Subtitle）
+- `AnnouncementListItem` 定義於 `Models/AnnouncementModels.cs`（非 HomeModel.cs）
 
-## 導航防護
+## 右側今日提醒看板結構
 
-`NavigateToModuleAsync`：
-- 命題任務（cwt-list）：若無命題配額（`QuestionService.GetMyQuotaProgressAsync` 返回空集合）→ SweetAlert 攔截
-- 審題任務（reviews）：若非梯次成員（`QuestionService.IsProjectMemberAsync` 返回 false）→ SweetAlert 攔截
+1. 標題列 + 「使用說明手冊」按鈕（目前 Toast 提示「建置中」）
+2. **急件 / 到期警示**（`urgentAlerts`）— 紅色背景、含計數 Badge；空時顯示笑臉
+3. **公告與通知**（`announcements`）— 可捲動列表；點擊開啟 `CustomModal` 詳情
 
-**Why:** 防止無任務的使用者誤入命題/審題頁面。
-**How to apply:** 修改首頁導航邏輯時需維持此防護機制。
+## 導航防護（NavigateToModuleAsync）
 
-## 使用說明手冊按鈕
+- 命題任務（url 含 "cwt-list"）：無命題配額（`QuestionService.GetMyQuotaProgressAsync` 空集合）→ SweetAlert 攔截
+- 審題任務（url 含 "reviews"）：非梯次成員（`QuestionService.IsProjectMemberAsync` false）→ SweetAlert 攔截
+- 攔截後不跳頁，以 `Swal.fire` 顯示 Warning，confirmButtonColor 用莫蘭迪藍 `#6B8EAD`
 
-右側今日提醒看板頂部有「使用說明手冊」按鈕，目前顯示 Toast 提示「手冊 PDF 建置中，敬請期待」（`ShowManualComingSoon`）。
-資料庫有 `MT_UserGuideFiles` 資料表可供日後實作真正的下載功能，目前尚未串接。
+**Why:** 防止無任務的使用者誤入頁面，比起在子頁面處理更能早期攔截。
+**How to apply:** 修改導航邏輯時須維持此防護。警示連結若未來改為帶 tab 參數（如 ?tab=compose），需在此處加 query string 而非在 module.PageUrl 硬編。
 
-## 規格文件來源（2026-05-13 確認）
+## 已知技術債（2026-05-17）
 
-`D:\jay_liu\Desktop\命題系統相關\網站功能介紹.md` 為最新業務規格文件，首頁右側三個子區塊定義為：
-1. 使用說明手冊下載按鈕（搭配今日提醒看板標題列）
-2. 急件 / 到期警示
-3. 公告與通知
+1. **結果集 #4 與 #10 邏輯重複**：同一個「修題中本輪未回覆」SQL 在個人視角和管理員視角各寫一次（Plan_DB_PerfReview 已記錄）。
+2. **HomeService 未整合 IMembershipService**：結果集 #2（梯次角色）是 HomeService 自己打 DB，而非用第二波 #7 建好的 `IMembershipService` cache，是已知未整合殘餘。
+3. **使用說明手冊未串接 DB**：`MT_UserGuideFiles` 資料表存在，`ShowManualComingSoon` 方法目前只顯示 Toast，尚未串接真正下載。
+4. **急件警示無直接連結**：alert 卡片點擊無跳頁行為（`warning_MODIFY.md` 規劃的 `?tab=compose/revision` 連結尚未實作到 Blazor 版本）。

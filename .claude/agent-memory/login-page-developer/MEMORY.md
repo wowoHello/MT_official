@@ -1,5 +1,6 @@
 - [登入頁參考文件路徑](reference_login_doc_path.md) — 登入頁整合規格文件位於 D:\MTrefer\pageFinal_doc\Login.md，舊原型路徑已棄用
-- [認證流程細節](project_auth_flow.md) — 兩段式 Cookie 寫入、90天/2h 設定、鎖定邏輯、LoginLog/AuditLog 表
+- [認證流程細節](project_auth_flow.md) — 兩段式 Cookie 寫入、24h SlidingExpiration、IsFirstLogin Claim、PBKDF2 auto-upgrade、鎖定邏輯
 - [驗證碼實作細節](project_captcha_impl.md) — 純 C# SVG 產生（非 Canvas/JS），6 位、干擾線、噪點、不分大小寫
-- [忘記密碼流程](project_forgot_password.md) — Token 10 分鐘、防枚舉、新舊密碼防呆、60 秒重發冷卻、SMTP 設定
+- [忘記密碼流程](project_forgot_password.md) — fire-and-forget 寄信、Token 10 分鐘、防枚舉、新舊密碼防呆（PBKDF2）、60 秒重發冷卻
+- [首次登入強制改密碼](project_first_login_flow.md) — FirstLoginPassword.razor 觸發條件、防呆規則、改完強制登出重登
 - [Login UI 細節](project_login_ui_details.md) — 自訂 fieldErrors 機制、開發模式自動填入、LoginFormModel 結構、版面配置

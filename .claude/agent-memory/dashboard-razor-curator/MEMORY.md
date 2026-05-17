@@ -1,2 +1,2 @@
-- [Dashboard KPI 實作模式](project_dashboard_kpi.md) — 4 張 KPI 卡片、2 張圖表、逾期待辦 Modal、LOG 分頁+Chips+Toggle 完整現況（2026-05-08 全面校正）
+- [Dashboard KPI 實作模式](project_dashboard_kpi.md) — 4 KPI 卡片、2 圖表、雙波並行 SQL、逾期待辦三分支（命題/修題/審題落後）、LOG Chips、vw 消費點（2026-05-17 全面校正）
 - [Dashboard 參考文件路徑](reference_dashboard_doc.md) — 整合文件位於 pageFinal_doc/Dashboard.md，舊原型 html/js 已棄用

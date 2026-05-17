@@ -1,2 +1,2 @@
-- [Teachers.razor 完成度狀態](project_teachers_status.md) — 2026-05-08 全面重讀，記錄架構/技術債/密碼常數/狀態碼等精確細節
+- [Teachers.razor 完成度狀態](project_teachers_status.md) — 2026-05-17 重讀更新：含 #8 Catalog、#15 分頁、聘書下載、IAppointmentService 依賴、技術債 TM-11
 - [教師管理頁參考文件路徑](reference_teachers_doc.md) — 主文件改為 D:\MTrefer\pageFinal_doc\Teachers.md，舊原型 html/js 路徑已棄用

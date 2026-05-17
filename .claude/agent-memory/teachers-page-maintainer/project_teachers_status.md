@@ -1,15 +1,20 @@
 ---
 name: Teachers.razor 完成度狀態
-description: Teachers.razor 頁面實際程式碼狀態（2026-05-13 全面重讀比對），記錄架構、技術債與關鍵實作細節
+description: Teachers.razor 頁面程式碼現況（2026-05-17 全面重讀），記錄架構、各波次改動、技術債與關鍵實作細節
 type: project
 ---
 
-## 頁面架構（已驗證，以程式碼為準）
+## 檔案規模（2026-05-17）
 
-三檔案規則完全符合：
-- `Components/Pages/Teachers.razor`（UI + @code block）
-- `Services/TeacherService.cs`
-- `Models/TeacherModels.cs`
+- `Components/Pages/Teachers.razor`：約 **1,444 行**（UI + @code block）
+- `Services/TeacherService.cs`：約 **979 行**
+- `Models/TeacherModels.cs`：約 **310 行**
+
+三檔案規則完全符合。TeacherService 注入 5 個依賴：`IDatabaseService`、`ILogger`、`IHttpContextAccessor`、`IQuestionTypeCatalog`、`IAppointmentService`。
+
+---
+
+## 頁面架構
 
 **統計卡片（4 張）**：人才庫總數 / 帳號啟用中 / 帳號停用中 / 本梯次參與教師。
 
@@ -25,7 +30,7 @@ type: project
 - 四個 Tab（`detailTab` 字串）：
   - `info`（基本資料）
   - `compose`（命題歷程）
-  - `review`（審題歷程）—— **網站功能介紹文件確認此 Tab 存在**
+  - `review`（審題歷程）
   - `projects`（參與專案）
 
 **Tab: 基本資料（info）**：
@@ -34,91 +39,123 @@ type: project
 - 備註子區塊（有值才顯示）
 - **注意**：任教背景是「基本資料」Tab 的子區塊，不是獨立 Tab
 
-**Tab: 命題歷程（compose）**：
-- 4 張統計卡片：累計產出、已採用、不採用、審查中（對應 `TeacherComposeStats`）
-- 跨專案篩選下拉（`composeFilterProjectId`，string 型別，`@bind:after="LoadComposeHistoryAsync"`）
-- 歷程列表欄位：QuestionCode（font-mono）、TypeName、LevelText、ProjectName、狀態 Badge
+**Tab: 命題歷程（compose）**—— 第三波 #15 已加分頁：
+- 4 張統計卡片：累計產出、已採用、不採用、審查中（`TeacherComposeStats`）
+- 跨專案篩選下拉（`composeFilterProjectId`，string 型別，`@bind:after="OnComposeFilterChangedAsync"`，切換時 reset page=1）
+- Header 顯示「共 N 筆」（`composeResult.TotalCount`）
+- 歷程列表欄位：QuestionCode（font-mono）、TypeName（由 Catalog 補）、LevelText、ProjectName、狀態 Badge
+- 分頁器：`<Pagination CurrentPage="@composePage" TotalPages="@composeResult.PageCount" IsLoading="@isLoadingCompose" OnPageChanged="OnComposePageChangedAsync" />`
 
-**Tab: 審題歷程（review）**：
-- 3 張統計卡片：審題總數、已完成、待審中（對應 `TeacherReviewStats`）
-- 跨專案篩選下拉（`reviewFilterProjectId`，string 型別）
-- 歷程列表欄位：QuestionCode、TypeName、LevelText、ProjectName、**階段 Badge + 決策 Badge（雙 Badge）**
-  - 階段 Badge（`GetStageBadgeClass`）：互審=藍、專審=紫、總審=琥珀；結案後全部顯示「已結案」灰色
-  - 決策 Badge（`GetDecisionBadgeClass`）：結案後依 FinalQuestionStatus（12=採用綠、其他=不採用赤陶）；未結案依中間決策（1=通過綠、2=修正黃、3=退回赤陶）
+**Tab: 審題歷程（review）**—— 第三波 #15 已加分頁：
+- 3 張統計卡片：審題總數、已完成、待審中（`TeacherReviewStats`）
+- 跨專案篩選下拉（`reviewFilterProjectId`，string 型別，`@bind:after="OnReviewFilterChangedAsync"`）
+- Header 顯示「共 N 筆」（`reviewResult.TotalCount`）
+- 歷程列表：雙 Badge（階段 Badge `GetStageBadgeClass` + 決策 Badge `GetDecisionBadgeClass`）
+  - 階段 Badge：互審=藍、專審=紫、總審=琥珀；結案後顯示「已結案」灰色
+  - 決策 Badge：結案後依 FinalQuestionStatus（12=採用綠、其他=不採用赤陶）；未結案依中間決策（1=通過綠、2=修正黃、3=退回赤陶）
+- 分頁器：`<Pagination CurrentPage="@reviewPage" TotalPages="@reviewResult.PageCount" IsLoading="@isLoadingReview" OnPageChanged="OnReviewPageChangedAsync" />`
 
 **Tab: 參與專案（projects）**：
-- 右上角「加入梯次」按鈕（`OpenAssignModal`，停用帳號會被擋）
-- 每張專案卡片：狀態標籤（準備中/進行中/已結案）、ProjectCode、ProjectYear + ProjectName、角色 Badge 列、命題數 + 採用數 + 採用率（QuestionCount=0 時不顯示採用率）
+- 右上角「加入梯次」按鈕（`OpenAssignModal`）
+- 每張專案卡片：狀態標籤（準備中/進行中/已結案）、ProjectCode、ProjectYear + ProjectName、角色 Badge 列、命題數 + 採用數 + 採用率
 - 僅非結案梯次顯示「移除」按鈕（`HandleRemoveFromProject`）
-- [加入梯次] 等同於把教師寫入 MT_ProjectMembers，與命題專案管理頁雙向同步
+- **下載聘書功能（新，2026-05-15 之後）**：若 `project.HasDownloadableCerts == true`，顯示：
+  - 「編輯聘期」按鈕（`OpenEditPeriodModal(userId, projectId)`）
+  - 「下載聘書」連結（`api/appointment-cert/download/{projectId}/user/{userId}`，target=_blank）
+  - 此功能依賴 `IAppointmentService`，TeacherService 注入後批次查 `GetDownloadableProjectIdsForUserAsync`
 
 **SlideOver（CustomModal, ModalType.SlideOver, max-w-2xl）**：
+- 頂部提醒 Banner：教師姓名、任教學校、職稱用於產聘書，請正確填寫
 - 三區塊 EditForm（無 DataAnnotationsValidator）：
-  1. 基本資料（姓名必填、性別、信箱-新增時必填-編輯時 disabled、電話、身分證）
-  2. 任教背景（學校必填、系所、職稱下拉、專長、年資 InputNumber、學歷下拉）
-  3. 帳號設定（帳號狀態用原生 `input type="radio"`、備註 InputTextArea、預設密碼說明）
-- 儲存按鈕：Footer `type="button"` 直呼 `HandleSaveTeacher()`（非 OnValidSubmit）
+  1. 基本資料（姓名必填、性別、信箱-新增必填-編輯 disabled、電話、身分證）
+  2. 任教背景（學校必填、系所、職稱下拉-固定選項、專長、年資 InputNumber、學歷下拉）
+  3. 帳號設定（帳號狀態原生 `input type="radio"`、備註 InputTextArea、預設密碼說明）
 
 **加入梯次 Modal（CustomModal, ModalType.Center）**：
 - 梯次下拉（`GetAvailableProjectsAsync`，排除已加入 + 已結案）
 - 角色 Checkbox 列（`GetExternalRoleOptionsAsync`，Category=1 外部人員角色）
-- Transaction 原子性：MT_ProjectMembers → MT_ProjectMemberRoles
+- Transaction 原子性：MT_ProjectMembers → MT_ProjectMemberRoles → `SyncCertificatesAsync`（聘書 metadata 同步）
 
 ---
 
-## 關鍵實作細節（程式碼 2026-05-13 驗證）
+## 各波次改動歷史（TeacherService 相關）
 
-**預設密碼常數**：`DefaultTeacherPassword = "CSF@01024304"`（TeacherService 第 49 行常數）。
-- UI 上所有提示文字、SweetAlert、表單說明均顯示 `CSF@01024304`
+### 第一波 #1 — PBKDF2 密碼雜湊
+`CreateTeacherAsync`（行 719）與 `ResetTeacherPasswordAsync`（行 935）皆呼叫靜態方法 `AuthService.HashPassword(DefaultTeacherPassword)`，不再自己做 SHA256。Hash 格式為 `PBKDF2.v1$<iter>$<salt>$<hash>`。
+
+### 第二波 #8 — QuestionTypeCatalog 快取
+`GetTeacherComposeHistoryAsync`（行 259 listSql）與 `GetTeacherReviewHistoryAsync` 皆已移除 `INNER JOIN dbo.MT_QuestionTypes qt`，SELECT 只取 `QuestionTypeId`，在 C# 端 foreach 用 `_typeCatalog.GetName(id)` 補 `TypeName`。Models 的 `TeacherComposeItem` 與 `TeacherReviewItem` 各有 `QuestionTypeId` 欄位。
+
+### 第三波 #15 — OFFSET FETCH 分頁
+兩個歷程方法加 `int page = 1, int pageSize = 10` 參數，回傳分頁結果類別：
+- `TeacherComposeHistoryResult`：Items / TotalCount / Page / PageSize / `PageCount`（計算屬性）
+- `TeacherReviewHistoryResult`：同上模式
+
+SQL pattern：COUNT + `ORDER BY ... OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY`
+
+UI 狀態：`composePage`、`reviewPage`（int）、`isLoadingCompose`、`isLoadingReview`（bool）、`composeResult: TeacherComposeHistoryResult`、`reviewResult: TeacherReviewHistoryResult`。
+
+---
+
+## ITeacherService 方法清單
+
+| 分類 | 方法 |
+|---|---|
+| 列表/統計 | `GetTeacherListAsync(projectId?)`, `GetTeacherStatsAsync(projectId?)` |
+| 詳情 | `GetTeacherDetailAsync(teacherId)` |
+| 命題歷程 | `GetTeacherComposeStatsAsync(userId, projectId?)`, `GetTeacherComposeHistoryAsync(userId, projectId?, page, pageSize)` |
+| 審題歷程 | `GetTeacherReviewStatsAsync(userId, projectId?)`, `GetTeacherReviewHistoryAsync(userId, projectId?, page, pageSize)` |
+| 參與專案 | `GetTeacherProjectsAsync(userId)`, `GetAvailableProjectsAsync(userId)`, `GetExternalRoleOptionsAsync()`, `AssignToProjectAsync(req, operatorId)`, `RemoveFromProjectAsync(userId, projectId, operatorId)` |
+| CRUD + 帳號 | `CreateTeacherAsync(req, operatorId)`, `UpdateTeacherAsync(req, operatorId)`, `ToggleTeacherStatusAsync(teacherId, operatorId)`, `ResetTeacherPasswordAsync(teacherId, operatorId)` |
+
+---
+
+## 關鍵業務規則與設計決策
+
+**預設密碼常數**：`DefaultTeacherPassword = "CSF@01024304"`（TeacherService 第 49 行）。
+- UI 所有提示文字顯示 `CSF@01024304`
 - 重設密碼後同時將 `IsFirstLogin = 1`、`LockoutUntil = NULL`
-- **注意**：cwt-teacher-rules.md 規格書寫 `Cwt2026!`，但程式碼實作為 `CSF@01024304`，以程式碼為準
+- **重要**：cwt-teacher-rules.md 規格書寫 `Cwt2026!`，但程式碼實作為 `CSF@01024304`，以程式碼為準
 
-**TeacherCode 格式**：`T` + 民國年（西元年 - 1911）+ 3 碼流水號，例如 `T115001`（自動計算 MAX+1）。
+**TeacherCode 格式**：`T` + 民國年（西元年 - 1911）+ 3 碼流水號，如 `T115001`。
 
 **新增教師 Email 沿用邏輯**：
-- 若 Email 已在 MT_Users 存在（Username 或 Email 欄位皆比對），自動沿用既有帳號
-- 不新建 MT_Users，僅插入 MT_Teachers 記錄
-- 前端以 `info` toast 告知（非 error），說明已沿用既有帳號
+- 若 Email 已在 MT_Users 存在，自動沿用既有帳號（不建新 MT_Users，僅插入 MT_Teachers）
+- 前端以 `info` toast 告知，非 error
 - 若既有使用者已在教師人才庫 → 拋出例外阻止重複新增
 
-**新建教師時角色指派**：查詢名稱為 `N'預設教師'` 的角色 ID 作為預設 RoleId。若此角色不存在會拋出例外。
+**新建教師預設角色**：查詢名稱為 `N'預設教師'` 的角色 ID。若角色不存在拋出例外。
 
-**狀態碼對應**（命題歷程 GetQuestionStatusText/Badge）：
-- 0=草稿（灰）、1=完成（藍）、2=送審（鼠尾草綠）
-- 3=互審中（藍）、4=互修中（琥珀）、5=專審中（藍）、6=專修中（琥珀）、7=總審中（藍）、8=總修中（琥珀）
-- 9=採用（鼠尾草綠）、10=不採用（灰）、11=結案未採用（灰）、12=結案入庫（鼠尾草綠）
-- TeacherService 常數 `StatusClosedAdopted=12` / `StatusClosedNotAdopted=11`，與 UI Helper 完全一致
+**教師管理 vs 人員帳號管理定位**：
+- 教師管理（此頁）：**外部人員**（命題教師、審題委員），帳號以**信箱**登入，預設密碼 `CSF@01024304`
+- 人員帳號管理（Roles 頁）：**內部人員**（CWT 職員、管理員），帳號以自訂帳號登入，預設密碼公司統編 `01024304`
 
-**命題歷程統計查詢**：AdoptedCount：`Status IN (9, 12)`，RejectedCount：`Status IN (10, 11)`，ReviewingCount：`Status BETWEEN 1 AND 8`。
+**參與專案 StartDate 來源**：MT_ProjectPhases MIN(StartDate)，若無 Phase 資料 fallback 為 SYSDATETIME()，用於 `ProjectStatusHelper.Resolve(StartDate, EndDate, ClosedAt)`。
 
-**審題歷程統計查詢**：CompletedCount：`ReviewStatus = 2`，PendingCount：`ReviewStatus IN (0, 1)`。
-
-**參與專案 StartDate**：由 MT_ProjectPhases MIN(StartDate) 取得，若無 Phase 資料 fallback 為 SYSDATETIME()，用於 `ProjectStatusHelper.Resolve(StartDate, EndDate, ClosedAt)`。
-
-**梯次切換感應**：`OnParametersSetAsync` 比對 `previousProjectId` 防重複刷新，切換後若有已選教師則重新呼叫 `SelectTeacher`（角色 Badge 依梯次不同）。
+**梯次切換感應**：`OnParametersSetAsync` 比對 `previousProjectId` 防重複刷新，切換後有已選教師則重新呼叫 `SelectTeacher`（角色 Badge 依梯次不同）。切換時 `composePage = 1; reviewPage = 1` reset。
 
 **移除梯次 Cascade 刪除順序**：MT_MemberQuotas → MT_ProjectMemberRoles → MT_ProjectMembers（含 AuditLog）。
 
-**AuditLog 記錄規則**（Teachers 相關操作）：
-- ProjectId 欄位一律 NULL（跨梯次活動）
-- Create/Update/AssignProject/RemoveFromProject/ToggleStatus/ResetPassword 皆寫 AuditLog
-- TargetType 為 `AuditTargetType.Teachers`（byte 枚舉）
+**AuditLog 規則**（Teachers 操作）：ProjectId 一律 NULL（跨梯次活動）；TargetType = `AuditTargetType.Teachers`（byte）。
+
+**命題歷程統計**：AdoptedCount `IN (9, 12)`，RejectedCount `IN (10, 11)`，ReviewingCount `BETWEEN 1 AND 8`。`StatusClosedAdopted=12` / `StatusClosedNotAdopted=11`（TeacherService 常數）。
 
 ---
 
-## 已知技術債（2026-05-13 更新）
+## 已知技術債（2026-05-17 更新）
 
-- **TM-01**：EditForm 缺 DataAnnotationsValidator，驗證改用手動 SweetAlert（HandleSaveTeacher 開頭 3 個 if）。TeacherFormModel 無任何 DataAnnotation Attribute。
+- **TM-01**：EditForm 缺 DataAnnotationsValidator，驗證改用手動 SweetAlert（`HandleSaveTeacher` 開頭 3 個 if）。`TeacherFormModel` 無任何 DataAnnotation Attribute。
 - **TM-02**：`ProjectDropdownItem` 定義於 AnnouncementModels.cs（跨模型依賴）。
 - **TM-03**：儲存按鈕為 `type="button"` 而非 `type="submit"`。
-- **TM-04**：HandleSaveTeacher（第 992 行）與 HandleAssignProject（第 1148 行）各有 1 處不必要的 `StateHasChanged()`。
-- **TM-05**：ToggleTeacherStatusAsync 查詢+更新未包在 Transaction（低風險競態條件）。
-- ~~TM-07（已解除 2026-05-13）：狀態碼不一致疑慮—已複核程式碼，UI Helper 正確對應 9/10/11/12，與 Service 常數一致。~~
+- **TM-04**：`HandleSaveTeacher` 與 `HandleAssignProject` 各有 1 處不必要的 `StateHasChanged()`。
+- **TM-05**：`ToggleTeacherStatusAsync` 查詢+更新未包在 Transaction（低風險競態條件）。
 - **TM-08**：帳號狀態 Radio 使用原生 `input type="radio"` 而非 Blazor `InputRadio`。
-- **TM-10**：`composeFilterProjectId` / `reviewFilterProjectId` 為 string 型別，`int.Parse()` 轉換（空字串有保護，但非數字字串仍可能拋例外）。
+- **TM-10**：`composeFilterProjectId` / `reviewFilterProjectId` 為 string 型別，`int.Parse()` 轉換（非數字字串仍可能例外）。
+- **TM-11（新）**：`AssignToProjectAsync` 中角色逐一 INSERT（N 次），未改成批次 INSERT（第三波 #18 類似問題已在 RoleService 修，但 TeacherService 這裡未跟進）。
 
 **已解除技術債**：
-- TM-06（2026-05-08 修正）：查詢改為 `N'預設教師'`（非舊版「新創教師」）。
+- TM-06（2026-05-08 修正）：預設角色查詢改為 `N'預設教師'`。
+- TM-07（2026-05-13 複核）：狀態碼不一致疑慮已確認無誤。
 
 **Why:** 提供完整評估記錄，追蹤技術債進度，避免未來重複評估或誤判完成度。
-**How to apply:** 若使用者提議修改 Teachers 頁面時，先比對此清單；若使用者詢問驗證問題——這是已知技術債 TM-01，可在計畫書中提出改進。
+**How to apply:** 若使用者提議修改 Teachers 頁面，先比對此清單；若詢問驗證問題，這是已知技術債 TM-01，可在計畫書中提出改進。
