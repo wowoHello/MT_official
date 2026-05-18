@@ -3,20 +3,16 @@
 
 <PreviewHeader QuestionType="長文題目" Level="@Level" Difficulty="@Difficulty" Tags="@Tags" />
 
-<!-- 題號 + 題目（data-annot-target 給審題劃記用） -->
-<div class="flex items-baseline gap-3 mb-4 font-serif">
-    <span class="text-xl font-bold text-gray-900 leading-none">1.</span>
-    <div class="flex-1 prose prose-base max-w-none leading-relaxed text-gray-900" data-annot-target="stem">
-        @if (HasContent(Stem))
-        {
+@* 題號 + 題目 — 長文題目（作文）的「題目」為選填，若未填寫整塊隱藏（不顯示佔位字） *@
+@if (HasContent(Stem))
+{
+    <div class="flex items-baseline gap-3 mb-4 font-serif">
+        <span class="text-xl font-bold text-gray-900 leading-none">1.</span>
+        <div class="flex-1 prose prose-base max-w-none leading-relaxed text-gray-900" data-annot-target="stem">
             @((MarkupString)Stem)
-        }
-        else
-        {
-            <p class="text-gray-400 italic text-sm font-sans">題目尚未填寫</p>
-        }
+        </div>
     </div>
-</div>
+}
 
 <!-- 文章內容（紙感引用樣式 + 附圖） -->
 <div data-annot-target="article">

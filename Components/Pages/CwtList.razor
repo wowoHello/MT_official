@@ -303,7 +303,10 @@
                                                         @item.SubQuestionCount 子題
                                                     </span>
                                                 }
-                                                <span class="truncate">@(string.IsNullOrWhiteSpace(item.SummaryHtml) ? "（尚未填寫內容）" : StripHtml(item.SummaryHtml))</span>
+                                                @{
+                                                    var summaryText = StripHtml(item.SummaryHtml ?? "");
+                                                }
+                                                <span class="truncate">@(string.IsNullOrWhiteSpace(summaryText) ? "（尚未填寫內容）" : summaryText)</span>
                                             </div>
                                         </td>
                                         <td class="px-4 py-3 text-center whitespace-nowrap">
@@ -964,7 +967,7 @@
     }
 
     /// <summary>HTML 摘要去標籤，僅給列表預覽用（不做進階淨化，因為內容是自家 Quill 產出）。</summary>
-    private static string StripHtml(string html)
+    private static string StripHtml(string? html)
     {
         if (string.IsNullOrWhiteSpace(html)) return "";
         var text = System.Text.RegularExpressions.Regex.Replace(html, "<.*?>", " ");

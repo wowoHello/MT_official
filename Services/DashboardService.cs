@@ -414,12 +414,23 @@ public class DashboardService : IDashboardService
 
         if (label == ReviewPhaseLabel.None) return (label, 0, 0);
 
+        // 題組類整題口徑：母題 + 所有子題 必須全部 DecidedAt 才把該題的全部 row 計入 Reviewed
+        //   - 部分完成（如母題 decided 但部分 sub 仍 NULL）→ 該題全部 row 都不算入 Reviewed
+        //   - 與圖表 line 316 的 PendingCount = 0 判定一致，避免兩處數字不對盤
+        //   - TotalCount 不變（仍是所有 row 數，與 footnote「母題與每子題分別計算數量」對齊）
         const string sql = """
+            WITH QuestionDecisionStatus AS (
+                SELECT QuestionId,
+                       COUNT(*) AS TotalRows,
+                       SUM(CASE WHEN DecidedAt IS NOT NULL THEN 1 ELSE 0 END) AS DecidedRows
+                FROM   dbo.MT_ReviewAssignments
+                WHERE  ProjectId = @pid AND ReviewStage = @stage
+                GROUP BY QuestionId
+            )
             SELECT
-                SUM(CASE WHEN DecidedAt IS NOT NULL THEN 1 ELSE 0 END) AS Reviewed,
-                COUNT(*)                                                AS TotalCount
-            FROM   dbo.MT_ReviewAssignments
-            WHERE  ProjectId = @pid AND ReviewStage = @stage
+                ISNULL(SUM(CASE WHEN TotalRows = DecidedRows THEN TotalRows ELSE 0 END), 0) AS Reviewed,
+                ISNULL(SUM(TotalRows), 0)                                                   AS TotalCount
+            FROM   QuestionDecisionStatus;
             """;
 
         var row = await conn.QuerySingleOrDefaultAsync<ReviewProgressRow>(

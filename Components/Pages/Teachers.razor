@@ -622,16 +622,8 @@
                         </div>
                         <div>
                             <label class="block text-sm font-medium mb-1 text-gray-700">職稱 <span class="text-red-500">*</span></label>
-                            <InputSelect @bind-Value="formModel.Title"
-                                class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm bg-white cursor-pointer">
-                                <option value="">請選擇</option>
-                                <option>教授</option>
-                                <option>副教授</option>
-                                <option>助理教授</option>
-                                <option>講師</option>
-                                <option>教師</option>
-                                <option>兼任教師</option>
-                            </InputSelect>
+                            <InputText @bind-Value="formModel.Title" placeholder="如：教授、副教授、助理教授"
+                                class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm" />
                         </div>
                         <div class="col-span-2">
                             <label class="block text-sm font-medium mb-1 text-gray-700">專長領域</label>
@@ -648,9 +640,11 @@
                             <InputSelect @bind-Value="formModel.Education"
                                 class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm bg-white cursor-pointer">
                                 <option value="">請選擇</option>
-                                <option value="3">博士</option>
-                                <option value="2">碩士</option>
-                                <option value="1">學士</option>
+                                <option value="4">博士</option>
+                                <option value="3">碩士</option>
+                                <option value="2">學士</option>
+                                <option value="1">專科</option>
+                                <option value="0">其它</option>
                             </InputSelect>
                         </div>
                     </div>

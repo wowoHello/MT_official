@@ -921,7 +921,7 @@ public class TeacherService : ITeacherService
     }
 
     /// <summary>
-    /// 重設教師密碼為 Cwt2026!，標記首次登入。
+    /// 重設教師密碼為 CSF@01024304，標記首次登入。
     /// </summary>
     public async Task ResetTeacherPasswordAsync(int teacherId, int operatorId)
     {

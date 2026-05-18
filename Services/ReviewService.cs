@@ -147,7 +147,11 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 q.Level,
                 q.Difficulty,
                 sq.FixedDifficulty    AS FixedDifficulty,    -- 聽力題組子題固定難度（母題列為 NULL）
-                CASE WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent ELSE q.Stem END AS SummaryHtml,
+                CASE
+                    WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent
+                    WHEN q.QuestionTypeId = 4          THEN COALESCE(NULLIF(q.Stem, ''), q.ArticleContent)
+                    ELSE q.Stem
+                END AS SummaryHtml,
                 r.Stage,
                 r.Decision,
                 r.Status,
@@ -371,7 +375,11 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 q.QuestionCode AS ComparedQuestionCode,
                 sc.SimilarityScore,
                 sc.Determination,
-                CASE WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent ELSE q.Stem END AS SummaryHtml
+                CASE
+                    WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent
+                    WHEN q.QuestionTypeId = 4          THEN COALESCE(NULLIF(q.Stem, ''), q.ArticleContent)
+                    ELSE q.Stem
+                END AS SummaryHtml
             FROM dbo.MT_SimilarityChecks sc
             INNER JOIN dbo.MT_Questions q ON q.Id = sc.ComparedQuestionId
             WHERE sc.SourceQuestionId = @QuestionId
@@ -1418,7 +1426,11 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 q.QuestionCode AS ComparedQuestionCode,
                 sc.SimilarityScore,
                 sc.Determination,
-                CASE WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent ELSE q.Stem END AS SummaryHtml
+                CASE
+                    WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent
+                    WHEN q.QuestionTypeId = 4          THEN COALESCE(NULLIF(q.Stem, ''), q.ArticleContent)
+                    ELSE q.Stem
+                END AS SummaryHtml
             FROM dbo.MT_SimilarityChecks sc
             INNER JOIN dbo.MT_Questions q ON q.Id = sc.ComparedQuestionId
             WHERE sc.SourceQuestionId = @QuestionId

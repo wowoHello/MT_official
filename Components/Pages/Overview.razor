@@ -169,6 +169,8 @@
                     @foreach (var item in result.Items)
                     {
                         var isSubRow = item.SubQuestionId.HasValue;
+                        @* allResponded：在進入 markup 前先算好，供 stepper 與右側狀態 Badge 共用，避免重複查 dict *@
+                        var allResponded = result.AllReviewersResponded.GetValueOrDefault(item.Id);
                         <div @onclick="() => OpenDetailAsync(item.Id, item.SubQuestionId)"
                             class="grid grid-cols-12 gap-4 px-6 py-4 border-b border-gray-100 relative hover:z-10 hover:bg-blue-50/40 hover:shadow-[inset_4px_0_0_var(--color-morandi),0_6px_16px_-4px_rgba(0,0,0,0.18)] transition-all items-center cursor-pointer group">
                             <div class="col-span-2 flex flex-col">
@@ -219,7 +221,8 @@
                             <div class="col-span-6 min-w-[480px]">
                                 <PhaseProgressStepper Status="item.Status"
                                                       CurrentPhaseCode="result.CurrentPhaseCode"
-                                                      HasRepliedThisStage="item.HasRepliedThisStage" />
+                                                      HasRepliedThisStage="item.HasRepliedThisStage"
+                                                      AllReviewersResponded="allResponded" />
                             </div>
                             <div class="col-span-1 flex flex-col items-center gap-1.5">
                                 @if (item.IsDeleted)
@@ -235,8 +238,8 @@
                                 else
                                 {
                                     @* 當前狀態 Badge：依「題目 Status × 梯次 PhaseCode × 本人是否送出修題 × 全體審題者是否已給意見」四維度判定。
-                                       母題結案淘汰例外：父母題 Status=11（結案不採用）時，子題列強制 fallback 為「結案不採用」 *@
-                                    var allResponded = result.AllReviewersResponded.GetValueOrDefault(item.Id);
+                                       母題結案淘汰例外：父母題 Status=11（結案不採用）時，子題列強制 fallback 為「結案不採用」
+                                       allResponded 已於 foreach 頂端算好，與 stepper 共用 *@
                                     byte? parentStatusForFallback = isSubRow && parentStatusById.TryGetValue(item.Id, out var ps) ? ps : null;
                                     var display = ResolveDisplayStatus(item.Status, result.CurrentPhaseCode, item.HasRepliedThisStage, allResponded, parentStatusForFallback);
                                     @if (display.IsAwaitingNext)

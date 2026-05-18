@@ -713,7 +713,12 @@ public class QuestionService(
                 q.QuestionTypeId AS TypeId,
                 q.Level, q.Difficulty, q.Status,
                 -- 題組類（3=閱讀, 5=短文, 7=聽力題組）母題不寫 Stem，改用 ArticleContent 當摘要
-                CASE WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent ELSE q.Stem END AS SummaryHtml,
+                -- 長文題目（4=作文）的「題目」(Stem) 為選填，若空白則 fallback 到「文章內容」(ArticleContent) 當摘要
+                CASE
+                    WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent
+                    WHEN q.QuestionTypeId = 4         THEN COALESCE(NULLIF(q.Stem, ''), q.ArticleContent)
+                    ELSE q.Stem
+                END AS SummaryHtml,
                 q.CreatedAt, q.UpdatedAt,
                 q.IsDeleted,
                 ISNULL(sc.Cnt, 0) AS SubQuestionCount,
