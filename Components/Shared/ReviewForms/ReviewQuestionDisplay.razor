@@ -81,6 +81,13 @@
     /// <summary>子題索引卡點擊 → 通知 Modal 切換 currentSubId 並重撈該單元資料。</summary>
     [Parameter] public EventCallback<int?> OnSubUnitClick { get; set; }
 
+    /// <summary>
+    /// 隱藏題組類「本頁審題對象」提示與子題索引卡群。修題情境（RevisionSlideOver）使用 —
+    /// 因為 CwtList 主列表已將題組拆成 N+1 列（母題+各子題），單元切換由列表本身負責，
+    /// Slide-Over 內不需再渲染審題語意的索引卡。預設 false → 審題端 ReviewModal 完全不受影響。
+    /// </summary>
+    [Parameter] public bool HideSubIndexCards { get; set; } = false;
+
     /// <summary>母題列模式（題組類顯示子題索引卡）</summary>
     private bool IsMasterMode => SubQuestionId is null;
 
@@ -392,23 +399,26 @@
 
         @if (IsMasterMode)
         {
-            <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
-                <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：上方文章；點下方索引卡進入個別子題審題表單
-            </p>
-            <div class="space-y-3">
-                @for (int i = 0; i < Question.ReadSubQuestions.Count; i++)
-                {
-                    var idx = i;
-                    var sq  = Question.ReadSubQuestions[idx];
-                    @RenderSubIndexCard(idx, sq.Id, sq.Stem)
-                }
-                @if (Question.ReadSubQuestions.Count == 0)
-                {
-                    <div class="bg-white rounded-xl border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400 italic font-sans">
-                        尚未新增子題
-                    </div>
-                }
-            </div>
+            @if (!HideSubIndexCards)
+            {
+                <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
+                    <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：上方文章；點下方索引卡進入個別子題審題表單
+                </p>
+                <div class="space-y-3">
+                    @for (int i = 0; i < Question.ReadSubQuestions.Count; i++)
+                    {
+                        var idx = i;
+                        var sq  = Question.ReadSubQuestions[idx];
+                        @RenderSubIndexCard(idx, sq.Id, sq.Stem)
+                    }
+                    @if (Question.ReadSubQuestions.Count == 0)
+                    {
+                        <div class="bg-white rounded-xl border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400 italic font-sans">
+                            尚未新增子題
+                        </div>
+                    }
+                </div>
+            }
         }
         else
         {
@@ -421,9 +431,12 @@
                     .OrderBy(im => im.SortOrder).ToList();
                 var dimension = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ReadGroup);
                 var indicator = QuestionConstants.DecodeSubIndicator(sq.Indicator, QuestionTypeCodes.ReadGroup);
-                <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
-                    <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：下方子題
-                </p>
+                @if (!HideSubIndexCards)
+                {
+                    <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
+                        <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：下方子題
+                    </p>
+                }
                 @RenderSubCard(focusIdx + 1, focusIdx, @<text>
                     @RenderSubStem(focusIdx, sq.Stem, stemImages)
                     <PreviewChoiceOptions Options="@sq.Options" Answer="@(sq.Answer ?? "")"
@@ -476,23 +489,26 @@
 
         @if (IsMasterMode)
         {
-            <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
-                <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：上方文章；點下方索引卡進入個別子題審題表單
-            </p>
-            <div class="space-y-3">
-                @for (int i = 0; i < Question.ShortSubQuestions.Count; i++)
-                {
-                    var idx = i;
-                    var sq  = Question.ShortSubQuestions[idx];
-                    @RenderSubIndexCard(idx, sq.Id, sq.Stem)
-                }
-                @if (Question.ShortSubQuestions.Count == 0)
-                {
-                    <div class="bg-white rounded-xl border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400 italic font-sans">
-                        尚未新增子題
-                    </div>
-                }
-            </div>
+            @if (!HideSubIndexCards)
+            {
+                <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
+                    <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：上方文章；點下方索引卡進入個別子題審題表單
+                </p>
+                <div class="space-y-3">
+                    @for (int i = 0; i < Question.ShortSubQuestions.Count; i++)
+                    {
+                        var idx = i;
+                        var sq  = Question.ShortSubQuestions[idx];
+                        @RenderSubIndexCard(idx, sq.Id, sq.Stem)
+                    }
+                    @if (Question.ShortSubQuestions.Count == 0)
+                    {
+                        <div class="bg-white rounded-xl border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400 italic font-sans">
+                            尚未新增子題
+                        </div>
+                    }
+                </div>
+            }
         }
         else
         {
@@ -505,9 +521,12 @@
                     .OrderBy(im => im.SortOrder).ToList();
                 var dimension = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ShortGroup);
                 var indicator = QuestionConstants.DecodeSubIndicator(sq.Indicator, QuestionTypeCodes.ShortGroup);
-                <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
-                    <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：下方子題
-                </p>
+                @if (!HideSubIndexCards)
+                {
+                    <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
+                        <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：下方子題
+                    </p>
+                }
                 @RenderSubCard(focusIdx + 1, focusIdx, @<text>
                     @RenderSubStem(focusIdx, sq.Stem, stemImages)
                     <div class="border border-gray-200 rounded-md bg-gray-50/40 p-3 min-h-[80px] mt-3 flex items-center justify-center text-xs text-gray-400 italic font-sans">
@@ -558,23 +577,26 @@
 
         @if (IsMasterMode)
         {
-            <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
-                <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：上方聽力素材；點下方索引卡進入個別子題審題表單
-            </p>
-            <div class="space-y-3">
-                @for (int i = 0; i < Question.ListenGroupSubQuestions.Count; i++)
-                {
-                    var idx = i;
-                    var sq  = Question.ListenGroupSubQuestions[idx];
-                    @RenderSubIndexCard(idx, sq.Id, sq.Stem)
-                }
-                @if (Question.ListenGroupSubQuestions.Count == 0)
-                {
-                    <div class="bg-white rounded-xl border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400 italic font-sans">
-                        尚未新增子題
-                    </div>
-                }
-            </div>
+            @if (!HideSubIndexCards)
+            {
+                <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
+                    <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：上方聽力素材；點下方索引卡進入個別子題審題表單
+                </p>
+                <div class="space-y-3">
+                    @for (int i = 0; i < Question.ListenGroupSubQuestions.Count; i++)
+                    {
+                        var idx = i;
+                        var sq  = Question.ListenGroupSubQuestions[idx];
+                        @RenderSubIndexCard(idx, sq.Id, sq.Stem)
+                    }
+                    @if (Question.ListenGroupSubQuestions.Count == 0)
+                    {
+                        <div class="bg-white rounded-xl border border-dashed border-gray-300 p-6 text-center text-sm text-gray-400 italic font-sans">
+                            尚未新增子題
+                        </div>
+                    }
+                </div>
+            }
         }
         else
         {
@@ -588,9 +610,12 @@
                 var stemImages  = Question.Images.Where(im =>
                     im.FieldType == (byte)QuestionImageField.Stem && im.SubQuestionIndex == focusIdx)
                     .OrderBy(im => im.SortOrder).ToList();
-                <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
-                    <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：下方子題
-                </p>
+                @if (!HideSubIndexCards)
+                {
+                    <p class="text-xs text-gray-500 italic mt-1 mb-1 font-sans pl-1">
+                        <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>本頁審題對象：下方子題
+                    </p>
+                }
                 @RenderSubCard(focusIdx + 1, focusIdx, @<text>
                     @RenderSubStem(focusIdx, sq.Stem, stemImages)
                     <PreviewChoiceOptions Options="@sq.Options" Answer="@(sq.Answer ?? "")"

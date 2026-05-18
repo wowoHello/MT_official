@@ -282,7 +282,7 @@ public class DashboardService : IDashboardService
                     FROM   dbo.MT_RevisionReplies rr
                     WHERE  rr.Stage = @revisionStage
                       AND  rr.Content IS NOT NULL
-                      AND  LEN(LTRIM(RTRIM(rr.Content))) > 0
+                      AND  LEN(TRIM(rr.Content)) > 0
                       AND  rr.CreatedAt > ISNULL(
                           (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
                            WHERE QuestionId = rr.QuestionId),
@@ -308,12 +308,12 @@ public class DashboardService : IDashboardService
 
         if (currentPhaseForChart is 3 or 5 or 7)
         {
-            // 審題階段：依 ReviewAssignments.Comment 區分（與卡片 3 同口徑）
+            // 審題階段：依 ReviewAssignments.DecidedAt 區分（與卡片 3 同口徑）
             byte reviewStage = currentPhaseForChart.Value switch { 3 => 1, 5 => 2, 7 => 3, _ => 0 };
             const string sqlReviewBased = """
                 WITH QuestionStageStatus AS (
                     SELECT  ra.QuestionId,
-                            SUM(CASE WHEN ra.Comment IS NULL OR LEN(LTRIM(RTRIM(ra.Comment))) = 0
+                            SUM(CASE WHEN ra.DecidedAt IS NULL
                                      THEN 1 ELSE 0 END) AS PendingCount
                     FROM    dbo.MT_ReviewAssignments ra
                     WHERE   ra.ProjectId = @pid AND ra.ReviewStage = @stage
@@ -394,7 +394,7 @@ public class DashboardService : IDashboardService
     /// <summary>
     /// 依當前 PhaseCode 對應 ReviewStage，查 MT_ReviewAssignments 統計審題完成度。
     /// 對應規則：PhaseCode 2→Stage 1（互審）/ 4→Stage 2（專審）/ 6→Stage 3（總召）。
-    /// 完成判定：Comment 去頭尾空白後不為空字串。
+    /// 完成判定：DecidedAt IS NOT NULL（DecidedAt 為 NULL 代表純草稿意見，尚未正式決策）。
     /// 非審題階段（PhaseCode 為 1/3/5/7 或 null）直接回傳 (None, 0, 0)，不下 SQL。
     /// </summary>
     private static async Task<(ReviewPhaseLabel label, int reviewed, int total)> GetReviewProgressAsync(
@@ -416,9 +416,8 @@ public class DashboardService : IDashboardService
 
         const string sql = """
             SELECT
-                SUM(CASE WHEN Comment IS NOT NULL
-                          AND LEN(LTRIM(RTRIM(Comment))) > 0 THEN 1 ELSE 0 END) AS Reviewed,
-                COUNT(*)                                                        AS TotalCount
+                SUM(CASE WHEN DecidedAt IS NOT NULL THEN 1 ELSE 0 END) AS Reviewed,
+                COUNT(*)                                                AS TotalCount
             FROM   dbo.MT_ReviewAssignments
             WHERE  ProjectId = @pid AND ReviewStage = @stage
             """;
@@ -430,15 +429,22 @@ public class DashboardService : IDashboardService
         var total    = row?.TotalCount ?? 0;
 
         // Fallback：階段尚未跑過 EnsurePhaseTransitionAsync 觸發分配時，ReviewAssignments 可能還沒建好
-        // → 改用 Question.Status 池作為「待審池」總數，避免儀表板顯示 0
+        // → 改用單元粒度（母題單元 + 子題單元）作為「待審池」總數，與主路徑 COUNT(*) MT_ReviewAssignments 對齊
         // （正常流程下 Plan_011 已會在進入 PhaseCode=5/7 時自動建立 ReviewAssignments）
         if (total == 0)
         {
             const string fallbackSql = """
-                SELECT COUNT(*)
-                FROM   dbo.MT_Questions
-                WHERE  ProjectId = @pid AND IsDeleted = 0
-                  AND  Status BETWEEN 2 AND 8
+                SELECT
+                    (SELECT COUNT(*)
+                     FROM   dbo.MT_Questions
+                     WHERE  ProjectId = @pid AND IsDeleted = 0
+                       AND  Status BETWEEN 2 AND 8)
+                  + (SELECT COUNT(*)
+                     FROM   dbo.MT_SubQuestions sq
+                     JOIN   dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                     WHERE  q.ProjectId = @pid AND q.IsDeleted = 0
+                       AND  sq.IsDeleted = 0
+                       AND  sq.Status BETWEEN 2 AND 8)
                 """;
             total = await conn.ExecuteScalarAsync<int>(fallbackSql, new { pid = projectId });
             reviewed = 0;
@@ -473,26 +479,29 @@ public class DashboardService : IDashboardService
 
         if (label == RevisionPhaseLabel.None) return (label, 0, 0);
 
+        // 單元粒度（Stage B-4-2 後）：母題與每子題各為獨立修題單元
+        // ─ AssignedUnits CTE 改為 (QuestionId, SubQuestionId) 兩維 distinct，與審題卡片 COUNT(*) 對齊
+        // ─ EXISTS 子句加 ISNULL(SubQuestionId, -1) NULL-safe 比對，避免母題 reply 認證子題、或反之
         const string sql = """
-            WITH AssignedQuestions AS (
-                SELECT DISTINCT ra.QuestionId
+            WITH AssignedUnits AS (
+                SELECT DISTINCT ra.QuestionId, ra.SubQuestionId
                 FROM   dbo.MT_ReviewAssignments ra
                 JOIN   dbo.MT_Questions q ON q.Id = ra.QuestionId
                 WHERE  ra.ProjectId   = @pid
                   AND  ra.ReviewStage = @reviewStage
-                  AND  ra.Comment IS NOT NULL
-                  AND  LEN(LTRIM(RTRIM(ra.Comment))) > 0
+                  AND  ra.DecidedAt IS NOT NULL
                   AND  q.IsDeleted = 0
             )
             SELECT
-                (SELECT COUNT(*) FROM AssignedQuestions) AS TotalCount,
-                (SELECT COUNT(*) FROM AssignedQuestions a
+                (SELECT COUNT(*) FROM AssignedUnits) AS TotalCount,
+                (SELECT COUNT(*) FROM AssignedUnits a
                  WHERE EXISTS (
                      SELECT 1 FROM dbo.MT_RevisionReplies rr
                      WHERE rr.QuestionId = a.QuestionId
+                       AND ISNULL(rr.SubQuestionId, -1) = ISNULL(a.SubQuestionId, -1)
                        AND rr.Stage      = @revisionStage
                        AND rr.Content IS NOT NULL
-                       AND LEN(LTRIM(RTRIM(rr.Content))) > 0
+                       AND LEN(TRIM(rr.Content)) > 0
                        AND rr.CreatedAt > ISNULL(
                            (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
                             WHERE QuestionId = a.QuestionId),
@@ -508,30 +517,41 @@ public class DashboardService : IDashboardService
         var total   = row?.TotalCount ?? 0;
 
         // Fallback：階段尚未跑過 EnsurePhaseTransitionAsync 時 assignments 可能還沒建好
-        // → 待修池改用 Question.Status 計算；已修數獨立查 MT_RevisionReplies
+        // → 待修池與已修數都改用單元粒度（母題單元 + 子題單元分別計算），與主路徑口徑一致
         if (total == 0)
         {
+            // 待修總數 = 母題單元（MT_Questions）+ 子題單元（MT_SubQuestions），兩段相加
             const string fallbackTotalSql = """
-                SELECT COUNT(*)
-                FROM   dbo.MT_Questions
-                WHERE  ProjectId = @pid AND IsDeleted = 0
-                  AND  Status BETWEEN 2 AND 8
+                SELECT
+                    (SELECT COUNT(*)
+                     FROM   dbo.MT_Questions
+                     WHERE  ProjectId = @pid AND IsDeleted = 0
+                       AND  Status BETWEEN 2 AND 8)
+                  + (SELECT COUNT(*)
+                     FROM   dbo.MT_SubQuestions sq
+                     JOIN   dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                     WHERE  q.ProjectId = @pid AND q.IsDeleted = 0
+                       AND  sq.IsDeleted = 0
+                       AND  sq.Status BETWEEN 2 AND 8)
                 """;
             total = await conn.ExecuteScalarAsync<int>(fallbackTotalSql, new { pid = projectId });
 
             // Plan_014：本輪過濾 — PC=8 跨輪退回後舊 reply 不算本輪已修
+            // 已修數 = (QuestionId, SubQuestionId) 兩維 distinct，與主路徑單元粒度一致
             const string fallbackRevisedSql = """
-                SELECT COUNT(DISTINCT rr.QuestionId)
-                FROM   dbo.MT_RevisionReplies rr
-                JOIN   dbo.MT_Questions q ON q.Id = rr.QuestionId
-                WHERE  q.ProjectId = @pid AND q.IsDeleted = 0
-                  AND  rr.Stage    = @revisionStage
-                  AND  rr.Content IS NOT NULL
-                  AND  LEN(LTRIM(RTRIM(rr.Content))) > 0
-                  AND  rr.CreatedAt > ISNULL(
-                      (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
-                       WHERE QuestionId = rr.QuestionId),
-                      '1900-01-01')
+                SELECT COUNT(*) FROM (
+                    SELECT DISTINCT rr.QuestionId, rr.SubQuestionId
+                    FROM   dbo.MT_RevisionReplies rr
+                    JOIN   dbo.MT_Questions q ON q.Id = rr.QuestionId
+                    WHERE  q.ProjectId = @pid AND q.IsDeleted = 0
+                      AND  rr.Stage    = @revisionStage
+                      AND  rr.Content IS NOT NULL
+                      AND  LEN(TRIM(rr.Content)) > 0
+                      AND  rr.CreatedAt > ISNULL(
+                          (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
+                           WHERE QuestionId = rr.QuestionId),
+                          '1900-01-01')
+                ) t
                 """;
             revised = await conn.ExecuteScalarAsync<int>(
                 fallbackRevisedSql, new { pid = projectId, revisionStage });
@@ -757,7 +777,7 @@ public class DashboardService : IDashboardService
                                WHERE rr.QuestionId = ra.QuestionId
                                  AND rr.Stage      = @revisionStage
                                  AND rr.Content IS NOT NULL
-                                 AND LEN(LTRIM(RTRIM(rr.Content))) > 0
+                                 AND LEN(TRIM(rr.Content)) > 0
                                  AND rr.CreatedAt > ISNULL(
                                      (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
                                       WHERE QuestionId = ra.QuestionId),
@@ -767,8 +787,7 @@ public class DashboardService : IDashboardService
                     JOIN   dbo.MT_Questions q ON q.Id = ra.QuestionId
                     WHERE  ra.ProjectId   = @pid
                       AND  ra.ReviewStage = @reviewStage
-                      AND  ra.Comment IS NOT NULL
-                      AND  LEN(LTRIM(RTRIM(ra.Comment))) > 0
+                      AND  ra.DecidedAt IS NOT NULL
                       AND  q.IsDeleted = 0
                     GROUP BY ra.QuestionId, q.CreatorId
                 )
@@ -811,8 +830,7 @@ public class DashboardService : IDashboardService
         }
 
         // ── 4-c. 審題階段審題委員落後（PhaseCode 3/5/7 倒數 ≤ 5 天）─────────
-        // 該階段被指派但 Comment 仍空白即視為「尚未給意見」
-        // 與 OverviewService.GetAllReviewersRespondedAsync 同口徑（Comment 非空 = 已審）
+        // 該階段被指派但 DecidedAt 仍 NULL 即視為「尚未完成審題」（DecidedAt IS NOT NULL = 已審）
         var reviewerPhase = phaseRows.FirstOrDefault(p =>
                 p.PhaseCode is 3 or 5 or 7
              && p.StartDate    <= today
@@ -830,8 +848,7 @@ public class DashboardService : IDashboardService
                 SELECT  ra.ReviewerId AS UserId,
                         u.DisplayName AS TeacherName,
                         COUNT(*)      AS TotalAssigned,
-                        SUM(CASE WHEN ra.Comment IS NOT NULL
-                                  AND LEN(LTRIM(RTRIM(ra.Comment))) > 0
+                        SUM(CASE WHEN ra.DecidedAt IS NOT NULL
                                  THEN 1 ELSE 0 END) AS TotalProduced
                 FROM    dbo.MT_ReviewAssignments ra
                 JOIN    dbo.MT_Questions q ON q.Id = ra.QuestionId
@@ -840,12 +857,10 @@ public class DashboardService : IDashboardService
                   AND   ra.ReviewStage = @reviewStage
                   AND   q.IsDeleted    = 0
                 GROUP BY ra.ReviewerId, u.DisplayName
-                HAVING  COUNT(*) > SUM(CASE WHEN ra.Comment IS NOT NULL
-                                              AND LEN(LTRIM(RTRIM(ra.Comment))) > 0
-                                             THEN 1 ELSE 0 END)
-                ORDER BY (1.0 * SUM(CASE WHEN ra.Comment IS NOT NULL
-                                           AND LEN(LTRIM(RTRIM(ra.Comment))) > 0
-                                          THEN 1 ELSE 0 END)
+                HAVING  COUNT(*) > SUM(CASE WHEN ra.DecidedAt IS NOT NULL
+                                            THEN 1 ELSE 0 END)
+                ORDER BY (1.0 * SUM(CASE WHEN ra.DecidedAt IS NOT NULL
+                                         THEN 1 ELSE 0 END)
                          / NULLIF(COUNT(*), 0)) ASC
                 """;
 
@@ -912,7 +927,7 @@ public class DashboardService : IDashboardService
                                    WHERE rr.QuestionId = ra.QuestionId
                                      AND rr.Stage      = @revisionStage
                                      AND rr.Content IS NOT NULL
-                                     AND LEN(LTRIM(RTRIM(rr.Content))) > 0
+                                     AND LEN(TRIM(rr.Content)) > 0
                                      AND rr.CreatedAt > ISNULL(
                                          (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
                                           WHERE QuestionId = ra.QuestionId),
@@ -922,8 +937,7 @@ public class DashboardService : IDashboardService
                         JOIN   dbo.MT_Questions q ON q.Id = ra.QuestionId
                         WHERE  ra.ProjectId   = @pid
                           AND  ra.ReviewStage = @reviewStage
-                          AND  ra.Comment IS NOT NULL
-                          AND  LEN(LTRIM(RTRIM(ra.Comment))) > 0
+                          AND  ra.DecidedAt IS NOT NULL
                           AND  q.IsDeleted = 0
                           AND  q.CreatorId IN @userIds
                         GROUP BY ra.QuestionId, q.CreatorId, q.QuestionTypeId
@@ -957,8 +971,7 @@ public class DashboardService : IDashboardService
                     SELECT  ra.ReviewerId AS UserId,
                             q.QuestionTypeId,
                             COUNT(*)     AS Assigned,
-                            SUM(CASE WHEN ra.Comment IS NOT NULL
-                                      AND LEN(LTRIM(RTRIM(ra.Comment))) > 0
+                            SUM(CASE WHEN ra.DecidedAt IS NOT NULL
                                      THEN 1 ELSE 0 END) AS Produced
                     FROM    dbo.MT_ReviewAssignments ra
                     JOIN    dbo.MT_Questions      q  ON q.Id = ra.QuestionId
@@ -968,9 +981,8 @@ public class DashboardService : IDashboardService
                       AND   q.IsDeleted    = 0
                     GROUP BY ra.ReviewerId, q.QuestionTypeId
                     ORDER BY ra.ReviewerId,
-                             (1.0 * SUM(CASE WHEN ra.Comment IS NOT NULL
-                                               AND LEN(LTRIM(RTRIM(ra.Comment))) > 0
-                                              THEN 1 ELSE 0 END)
+                             (1.0 * SUM(CASE WHEN ra.DecidedAt IS NOT NULL
+                                             THEN 1 ELSE 0 END)
                              / NULLIF(COUNT(*), 0)) ASC
                     """;
                 sqlParams = new { pid = projectId, userIds, reviewStage };
@@ -1069,6 +1081,7 @@ public class DashboardService : IDashboardService
             WHERE  al.ProjectId = @pid
               AND  al.Action IN (0, 1, 2)
               AND  al.TargetType IN @typeCodes
+              AND  al.UserId IS NOT NULL   -- 過濾系統批次（階段轉換、審題分配等 UserId=NULL），DB 仍完整保留，僅 UI 不顯示
             ORDER  BY al.CreatedAt DESC
             OFFSET @skip ROWS FETCH NEXT @take ROWS ONLY;
             """;
@@ -1078,7 +1091,8 @@ public class DashboardService : IDashboardService
             FROM   dbo.MT_AuditLogs al
             WHERE  al.ProjectId = @pid
               AND  al.Action IN (0, 1, 2)
-              AND  al.TargetType IN @typeCodes;
+              AND  al.TargetType IN @typeCodes
+              AND  al.UserId IS NOT NULL;
             """;
 
         var logs = (await conn.QueryAsync<RecentAuditLog>(sqlMain, sqlParams)).ToList();

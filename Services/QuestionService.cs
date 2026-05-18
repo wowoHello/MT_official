@@ -23,9 +23,16 @@ public interface IQuestionService
     // P4 新增：列表頁統計卡片用（依 status 分桶計數）
     Task<Dictionary<byte, int>> GetStatusCountsAsync(int projectId, int? creatorId);
 
+    // CwtList 審修作業區母題/子題分離統計：依 MT_SubQuestions.Status 分桶計數
+    // ListAsync 在 revision tab 把母題與子題拆成獨立列；統計卡片需配合呈現兩條分支的數量。
+    Task<Dictionary<byte, int>> GetSubQuestionStatusCountsAsync(int projectId, int? creatorId);
+
     // Plan_012：CwtList 審修作業區「已修題」卡片計數（僅本人視角）。
     // 回傳 Status∈{4,6,8} 且本人在當前 Stage 已寫過 RevisionReplies 的題目數。
     Task<int> GetMyRevisionRepliedCountAsync(int projectId, int userId);
+
+    // 與 GetMyRevisionRepliedCountAsync 同義，但對應 MT_SubQuestions 子題單元的「已修題」計數。
+    Task<int> GetMySubQuestionRevisionRepliedCountAsync(int projectId, int userId);
 
     // P4 新增：使用者在某專案是否為成員（用於審題任務權限攔截）
     Task<bool> IsProjectMemberAsync(int userId, int projectId);
@@ -964,6 +971,57 @@ public class QuestionService(
             new { ProjectId = projectId, UserId = userId });
     }
 
+    /// <summary>
+    /// 子題層級的 status 分桶計數（依 MT_SubQuestions.Status）。
+    /// 篩選與 ListAsync 子題分支對齊：透過 q.ProjectId / q.CreatorId / q.IsDeleted 過濾，
+    /// 不檢查 sq.IsDeleted（與 ListAsync 一致），避免列表與統計數量錯位。
+    /// </summary>
+    public async Task<Dictionary<byte, int>> GetSubQuestionStatusCountsAsync(int projectId, int? creatorId)
+    {
+        const string sql = """
+            SELECT sq.Status, COUNT(*) AS Cnt
+            FROM dbo.MT_SubQuestions sq
+            INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+            WHERE q.IsDeleted = 0
+              AND q.ProjectId = @ProjectId
+              AND (@CreatorId IS NULL OR q.CreatorId = @CreatorId)
+            GROUP BY sq.Status;
+            """;
+
+        using var conn = _db.CreateConnection();
+        var rows = await conn.QueryAsync<StatusCountDto>(sql,
+            new { ProjectId = projectId, CreatorId = creatorId });
+        return rows.ToDictionary(r => r.Status, r => r.Cnt);
+    }
+
+    /// <summary>
+    /// 子題層級的「已修題」計數（本人視角）。
+    /// 與 GetMyRevisionRepliedCountAsync 結構相同，但條件落在 MT_SubQuestions / MT_RevisionReplies.SubQuestionId。
+    /// </summary>
+    public async Task<int> GetMySubQuestionRevisionRepliedCountAsync(int projectId, int userId)
+    {
+        const string sql = """
+            SELECT COUNT(*)
+            FROM dbo.MT_SubQuestions sq
+            INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+            WHERE q.ProjectId = @ProjectId
+              AND q.IsDeleted = 0
+              AND q.CreatorId = @UserId
+              AND sq.Status IN (4, 6, 8)
+              AND EXISTS (
+                  SELECT 1 FROM dbo.MT_RevisionReplies rr
+                  WHERE rr.QuestionId    = q.Id
+                    AND rr.SubQuestionId = sq.Id
+                    AND rr.UserId        = q.CreatorId
+                    AND rr.Stage         = sq.Status
+                    AND rr.CreatedAt > ISNULL((SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt WHERE QuestionId = q.Id), '1900-01-01')
+              );
+            """;
+        using var conn = _db.CreateConnection();
+        return await conn.ExecuteScalarAsync<int>(sql,
+            new { ProjectId = projectId, UserId = userId });
+    }
+
     /// <summary>使用者是否為該專案的成員（命題或審題身分均算）。</summary>
     public async Task<bool> IsProjectMemberAsync(int userId, int projectId)
     {
@@ -1631,6 +1689,20 @@ public class QuestionService(
         }
         if (hasEditingUnit == 0) return false;
 
+        // 守門：ReturnCount >= 3 表示已達退回上限（總召已解鎖 CanEditByReviewer=1 將親自代修+裁決）
+        //   業務規則：第 3 次後教師退場、不可再重送；總召 FinalReviewerEditAndDecideAsync 才是唯一路徑。
+        //   防止教師與總召同時操作造成競態（教師重送把 Status 8→7，總召同時讀舊資料寫決策）。
+        //   單元級檢查：母題與子題各自獨立計次，用 (QuestionId, SubQuestionId) NULL-safe 比對。
+        var returnCount = await conn.ExecuteScalarAsync<int?>(
+            """
+            SELECT ReturnCount
+            FROM dbo.MT_ReviewReturnCounts
+            WHERE QuestionId = @Id
+              AND ISNULL(SubQuestionId, -1) = ISNULL(@SubId, -1);
+            """,
+            new { Id = questionId, SubId = subQuestionId });
+        if (returnCount >= 3) return false;
+
         using var tx = conn.BeginTransaction(IsolationLevel.Serializable);
         try
         {
@@ -1842,8 +1914,16 @@ public class QuestionService(
         var subMap = await LoadSubQuestionMapAsync(conn, tx, candidates.Select(c => c.Id));
 
         // 6. 逐題分配：負載最低 + 不為 Creator + 該題尚未分給此人
-        //    — 先從 existingPairs 衍生已分配過的 QuestionId 集合，loop 頂部 skip 整題去重
-        var existingQuestionIds = existingPairs.Select(p => p.QuestionId).ToHashSet();
+        //    ⚠️ 必須獨立查 Stage=2（不可從上方 existingPairs 衍生）：existingPairs 已被
+        //    stage1Pairs 合併污染，若從中衍生會把所有「互審做過的題目」都 skip 掉，
+        //    結果就是 0 分配。對齊 AssignFinalReviewersAsync 的 Stage=3 寫法。
+        var existingQuestionIds = (await conn.QueryAsync<int>(
+            """
+            SELECT DISTINCT QuestionId
+            FROM dbo.MT_ReviewAssignments
+            WHERE ProjectId = @ProjectId AND ReviewStage = 2;
+            """,
+            new { ProjectId = projectId }, tx)).ToHashSet();
 
         const string auditSql = """
             INSERT INTO dbo.MT_AuditLogs
@@ -2129,6 +2209,7 @@ public class QuestionService(
 
         // 3. 跨階段審題意見（匿名化：同階段內依 DecidedAt 排序給 A/B/C）
         //    Stage B-4-2：依 SubQuestionId NULL-safe 過濾 — 母題單元只看母題意見、子題單元只看自己的意見
+        //    完成判定：以 DecidedAt IS NOT NULL 為準（專/總審純草稿不寫 DecidedAt，不應洩漏給命題者）
         const string commentSql = """
             SELECT Stage, Comment, DecidedAt, AnonIndex
             FROM (
@@ -2141,8 +2222,7 @@ public class QuestionService(
                 FROM dbo.MT_ReviewAssignments ra
                 WHERE ra.QuestionId = @Id
                   AND ISNULL(ra.SubQuestionId, -1) = ISNULL(@SubId, -1)
-                  AND ra.Comment IS NOT NULL
-                  AND LEN(ra.Comment) > 0
+                  AND ra.DecidedAt IS NOT NULL
             ) t
             ORDER BY Stage, DecidedAt;
             """;
@@ -2290,7 +2370,9 @@ public class QuestionService(
             if (phaseCode != requiredPhase)
                 throw new InvalidOperationException("修題期間已結束，無法儲存變更。");
 
-            // 3. UPDATE 題目（沿用既有 update SQL，但 Status 維持原值）
+            // 3. UPDATE 題目（Status 維持原值；UpdatedAt 用 CASE WHEN 判定母題欄位是否真的有變）
+            //    語意：只有母題欄位真的被改才刷新「最後編輯時間」，純填修題說明不算編輯
+            //    已知限制：純改子題不動母題的情境，UpdatedAt 不會更新（複雜度權衡後接受）
             const string updateSql = """
                 UPDATE dbo.MT_Questions SET
                     QuestionTypeId  = @TypeId,
@@ -2315,7 +2397,32 @@ public class QuestionService(
                     AudioType       = @AudioType,
                     CoreAbility     = @CoreAbility,
                     DetailIndicator = @DetailIndicator,
-                    UpdatedAt       = SYSDATETIME()
+                    UpdatedAt       = CASE
+                        WHEN QuestionTypeId         <> @TypeId
+                          OR ISNULL(Level, 0)       <> ISNULL(@Level, 0)
+                          OR ISNULL(Difficulty, 0)  <> ISNULL(@Difficulty, 0)
+                          OR ISNULL(Stem, '')              <> ISNULL(@Stem, '')
+                          OR ISNULL(Analysis, '')          <> ISNULL(@Analysis, '')
+                          OR ISNULL(CorrectAnswer, '')     <> ISNULL(@Answer, '')
+                          OR ISNULL(OptionA, '')           <> ISNULL(@OptA, '')
+                          OR ISNULL(OptionB, '')           <> ISNULL(@OptB, '')
+                          OR ISNULL(OptionC, '')           <> ISNULL(@OptC, '')
+                          OR ISNULL(OptionD, '')           <> ISNULL(@OptD, '')
+                          OR ISNULL(ArticleTitle, '')      <> ISNULL(@ArticleTitle, '')
+                          OR ISNULL(ArticleContent, '')    <> ISNULL(@ArticleContent, '')
+                          OR ISNULL(AudioUrl, '')          <> ISNULL(@AudioUrl, '')
+                          OR ISNULL(GradingNote, '')       <> ISNULL(@GradingNote, '')
+                          OR ISNULL(Topic, 0)              <> ISNULL(@Topic, 0)
+                          OR ISNULL(Subtopic, 0)           <> ISNULL(@Subtopic, 0)
+                          OR ISNULL(Genre, 0)              <> ISNULL(@Genre, 0)
+                          OR ISNULL(Material, 0)           <> ISNULL(@Material, 0)
+                          OR ISNULL(WritingMode, 0)        <> ISNULL(@WritingMode, 0)
+                          OR ISNULL(AudioType, 0)          <> ISNULL(@AudioType, 0)
+                          OR ISNULL(CoreAbility, 0)        <> ISNULL(@CoreAbility, 0)
+                          OR ISNULL(DetailIndicator, 0)    <> ISNULL(@DetailIndicator, 0)
+                        THEN SYSDATETIME()
+                        ELSE UpdatedAt
+                    END
                 WHERE Id = @Id AND IsDeleted = 0;
                 """;
 

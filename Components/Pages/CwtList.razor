@@ -165,11 +165,24 @@
                         }
                         else if (currentTab == "revision")
                         {
-                            @StatCard("審題總計", SumCounts(QuestionStatus.RevisionTabStatuses), "fa-layer-group", "text-terracotta", "text-slate-main", "all", "顯示全部題目")
-                            @StatCard("審題鎖定", SumCounts([QuestionStatus.Submitted, QuestionStatus.PeerReviewing, QuestionStatus.ExpertReviewing, QuestionStatus.FinalReviewing]), "fa-lock", "text-morandi", "text-morandi", "locked", "點一下套用篩選")
+                            @* 審修作業區因 ListAsync 將母題與子題拆成獨立列，統計卡片同步顯示「母題 / 子題」雙值 *@
+                            @RevisionStatCard("審題總計",
+                                SumCounts(QuestionStatus.RevisionTabStatuses),
+                                SubSumCounts(QuestionStatus.RevisionTabStatuses),
+                                "fa-layer-group", "text-terracotta", "text-slate-main", "all", "顯示全部題目")
+                            @RevisionStatCard("審題鎖定",
+                                SumCounts([QuestionStatus.Submitted, QuestionStatus.PeerReviewing, QuestionStatus.ExpertReviewing, QuestionStatus.FinalReviewing]),
+                                SubSumCounts([QuestionStatus.Submitted, QuestionStatus.PeerReviewing, QuestionStatus.ExpertReviewing, QuestionStatus.FinalReviewing]),
+                                "fa-lock", "text-morandi", "text-morandi", "locked", "點一下套用篩選")
                             @* 「修題中」改為僅未送出修題；新增「已修題」(sage) 顯示已送出 *@
-                            @StatCard("修題中", RevisionEditingActiveCount, "fa-lock-open", "text-terracotta", "text-terracotta", "editing", "點一下套用篩選")
-                            @StatCard("已修題", revisionRepliedCount, "fa-circle-check", "text-sage", "text-sage", "replied", "點一下套用篩選")
+                            @RevisionStatCard("修題中",
+                                RevisionEditingActiveCount,
+                                SubRevisionEditingActiveCount,
+                                "fa-lock-open", "text-terracotta", "text-terracotta", "editing", "點一下套用篩選")
+                            @RevisionStatCard("已修題",
+                                revisionRepliedCount,
+                                subRevisionRepliedCount,
+                                "fa-circle-check", "text-sage", "text-sage", "replied", "點一下套用篩選")
                         }
                         else
                         {
@@ -547,12 +560,16 @@
     // 列表狀態
     private QuestionListResult listResult = new();
     private Dictionary<byte, int> statusCounts = [];
+    // 審修作業區：子題層級 status 計數（與母題分開計算，搭配 ListAsync 拆 N+1 列）
+    private Dictionary<byte, int> subStatusCounts = [];
     private bool isLoadingList;
     private int currentPage = 1;
     private int pageSize = 10;
 
     // 審修作業區「已修題」卡片計數（本人在 Status∈{4,6,8} 已送出 RevisionReplies 的題目數）
     private int revisionRepliedCount;
+    // 子題層級的「已修題」計數
+    private int subRevisionRepliedCount;
 
     // 篩選條件
     private string? queryKeyword;
@@ -630,15 +647,24 @@
             var repliedTask  = currentTab == "revision"
                 ? QuestionService.GetMyRevisionRepliedCountAsync(CurrentProject!.Id, currentUserId!.Value)
                 : Task.FromResult(0);
+            // 子題層級統計（審修作業區母題/子題分開計數）僅 revision tab 需要
+            var subCountsTask   = currentTab == "revision"
+                ? QuestionService.GetSubQuestionStatusCountsAsync(CurrentProject!.Id, currentUserId!.Value)
+                : Task.FromResult(new Dictionary<byte, int>());
+            var subRepliedTask  = currentTab == "revision"
+                ? QuestionService.GetMySubQuestionRevisionRepliedCountAsync(CurrentProject!.Id, currentUserId!.Value)
+                : Task.FromResult(0);
             var listTask     = LoadListAsync();
 
-            await Task.WhenAll(quotaTask, phaseTask, countsTask, phaseEndTask, repliedTask, listTask);
+            await Task.WhenAll(quotaTask, phaseTask, countsTask, phaseEndTask, repliedTask, subCountsTask, subRepliedTask, listTask);
 
             quotaProgress             = quotaTask.Result;
             currentPhase              = phaseTask.Result;
             statusCounts              = countsTask.Result;
             compositionPhaseEndDate   = phaseEndTask.Result;
             revisionRepliedCount      = repliedTask.Result;
+            subStatusCounts           = subCountsTask.Result;
+            subRevisionRepliedCount   = subRepliedTask.Result;
         }
         finally
         {
@@ -744,13 +770,17 @@
         activeFilter  = "all";
         currentPage   = 1;
 
-        // 切到 revision tab 才需「已修題」計數（首載時若不在 revision tab 會略過，這裡補回）
+        // 切到 revision tab 才需「已修題」與子題計數（首載時若不在 revision tab 會略過，這裡補回）
         var listTask = LoadListAsync();
         if (tab == "revision" && currentUserId.HasValue && CurrentProject is not null)
         {
-            var repliedTask = QuestionService.GetMyRevisionRepliedCountAsync(CurrentProject.Id, currentUserId.Value);
-            await Task.WhenAll(listTask, repliedTask);
-            revisionRepliedCount = repliedTask.Result;
+            var repliedTask     = QuestionService.GetMyRevisionRepliedCountAsync(CurrentProject.Id, currentUserId.Value);
+            var subCountsTask   = QuestionService.GetSubQuestionStatusCountsAsync(CurrentProject.Id, currentUserId.Value);
+            var subRepliedTask  = QuestionService.GetMySubQuestionRevisionRepliedCountAsync(CurrentProject.Id, currentUserId.Value);
+            await Task.WhenAll(listTask, repliedTask, subCountsTask, subRepliedTask);
+            revisionRepliedCount    = repliedTask.Result;
+            subStatusCounts         = subCountsTask.Result;
+            subRevisionRepliedCount = subRepliedTask.Result;
         }
         else
         {
@@ -796,10 +826,17 @@
     private int CountOf(byte status) => statusCounts.GetValueOrDefault(status, 0);
     private int SumCounts(byte[] statuses) => statuses.Sum(s => statusCounts.GetValueOrDefault(s, 0));
 
+    // 子題層級的同義 helper（搭配 ListAsync revision tab 拆 N+1 列的設計）
+    private int SubSumCounts(byte[] statuses) => statuses.Sum(s => subStatusCounts.GetValueOrDefault(s, 0));
+
     /// <summary>「修題中」(尚未送出) 的計數 = 全部修題狀態 (4,6,8) 扣除已送出修題回覆。</summary>
     private int RevisionEditingActiveCount =>
         SumCounts([QuestionStatus.PeerEditing, QuestionStatus.ExpertEditing, QuestionStatus.FinalEditing])
         - revisionRepliedCount;
+
+    private int SubRevisionEditingActiveCount =>
+        SubSumCounts([QuestionStatus.PeerEditing, QuestionStatus.ExpertEditing, QuestionStatus.FinalEditing])
+        - subRevisionRepliedCount;
 
     private bool IsEditableStatus(byte status)
     {
@@ -1255,6 +1292,34 @@
                 @title <i class="fa-solid @icon @iconColor opacity-50"></i>
             </div>
             <div class="text-2xl font-bold @valueColor">@value</div>
+            <div class="text-xs text-gray-400 mt-1">@subtitle</div>
+        </div>
+    };
+
+    /// <summary>
+    /// 審修作業區專用統計卡：母題（masterValue）/ 子題（subValue）分開顯示。
+    /// 視覺結構：左母題 + 中央分隔線 + 右子題；保留與 StatCard 一致的 hover / active 樣式。
+    /// </summary>
+    private RenderFragment RevisionStatCard(string title, int masterValue, int subValue,
+        string icon, string iconColor, string valueColor, string filterKey, string subtitle) => __builder =>
+    {
+        var isActive = activeFilter == filterKey;
+        <div @onclick="() => OnFilterChanged(filterKey)"
+            class="@(isActive ? "ring-2 ring-morandi border-morandi bg-morandi/5" : "bg-white border-gray-200 hover:shadow-md") rounded-xl shadow-sm border p-4 transition duration-200 cursor-pointer select-none">
+            <div class="text-gray-500 text-xs font-bold mb-1 flex items-center justify-between">
+                @title <i class="fa-solid @icon @iconColor opacity-50"></i>
+            </div>
+            <div class="flex items-baseline gap-3">
+                <div class="flex items-baseline gap-1">
+                    <span class="text-xs text-gray-400 font-medium">母題</span>
+                    <span class="text-2xl font-bold @valueColor">@masterValue</span>
+                </div>
+                <span class="text-gray-300 text-base">/</span>
+                <div class="flex items-baseline gap-1">
+                    <span class="text-xs text-gray-400 font-medium">子題</span>
+                    <span class="text-2xl font-bold @valueColor">@subValue</span>
+                </div>
+            </div>
             <div class="text-xs text-gray-400 mt-1">@subtitle</div>
         </div>
     };

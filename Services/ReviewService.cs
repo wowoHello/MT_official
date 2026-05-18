@@ -346,7 +346,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             FROM dbo.MT_ReviewAssignments ra
             LEFT JOIN dbo.MT_Users u ON u.Id = ra.ReviewerId
             WHERE ra.QuestionId = @QuestionId
-              AND ra.Comment IS NOT NULL AND ra.Comment <> ''
+              AND ra.DecidedAt IS NOT NULL  -- 依 DecidedAt 判定：草稿尚未送出不顯示
               AND ISNULL(ra.SubQuestionId, -1) = ISNULL(@SubQuestionId, -1)
 
             UNION ALL
@@ -1289,7 +1289,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             FROM dbo.MT_ReviewAssignments ra
             LEFT JOIN dbo.MT_Users u ON u.Id = ra.ReviewerId
             {unitJoinRA}
-            WHERE ra.QuestionId = @QuestionId AND ra.Comment IS NOT NULL AND ra.Comment <> ''{unitFilterRA}
+            WHERE ra.QuestionId = @QuestionId AND ra.DecidedAt IS NOT NULL{unitFilterRA}  -- 依 DecidedAt 判定：草稿尚未送出不顯示
 
             UNION ALL
 

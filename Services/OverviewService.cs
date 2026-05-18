@@ -279,9 +279,11 @@ public class OverviewService(
         IsEditing(i.Status) && !i.IsDeleted && (pc is null || pc < i.Status);
 
     /// <summary>
-    /// 計算當前頁列表中，每筆題目「在當前審題階段是否全體被指派審題者皆已給意見」。
+    /// 計算當前頁列表中，每筆題目「在當前審題階段是否全體被指派審題者皆已完成審題」。
     /// PhaseCode 對應 ReviewStage：3→1（互審） / 5→2（專審） / 7→3（總審）。
-    /// 判定：該題該階段被指派筆數 > 0，且所有筆數的 Comment 皆非空。
+    /// 判定：該題該階段被指派筆數 > 0，且所有筆數的 DecidedAt 皆非 NULL。
+    /// 改用 DecidedAt 而非 Comment：專/總審「儲存意見草稿」只 UPDATE Comment 不寫 DecidedAt，
+    /// 用 Comment 判定會把純草稿誤算為完成；DecidedAt 才是「真正送出決策」的標記。
     /// 非審題階段（PhaseCode 不在 {3,5,7}）或列表為空 → 直接回空 dict，不打 DB。
     /// </summary>
     private async Task<Dictionary<int, bool>> GetAllReviewersRespondedAsync(
@@ -301,7 +303,7 @@ public class OverviewService(
         };
         if (stage == 0) return new();
 
-        // GROUP BY QuestionId：當分配筆數 = 有效 Comment 筆數時，回傳該 QuestionId
+        // GROUP BY QuestionId：當分配筆數 = 已完成審題（DecidedAt 非 NULL）筆數時，回傳該 QuestionId
         const string sql = """
             SELECT QuestionId
             FROM   dbo.MT_ReviewAssignments
@@ -310,8 +312,7 @@ public class OverviewService(
               AND  QuestionId IN @Ids
             GROUP BY QuestionId
             HAVING COUNT(*) > 0
-               AND COUNT(*) = SUM(CASE WHEN Comment IS NOT NULL
-                                         AND LEN(LTRIM(RTRIM(Comment))) > 0
+               AND COUNT(*) = SUM(CASE WHEN DecidedAt IS NOT NULL
                                        THEN 1 ELSE 0 END);
             """;
 

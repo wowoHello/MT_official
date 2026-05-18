@@ -412,8 +412,16 @@
                     disabled="@IsSubmitting"
                     @onclick="() => OnRequestEdit.InvokeAsync()"
                     class="px-5 py-2.5 bg-morandi hover:bg-[#5a7a99] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
-                <i class="fa-solid fa-pen-to-square mr-1.5"></i>
-                <span>編輯題目</span>
+                @if (IsBusy("edit"))
+                {
+                    <i class="fa-solid fa-spinner fa-spin mr-1.5"></i>
+                    <span>開啟中…</span>
+                }
+                else
+                {
+                    <i class="fa-solid fa-pen-to-square mr-1.5"></i>
+                    <span>編輯題目</span>
+                }
             </button>
             <span class="w-px h-8 bg-gray-300 mx-2"></span>
             <button type="button"

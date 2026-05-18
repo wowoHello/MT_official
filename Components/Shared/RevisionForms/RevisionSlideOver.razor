@@ -59,11 +59,11 @@
                             <i class="fa-solid @stageBadge.Icon mr-1"></i> @stageBadge.Name
                         </span>
 
-                        @* 總審退回計數警示 *@
+                        @* 總審退回計數警示：>=2 顯示，文字動態反映實際次數（含第 3 次封鎖狀態） *@
                         @if (data.CurrentPhaseCode == 8 && data.FinalReturnCount >= 2)
                         {
                             <span class="ml-1 inline-flex items-center px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold border border-red-200 shrink-0">
-                                <i class="fa-solid fa-triangle-exclamation mr-1"></i> 已退回 2 次
+                                <i class="fa-solid fa-triangle-exclamation mr-1"></i> @($"已退回 {data.FinalReturnCount} 次")
                             </span>
                         }
 
@@ -173,8 +173,9 @@
                                     <div class="flex-grow overflow-y-auto custom-scroll bg-oatmeal min-h-0">
                                         @if (isReadingMode)
                                         {
-                                            @* SubQuestionId 非 null 時 ReviewQuestionDisplay 自動切到子題模式，僅顯示該子題（與 Reviews 審題作業區一致） *@
-                                            <ReviewQuestionDisplay Question="@data.Question" CreatorName="" SubQuestionId="@data.SubQuestionId" />
+                                            @* SubQuestionId 非 null 時 ReviewQuestionDisplay 自動切到子題模式，僅顯示該子題（與 Reviews 審題作業區一致）。 *@
+                                            @* HideSubIndexCards：修題情境下隱藏「本頁審題對象」提示與子題索引卡群—CwtList 列表已拆 N+1 列，單元切換由列表負責。 *@
+                                            <ReviewQuestionDisplay Question="@data.Question" CreatorName="" SubQuestionId="@data.SubQuestionId" HideSubIndexCards="true" />
                                         }
                                         else
                                         {
@@ -261,33 +262,43 @@
                 }
                 else
                 {
-                    @* 左側：提示文字 *@
-                    <div class="text-xs text-gray-500 flex items-center gap-2 min-w-0 truncate">
+                    @* 左側：提示文字 + 最近修題時間（樣式參考審題 Modal Header 時鐘 icon） *@
+                    <div class="text-xs text-gray-500 flex items-center gap-2 min-w-0">
                         @if (!data.IsEditable)
                         {
                             @if (data.CurrentPhaseCode is 3 or 5 or 7)
                             {
-                                <span class="inline-flex items-center gap-1 text-morandi">
+                                <span class="inline-flex items-center gap-1 text-morandi shrink-0">
                                     <i class="fa-solid fa-lock"></i> @GetPhaseName(data.CurrentPhaseCode)進行中，僅供檢視（評語會即時更新）
                                 </span>
                             }
                             else
                             {
-                                <span class="inline-flex items-center gap-1 text-gray-400">
+                                <span class="inline-flex items-center gap-1 text-gray-400 shrink-0">
                                     <i class="fa-solid fa-lock"></i> 目前非修題期間，僅供檢視
                                 </span>
                             }
                         }
                         else if (string.IsNullOrWhiteSpace(revisionNote))
                         {
-                            <span class="inline-flex items-center gap-1 text-terracotta font-bold">
+                            <span class="inline-flex items-center gap-1 text-terracotta font-bold shrink-0">
                                 <i class="fa-solid fa-circle-exclamation"></i> 修題說明為必填，請於右側欄位填寫
                             </span>
                         }
                         else
                         {
-                            <span class="inline-flex items-center gap-1 text-sage">
+                            <span class="inline-flex items-center gap-1 text-sage shrink-0">
                                 <i class="fa-solid fa-circle-check"></i> 已填寫修題說明（@revisionNote.Length 字）
+                            </span>
+                        }
+
+                        @* 並排：本階段最近一次修題說明送出時間（MT_RevisionReplies 最新一筆）*@
+                        @if (LastRevisionAt is DateTime lastAt)
+                        {
+                            <span class="inline-flex items-center gap-1 text-gray-400 shrink-0"
+                                  title="本階段最近一次按下「完成修題」的時間">
+                                <i class="fa-solid fa-clock"></i>
+                                最近修題：<span class="tabular-nums">@lastAt.ToString("yyyy/MM/dd HH:mm")</span>
                             </span>
                         }
                     </div>
@@ -315,16 +326,26 @@
                                 }
                             </button>
 
-                            @* [完成送審] 僅總審修題（PhaseCode=8）擁有 *@
+                            @* [完成送審] 僅總審修題（PhaseCode=8）擁有；ReturnCount >= 3 時封鎖（總召代修裁決中） *@
                             @if (data.CurrentPhaseCode == 8)
                             {
+                                var hasReachedReturnLimit = data.FinalReturnCount >= 3;
+                                var resubmitDisabledTitle =
+                                    hasReachedReturnLimit ? "此題已達退回上限，等待總召最終裁決"
+                                    : string.IsNullOrWhiteSpace(revisionNote) ? "請先填寫修題說明"
+                                    : "送回給總召再次審題";
+
                                 <button type="button" @onclick="OnResubmitAsync"
-                                        disabled="@(isSaving || string.IsNullOrWhiteSpace(revisionNote))"
-                                        title="@(string.IsNullOrWhiteSpace(revisionNote) ? "請先填寫修題說明" : "送回給總召再次審題")"
+                                        disabled="@(isSaving || string.IsNullOrWhiteSpace(revisionNote) || hasReachedReturnLimit)"
+                                        title="@resubmitDisabledTitle"
                                         class="px-5 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
                                     @if (isSaving && pendingAction == "resubmit")
                                     {
                                         <span><i class="fa-solid fa-spinner fa-spin"></i> 送出中…</span>
+                                    }
+                                    else if (hasReachedReturnLimit)
+                                    {
+                                        <i class="fa-solid fa-lock"></i> <span>等待總召裁決</span>
                                     }
                                     else
                                     {
@@ -682,6 +703,14 @@
     {
         if (data is null || !data.IsEditable || data.CurrentPhaseCode != 8 || isSaving) return;
 
+        // 退回上限守門：FinalReturnCount >= 3 時禁止再次送審（總召代修裁決中）
+        // 即使按鈕已 disabled，仍可能被 DevTools 移除 disabled 點擊；後端 ResubmitAfterFinalEditingAsync 亦會擋
+        if (data.FinalReturnCount >= 3)
+        {
+            await ShowToastAsync("info", "此題已達退回上限，等待總召最終裁決");
+            return;
+        }
+
         // 題目欄位完整性檢查（與完成修題共用同一份 validator）
         var errors = QuestionFormValidator.ValidateForCompletion(data.Question);
         if (errors.Count > 0)
@@ -907,6 +936,20 @@
             return (int)(data.PhaseEndDate.Value.Date - DateTime.Today).TotalDays;
         }
     }
+
+    /// <summary>
+    /// 本階段最近一次「修題說明」送出時間（MT_RevisionReplies.CreatedAt 最新一筆）。
+    /// 用於 Footer 左下角的時鐘顯示；無歷史紀錄回 null，UI 端不渲染時鐘區塊。
+    /// 與 Header「最後編輯時間」是兩個概念：
+    ///   - 最後編輯時間：題目本體內容變動時間（MT_Questions.UpdatedAt）
+    ///   - 最近修題：本階段最後一次按下「完成修題」時間（含「沒動內容、只填修題說明」）
+    /// </summary>
+    private DateTime? LastRevisionAt =>
+        data?.MyReplies
+            .Where(r => r.Stage == data.CurrentPhaseCode)
+            .OrderByDescending(r => r.CreatedAt)
+            .FirstOrDefault()
+            ?.CreatedAt;
 
     private static (string Css, string Icon, string Name) GetPhaseBadge(byte phaseCode) => phaseCode switch
     {
