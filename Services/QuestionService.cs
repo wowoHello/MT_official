@@ -2381,9 +2381,43 @@ public class QuestionService(
             if (phaseCode != requiredPhase)
                 throw new InvalidOperationException("修題期間已結束，無法儲存變更。");
 
-            // 3. UPDATE 題目（Status 維持原值；UpdatedAt 用 CASE WHEN 判定母題欄位是否真的有變）
-            //    語意：只有母題欄位真的被改才刷新「最後編輯時間」，純填修題說明不算編輯
-            //    已知限制：純改子題不動母題的情境，UpdatedAt 不會更新（複雜度權衡後接受）
+            // 2.5 撈當前所有圖片（母題層 + 子題層）簽名，比對 form.Images 是否變動
+            //     - 母題層: MT_QuestionImages.SubQuestionId IS NULL（一般/精選/聽力 ABCD 選項圖、題組類母題層圖）
+            //     - 子題層: SubQuestionId IS NOT NULL（短文/閱讀/聽力題組各子題的選項圖、題幹圖）
+            //     簽名 key 用 ISNULL(SubQuestionId, 0)；form.Images 端透過 GetSubQuestionDbIds 把 form 位置映射回 DB Id
+            //     SaveRevisionAsync 場景下子題已存在 DB（form 從 DB 載入回來帶 Id），GetSubQuestionDbIds 可安全在 Upsert 前呼叫
+            const string fetchImageSql = """
+                SELECT ISNULL(SubQuestionId, 0) AS SubKey, FieldType, ImagePath
+                FROM dbo.MT_QuestionImages
+                WHERE QuestionId = @Id
+                   OR SubQuestionId IN (
+                       SELECT Id FROM dbo.MT_SubQuestions WHERE ParentQuestionId = @Id
+                   );
+                """;
+            var existingImageSig = (await conn.QueryAsync<(int SubKey, byte FieldType, string ImagePath)>(
+                    fetchImageSql, new { Id = req.QuestionId }, tx))
+                .Select(i => $"{i.SubKey}|{i.FieldType}|{i.ImagePath}")
+                .OrderBy(s => s)
+                .ToList();
+
+            var subDbIds = GetSubQuestionDbIds(req.FormData);   // form 位置 → DB Id 映射
+            var newImageSig = req.FormData.Images
+                .Where(i => !string.IsNullOrWhiteSpace(i.ImagePath))
+                .Select(i =>
+                {
+                    int subKey = 0;
+                    if (i.SubQuestionIndex is int idx && idx >= 0 && idx < subDbIds.Count)
+                        subKey = subDbIds[idx];
+                    return $"{subKey}|{i.FieldType}|{i.ImagePath}";
+                })
+                .OrderBy(s => s)
+                .ToList();
+
+            var imagesChanged = !existingImageSig.SequenceEqual(newImageSig);
+
+            // 3. UPDATE 題目（Status 維持原值；UpdatedAt 用 CASE WHEN 判定母題欄位 / 任一層圖片是否真的有變）
+            //    語意：母題欄位變動 或 任一張圖（母題層 / 子題層）變動 才刷新「最後編輯時間」，
+            //    純填修題說明 + 內容圖片都沒動 → 不刷時間（保留 CASE WHEN 設計精神）。
             const string updateSql = """
                 UPDATE dbo.MT_Questions SET
                     QuestionTypeId  = @TypeId,
@@ -2431,6 +2465,7 @@ public class QuestionService(
                           OR ISNULL(AudioType, 0)          <> ISNULL(@AudioType, 0)
                           OR ISNULL(CoreAbility, 0)        <> ISNULL(@CoreAbility, 0)
                           OR ISNULL(DetailIndicator, 0)    <> ISNULL(@DetailIndicator, 0)
+                          OR @ImagesChanged = 1
                         THEN SYSDATETIME()
                         ELSE UpdatedAt
                     END
@@ -2462,7 +2497,8 @@ public class QuestionService(
                 f.WritingMode,
                 f.AudioType,
                 f.CoreAbility,
-                f.DetailIndicator
+                f.DetailIndicator,
+                ImagesChanged = imagesChanged ? 1 : 0
             }, tx);
 
             // 4. UPSERT 子題
@@ -2472,16 +2508,38 @@ public class QuestionService(
             await QuestionImagePersistence.UpsertMasterAsync(conn, tx, req.QuestionId, req.FormData.Images);
             await QuestionImagePersistence.UpsertSubAsync(conn, tx, req.QuestionId, GetSubQuestionDbIds(req.FormData), req.FormData.Images);
 
-            // 5. INSERT MT_RevisionReplies — 純 append-only（每輪一筆獨立 row）
-            //    Plan_014：總修階段（Stage=8）允許跨輪多次回覆，每輪退回後重新送出都產生新 row
-            //    判別「本輪 reply」靠 CreatedAt > 上次總審退回 DecidedAt（見 ListAsync / GetRevisionDataAsync 等處）
-            //    Stage=4/6 線性單輪，append-only 等同每題每階段最多一筆，行為不變
+            // 5. UPSERT MT_RevisionReplies — 同單元同階段同輪只一筆
+            //    Plan_014 原本是純 append-only，但會造成「同輪內按多次儲存累積多筆相同 reply」的 UX bug。
+            //    現改為「同輪 UPSERT」：
+            //      - 同輪已有 reply → UPDATE Content + CreatedAt（覆蓋）
+            //      - 同輪尚無 reply → INSERT 新一筆
+            //    「跨輪保留歷史」語意不變：被總召退回再送會落在新輪 → 仍 INSERT 新 row。
+            //
+            //    「本輪」判別：CreatedAt > 該單元上次總召退回 DecidedAt（Stage=4/6 無退回 → fallback 1900-01-01）
+            //    NULL-safe 比對 SubQuestionId（母題 / 子題單元各自獨立判別）
             //    Stage B-4-2：依 SubQuestionId 寫入（母題單元 = NULL；子題單元 = sub.Id）
-            const string insertReplySql = """
-                INSERT INTO dbo.MT_RevisionReplies (QuestionId, SubQuestionId, UserId, Stage, Content, CreatedAt)
-                VALUES (@Qid, @SubId, @Uid, @Stage, @Content, SYSDATETIME());
+            const string upsertReplySql = """
+                UPDATE dbo.MT_RevisionReplies
+                SET Content = @Content, CreatedAt = SYSDATETIME()
+                WHERE Id = (
+                    SELECT TOP 1 Id FROM dbo.MT_RevisionReplies
+                    WHERE QuestionId = @Qid
+                      AND ISNULL(SubQuestionId, -1) = ISNULL(@SubId, -1)
+                      AND Stage  = @Stage
+                      AND UserId = @Uid
+                      AND CreatedAt > ISNULL(
+                          (SELECT MAX(DecidedAt) FROM dbo.MT_ReviewAssignments
+                           WHERE QuestionId = @Qid
+                             AND ISNULL(SubQuestionId, -1) = ISNULL(@SubId, -1)
+                             AND ReviewStage = 3 AND Decision IN (2, 3)),
+                          '1900-01-01')
+                    ORDER BY Id DESC);
+
+                IF @@ROWCOUNT = 0
+                    INSERT INTO dbo.MT_RevisionReplies (QuestionId, SubQuestionId, UserId, Stage, Content, CreatedAt)
+                    VALUES (@Qid, @SubId, @Uid, @Stage, @Content, SYSDATETIME());
                 """;
-            await conn.ExecuteAsync(insertReplySql, new
+            await conn.ExecuteAsync(upsertReplySql, new
             {
                 Qid     = req.QuestionId,
                 SubId   = req.SubQuestionId,
