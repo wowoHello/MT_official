@@ -956,6 +956,9 @@ public class QuestionService(
     /// </summary>
     public async Task<int> GetMyRevisionRepliedCountAsync(int projectId, int userId)
     {
+        // ⚠️ 必須過濾 rr.SubQuestionId IS NULL：否則「只修了子題」的母題會被誤計為已修題
+        //   （MT_RevisionReplies 子題回覆的 QuestionId 是 parent Id，沒過濾就會 match 到 q.Id）
+        // 對齊 ListAsync MasterReplied CTE 的判定條件（line 593）
         const string sql = """
             SELECT COUNT(*)
             FROM dbo.MT_Questions q
@@ -965,9 +968,10 @@ public class QuestionService(
               AND q.Status IN (4, 6, 8)
               AND EXISTS (
                   SELECT 1 FROM dbo.MT_RevisionReplies rr
-                  WHERE rr.QuestionId = q.Id
-                    AND rr.UserId     = q.CreatorId
-                    AND rr.Stage      = q.Status
+                  WHERE rr.QuestionId    = q.Id
+                    AND rr.SubQuestionId IS NULL
+                    AND rr.UserId        = q.CreatorId
+                    AND rr.Stage         = q.Status
                     AND rr.CreatedAt > ISNULL((SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt WHERE QuestionId = q.Id), '1900-01-01')
               );
             """;
@@ -2234,10 +2238,12 @@ public class QuestionService(
         var commentRows = (await conn.QueryAsync<(byte Stage, string Comment, DateTime DecidedAt, int AnonIndex)>(
             commentSql, new { Id = questionId, SubId = subQuestionId })).AsList();
 
+        // AnonName 依 Stage 分流：互審→命題教師、專審→審題委員、總審→總召集人
+        // 複用 AnnotationActorLabel.Anonymize 既有規則，避免「審題委員」hardcode 套到互審造成語意錯誤
         var comments = commentRows.Select(r => new ReviewCommentEntry
         {
             Stage     = r.Stage,
-            AnonName  = $"審題委員 {(char)('A' + (r.AnonIndex - 1) % 26)}",
+            AnonName  = $"{AnnotationActorLabel.Anonymize((ReviewStage)r.Stage)} {(char)('A' + (r.AnonIndex - 1) % 26)}",
             Comment   = r.Comment ?? "",
             DecidedAt = r.DecidedAt
         }).ToList();

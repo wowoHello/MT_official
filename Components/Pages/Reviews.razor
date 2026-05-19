@@ -539,27 +539,45 @@
                                 <tbody>
                                     @foreach (var item in Page(FilteredHistory))
                                     {
-                                        <tr @onclick="() => OpenReviewModal(item.QuestionId, true)"
+                                        <tr @onclick="() => OpenReviewModal(item.QuestionId, true, item.SubQuestionId)"
                                             class="border-b border-gray-100 relative hover:z-10 hover:bg-blue-50/40 hover:shadow-[inset_4px_0_0_var(--color-morandi),0_6px_16px_-4px_rgba(0,0,0,0.18)] transition-all cursor-pointer group">
-                                            <td class="px-4 py-3 font-bold text-slate-main group-hover:text-morandi whitespace-nowrap transition-colors">@item.QuestionCode</td>
+                                            <td class="px-4 py-3 font-bold text-slate-main group-hover:text-morandi whitespace-nowrap transition-colors">@item.DisplayCode</td>
                                             <td class="px-4 py-3 whitespace-nowrap">
                                                 <span class="inline-block px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-bold border border-gray-200">
                                                     @QuestionConstants.TypeLabels.GetValueOrDefault(item.TypeKey, "未知")
                                                 </span>
                                             </td>
                                             <td class="px-4 py-3 whitespace-nowrap">
-                                                @* 歷史 Tab 一律以 QuestionId 一列呈現（不拆子題）— 聽力題組整體無單一等級也無難度，顯示 em dash *@
-                                                @if (item.TypeKey != QuestionTypeCodes.ListenGroup && item.Level is byte lv)
+                                                @* 等級 pill：與審題作業區同規則
+                                                   - 聽力題目（Listen single）：用 ListenLevelLabels（難度一~五）
+                                                   - 聽力題組（ListenGroup）子題：用 ListenLevelLabels 取 FixedDifficulty → 難度三/難度四
+                                                   - 聽力題組母題：— (整題組無單一等級)
+                                                   - 其他題型：用 GeneralLevelLabels（初等~優等） *@
+                                                @{
+                                                    string? levelText = null;
+                                                    if (item.TypeKey == QuestionTypeCodes.ListenGroup)
+                                                    {
+                                                        if (item.SubQuestionId.HasValue && item.FixedDifficulty is byte fdLv)
+                                                        {
+                                                            levelText = QuestionConstants.ListenLevelLabels.GetValueOrDefault(fdLv, "");
+                                                        }
+                                                    }
+                                                    else if (item.Level is byte lv)
+                                                    {
+                                                        levelText = item.TypeKey == QuestionTypeCodes.Listen
+                                                            ? QuestionConstants.ListenLevelLabels.GetValueOrDefault(lv, "")
+                                                            : QuestionConstants.GeneralLevelLabels.GetValueOrDefault(lv, "");
+                                                    }
+                                                }
+                                                @if (!string.IsNullOrEmpty(levelText))
                                                 {
-                                                    var levelText = item.TypeKey == QuestionTypeCodes.Listen
-                                                        ? QuestionConstants.ListenLevelLabels.GetValueOrDefault(lv, "")
-                                                        : QuestionConstants.GeneralLevelLabels.GetValueOrDefault(lv, "");
                                                     <span class="text-xs text-morandi font-bold">@levelText</span>
                                                 }
                                                 else
                                                 {
                                                     <span class="text-xs text-gray-300">—</span>
                                                 }
+                                                @* 難度 pill：聽力題組整體沒有難度（只有等級），跳過；其他題型才顯示 *@
                                                 @if (item.TypeKey != QuestionTypeCodes.ListenGroup && item.Difficulty is byte d)
                                                 {
                                                     <span class="text-xs text-terracotta font-bold ml-2">@QuestionConstants.DifficultyLabels.GetValueOrDefault(d, "")</span>
@@ -575,7 +593,7 @@
                                             </td>
                                             <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">@item.FinalDecidedAt.ToString("yyyy/MM/dd HH:mm")</td>
                                             <td class="px-4 py-3 text-center whitespace-nowrap" @onclick:stopPropagation="true">
-                                                <button @onclick="() => OpenReviewModal(item.QuestionId, true)"
+                                                <button @onclick="() => OpenReviewModal(item.QuestionId, true, item.SubQuestionId)"
                                                         class="text-morandi hover:underline text-xs font-bold cursor-pointer focus:outline-none">
                                                     <i class="fa-solid fa-eye mr-0.5"></i> 檢視
                                                 </button>
@@ -652,6 +670,7 @@
                     @* 左側屬性欄 *@
                     <div class="@(finalEditSidebarCollapsed ? "w-0" : "w-60 lg:w-72") flex-shrink-0 bg-white border-r border-gray-200 overflow-hidden flex flex-col transition-all duration-300 ease-in-out">
                         <QuestionAttributesSidebar IsCollapsed="finalEditSidebarCollapsed"
+                            LockQuestionType="true"
                             QuestionType="@finalEditFormData.QuestionType"
                             QuestionTypeChanged="@((t) => { if (finalEditFormData is not null) finalEditFormData.QuestionType = t; })"
                             @bind-Level="finalEditFormData.Level"

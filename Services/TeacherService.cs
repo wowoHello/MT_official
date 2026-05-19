@@ -1,5 +1,6 @@
 using System.Data;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Dapper;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Data.SqlClient;
@@ -39,6 +40,10 @@ public interface ITeacherService
     Task UpdateTeacherAsync(UpdateTeacherRequest req, int operatorId);
     Task ToggleTeacherStatusAsync(int teacherId, int operatorId);
     Task ResetTeacherPasswordAsync(int teacherId, int operatorId);
+
+    // === 批次匯入 ===
+    Task<(List<BatchImportRow> Rows, string? ParseError)> ParseExcelAsync(Stream fileStream);
+    Task<List<BatchImportRowResult>> ImportTeachersAsync(IReadOnlyList<BatchImportRow> rows, int operatorId);
 }
 
 /// <summary>
@@ -222,7 +227,7 @@ public class TeacherService : ITeacherService
                 COUNT(*) AS TotalCount,
                 SUM(CASE WHEN q.Status IN (9, 12) THEN 1 ELSE 0 END) AS AdoptedCount,
                 SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END) AS RejectedCount,
-                SUM(CASE WHEN q.Status BETWEEN 1 AND 8 THEN 1 ELSE 0 END) AS ReviewingCount
+                SUM(CASE WHEN q.Status BETWEEN 3 AND 8 THEN 1 ELSE 0 END) AS ReviewingCount
             FROM dbo.MT_Questions q
             WHERE q.CreatorId = @UserId
               AND q.IsDeleted = 0
@@ -306,6 +311,8 @@ public class TeacherService : ITeacherService
 
     /// <summary>
     /// 取得教師審題歷程的統計數字。
+    /// 只計算母題層級 assignment（SubQuestionId IS NULL），避免題組類題目的子題 assignment 造成重複計數。
+    /// 題組類題目（短文/閱讀/聽力題組）一定有母題 assignment，用它作為「一道題」的代表單元。
     /// </summary>
     public async Task<TeacherReviewStats> GetTeacherReviewStatsAsync(int teacherUserId, int? filterProjectId)
     {
@@ -318,6 +325,7 @@ public class TeacherService : ITeacherService
                 SUM(CASE WHEN ra.ReviewStatus IN (0, 1) THEN 1 ELSE 0 END) AS PendingCount
             FROM dbo.MT_ReviewAssignments ra
             WHERE ra.ReviewerId = @UserId
+              AND ra.SubQuestionId IS NULL
               AND (@ProjectId IS NULL OR ra.ProjectId = @ProjectId);
             """;
 
@@ -331,6 +339,7 @@ public class TeacherService : ITeacherService
     /// <summary>
     /// 取得教師審題歷程分頁列表，可依梯次篩選。
     /// 一次連線跑兩段 SQL（COUNT + OFFSET FETCH），由分頁器導頁。
+    /// 只列出母題層級 assignment（SubQuestionId IS NULL），避免題組類子題 assignment 讓同一道題重複出現。
     /// </summary>
     public async Task<TeacherReviewHistoryResult> GetTeacherReviewHistoryAsync(
         int teacherUserId, int? filterProjectId, int page = 1, int pageSize = 10)
@@ -344,6 +353,7 @@ public class TeacherService : ITeacherService
             SELECT COUNT(*)
             FROM dbo.MT_ReviewAssignments ra
             WHERE ra.ReviewerId = @UserId
+              AND ra.SubQuestionId IS NULL
               AND (@ProjectId IS NULL OR ra.ProjectId = @ProjectId);
             """;
 
@@ -365,6 +375,7 @@ public class TeacherService : ITeacherService
             INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
             INNER JOIN dbo.MT_Projects p ON p.Id = ra.ProjectId
             WHERE ra.ReviewerId = @UserId
+              AND ra.SubQuestionId IS NULL
               AND (@ProjectId IS NULL OR ra.ProjectId = @ProjectId)
             ORDER BY ra.CreatedAt DESC
             OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
@@ -949,8 +960,282 @@ public class TeacherService : ITeacherService
     }
 
     // ==================================================================
+    // 批次匯入
+    // ==================================================================
+
+    private static readonly Regex EmailPattern =
+        new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// 解析 .xlsx 檔案，回傳逐列驗證結果（含 DB 重複 Email 偵測）。
+    /// ParseError 不為 null 表示工作表層級錯誤，此時 Rows 為空清單。
+    /// </summary>
+    public async Task<(List<BatchImportRow> Rows, string? ParseError)> ParseExcelAsync(Stream fileStream)
+    {
+        // ── 1. 開檔 + 讀工作表（NPOI 細節封裝在 ExcelHelper）──
+        var (excelRows, error) = ExcelHelper.ReadSheet(
+            fileStream,
+            sheetName:   "教師資料匯入區",
+            startColIdx: 1,   // B 欄
+            endColIdx:   13,  // N 欄
+            startRowIdx: 1    // 跳過第 1 列標題
+        );
+        if (error is not null) return ([], error);
+
+        var rows = new List<BatchImportRow>();
+        // 追蹤檔內 Email 首次出現的列號（key: lowercase email, value: RowNumber）
+        var seenEmails = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        // ── 2. 逐列驗證 ──
+        for (var i = 0; i < excelRows.Count; i++)
+        {
+            var cells = excelRows[i];
+
+            // ── 3. 讀取 13 個欄位（cells[0]=B … cells[12]=N）──
+            var displayName   = cells[0];   // B
+            var genderRaw     = cells[1];   // C
+            var email         = cells[2];   // D
+            var phone         = cells[3];   // E
+            var idNumber      = cells[4];   // F
+            var school        = cells[5];   // G
+            var department    = cells[6];   // H
+            var title         = cells[7];   // I
+            var expertise     = cells[8];   // J
+            var yearsRaw      = cells[9];   // K
+            var educationRaw  = cells[10];  // L
+            var statusRaw     = cells[11];  // M
+            var note          = cells[12];  // N
+
+            var importRow = new BatchImportRow { RowNumber = i + 2 }; // Excel 顯示列號 = 資料列 index + 2（跳過標題）
+
+            // ── 6. 驗證 ──
+            // 必填：姓名
+            if (displayName == "")
+                importRow.Errors.Add("姓名為必填欄位");
+
+            // 必填 + 格式：Email
+            if (email == "")
+            {
+                importRow.Errors.Add("信箱格式不正確");
+            }
+            else if (!EmailPattern.IsMatch(email) || email.Length > 200)
+            {
+                importRow.Errors.Add("信箱格式不正確");
+            }
+
+            // 必填：學校
+            if (school == "")
+                importRow.Errors.Add("任教學校為必填欄位");
+
+            // 必填：職稱
+            if (title == "")
+                importRow.Errors.Add("職稱為必填欄位");
+
+            // 長度檢查
+            if (displayName.Length > 50)
+                importRow.Errors.Add("姓名長度不可超過 50 字元");
+            if (title.Length > 20)
+                importRow.Errors.Add("職稱長度不可超過 20 字元（影響正式聘書）");
+            if (note.Length > 500)
+                importRow.Errors.Add("備註長度不可超過 500 字元");
+
+            // 教學年資
+            int? teachingYears = null;
+            if (yearsRaw != "")
+            {
+                if (int.TryParse(yearsRaw, out var y) && y >= 0 && y <= 99)
+                    teachingYears = y;
+                else
+                    importRow.Errors.Add("教學年資必須為 0~99 的整數");
+            }
+
+            // 帳號狀態（必填）
+            var status = ParseStatus(statusRaw);
+            if (status == -1)
+                importRow.Errors.Add("帳號狀態必須填寫「啟用」或「停用」");
+
+            // 性別（警告不擋）
+            var gender = ParseGender(genderRaw, importRow.Warnings);
+
+            // 最高學歷（警告不擋）
+            var education = ParseEducation(educationRaw, importRow.Warnings);
+
+            // ── 7. 檔內 Email 重複偵測 ──
+            if (email != "" && EmailPattern.IsMatch(email))
+            {
+                var emailKey = email.ToLowerInvariant();
+                if (seenEmails.TryGetValue(emailKey, out var firstRow))
+                {
+                    importRow.Errors.Add($"與檔案第 {firstRow} 列 Email 重複");
+                }
+                else
+                {
+                    seenEmails[emailKey] = importRow.RowNumber;
+                }
+            }
+
+            // ── 8. 設定 Status ──
+            if (importRow.Errors.Count > 0)
+                importRow.Status = BatchImportRowStatus.Error;
+
+            // ── 9. 填入 Data（即使有錯誤也填，方便前端預覽顯示） ──
+            importRow.Data = new CreateTeacherRequest
+            {
+                DisplayName   = displayName,
+                Email         = email,
+                Gender        = gender,
+                Phone         = phone == "" ? null : phone,
+                IdNumber      = idNumber == "" ? null : idNumber,
+                School        = school,
+                Department    = department == "" ? null : department,
+                Title         = title == "" ? null : title,
+                Expertise     = expertise == "" ? null : expertise,
+                TeachingYears = teachingYears,
+                Education     = education,
+                Status        = status == -1 ? 1 : status,  // 無效時暫設 1（錯誤列不可匯入）
+                Note          = note == "" ? null : note,
+            };
+
+            rows.Add(importRow);
+        }
+
+        // ── 10. DB 重複 Email 批次偵測（僅對非 Error 列） ──
+        var emailsToCheck = rows
+            .Where(r => r.Status != BatchImportRowStatus.Error && r.Data.Email != "")
+            .Select(r => r.Data.Email)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (emailsToCheck.Count > 0)
+        {
+            using var conn = _db.CreateConnection();
+            var existingEmails = (await conn.QueryAsync<string>(
+                "SELECT Email FROM dbo.MT_Users WHERE Email IN @Emails",
+                new { Emails = emailsToCheck }
+            )).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var r in rows)
+            {
+                if (r.Status == BatchImportRowStatus.Error) continue;
+                if (existingEmails.Contains(r.Data.Email))
+                {
+                    // 已存在於 DB：升為 Warning（若原本是 Valid）
+                    if (r.Status == BatchImportRowStatus.Valid)
+                        r.Status = BatchImportRowStatus.Warning;
+                    r.Warnings.Add("此 Email 已存在於系統，若保留勾選匯入將被自動排除。");
+                }
+            }
+        }
+
+        return (rows, null);
+    }
+
+    /// <summary>
+    /// 逐筆匯入已通過前端驗證的教師資料列。
+    /// 每筆各自開小 Transaction，失敗不影響其他筆（不整批回滾）。
+    /// AuditLog 由內部呼叫的 CreateTeacherAsync 寫入（成功才寫）。
+    /// </summary>
+    public async Task<List<BatchImportRowResult>> ImportTeachersAsync(
+        IReadOnlyList<BatchImportRow> rows,
+        int operatorId)
+    {
+        var results = new List<BatchImportRowResult>();
+
+        // 過濾：使用者勾選中、且非 Error 的列（含 Valid 與 Warning）
+        var eligible = rows.Where(r => r.IsSelected && r.Status != BatchImportRowStatus.Error);
+
+        foreach (var row in eligible)
+        {
+            try
+            {
+                // 直接呼叫既有方法（內含 MT_Users + MT_Teachers + AuditLog 完整寫入邏輯）
+                await CreateTeacherAsync(row.Data, operatorId);
+
+                results.Add(new BatchImportRowResult
+                {
+                    RowNumber = row.RowNumber,
+                    IsSuccess = true
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                // 預期類錯誤（Email 撞名、已是教師、預設角色不存在）→ 直接顯示人話
+                results.Add(new BatchImportRowResult
+                {
+                    RowNumber = row.RowNumber,
+                    IsSuccess = false,
+                    ErrorMessage = ex.Message
+                });
+            }
+            catch (Exception ex)
+            {
+                // 非預期錯誤（DB 連線中斷、SQL 語法錯誤等）
+                results.Add(new BatchImportRowResult
+                {
+                    RowNumber = row.RowNumber,
+                    IsSuccess = false,
+                    ErrorMessage = $"匯入失敗：{ex.Message}"
+                });
+            }
+        }
+
+        return results;
+    }
+
+    // ==================================================================
     // 私有輔助方法
     // ==================================================================
+
+    /// <summary>
+    /// 解析性別中文字串：「男」→ 1，「女」→ 2，空白 → 0（未知），其他 → 0 並加 Warning。
+    /// </summary>
+    private static int ParseGender(string? raw, List<string> warnings)
+    {
+        return raw switch
+        {
+            "男" => 1,
+            "女" => 2,
+            null or "" => 0,
+            _ => AddWarningAndReturn("性別格式不正確，已設為未知", warnings, 0)
+        };
+    }
+
+    /// <summary>
+    /// 解析最高學歷：「其它」→ 0，「專科」→ 1，「學士」→ 2，「碩士」→ 3，「博士」→ 4，空白 → null，其他 → null 並加 Warning。
+    /// </summary>
+    private static int? ParseEducation(string? raw, List<string> warnings)
+    {
+        return raw switch
+        {
+            "其它" => 0,
+            "專科" => 1,
+            "學士" => 2,
+            "碩士" => 3,
+            "博士" => 4,
+            null or "" => null,
+            _ => (int?)AddWarningAndReturn("最高學歷格式不正確，已忽略", warnings, (int?)null)
+        };
+    }
+
+    /// <summary>
+    /// 解析帳號狀態：「啟用」→ 1，「停用」→ 0，其他（含空白）→ -1（表示無效，呼叫端負責加錯誤）。
+    /// </summary>
+    private static int ParseStatus(string? raw)
+    {
+        return raw switch
+        {
+            "啟用" => 1,
+            "停用" => 0,
+            _ => -1
+        };
+    }
+
+    /// <summary>加入警告訊息後回傳預設值（供 switch expression 使用的輔助方法）。</summary>
+    private static T AddWarningAndReturn<T>(string message, List<string> warnings, T defaultValue)
+    {
+        warnings.Add(message);
+        return defaultValue;
+    }
 
     private async Task WriteAuditAsync(
         IDbConnection conn,

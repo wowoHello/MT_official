@@ -30,7 +30,7 @@
         <div class="flex items-center gap-3" @onclick:stopPropagation="true">
             <i class="fa-solid fa-file-audio text-2xl text-morandi flex-shrink-0"></i>
             <audio controls preload="auto" src="@AudioUrl" class="flex-1 min-w-0"></audio>
-            @if (!IsReadOnly)
+            @if (!EffectiveReadOnly)
             {
                 <button type="button" @onclick="RemoveAudio"
                     class="text-xs text-red-400 hover:text-red-600 cursor-pointer flex-shrink-0">
@@ -53,20 +53,26 @@
     [Parameter] public EventCallback<string> AudioUrlChanged { get; set; }
     [Parameter] public bool IsReadOnly { get; set; }
 
+    /// <summary>從父層 QuestionForm Modal 接收唯讀狀態（沿著 cascading 鏈傳入）。</summary>
+    [CascadingParameter(Name = "IsFormReadOnly")] private bool IsFormReadOnly { get; set; }
+
+    /// <summary>顯式 IsReadOnly 或 cascading IsFormReadOnly 任一為 true 即視為唯讀。</summary>
+    private bool EffectiveReadOnly => IsReadOnly || IsFormReadOnly;
+
     private bool isUploading;
     private string? errorMessage;
 
     private string BorderClass => string.IsNullOrEmpty(AudioUrl)
-        ? "border-gray-300 hover:border-morandi hover:bg-morandi/5"
+        ? (EffectiveReadOnly ? "border-gray-300" : "border-gray-300 hover:border-morandi hover:bg-morandi/5")
         : "border-gray-200 bg-white";
 
-    private string ContainerInteractClass => (!IsReadOnly && string.IsNullOrEmpty(AudioUrl) && !isUploading)
+    private string ContainerInteractClass => (!EffectiveReadOnly && string.IsNullOrEmpty(AudioUrl) && !isUploading)
         ? "cursor-pointer text-center"
         : "cursor-default";
 
     private async Task OnZoneClick()
     {
-        if (IsReadOnly || isUploading || !string.IsNullOrEmpty(AudioUrl))
+        if (EffectiveReadOnly || isUploading || !string.IsNullOrEmpty(AudioUrl))
         {
             return;
         }
@@ -104,7 +110,7 @@
 
     private async Task RemoveAudio()
     {
-        if (IsReadOnly) return;
+        if (EffectiveReadOnly) return;
         AudioUrl = "";
         errorMessage = null;
         await AudioUrlChanged.InvokeAsync("");

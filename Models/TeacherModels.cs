@@ -59,10 +59,12 @@ public class TeacherDetailDto
 
     public string EducationText => Education switch
     {
-        1 => "學士",
-        2 => "碩士",
-        3 => "博士",
-        _ => "未設定"
+        0 => "其它",
+        1 => "專科",
+        2 => "學士",
+        3 => "碩士",
+        4 => "博士",
+        _ => "其它"
     };
 
     /// <summary>身分證遮罩（前3後3，中間 ****）。</summary>
@@ -177,10 +179,22 @@ public class TeacherReviewItem
         _ => "—"
     };
 
-    /// <summary>
-    /// 結案後依 FinalQuestionStatus 顯示最終結果（12=採用、其他=不採用）；
-    /// 未結案則顯示審題中間決策。
-    /// </summary>
+    /// <summary>本次審題決策（通過/修正/退回/未決）— 永遠顯示這一筆 assignment 當下的決策，不因結案覆蓋。</summary>
+    public string ThisDecisionText => Decision switch
+    {
+        1 => "通過",
+        2 => "修正",
+        3 => "退回",
+        _ => "未決"
+    };
+
+    /// <summary>題目最終結果（採用/不採用/—）— 僅梯次結案後有意義，未結案顯示 —。</summary>
+    public string FinalResultText => ProjectClosedAt == null
+        ? "—"
+        : (FinalQuestionStatus == 12 ? "採用" : "不採用");
+
+    /// <summary>向後相容，請改用 ThisDecisionText / FinalResultText。</summary>
+    [Obsolete("請改用 ThisDecisionText（本次決策）與 FinalResultText（最終結果）")]
     public string DecisionText => ProjectClosedAt != null
         ? (FinalQuestionStatus == 12 ? "採用" : "不採用")
         : Decision switch
@@ -224,6 +238,8 @@ public class TeacherProjectItem
     {
         get
         {
+            // 進行中梯次的採用率沒有意義（多數題目尚在審），等結案後才呈現
+            if (ClosedAt == null) return "進行中";
             if (QuestionCount == 0) return "0%";
             return $"{(double)AdoptedCount / QuestionCount:P0}";
         }
@@ -289,6 +305,35 @@ public class AssignProjectRequest
     public int TeacherUserId { get; set; }
     public int ProjectId { get; set; }
     public List<int> RoleIds { get; set; } = [];
+}
+
+// ─── 批次匯入 ───
+
+/// <summary>批次匯入 — 每列資料（解析後）</summary>
+public class BatchImportRow
+{
+    public int RowNumber { get; set; }                           // Excel 原始列號（從 2 開始）
+    public CreateTeacherRequest Data { get; set; } = new();      // 復用既有 DTO，涵蓋全部 13 欄
+    public BatchImportRowStatus Status { get; set; }
+    public List<string> Errors { get; set; } = new();            // 紅色錯誤訊息（不可匯入）
+    public List<string> Warnings { get; set; } = new();          // 橘色警告訊息（DB Email 已存在）
+    public bool IsSelected { get; set; } = true;                 // 使用者勾選狀態
+}
+
+/// <summary>批次匯入 — 列的驗證狀態（三色 UI 對應）</summary>
+public enum BatchImportRowStatus
+{
+    Valid   = 0,    // 驗證通過，可匯入（綠色）
+    Warning = 1,    // DB Email 已存在，預設勾選可嘗試匯入（橘色）
+    Error   = 2     // 格式/必填/檔內重複錯誤，強制排除（紅色）
+}
+
+/// <summary>批次匯入 — 每筆匯入結果明細</summary>
+public class BatchImportRowResult
+{
+    public int RowNumber { get; set; }
+    public bool IsSuccess { get; set; }
+    public string? ErrorMessage { get; set; }
 }
 
 // ─── EditForm 表單模型 ───

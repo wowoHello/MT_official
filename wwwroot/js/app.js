@@ -13,6 +13,7 @@
  *   5. 檔案上傳                   — ImageUpload / AudioUpload
  *   6. 聘書 Canvas 繪製           — AppointmentCert
  *   7. 字體縮放控制器             — FontController
+ *   8. 拖曳上傳轉發               — DropForward
  */
 
 
@@ -365,7 +366,7 @@ window.AudioUpload = {
 // ============================================================
 //  6. 聘書 Canvas 繪製
 //     由 Projects / Teachers 儲存後或進頁面時呼叫 drawAndUpload(drafts, pathBase)。
-//     - 載入 wwwroot/img/appointment.png 為背景（首次載入後快取 Image 物件）
+//     - 載入 wwwroot/temp/appointment.png 為背景（首次載入後快取 Image 物件）
 //     - 對每筆 draft 用 Canvas 疊字 → toBlob → POST /api/appointment-cert/upload
 //     - 多筆時顯示 SweetAlert 進度（silent=true 時靜默補畫）
 //
@@ -518,7 +519,7 @@ window.AppointmentCert = (() => {
 
             // 用相對路徑 'img/...' / 'api/...'（無開頭 '/'），由 <base href="..."> 自動補上 PathBase。
             // 開頭 '/' 是 absolute path 會走 host root，IIS 子應用程式（PathBase=/MT）下會跳過 /MT 前綴導致 404。
-            const img = await loadImage('img/appointment.png');
+            const img = await loadImage('temp/appointment.png');
             const total = drafts.length;
 
             if (!silent && window.Swal) {

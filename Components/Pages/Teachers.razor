@@ -9,6 +9,7 @@
 @inject ITeacherService TeacherService
 @inject IAppointmentService AppointmentService
 @inject ILogger<Teachers> Logger
+@inject NavigationManager NavigationManager
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
 
@@ -37,7 +38,7 @@
                 <p class="text-sm text-gray-500 mt-1">教師人才庫、跨梯次命審歷程與帳號管理。</p>
             </div>
             <div class="flex gap-2">
-                <button type="button" @onclick='() => ShowComingSoonAsync("批次匯入教師")'
+                <button type="button" @onclick="OpenImportSlideOver"
                     class="cursor-pointer px-4 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm focus:outline-none flex items-center gap-2">
                     <i class="fa-solid fa-file-import"></i> 批次匯入
                 </button>
@@ -227,7 +228,7 @@
                             })
                             {
                                 var k = key;
-                                <button @onclick="() => detailTab = k"
+                                <button @onclick="() => SwitchDetailTabAsync(k)"
                                     class="@(detailTab == k ? "border-b-2 border-morandi text-morandi" : "text-gray-400 hover:text-gray-600") px-4 py-3 text-sm font-bold transition-colors focus:outline-none cursor-pointer flex items-center gap-2">
                                     <i class="fa-solid @icon"></i> @label
                                 </button>
@@ -365,13 +366,13 @@
                                     <div class="text-xl font-bold text-slate-main mt-1">@reviewStats.TotalCount</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-lg border border-gray-100 text-center">
-                                    <div class="text-xs text-gray-500 font-bold">已完成</div>
-                                    <div class="text-xl font-bold text-sage mt-1">@reviewStats.CompletedCount</div>
-                                </div>
-                                <div class="bg-white p-3 rounded-lg border border-gray-100 text-center">
                                     <div class="text-xs text-gray-500 font-bold">待審中</div>
                                     <div class="text-xl font-bold text-morandi mt-1">@reviewStats.PendingCount</div>
                                 </div>
+                                <div class="bg-white p-3 rounded-lg border border-gray-100 text-center">
+                                    <div class="text-xs text-gray-500 font-bold">已完成</div>
+                                    <div class="text-xl font-bold text-sage mt-1">@reviewStats.CompletedCount</div>
+                                </div>                                
                             </div>
                             <!-- 篩選 + 列表 -->
                             <div class="bg-white rounded-lg border border-gray-100">
@@ -412,7 +413,10 @@
                                             <div class="flex items-center gap-3">
                                                 <span class="text-xs text-gray-500">@item.ProjectName</span>
                                                 <span class="px-2 py-0.5 text-xs font-bold rounded @GetStageBadgeClass(item)">@item.StageText</span>
-                                                <span class="px-2 py-0.5 text-xs font-bold rounded @GetDecisionBadgeClass(item)">@item.DecisionText</span>
+                                                @* 本次決策 Badge：永遠顯示當次 assignment 的決策 *@
+                                                <span class="px-2 py-0.5 text-xs font-bold rounded @GetThisDecisionBadgeClass(item)">@item.ThisDecisionText</span>
+                                                @* 最終結果 Badge：僅結案後顯示，未結案顯示 — *@
+                                                <span class="px-2 py-0.5 text-xs font-bold rounded @GetFinalResultBadgeClass(item)">@item.FinalResultText</span>
                                             </div>
                                         </div>
                                     }
@@ -767,6 +771,323 @@
                              OnSaved="HandleEditPeriodSaved" />
 
 @* ══════════════════════════════════════════════════════════════════════ *@
+@*  SlideOver：批次匯入教師                                              *@
+@* ══════════════════════════════════════════════════════════════════════ *@
+@if (showImportSlideOver)
+{
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        @* ── Backdrop ── *@
+        <div class="absolute inset-0 bg-black/50" @onclick="CloseImportSlideOver"></div>
+
+        @* ── 主面板（置中、圓角、scale-in 動畫）── *@
+        <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-modal-in">
+
+            @* ── Header（固定，不滾動）── *@
+            <div class="shrink-0 px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-white">
+                <div class="flex items-center gap-3">
+                    <i class="fa-solid fa-file-import text-morandi text-lg"></i>
+                    <h3 class="text-lg font-bold text-slate-main focus:outline-none">批次匯入教師</h3>
+                    @if (importStep == "preview" && importRows is not null)
+                    {
+                        <span class="text-xs text-gray-500 font-medium bg-gray-100 px-2 py-0.5 rounded-full">
+                            共 @importRows.Count 列
+                        </span>
+                    }
+                </div>
+                <button type="button" @onclick="CloseImportSlideOver"
+                    class="cursor-pointer p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors focus:outline-none">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            @* ── 主要內容區（可捲動）── *@
+            <div class="flex-1 overflow-y-auto">
+
+                @* ===== Step A：上傳區 ===== *@
+                @if (importStep == "upload")
+                {
+                    <div class="p-6 space-y-6">
+
+                        @* 說明提示 *@
+                        <div class="bg-morandi/10 border border-morandi/30 rounded-lg px-4 py-3 flex items-start gap-2.5 text-sm text-morandi">
+                            <i class="fa-solid fa-circle-info mt-0.5 flex-shrink-0"></i>
+                            <span class="leading-relaxed">
+                                請先<strong>下載公版範本</strong>，依欄位填妥教師資料後，再上傳 xlsx 檔案。
+                                必填欄位：姓名、電子信箱（帳號）、任教學校、職稱、帳號狀態。
+                            </span>
+                        </div>
+
+                        @* 下載公版範本連結 *@
+                        <div class="flex items-center gap-2">
+                            <a href="@($"{NavigationManager.BaseUri}temp/教師資料匯入_公版.xlsx")"
+                               download="教師資料匯入_公版.xlsx"
+                               class="inline-flex items-center gap-2 px-4 py-2 bg-morandi/10 border border-morandi/30 text-morandi text-sm font-medium rounded-lg hover:bg-morandi/20 transition-colors focus:outline-none">
+                                <i class="fa-solid fa-download"></i> 下載公版範本
+                            </a>
+                            <span class="text-xs text-gray-400">填妥後再上傳</span>
+                        </div>
+
+                        @* 錯誤 Banner *@
+                        @if (importErrorBanner is not null)
+                        {
+                            <div class="bg-red-50 border border-red-200 rounded-lg px-4 py-3 flex items-center gap-2.5 text-sm text-red-700">
+                                <i class="fa-solid fa-circle-exclamation flex-shrink-0"></i>
+                                <span>@importErrorBanner</span>
+                            </div>
+                        }
+
+                        @* 上傳拖曳區（InputFile 包在大方框內，純 CSS hover 反饋）*@
+                        <div class="relative border-2 border-dashed border-gray-300 rounded-xl bg-gray-50 hover:border-morandi hover:bg-morandi/5 transition-colors group">
+                            <label class="flex flex-col items-center justify-center py-12 px-6 cursor-pointer text-center">
+                                @if (isParsingFile)
+                                {
+                                    @* 解析中狀態 *@
+                                    <i class="fa-solid fa-spinner fa-spin text-4xl text-morandi mb-4"></i>
+                                    <p class="text-base font-medium text-morandi">解析中，請稍候...</p>
+                                    <p class="text-sm text-gray-400 mt-1">正在讀取 Excel 並驗證資料</p>
+                                }
+                                else
+                                {
+                                    <i class="fa-solid fa-cloud-arrow-up text-4xl text-gray-300 group-hover:text-morandi mb-4 transition-colors"></i>
+                                    <p class="text-base font-medium text-gray-600 group-hover:text-morandi transition-colors">
+                                        拖曳 Excel 至此，或點擊選擇檔案
+                                    </p>
+                                    <p class="text-sm text-gray-400 mt-1">僅支援 .xlsx 格式，最大 5MB</p>
+                                }
+                                @* InputFile 透明覆蓋整個 label 讓整區可點擊 *@
+                                <InputFile OnChange="HandleFileSelectedAsync"
+                                           accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                           class="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                                           disabled="@isParsingFile" />
+                            </label>
+                        </div>
+
+                    </div>
+                }
+
+                @* ===== Step B：預覽表格 ===== *@
+                else if (importStep == "preview" && importRows is not null)
+                {
+                    @* 即時統計：在 Razor 方法中計算（避免 lambda 在 markup 中多次呼叫）*@
+                    var totalCount = importRows.Count;
+                    var errorCount = importRows.Count(r => r.Status == BatchImportRowStatus.Error);
+                    var warnCount  = importRows.Count(r => r.Status == BatchImportRowStatus.Warning);
+                    var validCount = importRows.Count(r => r.Status != BatchImportRowStatus.Error && r.IsSelected);
+
+                    <div class="p-6 space-y-4">
+
+                        @* 操作列：標題 + 重新上傳 *@
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-bold text-gray-700 flex items-center gap-2">
+                                <i class="fa-solid fa-clipboard-check text-morandi"></i> 驗證結果
+                            </h3>
+                            <button type="button" @onclick='() => { importStep = "upload"; importRows = null; importErrorBanner = null; }'
+                                class="cursor-pointer text-sm text-morandi hover:underline focus:outline-none flex items-center gap-1.5">
+                                <i class="fa-solid fa-arrow-rotate-left"></i> 重新上傳
+                            </button>
+                        </div>
+
+                        @* 預覽表格 *@
+                        <div class="overflow-x-auto rounded-lg border border-gray-200">
+                            <table class="min-w-full text-xs">
+                                <thead class="bg-gray-50 border-b border-gray-200 text-left">
+                                    <tr>
+                                        <th class="px-3 py-2.5 font-bold text-gray-600 whitespace-nowrap">#</th>
+                                        <th class="px-3 py-2.5 font-bold text-gray-600 whitespace-nowrap">姓名</th>
+                                        <th class="px-3 py-2.5 font-bold text-gray-600 whitespace-nowrap">性別</th>
+                                        <th class="px-3 py-2.5 font-bold text-gray-600 whitespace-nowrap min-w-[160px]">電子信箱</th>
+                                        <th class="px-3 py-2.5 font-bold text-gray-600 whitespace-nowrap">學校</th>
+                                        <th class="px-3 py-2.5 font-bold text-gray-600 whitespace-nowrap">職稱</th>
+                                        <th class="px-3 py-2.5 font-bold text-gray-600 whitespace-nowrap">帳號狀態</th>
+                                        <th class="px-3 py-2.5 font-bold text-gray-600 min-w-[180px]">驗證結果</th>
+                                        <th class="px-3 py-2.5 font-bold text-gray-600 text-center">勾選</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-100">
+                                    @foreach (var (row, idx) in importRows.Select((r, i) => (r, i)))
+                                    {
+                                        @* 三色列 CSS：紅色=Error / 橘色=Warning / 綠色=Valid *@
+                                        var rowCss = row.Status switch
+                                        {
+                                            BatchImportRowStatus.Error   => "bg-red-50",
+                                            BatchImportRowStatus.Warning => "bg-orange-50",
+                                            _                            => "bg-green-50/30"
+                                        };
+                                        var msgCss = row.Status switch
+                                        {
+                                            BatchImportRowStatus.Error   => "text-red-700",
+                                            BatchImportRowStatus.Warning => "text-orange-600",
+                                            _                            => "text-sage"
+                                        };
+                                        var genderText = row.Data.Gender switch { 1 => "男", 2 => "女", _ => "—" };
+                                        var statusText = row.Data.Status == 1 ? "啟用" : "停用";
+
+                                        <tr class="@rowCss">
+                                            <td class="px-3 py-2 text-gray-400 font-mono">@(idx + 1)</td>
+                                            <td class="px-3 py-2 font-medium text-gray-800 whitespace-nowrap">@(row.Data.DisplayName ?? "—")</td>
+                                            <td class="px-3 py-2 text-gray-500">@genderText</td>
+                                            <td class="px-3 py-2 text-gray-600 font-mono text-xs break-all">@(row.Data.Email ?? "—")</td>
+                                            <td class="px-3 py-2 text-gray-500 whitespace-nowrap">@(row.Data.School ?? "—")</td>
+                                            <td class="px-3 py-2 text-gray-500 whitespace-nowrap">@(row.Data.Title ?? "—")</td>
+                                            <td class="px-3 py-2 whitespace-nowrap">
+                                                <span class="@(row.Data.Status == 1 ? "text-sage" : "text-terracotta") font-medium">@statusText</span>
+                                            </td>
+                                            <td class="px-3 py-2 @msgCss leading-snug">
+                                                @if (row.Status == BatchImportRowStatus.Valid)
+                                                {
+                                                    <span class="font-medium">OK</span>
+                                                }
+                                                else if (row.Status == BatchImportRowStatus.Error)
+                                                {
+                                                    <span>@string.Join("；", row.Errors)</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>@string.Join("；", row.Warnings)</span>
+                                                }
+                                            </td>
+                                            <td class="px-3 py-2 text-center">
+                                                @if (row.Status == BatchImportRowStatus.Error)
+                                                {
+                                                    @* 錯誤列：禁用 checkbox，顯示叉叉 *@
+                                                    <i class="fa-solid fa-xmark text-red-400"></i>
+                                                }
+                                                else
+                                                {
+                                                    <input type="checkbox" @bind="row.IsSelected"
+                                                        class="w-4 h-4 accent-[var(--color-morandi)] cursor-pointer" />
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                    </div>
+                }
+
+                @* ===== Step C：匯入結果摘要 ===== *@
+                else if (importStep == "result" && importResults is not null)
+                {
+                    var successCount = importResults.Count(r => r.IsSuccess);
+                    var failureCount = importResults.Count(r => !r.IsSuccess);
+                    var failures = importResults.Where(r => !r.IsSuccess).ToList();
+
+                    <div class="p-6 space-y-4">
+
+                        @* 摘要圓形徽章 *@
+                        <div class="flex flex-col items-center justify-center py-8">
+                            <div class="w-16 h-16 rounded-full bg-sage/15 flex items-center justify-center mb-4">
+                                <i class="fa-solid fa-check-circle text-3xl" style="color: var(--color-sage);"></i>
+                            </div>
+                            <h4 class="text-xl font-bold text-slate-main mb-4">匯入完成</h4>
+                            <div class="flex items-center gap-8 text-sm">
+                                <div class="flex flex-col items-center gap-1">
+                                    <span class="text-2xl font-bold" style="color: var(--color-sage);">@successCount</span>
+                                    <span class="text-gray-500">成功匯入</span>
+                                </div>
+                                <div class="w-px h-10 bg-gray-200"></div>
+                                <div class="flex flex-col items-center gap-1">
+                                    <span class="text-2xl font-bold @(failureCount > 0 ? "text-red-600" : "text-gray-400")">@failureCount</span>
+                                    <span class="text-gray-500">匯入失敗</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        @* 失敗明細表格（只在有失敗列時顯示）*@
+                        @if (failureCount > 0)
+                        {
+                            <div>
+                                <h5 class="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                                    <i class="fa-solid fa-triangle-exclamation text-red-500"></i> 失敗明細
+                                </h5>
+                                <div class="border border-red-200 rounded-lg overflow-hidden">
+                                    <table class="w-full text-sm">
+                                        <thead class="bg-red-50 text-left">
+                                            <tr>
+                                                <th class="px-3 py-2 font-bold text-gray-600 w-24">Excel 列號</th>
+                                                <th class="px-3 py-2 font-bold text-gray-600">錯誤原因</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-red-100">
+                                            @foreach (var f in failures)
+                                            {
+                                                <tr class="bg-red-50/60">
+                                                    <td class="px-3 py-2 text-gray-500 font-mono">第 @f.RowNumber 列</td>
+                                                    <td class="px-3 py-2 text-red-700">@f.ErrorMessage</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        }
+
+                    </div>
+                }
+
+            </div>
+
+            @* ── Footer（固定，不滾動）：Step B / Step C 各自的 Footer ── *@
+            @if (importStep == "preview" && importRows is not null)
+            {
+                var footerValid = importRows.Count(r => r.Status != BatchImportRowStatus.Error && r.IsSelected);
+                var footerError = importRows.Count(r => r.Status == BatchImportRowStatus.Error);
+                var footerWarn  = importRows.Count(r => r.Status == BatchImportRowStatus.Warning);
+                <div class="shrink-0 px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-between gap-3">
+                    @* 統計列 *@
+                    <div class="flex flex-wrap gap-3 text-sm">
+                        <span class="text-gray-500">共 <strong class="text-slate-main">@importRows.Count</strong> 列</span>
+                        <span class="text-sage font-medium">可匯入 <strong>@footerValid</strong> 筆</span>
+                        @if (footerError > 0)
+                        {
+                            <span class="text-red-600 font-medium">錯誤 <strong>@footerError</strong> 筆（不可匯入）</span>
+                        }
+                        @if (footerWarn > 0)
+                        {
+                            <span class="text-orange-500 font-medium">警告 <strong>@footerWarn</strong> 筆（DB Email 已存在）</span>
+                        }
+                    </div>
+                    @* 按鈕組 *@
+                    <div class="flex items-center gap-3 shrink-0">
+                        <button type="button" @onclick="CloseImportSlideOver"
+                            disabled="@isImporting"
+                            class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors focus:outline-none shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                            取消
+                        </button>
+                        <button type="button" @onclick="ConfirmImportAsync"
+                            disabled="@(footerValid == 0 || isImporting)"
+                            class="cursor-pointer px-5 py-2 bg-morandi text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] transition-colors focus:outline-none shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                            @if (isImporting)
+                            {
+                                <i class="fa-solid fa-circle-notch fa-spin"></i>
+                                <span>匯入中...</span>
+                            }
+                            else
+                            {
+                                <i class="fa-solid fa-upload"></i>
+                                <span>確認匯入 @footerValid 筆</span>
+                            }
+                        </button>
+                    </div>
+                </div>
+            }
+            else if (importStep == "result")
+            {
+                <div class="shrink-0 px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-end">
+                    <button type="button" @onclick="FinishImportAsync"
+                        class="cursor-pointer px-6 py-2 bg-morandi text-white rounded-lg text-sm font-bold hover:bg-[#5b7a95] transition-colors focus:outline-none shadow-sm">
+                        完成
+                    </button>
+                </div>
+            }
+
+        </div>
+    </div>
+}
+
+@* ══════════════════════════════════════════════════════════════════════ *@
 @*  @code                                                               *@
 @* ══════════════════════════════════════════════════════════════════════ *@
 @code {
@@ -849,6 +1170,11 @@
     private List<TeacherProjectItem> teacherProjects = [];
     private List<ProjectDropdownItem> projectFilterOptions = [];
 
+    // ──── Lazy Load 旗標（換教師時 reset；Tab 首次切入後設 true）────
+    private bool composeHistoryLoaded = false;
+    private bool reviewHistoryLoaded = false;
+    private bool projectsLoaded = false;
+
     // ──── SlideOver ────
     private bool showTeacherModal = false;
     private string panelTitle = "新增教師";
@@ -856,6 +1182,15 @@
     private bool isEditMode = false;
     private int? editingTeacherId;
     private bool isSaving = false;
+
+    // ──── 批次匯入 SlideOver ────
+    private bool showImportSlideOver = false;
+    private List<BatchImportRow>? importRows;               // ParseExcelAsync 解析後的列資料
+    private List<BatchImportRowResult>? importResults;      // ImportTeachersAsync 回傳結果
+    private bool isParsingFile = false;
+    private bool isImporting = false;                       // 匯入中防重複提交
+    private string importStep = "upload";                   // "upload" | "preview" | "result"
+    private string? importErrorBanner;                      // 前端攔截的格式/大小/解析層級錯誤
 
     // ──── 加入梯次 Modal ────
     private bool showAssignModal = false;
@@ -920,7 +1255,16 @@
     private async Task SelectTeacher(int teacherId)
     {
         selectedTeacherId = teacherId;
+        // 切換教師時預設回「基本資料」Tab，並 reset 所有 Lazy Load 旗標
         detailTab = "info";
+        composeHistoryLoaded = false;
+        reviewHistoryLoaded = false;
+        projectsLoaded = false;
+        // 清空前一位教師的快取資料，避免短暫顯示舊資料
+        composeResult = new() { PageSize = HistoryPageSize };
+        reviewResult = new() { PageSize = HistoryPageSize };
+        composeStats = new();
+        reviewStats = new();
         composeFilterProjectId = "";
         reviewFilterProjectId = "";
         composePage = 1;
@@ -932,18 +1276,68 @@
 
             if (selectedDetail is not null)
             {
-                // 載入歷程所需的專案下拉
-                teacherProjects = await TeacherService.GetTeacherProjectsAsync(selectedDetail.UserId);
-                projectFilterOptions = teacherProjects.Select(p => new ProjectDropdownItem { Id = p.ProjectId, Name = p.ProjectName }).ToList();
+                // 參與專案資料：由 Tab 切換時 Lazy Load
+                teacherProjects = [];
+                projectFilterOptions = [];
 
-                await LoadComposeHistoryAsync();
-                await LoadReviewHistoryAsync();
+                // Lazy Load：只有當前 Tab 對應的資料才立即載入
+                if (detailTab == "compose")
+                {
+                    await LoadComposeHistoryAsync();
+                    composeHistoryLoaded = true;
+                }
+                else if (detailTab == "review")
+                {
+                    await LoadReviewHistoryAsync();
+                    reviewHistoryLoaded = true;
+                }
+                else if (detailTab == "projects")
+                {
+                    await LoadProjectsTabAsync();
+                    projectsLoaded = true;
+                }
+                // detailTab == "info"（預設）：不查任何歷程 DB
             }
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "載入教師詳情失敗");
         }
+    }
+
+    /// <summary>Tab 切換 handler：切換到目標 Tab，並在首次切入時 Lazy Load 對應資料。</summary>
+    private async Task SwitchDetailTabAsync(string tab)
+    {
+        detailTab = tab;
+
+        if (selectedDetail is null) return;
+
+        if (tab == "compose" && !composeHistoryLoaded)
+        {
+            await LoadComposeHistoryAsync();
+            composeHistoryLoaded = true;
+        }
+        else if (tab == "review" && !reviewHistoryLoaded)
+        {
+            await LoadReviewHistoryAsync();
+            reviewHistoryLoaded = true;
+        }
+        else if (tab == "projects" && !projectsLoaded)
+        {
+            await LoadProjectsTabAsync();
+            projectsLoaded = true;
+        }
+        // info Tab 或已載入過的 Tab：直接顯示快取，不查 DB
+    }
+
+    /// <summary>載入參與專案清單（含專案下拉選項），供 Lazy Load 使用。</summary>
+    private async Task LoadProjectsTabAsync()
+    {
+        if (selectedDetail is null) return;
+        teacherProjects = await TeacherService.GetTeacherProjectsAsync(selectedDetail.UserId);
+        projectFilterOptions = teacherProjects
+            .Select(p => new ProjectDropdownItem { Id = p.ProjectId, Name = p.ProjectName })
+            .ToList();
     }
 
     // ──── 命題歷程載入 ────
@@ -1243,6 +1637,129 @@
         await JS.InvokeVoidAsync("Swal.fire", new { icon = "info", title = "功能開發中", text = "匯出名單功能將於後續版本提供。", confirmButtonColor = "#6B8EAD" });
     }
 
+    // ──── 批次匯入：事件 Handler ────
+
+    /// <summary>開啟批次匯入 Slide-over，重設所有狀態。</summary>
+    private void OpenImportSlideOver()
+    {
+        showImportSlideOver = true;
+        importStep = "upload";
+        importRows = null;
+        importResults = null;
+        importErrorBanner = null;
+        isImporting = false;
+    }
+
+    /// <summary>關閉批次匯入 Slide-over 並清除所有匯入狀態。</summary>
+    private void CloseImportSlideOver()
+    {
+        showImportSlideOver = false;
+        importStep = "upload";
+        importRows = null;
+        importResults = null;
+        importErrorBanner = null;
+        isImporting = false;
+    }
+
+    /// <summary>使用者選擇 xlsx 檔案後：前端攔截 → 呼叫 ParseExcelAsync → 切換到 preview step。</summary>
+    private async Task HandleFileSelectedAsync(InputFileChangeEventArgs e)
+    {
+        importErrorBanner = null;
+        var file = e.File;
+        if (file is null) return;
+
+        // 前端攔截 1：格式驗證
+        if (!file.Name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+        {
+            importErrorBanner = "僅支援 .xlsx 格式，請下載公版範本填寫後上傳";
+            return;
+        }
+        // 前端攔截 2：大小上限 5MB
+        if (file.Size > 5_000_000)
+        {
+            importErrorBanner = "檔案超過 5MB 上限";
+            return;
+        }
+
+        isParsingFile = true;
+        try
+        {
+            using var stream = file.OpenReadStream(maxAllowedSize: 5_000_000);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            ms.Position = 0;
+
+            var (rows, parseError) = await TeacherService.ParseExcelAsync(ms);
+            if (parseError is not null)
+            {
+                importErrorBanner = parseError;
+                return;
+            }
+            importRows = rows;
+            importStep = "preview";
+        }
+        catch (Exception ex)
+        {
+            importErrorBanner = $"解析失敗：{ex.Message}";
+            Logger.LogError(ex, "批次匯入解析 Excel 失敗");
+        }
+        finally
+        {
+            isParsingFile = false;
+        }
+    }
+
+    /// <summary>確認匯入：SweetAlert 二次確認 → 呼叫 ImportTeachersAsync → 切換 Step C 顯示結果。</summary>
+    private async Task ConfirmImportAsync()
+    {
+        if (importRows is null) return;
+
+        // 計算真正可匯入筆數（勾選中且非 Error）
+        var eligible = importRows.Where(r => r.IsSelected && r.Status != BatchImportRowStatus.Error).ToList();
+        if (eligible.Count == 0) return;
+
+        // SweetAlert 二次確認
+        var confirmed = await JS.InvokeAsync<bool>("swalConfirm", new
+        {
+            title = "確認匯入",
+            text = $"即將匯入 {eligible.Count} 筆教師資料，確定要繼續嗎？",
+            icon = "question",
+            showCancelButton = true,
+            confirmButtonText = $"確定匯入 {eligible.Count} 筆",
+            cancelButtonText = "取消",
+            confirmButtonColor = "#6B8EAD",
+        });
+        if (!confirmed) return;
+
+        isImporting = true;
+        importErrorBanner = null;
+        StateHasChanged();
+
+        try
+        {
+            var authState = await AuthState;
+            var operatorId = int.Parse(authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+
+            importResults = await TeacherService.ImportTeachersAsync(importRows, operatorId);
+            importStep = "result";
+        }
+        catch (Exception ex)
+        {
+            importErrorBanner = $"匯入過程發生錯誤：{ex.Message}";
+        }
+        finally
+        {
+            isImporting = false;
+        }
+    }
+
+    /// <summary>Step C 完成按鈕：關閉 Slide-over 並重新載入教師列表。</summary>
+    private async Task FinishImportAsync()
+    {
+        CloseImportSlideOver();
+        await LoadListAsync();
+    }
+
     // ──── 共用：尚未上線功能的提示（批次匯入、下載聘書等開發中按鈕共用）────
     private async Task ShowComingSoonAsync(string featureName)
     {
@@ -1394,7 +1911,23 @@
                 _ => "bg-gray-100 text-gray-500"
             };
 
-    /// <summary>結案後決策 Badge 依最終題目狀態配色（採用=鼠尾草綠、不採用=赤陶橘）；進行中依中間決策配色。</summary>
+    /// <summary>本次決策 Badge 配色：通過=鼠尾草綠、修正=橘黃、退回=赤陶、未決=灰。永遠顯示當次 assignment 決策。</summary>
+    private static string GetThisDecisionBadgeClass(TeacherReviewItem item) => item.Decision switch
+    {
+        1 => "bg-sage/15 text-sage",
+        2 => "bg-yellow-50 text-yellow-700",
+        3 => "bg-terracotta/15 text-terracotta",
+        _ => "bg-gray-100 text-gray-500"
+    };
+
+    /// <summary>最終結果 Badge 配色：採用=鼠尾草綠、不採用=赤陶、未結案=灰（顯示 —）。</summary>
+    private static string GetFinalResultBadgeClass(TeacherReviewItem item) =>
+        item.ProjectClosedAt == null
+            ? "bg-gray-100 text-gray-400"
+            : (item.FinalQuestionStatus == 12 ? "bg-sage/15 text-sage" : "bg-terracotta/15 text-terracotta");
+
+    /// <remarks>已棄用，請改用 GetThisDecisionBadgeClass / GetFinalResultBadgeClass。</remarks>
+    [Obsolete("請改用 GetThisDecisionBadgeClass / GetFinalResultBadgeClass")]
     private static string GetDecisionBadgeClass(TeacherReviewItem item) =>
         item.ProjectClosedAt != null
             ? (item.FinalQuestionStatus == 12 ? "bg-sage/15 text-sage" : "bg-terracotta/15 text-terracotta")

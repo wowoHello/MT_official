@@ -246,9 +246,34 @@ public class ReviewHistoryItem
 {
     public int QuestionId { get; set; }
     public string QuestionCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 子題 Id（NULL=母題列；有值=該母題下某子題列）。
+    /// Stage B-4：母題與子題各自獨立決策、各自獨立呈現於歷史 Tab。
+    /// </summary>
+    public int? SubQuestionId { get; set; }
+
+    /// <summary>子題 SortOrder（NULL=母題列）— 用來組合子題碼。</summary>
+    public int? SubSortOrder { get; set; }
+
+    /// <summary>
+    /// 顯示用編號：母題列回母題碼；子題列回 母題碼-NN。
+    /// 與 ReviewListItem.DisplayCode 採同一規則。
+    /// </summary>
+    public string DisplayCode =>
+        SubSortOrder is int so ? QuestionCodeHelper.SubCode(QuestionCode, so) : QuestionCode;
+
     public string TypeKey { get; set; } = string.Empty;
     public byte? Level { get; set; }
     public byte? Difficulty { get; set; }
+
+    /// <summary>
+    /// 聽力題組子題的「固定難度」（1~5），對應 MT_SubQuestions.FixedDifficulty。
+    /// 子題一固定 3、子題二固定 4；母題列與其他題型一律為 null。
+    /// 用於顯示「難三/難四」等級標籤（與 ReviewListItem 同規則）。
+    /// </summary>
+    public byte? FixedDifficulty { get; set; }
+
     public string SummaryText { get; set; } = string.Empty;
     /// <summary>最終狀態（採用 / 不採用）— 用 QuestionStatus 的 Adopted / Rejected / ClosedNotAdopted</summary>
     public byte FinalStatus { get; set; }

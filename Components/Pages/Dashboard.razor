@@ -204,13 +204,22 @@
                     }
                     else
                     {
-                        @* 審題階段：XX/OO 題 *@
-                        <h3 class="flex items-baseline gap-1 leading-none">
-                            <span class="text-4xl font-black text-amber-600 tabular-nums">@kpi.ReviewedCount</span>
-                            <span class="text-2xl text-gray-300 mx-0.5">/</span>
-                            <span class="text-2xl font-bold text-gray-400 tabular-nums">@kpi.ReviewTotalCount</span>
-                            <span class="text-sm text-gray-400 ml-1">題</span>
-                        </h3>
+                        @* 審題階段：母題、子題各自獨立計數（互不影響） *@
+                        <div class="flex items-baseline gap-3 leading-none">
+                            <div class="flex items-baseline gap-1">
+                                <span class="text-xs text-gray-400 font-medium">母題</span>
+                                <span class="text-3xl font-black text-amber-600 tabular-nums">@kpi.ReviewedCount</span>
+                                <span class="text-base text-gray-300">/</span>
+                                <span class="text-base font-bold text-gray-400 tabular-nums">@kpi.ReviewTotalCount</span>
+                            </div>
+                            <span class="text-gray-200 text-lg">·</span>
+                            <div class="flex items-baseline gap-1">
+                                <span class="text-xs text-gray-400 font-medium">子題</span>
+                                <span class="text-3xl font-black text-amber-600 tabular-nums">@kpi.ReviewedSubCount</span>
+                                <span class="text-base text-gray-300">/</span>
+                                <span class="text-base font-bold text-gray-400 tabular-nums">@kpi.ReviewTotalSubCount</span>
+                            </div>
+                        </div>
                     }
                 </div>
                 <!-- Footer：依 PhaseStatusType 顯示真正當前階段 -->
@@ -253,9 +262,8 @@
                                 </div>
                                 break;
                         }
-                        @* 計算口徑 footnote（與卡片 1 的「題目」口徑不同，故標註）
-                           Reviewed 分子採「整題視角」：題組類必須母題＋所有子題全部審題完成才計入 *@
-                        <p class="text-xs text-gray-400 mt-2">* 題組類母題與每子題分別計入總數；整題完成才計入完成數</p>
+                        @* 計算口徑 footnote：母題與子題拆成獨立單位，分別計數互不影響 *@
+                        <p class="text-xs text-gray-400 mt-2">* 題組類母題與每子題分別計算，母題、子題完成數互不影響</p>
                     }
                 </div>
             </div>
@@ -561,13 +569,14 @@
                                 @* 主要描述文字（僅 CUD 紀錄，登入/登出已移至 LoginLogs 頁面） *@
                                 <div class="flex-1 min-w-0">
                                     @{
-                                        // 細分審題類型：annotation / annotationResponse / decision
-                                        var typeLabel = ResolveLogTypeLabel(log);
+                                        // ResolveLogVerb：解析 NewValue/OldValue JSON 的 Status/Decision/Reason/kind，輸出語意化動詞
+                                        // 例：「修改了 試題」→「採用了 試題」/「送出審題了 試題」/「完成修題了 試題」
+                                        var verb = ResolveLogVerb(log);
                                     }
                                     <div class="text-sm text-[var(--color-slate-main)] truncate"
-                                         title="@log.UserName @ActionVerb(log.Action)了 @typeLabel「@log.TargetName」">
+                                         title="@($"{log.UserName} {verb}「{log.TargetName}」")">
                                         <span class="font-semibold">@log.UserName</span>
-                                        <span class="text-gray-500"> @ActionVerb(log.Action)了 @typeLabel</span>
+                                        <span class="text-gray-500"> @verb</span>
                                         <span class="font-medium">「@log.TargetName」</span>
                                     </div>
                                 </div>
@@ -1114,6 +1123,141 @@
         catch (System.Text.Json.JsonException) { }
         return TargetTypeLabel(log.TargetType);
     }
+
+    /// <summary>
+    /// 解析 audit log 的 NewValue/OldValue JSON，輸出語意化中文動詞 + 類型。
+    /// 取代「修改了 試題」太籠統的問題 —— 把 Status / Decision / Reason / kind 翻成 user 看得懂的事件名稱。
+    /// JSON 解析失敗或不符合任何條件時 fallback 到舊版「{ActionVerb}了 {TargetTypeLabel}」（向下相容）。
+    ///
+    /// 注意：DB 內 audit JSON 有兩種命名風格並存：
+    ///   - QuestionService / ReviewService 用預設 JsonSerializer → PascalCase（Status, Decision, Reason, Stage, ReviewStatus, UnitStatus, IsDeleted）
+    ///   - AnnotationService / RoleService 用 AuditLogJsonHelper.Serialize → camelCase（kind, targetDisplayName）
+    /// 故所有 GetXxxCI helper 同時嘗試 PascalCase 與 camelCase。
+    /// </summary>
+    private static string ResolveLogVerb(MT.Models.RecentAuditLog log)
+    {
+        var newEl = TryParseJsonObject(log.NewValue);
+        var oldEl = TryParseJsonObject(log.OldValue);
+
+        // === TargetType=3 (試題) ===
+        if (log.TargetType == 3)
+        {
+            if (log.Action == 0) return "新增了 試題";
+            if (log.Action == 2) return "刪除了 試題";
+
+            // 修題存檔（SaveRevisionAsync）：Reason="Revision"
+            if (GetStringCI(newEl, "Reason") == "Revision") return "完成修題了 試題";
+
+            // 復原（IsDeleted: true → false）
+            if (GetBoolCI(newEl, "IsDeleted") == false && GetBoolCI(oldEl, "IsDeleted") == true)
+                return "恢復了 試題";
+
+            // 子題軟刪除（缺席偵測）
+            if (GetBoolCI(newEl, "IsDeleted") == true) return "刪除了 子題";
+
+            // Status 狀態轉移（UpdateAsync 編輯）
+            var oldStatus = GetByteCI(oldEl, "Status");
+            var newStatus = GetByteCI(newEl, "Status");
+            if (oldStatus.HasValue && newStatus.HasValue)
+            {
+                if (oldStatus == 1 && newStatus == 2) return "完成命題了 試題";
+                if (oldStatus == 2 && newStatus == 3) return "送出審題了 試題";
+                if (oldStatus == newStatus)           return "編輯了 試題";
+            }
+            return FallbackVerb(log);
+        }
+
+        // === TargetType=6 (審題) ===
+        if (log.TargetType == 6)
+        {
+            // 1. 劃記類事件（AnnotationService）
+            var kind = GetStringCI(newEl, "kind");
+            if (kind == "annotation")
+                return log.Action switch { 0 => "新增了 審題劃記", 2 => "刪除了 審題劃記", _ => "修改了 審題劃記" };
+            if (kind == "annotationResponse") return "回應了 劃記意見";
+
+            // 2. 總召代修並裁決（FinalReviewerEditAndDecideAsync 第 8 步 audit）
+            if (GetStringCI(newEl, "Reason") == "FinalDecision")
+                return GetByteCI(newEl, "Decision") switch
+                {
+                    1 => "代修並採用了 試題",
+                    3 => "代修並不採用了 試題",
+                    _ => "代修並裁決了 試題"
+                };
+
+            // 3. 一般審題決策（SubmitDecisionAsync 專/總審）
+            var decision = GetByteCI(newEl, "Decision");
+            if (decision.HasValue)
+                return decision.Value switch
+                {
+                    1 => "採用了 試題",
+                    2 => "退回修改了 試題",
+                    3 => "不採用了 試題",
+                    _ => FallbackVerb(log)
+                };
+
+            // 4. 互審儲存意見（SaveCommentDraftAsync stage=1）：無 Decision、有 ReviewStatus
+            if (GetByteCI(newEl, "ReviewStatus").HasValue)
+                return log.Action == 0 ? "給予了 互審意見" : "修改了 互審意見";
+
+            return FallbackVerb(log);
+        }
+
+        return FallbackVerb(log);
+    }
+
+    /// <summary>fallback：用既有「{ActionVerb}了 {TargetTypeLabel}」語意化（向下相容舊資料 / 未識別事件）。</summary>
+    private static string FallbackVerb(MT.Models.RecentAuditLog log)
+        => $"{ActionVerb(log.Action)}了 {TargetTypeLabel(log.TargetType)}";
+
+    // ─── JSON 安全讀取 helpers（同時試 PascalCase 與 camelCase）─────────
+
+    private static System.Text.Json.JsonElement? TryParseJsonObject(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            // Clone() 讓 element 在 doc dispose 後仍可用
+            return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                ? doc.RootElement.Clone()
+                : null;
+        }
+        catch (System.Text.Json.JsonException) { return null; }
+    }
+
+    private static string? GetStringCI(System.Text.Json.JsonElement? el, string key)
+    {
+        if (!el.HasValue) return null;
+        foreach (var k in new[] { key, ToCamel(key) })
+            if (el.Value.TryGetProperty(k, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String)
+                return v.GetString();
+        return null;
+    }
+
+    private static byte? GetByteCI(System.Text.Json.JsonElement? el, string key)
+    {
+        if (!el.HasValue) return null;
+        foreach (var k in new[] { key, ToCamel(key) })
+            if (el.Value.TryGetProperty(k, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.Number && v.TryGetByte(out var b))
+                return b;
+        return null;
+    }
+
+    private static bool? GetBoolCI(System.Text.Json.JsonElement? el, string key)
+    {
+        if (!el.HasValue) return null;
+        foreach (var k in new[] { key, ToCamel(key) })
+            if (el.Value.TryGetProperty(k, out var v))
+            {
+                if (v.ValueKind == System.Text.Json.JsonValueKind.True)  return true;
+                if (v.ValueKind == System.Text.Json.JsonValueKind.False) return false;
+            }
+        return null;
+    }
+
+    private static string ToCamel(string s)
+        => string.IsNullOrEmpty(s) ? s : char.ToLowerInvariant(s[0]) + s[1..];
 
     /// <summary>依 Action 碼回傳圖示背景 + 文字顏色 class。</summary>
     private static string LogIconBgClass(byte action) => action switch

@@ -131,7 +131,8 @@
                     <button @onclick='() => SwitchTab("revision")'
                         class="@(currentTab == "revision" ? "text-terracotta border-b-terracotta font-bold" : "text-gray-500 border-transparent") px-5 py-3 text-sm border-b-2 transition-colors hover:text-terracotta cursor-pointer focus:outline-none whitespace-nowrap">
                         <i class="fa-solid fa-rotate-left mr-1.5 text-terracotta"></i>審修作業區
-                        <span class="ml-2 text-xs bg-terracotta/15 text-terracotta px-2 py-0.5 rounded-full font-bold">@SumCounts(QuestionStatus.RevisionTabStatuses)</span>
+                        @* badge 加總母題 + 子題，與下方統計卡「母題 X / 子題 Y」及列表「共 N 題」一致 *@
+                        <span class="ml-2 text-xs bg-terracotta/15 text-terracotta px-2 py-0.5 rounded-full font-bold">@(SumCounts(QuestionStatus.RevisionTabStatuses) + SubSumCounts(QuestionStatus.RevisionTabStatuses))</span>
                     </button>
                     <button @onclick='() => SwitchTab("history")'
                         class="@(currentTab == "history" ? "text-morandi border-b-morandi font-bold" : "text-gray-500 border-transparent") px-5 py-3 text-sm border-b-2 transition-colors hover:text-morandi cursor-pointer focus:outline-none whitespace-nowrap">

@@ -141,12 +141,12 @@ public class OverviewListResult
     public byte? CurrentPhaseCode { get; set; }
 
     /// <summary>
-    /// 「該題在當前審題階段是否所有被指派的審題者皆已給意見」。
-    /// 僅在 PhaseCode ∈ {3,5,7}（互審 / 專審 / 總審） 時有意義；其他階段為空 dict。
-    /// 判定條件：MT_ReviewAssignments 對應 ReviewStage 的全部分配筆數 = 已填 Comment 的筆數（且筆數 > 0）。
-    /// 用途：當前狀態 Badge 在「待審」與「已給意見」之間切換，與儀表板 Reviewed 計算邏輯一致。
+    /// 每個審題單元（母題或子題各自獨立）是否已給意見（DecidedAt 非 NULL）。
+    /// Key = (QuestionId, SubQuestionId)：母題單元 key = (Id, null)；子題單元 key = (Id, subId)。
+    /// 僅 PhaseCode ∈ {3,5,7} 有意義；其他階段為空 dict。
+    /// 用途：列表「當前狀態」Badge 在「待審」與「已給意見」之間切換；母題/子題完全獨立計算，互不影響。
     /// </summary>
-    public Dictionary<int, bool> AllReviewersResponded { get; set; } = new();
+    public Dictionary<(int QuestionId, int? SubQuestionId), bool> AllReviewersResponded { get; set; } = new();
 
     /// <summary>
     /// 此梯次每個 OverviewStatusKey 對應的題數（key 不存在 = 該狀態無題）。

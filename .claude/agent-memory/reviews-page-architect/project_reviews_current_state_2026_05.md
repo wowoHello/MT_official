@@ -1,10 +1,10 @@
 ---
 name: 審題頁面現況快照（2026-05）
-description: Reviews.razor / ReviewService / ReviewModels 於 2026-05-17 的實作現況摘要，含狀態流轉、三審制度、迴避邏輯、效能優化歷史
+description: Reviews.razor / ReviewService / ReviewModels 於 2026-05-19 的實作現況摘要，含狀態流轉、三審制度、迴避邏輯、效能優化歷史
 type: project
 ---
 
-## 現況摘要（最後更新：2026-05-17）
+## 現況摘要（最後更新：2026-05-19 #2）
 
 ### 三審制度現況實作（正確落地）
 - **互審（ReviewStage.Mutual=1）**：PhaseCode=3；分配排除命題者自身；ReviewDecisionBar 只顯示「儲存意見」/「修改意見」，無採用/退回鈕
@@ -42,10 +42,10 @@ PhaseCode → Stage 對照（在 GetMyAssignmentsAsync 中設值）：
 - BumpReturnCount 後 ReturnCount+1 >= 3 → CanEditByReviewer=1 → 解鎖「編輯題目」橘鈕
 - 母題與子題各自獨立計次（SubQuestionId NULL-safe 比對）
 
-### 三檔行數量級（2026-05-17 量測）
-- `ReviewService.cs`：1588 行
-- `Reviews.razor`：1309 行
-- `ReviewModels.cs`：294 行
+### 三檔行數量級（2026-05-19 量測）
+- `ReviewService.cs`：1673 行
+- `Reviews.razor`：1310 行
+- `ReviewModels.cs`：311 行
 - `Components/Shared/ReviewForms/`：6 個元件（ReviewModal / ReviewActionPanel / ReviewDecisionBar / ReviewQuestionDisplay / ReviewHistoryTimeline / ReviewSimilarityBanner）
 
 ### ReviewService 關鍵方法（現況）
@@ -57,6 +57,35 @@ PhaseCode → Stage 對照（在 GetMyAssignmentsAsync 中設值）：
 - `SubmitDecisionAsync`：寫入 Assignment + 觸發 BumpReturnCount；題目 Status 流轉在本方法內（非 PhaseTransitionCoordinator）
 - `FinalReviewerEditAndDecideAsync`（Plan_021）：單 tx 內 UPDATE 題目+Status(9/10)+Assignment+2筆 AuditLog
 - `SaveCommentDraftAsync`：互審只寫 Comment + ReviewStatus=Completed；非互審只寫 Comment（Decision IS NULL guard）
+
+### 重要語意修正（2026-05-19 批次改動）
+
+#### `DecidedAt IS NOT NULL` 取代 `Comment IS NOT NULL` 作為「已決策」判定
+- **舊語意**：`Comment IS NOT NULL` 判斷審題者是否已給意見，但 Comment 是可重複編輯的草稿欄位，不代表已送出決策
+- **新語意**：`DecidedAt IS NOT NULL` 才是真正送出決策的時間戳，草稿狀態 DecidedAt = NULL
+- 影響位置：GetMyAssignmentsAsync（行 401）/ LoadHistoryAsync（行 1369）/ GetHistoryAsync 內多處
+- `#4 history inline SQL` 的 WHERE 條件亦已統一為 `AND ra.DecidedAt IS NOT NULL`（含精準模式與彙整模式）
+
+#### SummaryHtml CASE 語句加入 TypeId=4（長文題目）fallback
+全站 SummaryHtml 計算邏輯（GetMyAssignmentsAsync / GetHistoryAsync / LoadHistoryAsync / GetModalDataAsync similar）統一為：
+```sql
+CASE
+    WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent          -- 題組母題
+    WHEN q.QuestionTypeId = 4          THEN COALESCE(NULLIF(q.Stem, ''), q.ArticleContent)  -- 長文題：Stem 優先 fallback ArticleContent
+    ELSE q.Stem
+END
+```
+共 4 處已對齊（行 158, 269, 427, 1499）。
+
+#### 互審匿名標籤統一
+- `RevisionReferencePanel.razor`（修題端）使用 `AnnotationActorLabel.Anonymize((ReviewStage)r.Stage)`
+- 互審階段匿名顯示「命題教師」而非「審題委員」
+- 審題端（ReviewActionPanel）的劃記列表不顯示身份標籤（自己看自己，位置由左側高亮表達）
+
+#### 總召代修鎖定題型
+- `Reviews.razor`（行 655）`FinalReviewerEditAndDecideAsync` 開啟的編輯面板傳入 `LockQuestionType="true"`
+- `RevisionSlideOver.razor`（行 163）同樣傳入 `LockQuestionType="true"`
+- `QuestionAttributesSidebar` 的題型 `<select>` 在 `LockQuestionType=true` 時 `disabled`，tooltip 顯示「修題階段不可變更題型」
 
 ### 效能優化歷史（影響 ReviewService 的部分）
 

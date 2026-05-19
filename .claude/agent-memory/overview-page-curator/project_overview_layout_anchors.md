@@ -1,6 +1,6 @@
 ---
 name: Overview 頁面版面與資料錨點
-description: Overview.razor 統計卡、表格、詳情面板等 UI 區塊的真實組成與資料來源，避免規格認知偏差
+description: Overview.razor 統計卡、表格、詳情面板等 UI 區塊的真實組成與資料來源；ResolveDisplayStatus 含母題結案 fallback (2026-05-19)
 type: project
 ---
 
@@ -14,12 +14,12 @@ type: project
 **Why**：避免「coordinator 60 秒去重期內未跑」「邊界殘留」等情境少算；非當前階段的卡格灰掉提示使用者「現在不在這個審題階段」。
 
 **列表表格欄位**（`grid-cols-12 gap-4 min-w-[1080px]` 水平捲動）：
-- col-span-2：題號 + 更新時間 + 子題 badge
+- col-span-2：題號 + 更新時間 + 子題 badge（子題列縮排 + 樹枝符號 + `題號-NN` 後綴）
 - col-span-1：命題教師（含 truncate + title 提示）
 - col-span-1：題型 badge
 - col-span-1：等級 / 難度（垂直堆疊兩個 badge）
-- col-span-6：`<PhaseProgressStepper>` 7 階段球（min-w-[480px]）
-- col-span-1：當前狀態 Badge（IsDeleted 走「命題刪除」+ 復原按鈕；否則 `ResolveDisplayStatus` 五條規則）
+- col-span-6：`<PhaseProgressStepper>` 7 階段球（min-w-[480px]），傳入 Status + CurrentPhaseCode + HasRepliedThisStage + AllReviewersResponded 共 4 參數
+- col-span-1：當前狀態 Badge（IsDeleted 走「命題刪除」+ 復原按鈕；否則 `ResolveDisplayStatus` 五條規則 + 母題結案 fallback）
 
 **詳情 SlideOver**（CustomModal Type=SlideOver max-w-3xl）：
 - **上半「題目內容」**先呈現（規格 US-006 強制順序）— 以題型 switch 走 `Components/Shared/QuestionPreviews/*` 七種預覽元件，標籤（主類/次類/文體/核心能力…）由 `OverviewService.BuildPreviewTags` 統一組裝。
@@ -27,12 +27,19 @@ type: project
 - ESC 鍵透過 razor 端 `HandleKeyDown` 關閉（CustomModal 沒內建鍵盤關閉）。
 - 並行載入：`GetDetailAsync` + `GetReviewHistoryAsync` `Task.WhenAll`。
 
-**ResolveDisplayStatus 五條規則優先順序**（命中即回，razor 端與 OverviewService.Match* 同源）：
-- R1：`Draft` + PhaseCode ≥ 3 → 「未完成命題」（danger 紅）
-- A：Status ∈ {4,6,8} 但 PhaseCode 落後 → 「OO 完成」莫蘭迪藍 inline badge（IsAwaitingNext=true，與「修題已送出」綠色語意區隔）
-- B：Status ∈ {4,6,8} + 本人已送出修題說明 → 「修題已送出」（success 綠）
-- R2：PhaseCode ∈ {3,5,7} + Status ∈ {2,3,5,7} → 依 `AllReviewersResponded` 切「已給意見」(success) 或「待審」(warning)
-- C：fallback 回 `QuestionStatus.Labels`
+**ResolveDisplayStatus 規則優先順序（命中即回，razor 端與 OverviewService.Match* 同源）**：
+- **母題結案 fallback**：父母題 Status=11 ClosedNotAdopted 時，子題列強制顯示「結案不採用」（不改子題實際 Status，只覆寫顯示文字）。透過 `parentStatusForFallback` 參數傳入，razor 端用 `parentStatusById` dictionary 預先建立母題 Status 索引
+- **R1**：`Draft` + PhaseCode ≥ 3 → 「未完成命題」（danger 紅）
+- **A**：Status ∈ {4,6,8} 但 PhaseCode 落後 → 「OO 完成」莫蘭迪藍 inline badge（IsAwaitingNext=true，與「修題已送出」綠色語意區隔）
+- **B**：Status ∈ {4,6,8} + 本人已送出修題說明 → 「修題已送出」（success 綠）
+- **R2**：PhaseCode ∈ {3,5,7} + Status ∈ {2,3,5,7} → 依 `AllReviewersResponded`（已傳入 bool）切「已給意見」(success) 或「待審」(warning)
+- **C**：fallback 回 `QuestionStatus.Labels`
+
+**allResponded 在 foreach 頂端先算好**：
+```razor
+var allResponded = result.AllReviewersResponded.GetValueOrDefault((item.Id, item.SubQuestionId));
+// stepper 與 ResolveDisplayStatus 共用，避免重複查 dict
+```
 
 **PhaseTransitionCoordinator 串接**：`OnParametersSetAsync` 與 `OverviewService.LoadAsync` 都呼叫 `IPhaseTransitionCoordinator.EnsureAsync(projectId)` —— 否則使用者只進 Overview 不進 CwtList/Reviews 時，題目會卡在 FinalReviewing(7) 不會轉 Adopted/FinalEditing。
 

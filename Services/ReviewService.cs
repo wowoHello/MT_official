@@ -132,10 +132,17 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                     ) AS rn
                 FROM dbo.MT_ReviewAssignments ra
                 INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
+                LEFT JOIN dbo.MT_SubQuestions sq ON sq.Id = ra.SubQuestionId
                 WHERE ra.ProjectId  = @ProjectId
                   AND ra.ReviewerId = @ReviewerId
                   AND q.IsDeleted   = 0
-                  AND q.Status NOT IN (9, 10, 11, 12)   -- 排除最終態（Adopted/Rejected/ClosedNotAdopted/Archived），歷史 Tab 已由 GetHistoryAsync 負責
+                  -- Stage B-4：每單元獨立判定最終態，避免「母題採用後連坐子題從 UI 消失」邏輯級聯。
+                  -- 母題列（SubQuestionId IS NULL）依母題 q.Status；子題列依子題 sq.Status。
+                  -- 最終態 9/10/11/12 由 GetHistoryAsync 接手呈現於「審核結果與歷史」Tab。
+                  AND (
+                        (ra.SubQuestionId IS NULL     AND q.Status  NOT IN (9, 10, 11, 12))
+                     OR (ra.SubQuestionId IS NOT NULL AND sq.Status NOT IN (9, 10, 11, 12))
+                  )
             )
             SELECT
                 r.AssignmentId,
@@ -239,21 +246,62 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
 
     public async Task<List<ReviewHistoryItem>> GetHistoryAsync(int projectId)
     {
+        // Stage B-4：母題與子題各為獨立決策單元 — 歷史 Tab 同樣需要兩段呈現。
+        //   段 A：母題本身進入最終態
+        //   段 B：子題自己進最終態、但母題尚未進最終態（否則段 A 已涵蓋整題的歷史視角）
+        // 摘要 fallback 與 GetMyAssignmentsAsync / QuestionService.ListAsync 統一規則：
+        //   3/5/7 題組母題 → ArticleContent；4 長文 → Stem 優先 fallback ArticleContent；其餘 → Stem
+        //   子題列一律用 sq.Stem（子題本身的題幹）。
+        // FinalDecidedAt：子題優先用 sq.DecidedAt（決策當下寫入），結案批次降為 11 時可能為 NULL → fallback q.UpdatedAt
+        // 包外層 SELECT 是為了讓 UNION ALL 後的 ORDER BY 能引用 alias（SQL Server 對 UNION 後 ORDER BY 的 alias 識別有限制）
         const string sql = """
-            SELECT
-                q.Id               AS QuestionId,
-                q.QuestionCode,
-                q.QuestionTypeId   AS TypeId,
-                q.Level,
-                q.Difficulty,
-                q.Stem             AS SummaryHtml,
-                q.Status           AS FinalStatus,
-                q.UpdatedAt        AS FinalDecidedAt
-            FROM dbo.MT_Questions q
-            WHERE q.ProjectId = @ProjectId
-              AND q.IsDeleted = 0
-              AND q.Status IN @Statuses
-            ORDER BY q.Id ASC;  -- 依題目 ID 升冪（與 CwtList 統一）
+            SELECT *
+            FROM (
+                SELECT
+                    q.Id                  AS QuestionId,
+                    q.QuestionCode,
+                    CAST(NULL AS INT)     AS SubQuestionId,
+                    CAST(NULL AS INT)     AS SubSortOrder,
+                    q.QuestionTypeId      AS TypeId,
+                    q.Level,
+                    q.Difficulty,
+                    CAST(NULL AS TINYINT) AS FixedDifficulty,
+                    CASE
+                        WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent
+                        WHEN q.QuestionTypeId = 4          THEN COALESCE(NULLIF(q.Stem, ''), q.ArticleContent)
+                        ELSE q.Stem
+                    END                   AS SummaryHtml,
+                    q.Status              AS FinalStatus,
+                    q.UpdatedAt           AS FinalDecidedAt
+                FROM dbo.MT_Questions q
+                WHERE q.ProjectId = @ProjectId
+                  AND q.IsDeleted = 0
+                  AND q.Status IN @Statuses
+
+                UNION ALL
+
+                SELECT
+                    q.Id                                 AS QuestionId,
+                    q.QuestionCode,
+                    sq.Id                                AS SubQuestionId,
+                    sq.SortOrder                         AS SubSortOrder,
+                    q.QuestionTypeId                     AS TypeId,
+                    q.Level,
+                    q.Difficulty,
+                    sq.FixedDifficulty                   AS FixedDifficulty,
+                    sq.Stem                              AS SummaryHtml,
+                    sq.Status                            AS FinalStatus,
+                    ISNULL(sq.DecidedAt, q.UpdatedAt)    AS FinalDecidedAt
+                FROM dbo.MT_SubQuestions sq
+                INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                WHERE q.ProjectId = @ProjectId
+                  AND q.IsDeleted = 0
+                  AND q.QuestionTypeId IN (3, 5, 7)     -- 僅題組類有子題
+                  AND sq.Status IN @Statuses             -- 子題已進最終態
+                  -- 不檢查 q.Status：母題列 (SubQuestionId=NULL) 與子題列 (SubQuestionId=N) PK 組合不同，
+                  -- 不會重複；Stage B-4「每單元獨立呈現」要求 — 母題採用後，已決策的子題仍須出現
+            ) t
+            ORDER BY t.QuestionId ASC, ISNULL(t.SubSortOrder, 0) ASC;  -- 母題（SortOrder NULL→0）在前，子題依序排列
             """;
 
         using var conn = _db.CreateConnection();
@@ -265,14 +313,17 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
 
         return rows.Select(r => new ReviewHistoryItem
         {
-            QuestionId     = r.QuestionId,
-            QuestionCode   = r.QuestionCode,
-            TypeKey        = QuestionConstants.TypeIdToKey.GetValueOrDefault(r.TypeId, ""),
-            Level          = r.Level,
-            Difficulty     = r.Difficulty,
-            SummaryText    = StripHtml(r.SummaryHtml),
-            FinalStatus    = r.FinalStatus,
-            FinalDecidedAt = r.FinalDecidedAt
+            QuestionId      = r.QuestionId,
+            QuestionCode    = r.QuestionCode,
+            SubQuestionId   = r.SubQuestionId,
+            SubSortOrder    = r.SubSortOrder,
+            TypeKey         = QuestionConstants.TypeIdToKey.GetValueOrDefault(r.TypeId, ""),
+            Level           = r.Level,
+            Difficulty      = r.Difficulty,
+            FixedDifficulty = r.FixedDifficulty,
+            SummaryText     = StripHtml(r.SummaryHtml),
+            FinalStatus     = r.FinalStatus,
+            FinalDecidedAt  = r.FinalDecidedAt
         }).ToList();
     }
 
@@ -526,12 +577,14 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         using var conn = _db.CreateConnection();
 
         // 取出 Stage / ProjectId / QuestionId / DecidedAt（區分首次完成 vs 修改既有意見）
+        // QuestionCode 寫入 AuditLog.targetDisplayName，作 Assignment 被刪後的 fallback 顯示
         const string fetchSql = """
-            SELECT ReviewStage AS Stage, ProjectId, QuestionId, DecidedAt
-            FROM dbo.MT_ReviewAssignments
-            WHERE Id = @AssignmentId
-              AND ReviewerId = @ReviewerId
-              AND Decision IS NULL;
+            SELECT ra.ReviewStage AS Stage, ra.ProjectId, ra.QuestionId, ra.DecidedAt, q.QuestionCode
+            FROM dbo.MT_ReviewAssignments ra
+            INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
+            WHERE ra.Id = @AssignmentId
+              AND ra.ReviewerId = @ReviewerId
+              AND ra.Decision IS NULL;
             """;
         var meta = await conn.QueryFirstOrDefaultAsync<AssignmentMetaForSave>(fetchSql, new
         {
@@ -590,6 +643,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                     VALUES
                         (@UserId, @ProjectId, @Action, @TargetType, @TargetId, @NewValue, SYSDATETIME());
                     """;
+                // B：JSON 補 targetDisplayName 作 fallback（Assignment 被刪時 UI 仍能顯示題號）
                 await conn.ExecuteAsync(auditSql, new
                 {
                     UserId     = operatorUserId,
@@ -599,9 +653,10 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                     TargetId   = req.AssignmentId,
                     NewValue   = System.Text.Json.JsonSerializer.Serialize(new
                     {
-                        Stage      = meta.Stage,
-                        QuestionId = meta.QuestionId,
-                        ReviewStatus = (byte)ReviewTaskStatus.Completed
+                        targetDisplayName = meta.QuestionCode,
+                        Stage             = meta.Stage,
+                        QuestionId        = meta.QuestionId,
+                        ReviewStatus      = (byte)ReviewTaskStatus.Completed
                     })
                 }, tx);
             }
@@ -622,6 +677,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         public int ProjectId { get; set; }
         public int QuestionId { get; set; }
         public DateTime? DecidedAt { get; set; }
+        public string QuestionCode { get; set; } = string.Empty;
     }
 
     public async Task<bool> SubmitDecisionAsync(SubmitReviewDecisionRequest req, int operatorUserId)
@@ -633,10 +689,13 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         {
             // 1. 取出 Assignment 元資訊（驗證權限、防重複決策、取 ProjectId 寫稽核）
             //    SubQuestionId 用於判定本列是母題（NULL）還是子題（決定是否觸發級聯）
+            //    QuestionCode 寫入 AuditLog.targetDisplayName，作 Assignment 被刪後的 fallback 顯示
             const string fetchSql = """
-                SELECT Id, ProjectId, QuestionId, SubQuestionId, ReviewStage AS Stage, Decision
-                FROM dbo.MT_ReviewAssignments
-                WHERE Id = @AssignmentId AND ReviewerId = @ReviewerId;
+                SELECT ra.Id, ra.ProjectId, ra.QuestionId, ra.SubQuestionId,
+                       ra.ReviewStage AS Stage, ra.Decision, q.QuestionCode
+                FROM dbo.MT_ReviewAssignments ra
+                INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
+                WHERE ra.Id = @AssignmentId AND ra.ReviewerId = @ReviewerId;
                 """;
             var meta = await conn.QueryFirstOrDefaultAsync<AssignmentMetaDto>(fetchSql, new
             {
@@ -775,24 +834,28 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 VALUES
                     (@UserId, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
                 """;
+            // A：TargetId 統一為 AssignmentId（與 Dashboard 讀取端 JOIN MT_ReviewAssignments.Id 對齊）
+            // B：JSON 補 targetDisplayName 作 fallback（Assignment 被刪時 UI 仍能顯示題號）
             await conn.ExecuteAsync(auditSql, new
             {
                 UserId     = operatorUserId,
                 ProjectId  = meta.ProjectId,
                 Action     = AuditLogAction.Modify,
                 TargetType = AuditLogTargetType.Reviews,
-                TargetId   = meta.QuestionId,
+                TargetId   = meta.Id,
                 OldValue   = oldUnitStatus is null ? null : System.Text.Json.JsonSerializer.Serialize(new
                 {
-                    UnitStatus    = oldUnitStatus.Value,
-                    SubQuestionId = meta.SubQuestionId
+                    targetDisplayName = meta.QuestionCode,
+                    UnitStatus        = oldUnitStatus.Value,
+                    SubQuestionId     = meta.SubQuestionId
                 }),
                 NewValue   = System.Text.Json.JsonSerializer.Serialize(new
                 {
-                    Stage         = meta.Stage,
-                    SubQuestionId = meta.SubQuestionId,
-                    Decision      = (byte)req.Decision,
-                    UnitStatus    = newUnitStatus
+                    targetDisplayName = meta.QuestionCode,
+                    Stage             = meta.Stage,
+                    SubQuestionId     = meta.SubQuestionId,
+                    Decision          = (byte)req.Decision,
+                    UnitStatus        = newUnitStatus
                 })
             }, tx);
 
@@ -903,9 +966,12 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             // 1. 驗證 Assignment 屬於此使用者、Stage=Final、題目 Id 一致（防禦性雙重確認）
             //    SubQuestionId 用於判定本列是母題（NULL）還是子題單元 — Stage B-4 各單元獨立決策
             //    ReturnCount JOIN 需按單元別匹配：母題對母題列、子題對子題列（ISNULL(-1) NULL-safe）
+            //    QuestionCode 寫入 AuditLog.targetDisplayName，作目標被刪後 UI fallback 顯示
             const string fetchAssignSql = """
-                SELECT ra.Id, ra.ProjectId, ra.QuestionId, ra.SubQuestionId, ra.ReviewStage AS Stage, rc.CanEditByReviewer
+                SELECT ra.Id, ra.ProjectId, ra.QuestionId, ra.SubQuestionId,
+                       ra.ReviewStage AS Stage, rc.CanEditByReviewer, q.QuestionCode
                 FROM dbo.MT_ReviewAssignments ra
+                INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
                 LEFT JOIN dbo.MT_ReviewReturnCounts rc
                     ON rc.QuestionId = ra.QuestionId
                    AND ISNULL(rc.SubQuestionId, -1) = ISNULL(ra.SubQuestionId, -1)
@@ -1080,6 +1146,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 VALUES
                     (@UserId, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
                 """;
+            // B：JSON 補 targetDisplayName 作 fallback（Question 被刪時 UI 仍能顯示題號）
             await conn.ExecuteAsync(auditSql, new
             {
                 UserId     = operatorUserId,
@@ -1089,34 +1156,39 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 TargetId   = req.QuestionId,
                 OldValue   = System.Text.Json.JsonSerializer.Serialize(new
                 {
-                    UnitStatus    = oldUnitStatus.Value,
-                    SubQuestionId = assign.SubQuestionId
+                    targetDisplayName = assign.QuestionCode,
+                    UnitStatus        = oldUnitStatus.Value,
+                    SubQuestionId     = assign.SubQuestionId
                 }),
                 NewValue   = System.Text.Json.JsonSerializer.Serialize(new
                 {
-                    Reason        = "FinalReviewerEdit",
-                    UnitStatus    = (byte)newUnitStatus,
-                    SubQuestionId = assign.SubQuestionId,
-                    QuestionType  = f.QuestionType
+                    targetDisplayName = assign.QuestionCode,
+                    Reason            = "FinalReviewerEdit",
+                    UnitStatus        = (byte)newUnitStatus,
+                    SubQuestionId     = assign.SubQuestionId,
+                    QuestionType      = f.QuestionType
                 })
             }, tx);
 
             // 8. AuditLog：FinalDecision（審題層級）
+            // A：TargetId 統一為 AssignmentId（與 Dashboard 讀取端 JOIN MT_ReviewAssignments.Id 對齊）
+            // B：JSON 補 targetDisplayName 作 fallback
             await conn.ExecuteAsync(auditSql, new
             {
                 UserId     = operatorUserId,
                 ProjectId  = assign.ProjectId,
                 Action     = AuditLogAction.Modify,
                 TargetType = AuditLogTargetType.Reviews,
-                TargetId   = req.QuestionId,
+                TargetId   = assign.Id,
                 OldValue   = (string?)null,
                 NewValue   = System.Text.Json.JsonSerializer.Serialize(new
                 {
-                    Reason        = "FinalDecision",
-                    Stage         = (byte)ReviewStage.Final,
-                    SubQuestionId = assign.SubQuestionId,
-                    Decision      = (byte)req.Decision,
-                    UnitStatus    = (byte)newUnitStatus
+                    targetDisplayName = assign.QuestionCode,
+                    Reason            = "FinalDecision",
+                    Stage             = (byte)ReviewStage.Final,
+                    SubQuestionId     = assign.SubQuestionId,
+                    Decision          = (byte)req.Decision,
+                    UnitStatus        = (byte)newUnitStatus
                 })
             }, tx);
 
@@ -1494,6 +1566,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         public int? SubQuestionId { get; set; }
         public byte Stage { get; set; }
         public bool CanEditByReviewer { get; set; }
+        public string QuestionCode { get; set; } = string.Empty;
     }
 
     private sealed class AssignmentListRow
@@ -1525,9 +1598,12 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     {
         public int QuestionId { get; set; }
         public string QuestionCode { get; set; } = "";
+        public int? SubQuestionId { get; set; }
+        public int? SubSortOrder { get; set; }
         public int TypeId { get; set; }
         public byte? Level { get; set; }
         public byte? Difficulty { get; set; }
+        public byte? FixedDifficulty { get; set; }
         public string? SummaryHtml { get; set; }
         public byte FinalStatus { get; set; }
         public DateTime FinalDecidedAt { get; set; }
@@ -1596,5 +1672,6 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         public int? SubQuestionId { get; set; }
         public byte Stage { get; set; }
         public byte? Decision { get; set; }
+        public string QuestionCode { get; set; } = string.Empty;
     }
 }

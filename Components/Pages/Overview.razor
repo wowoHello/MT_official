@@ -169,8 +169,9 @@
                     @foreach (var item in result.Items)
                     {
                         var isSubRow = item.SubQuestionId.HasValue;
-                        @* allResponded：在進入 markup 前先算好，供 stepper 與右側狀態 Badge 共用，避免重複查 dict *@
-                        var allResponded = result.AllReviewersResponded.GetValueOrDefault(item.Id);
+                        @* allResponded：在進入 markup 前先算好，供 stepper 與右側狀態 Badge 共用，避免重複查 dict
+                           母題、子題各自獨立計算 — key 用 (Id, SubQuestionId) tuple *@
+                        var allResponded = result.AllReviewersResponded.GetValueOrDefault((item.Id, item.SubQuestionId));
                         <div @onclick="() => OpenDetailAsync(item.Id, item.SubQuestionId)"
                             class="grid grid-cols-12 gap-4 px-6 py-4 border-b border-gray-100 relative hover:z-10 hover:bg-blue-50/40 hover:shadow-[inset_4px_0_0_var(--color-morandi),0_6px_16px_-4px_rgba(0,0,0,0.18)] transition-all items-center cursor-pointer group">
                             <div class="col-span-2 flex flex-col">
@@ -371,8 +372,8 @@
                                                 @{
                                                     var (respText, respCss, respIcon) = card.ResponseState switch
                                                     {
-                                                        1 => ("命題者已確認修改", "bg-sage/15 text-sage border-sage/30",         "fa-check"),
-                                                        2 => ("命題者堅持不修改", "bg-red-50 text-red-700 border-red-200",       "fa-xmark"),
+                                                        1 => ("命題者確認修改", "bg-sage/15 text-sage border-sage/30",         "fa-check"),
+                                                        2 => ("命題者不修改", "bg-red-50 text-red-700 border-red-200",       "fa-xmark"),
                                                         _ => ("命題者未回應",     "bg-amber-50 text-amber-700 border-amber-200", "fa-hourglass-half")
                                                     };
                                                 }

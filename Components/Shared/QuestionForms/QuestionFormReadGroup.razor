@@ -58,8 +58,8 @@
             @* 命題階段（Draft / Completed）開放新增子題；送審後鎖定，避免破壞審題分配 pipeline *@
             @if (Status <= QuestionStatus.Completed && !IsFocusMode)
             {
-                <button type="button" @onclick="AddSubQuestion"
-                    class="px-3 py-1.5 text-xs font-bold text-white bg-sage rounded-lg hover:bg-[#7a9a82] transition-colors cursor-pointer shadow-sm flex items-center gap-1">
+                <button type="button" @onclick="AddSubQuestion" disabled="@IsFormReadOnly"
+                    class="px-3 py-1.5 text-xs font-bold text-white bg-sage rounded-lg hover:bg-[#7a9a82] transition-colors cursor-pointer shadow-sm flex items-center gap-1 disabled:bg-gray-300 disabled:cursor-not-allowed">
                     <i class="fa-solid fa-plus"></i> 新增子題
                 </button>
             }
@@ -93,8 +93,8 @@
                         @* 命題階段（Draft / Completed）開放刪除子題；送審後鎖定，避免送審/審題流程斷鏈 *@
                         @if (Status <= QuestionStatus.Completed && SubQuestions.Count > 1 && !IsFocusMode)
                         {
-                            <button type="button" @onclick="() => RemoveSubQuestion(idx)"
-                                class="text-xs text-red-400 hover:text-red-600 transition-colors cursor-pointer flex items-center gap-1">
+                            <button type="button" @onclick="() => RemoveSubQuestion(idx)" disabled="@IsFormReadOnly"
+                                class="text-xs text-red-400 hover:text-red-600 transition-colors cursor-pointer flex items-center gap-1 disabled:text-gray-300 disabled:cursor-not-allowed">
                                 <i class="fa-solid fa-trash-can"></i> 刪除
                             </button>
                         }
@@ -105,7 +105,8 @@
                             <div data-field="@coreKey" class="@InvalidRing(coreKey) rounded-lg p-1">
                                 <label class="block text-xs font-medium text-gray-600 mb-1">主向度 <span class="text-red-400">*</span></label>
                                 <select @bind="sq.CoreAbility" @bind:after="() => OnCoreAbilityChanged(sq)"
-                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                                    disabled="@IsFormReadOnly"
+                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed">
                                     <option value="">請選擇</option>
                                     @foreach (var pair in QuestionConstants.ShortGroupCoreAbilityLabels)
                                     {
@@ -116,8 +117,8 @@
                             <div data-field="@indicatorKey" class="@InvalidRing(indicatorKey) rounded-lg p-1">
                                 <label class="block text-xs font-medium text-gray-600 mb-1">能力指標 <span class="text-red-400">*</span></label>
                                 <select @bind="sq.Indicator"
-                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer @(sq.CoreAbility is null ? "bg-gray-50 text-gray-300" : "")"
-                                    disabled="@(sq.CoreAbility is null)">
+                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed @(sq.CoreAbility is null ? "bg-gray-50 text-gray-300" : "")"
+                                    disabled="@(IsFormReadOnly || sq.CoreAbility is null)">
                                     <option value="">@(sq.CoreAbility is null ? "先選主向度" : "請選擇")</option>
                                     @if (sq.CoreAbility is not null && QuestionConstants.ShortGroupCoreAbilityIndicatorMap.TryGetValue(sq.CoreAbility.Value, out var indicators))
                                     {
@@ -200,6 +201,9 @@
     /// 與 Reviews 審題作業區的子題單元視角一致。
     /// </summary>
     [Parameter] public int? FocusSubDbId { get; set; }
+
+    /// <summary>由父層（QuestionForm Modal）透過 CascadingValue 傳入，檢視模式時所有子題控件變唯讀。</summary>
+    [CascadingParameter(Name = "IsFormReadOnly")] private bool IsFormReadOnly { get; set; }
 
     private bool IsFocusMode => FocusSubDbId is not null;
 

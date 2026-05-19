@@ -94,7 +94,8 @@
                             <div data-field="@coreKey" class="@InvalidRing(coreKey) rounded-lg p-1">
                                 <label class="block text-xs font-medium text-gray-600 mb-1">核心能力 <span class="text-red-400">*</span></label>
                                 <select @bind="sq.CoreAbility" @bind:after="() => OnSubCoreAbilityChanged(sq)"
-                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
+                                    disabled="@IsFormReadOnly"
+                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed">
                                     <option value="">請選擇</option>
                                     @if (QuestionConstants.ListenGroupSubFixedDifficultyCoreAbilityMap.TryGetValue(sq.FixedDifficulty, out var allowedAbilities))
                                     {
@@ -108,8 +109,8 @@
                             <div data-field="@indicatorKey" class="@InvalidRing(indicatorKey) rounded-lg p-1">
                                 <label class="block text-xs font-medium text-gray-600 mb-1">細目指標 <span class="text-red-400">*</span></label>
                                 <select @bind="sq.DetailIndicator"
-                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer @(sq.CoreAbility is null ? "bg-gray-50 text-gray-300" : "")"
-                                    disabled="@(sq.CoreAbility is null)">
+                                    class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed @(sq.CoreAbility is null ? "bg-gray-50 text-gray-300" : "")"
+                                    disabled="@(IsFormReadOnly || sq.CoreAbility is null)">
                                     <option value="">@(sq.CoreAbility is null ? "先選核心能力" : "請選擇")</option>
                                     @if (sq.CoreAbility is not null && QuestionConstants.CoreAbilityIndicatorMap.TryGetValue(sq.CoreAbility.Value, out var indicators))
                                     {
@@ -191,6 +192,9 @@
     /// 設定後：只渲染對應子題、母題音檔/語音內容變唯讀。
     /// </summary>
     [Parameter] public int? FocusSubDbId { get; set; }
+
+    /// <summary>由父層（QuestionForm Modal）透過 CascadingValue 傳入，檢視模式時所有子題控件變唯讀。</summary>
+    [CascadingParameter(Name = "IsFormReadOnly")] private bool IsFormReadOnly { get; set; }
 
     private bool IsFocusMode => FocusSubDbId is not null;
 

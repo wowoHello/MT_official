@@ -216,10 +216,10 @@ public class DashboardService : IDashboardService
 
         await Task.WhenAll(statusByTypeTask, reviewProgressTask, revisionProgressTask, urgentItemsTask);
 
-        var statusByTypeRows                                    = statusByTypeTask.Result;
-        var (reviewLabel, reviewedCount, reviewTotalCount)      = reviewProgressTask.Result;
-        var (revisionLabel, revisedCount, revisionTotalCount)   = revisionProgressTask.Result;
-        var urgentItems                                         = urgentItemsTask.Result;
+        var statusByTypeRows                                                              = statusByTypeTask.Result;
+        var (reviewLabel, masterReviewed, masterTotal, subReviewed, subTotal)             = reviewProgressTask.Result;
+        var (revisionLabel, revisedCount, revisionTotalCount)                             = revisionProgressTask.Result;
+        var urgentItems                                                                   = urgentItemsTask.Result;
 
         // 計算卡片 3 的狀態類型與顯示文字
         var (phaseStatusType, phaseStatusText, phaseDaysRemaining) =
@@ -229,8 +229,10 @@ public class DashboardService : IDashboardService
         if (projectStatus == 2)
         {
             reviewLabel        = ReviewPhaseLabel.Closed;
-            reviewedCount      = 0;
-            reviewTotalCount   = 0;
+            masterReviewed     = 0;
+            masterTotal        = 0;
+            subReviewed        = 0;
+            subTotal           = 0;
             revisionLabel      = RevisionPhaseLabel.Closed;
             revisedCount       = 0;
             revisionTotalCount = 0;
@@ -248,8 +250,10 @@ public class DashboardService : IDashboardService
             PhaseStatusText     = phaseStatusText,
             PhaseDaysRemaining  = phaseDaysRemaining,
             CurrentReviewPhase   = reviewLabel,
-            ReviewedCount        = reviewedCount,
-            ReviewTotalCount     = reviewTotalCount,
+            ReviewedCount        = masterReviewed,
+            ReviewTotalCount     = masterTotal,
+            ReviewedSubCount     = subReviewed,
+            ReviewTotalSubCount  = subTotal,
             CurrentRevisionPhase = revisionLabel,
             RevisedCount         = revisedCount,
             RevisionTotalCount   = revisionTotalCount,
@@ -393,11 +397,12 @@ public class DashboardService : IDashboardService
 
     /// <summary>
     /// 依當前 PhaseCode 對應 ReviewStage，查 MT_ReviewAssignments 統計審題完成度。
-    /// 對應規則：PhaseCode 2→Stage 1（互審）/ 4→Stage 2（專審）/ 6→Stage 3（總召）。
-    /// 完成判定：DecidedAt IS NOT NULL（DecidedAt 為 NULL 代表純草稿意見，尚未正式決策）。
-    /// 非審題階段（PhaseCode 為 1/3/5/7 或 null）直接回傳 (None, 0, 0)，不下 SQL。
+    /// 對應規則：PhaseCode 3→Stage 1（互審）/ 5→Stage 2（專審）/ 7→Stage 3（總召）。
+    /// 完成判定：DecidedAt IS NOT NULL（草稿只 UPDATE Comment 不寫 DecidedAt）。
+    /// 母題、子題各自獨立計數互不影響，回傳 5 元組 (label, masterReviewed, masterTotal, subReviewed, subTotal)。
+    /// 非審題階段直接回傳全 0，不下 SQL。
     /// </summary>
-    private static async Task<(ReviewPhaseLabel label, int reviewed, int total)> GetReviewProgressAsync(
+    private static async Task<(ReviewPhaseLabel label, int masterReviewed, int masterTotal, int subReviewed, int subTotal)> GetReviewProgressAsync(
         System.Data.IDbConnection conn, int projectId, int? currentPhaseCode)
     {
         // PhaseCode 對應 ReviewStage（DB 實際定義 1=產學區間, 2=命題, 3=互審, 4=互修...）：
@@ -412,56 +417,52 @@ public class DashboardService : IDashboardService
             _ => (ReviewPhaseLabel.None,   (byte)0)
         };
 
-        if (label == ReviewPhaseLabel.None) return (label, 0, 0);
+        if (label == ReviewPhaseLabel.None) return (label, 0, 0, 0, 0);
 
-        // 題組類整題口徑：母題 + 所有子題 必須全部 DecidedAt 才把該題的全部 row 計入 Reviewed
-        //   - 部分完成（如母題 decided 但部分 sub 仍 NULL）→ 該題全部 row 都不算入 Reviewed
-        //   - 與圖表 line 316 的 PendingCount = 0 判定一致，避免兩處數字不對盤
-        //   - TotalCount 不變（仍是所有 row 數，與 footnote「母題與每子題分別計算數量」對齊）
+        // 母題、子題拆成獨立單位分別計數，互不影響：
+        //   • 母題（SubQuestionId IS NULL）的 reviewed/total
+        //   • 子題（SubQuestionId 非 NULL）的 reviewed/total
+        // DecidedAt 是「真正送出決策」的標記（草稿只 UPDATE Comment 不寫 DecidedAt）
         const string sql = """
-            WITH QuestionDecisionStatus AS (
-                SELECT QuestionId,
-                       COUNT(*) AS TotalRows,
-                       SUM(CASE WHEN DecidedAt IS NOT NULL THEN 1 ELSE 0 END) AS DecidedRows
-                FROM   dbo.MT_ReviewAssignments
-                WHERE  ProjectId = @pid AND ReviewStage = @stage
-                GROUP BY QuestionId
-            )
             SELECT
-                ISNULL(SUM(CASE WHEN TotalRows = DecidedRows THEN TotalRows ELSE 0 END), 0) AS Reviewed,
-                ISNULL(SUM(TotalRows), 0)                                                   AS TotalCount
-            FROM   QuestionDecisionStatus;
+                SUM(CASE WHEN SubQuestionId IS NULL AND DecidedAt IS NOT NULL THEN 1 ELSE 0 END) AS MasterReviewed,
+                SUM(CASE WHEN SubQuestionId IS NULL                            THEN 1 ELSE 0 END) AS MasterTotal,
+                SUM(CASE WHEN SubQuestionId IS NOT NULL AND DecidedAt IS NOT NULL THEN 1 ELSE 0 END) AS SubReviewed,
+                SUM(CASE WHEN SubQuestionId IS NOT NULL                           THEN 1 ELSE 0 END) AS SubTotal
+            FROM   dbo.MT_ReviewAssignments
+            WHERE  ProjectId = @pid AND ReviewStage = @stage;
             """;
 
         var row = await conn.QuerySingleOrDefaultAsync<ReviewProgressRow>(
             sql, new { pid = projectId, stage });
 
-        var reviewed = row?.Reviewed ?? 0;
-        var total    = row?.TotalCount ?? 0;
+        var masterReviewed = row?.MasterReviewed ?? 0;
+        var masterTotal    = row?.MasterTotal    ?? 0;
+        var subReviewed    = row?.SubReviewed    ?? 0;
+        var subTotal       = row?.SubTotal       ?? 0;
 
         // Fallback：階段尚未跑過 EnsurePhaseTransitionAsync 觸發分配時，ReviewAssignments 可能還沒建好
-        // → 改用單元粒度（母題單元 + 子題單元）作為「待審池」總數，與主路徑 COUNT(*) MT_ReviewAssignments 對齊
-        // （正常流程下 Plan_011 已會在進入 PhaseCode=5/7 時自動建立 ReviewAssignments）
-        if (total == 0)
+        // → 改用單元粒度（MT_Questions 母題 / MT_SubQuestions 子題各自）估算待審池總數
+        if (masterTotal == 0 && subTotal == 0)
         {
             const string fallbackSql = """
                 SELECT
-                    (SELECT COUNT(*)
-                     FROM   dbo.MT_Questions
-                     WHERE  ProjectId = @pid AND IsDeleted = 0
-                       AND  Status BETWEEN 2 AND 8)
-                  + (SELECT COUNT(*)
-                     FROM   dbo.MT_SubQuestions sq
-                     JOIN   dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
-                     WHERE  q.ProjectId = @pid AND q.IsDeleted = 0
-                       AND  sq.IsDeleted = 0
-                       AND  sq.Status BETWEEN 2 AND 8)
+                    (SELECT COUNT(*) FROM dbo.MT_Questions
+                     WHERE ProjectId = @pid AND IsDeleted = 0 AND Status BETWEEN 2 AND 8) AS MasterTotal,
+                    (SELECT COUNT(*) FROM dbo.MT_SubQuestions sq
+                     JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                     WHERE q.ProjectId = @pid AND q.IsDeleted = 0 AND sq.IsDeleted = 0
+                       AND sq.Status BETWEEN 2 AND 8) AS SubTotal
                 """;
-            total = await conn.ExecuteScalarAsync<int>(fallbackSql, new { pid = projectId });
-            reviewed = 0;
+            var fb = await conn.QuerySingleOrDefaultAsync<(int MasterTotal, int SubTotal)>(
+                fallbackSql, new { pid = projectId });
+            masterTotal = fb.MasterTotal;
+            subTotal    = fb.SubTotal;
+            masterReviewed = 0;
+            subReviewed    = 0;
         }
 
-        return (label, reviewed, total);
+        return (label, masterReviewed, masterTotal, subReviewed, subTotal);
     }
 
     /// <summary>
@@ -1339,11 +1340,13 @@ public class DashboardService : IDashboardService
         public int AdoptedCount { get; init; }
     }
 
-    /// <summary>卡片 3 審題進度查詢結果列。</summary>
+    /// <summary>卡片 3 審題進度查詢結果列（母題、子題各自獨立計數）。</summary>
     private sealed class ReviewProgressRow
     {
-        public int Reviewed   { get; init; }
-        public int TotalCount { get; init; }
+        public int MasterReviewed { get; init; }
+        public int MasterTotal    { get; init; }
+        public int SubReviewed    { get; init; }
+        public int SubTotal       { get; init; }
     }
 
     /// <summary>卡片 4 修題進度查詢結果列。</summary>

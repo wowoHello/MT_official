@@ -351,7 +351,7 @@ public class AuthService : IAuthService
             principal,
             new AuthenticationProperties
             {
-                // 一律 Session Cookie：關瀏覽器即失效 + 套用 ExpireTimeSpan（2 小時滑動）
+                // 一律 Session Cookie：關瀏覽器即失效 + 套用 ExpireTimeSpan（24 小時滑動安全網，見 Program.cs）
                 IsPersistent = false,
                 ExpiresUtc = null,
                 AllowRefresh = true

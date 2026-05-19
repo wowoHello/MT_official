@@ -161,7 +161,7 @@ public class OverviewService(
     ///   postFilter      ：前端 in-memory 精篩函式；若 null 則直接以後端結果為準
     /// 與 razor 端 ResolveDisplayStatus 的判定條件 100% 對齊。
     /// </summary>
-    private static (byte[]? overrideStatuses, bool? hasReplied, bool deletedOnly, Func<QuestionListItem, byte?, Dictionary<int, bool>, bool>? postFilter)
+    private static (byte[]? overrideStatuses, bool? hasReplied, bool deletedOnly, Func<QuestionListItem, byte?, Dictionary<(int, int?), bool>, bool>? postFilter)
         TranslateStatusKey(string? key, byte? phaseCode)
     {
         if (string.IsNullOrWhiteSpace(key))
@@ -260,16 +260,17 @@ public class OverviewService(
     private static bool MatchFailedComposition(QuestionListItem i, byte? pc) =>
         i.Status == QuestionStatus.Draft && pc is byte p && p >= 3 && !i.IsDeleted;
 
-    private static bool MatchAwaitingReview(QuestionListItem i, byte? pc, Dictionary<int, bool> resp) =>
+    // unified rule lookup：master 單元 key=(Id, null)；sub 單元 key=(Id, SubQuestionId)
+    private static bool MatchAwaitingReview(QuestionListItem i, byte? pc, Dictionary<(int, int?), bool> resp) =>
         pc is byte p && (p == 3 || p == 5 || p == 7)
         && IsReviewLocked(i.Status)
-        && !resp.GetValueOrDefault(i.Id, false)
+        && !resp.GetValueOrDefault((i.Id, i.SubQuestionId), false)
         && !i.IsDeleted;
 
-    private static bool MatchReviewed(QuestionListItem i, byte? pc, Dictionary<int, bool> resp) =>
+    private static bool MatchReviewed(QuestionListItem i, byte? pc, Dictionary<(int, int?), bool> resp) =>
         pc is byte p && (p == 3 || p == 5 || p == 7)
         && IsReviewLocked(i.Status)
-        && resp.GetValueOrDefault(i.Id, false)
+        && resp.GetValueOrDefault((i.Id, i.SubQuestionId), false)
         && !i.IsDeleted;
 
     private static bool MatchInRevision(QuestionListItem i, byte? pc) =>
@@ -279,52 +280,51 @@ public class OverviewService(
         IsEditing(i.Status) && !i.IsDeleted && (pc is null || pc < i.Status);
 
     /// <summary>
-    /// 計算當前頁列表中，每筆題目「在當前審題階段是否全體被指派審題者皆已完成審題」。
-    /// PhaseCode 對應 ReviewStage：3→1（互審） / 5→2（專審） / 7→3（總審）。
-    /// 判定：該題該階段被指派筆數 > 0，且所有筆數的 DecidedAt 皆非 NULL。
-    /// 改用 DecidedAt 而非 Comment：專/總審「儲存意見草稿」只 UPDATE Comment 不寫 DecidedAt，
-    /// 用 Comment 判定會把純草稿誤算為完成；DecidedAt 才是「真正送出決策」的標記。
-    /// 非審題階段（PhaseCode 不在 {3,5,7}）或列表為空 → 直接回空 dict，不打 DB。
+    /// 計算每個審題單元（母題、子題各自獨立）是否已給意見。
+    /// 回傳 Dict key = (QuestionId, SubQuestionId)；value=true 表 done；不在 dict = 未 done。
+    /// 母題與子題互不影響：母題自己 DecidedAt 非 NULL → done；子題自己 DecidedAt 非 NULL → done。
+    /// PhaseCode 對應 ReviewStage：3→1（互審）/ 5→2（專審）/ 7→3（總召）。
+    /// 非審題階段或列表為空 → 回空 dict，不打 DB。
     /// </summary>
-    private async Task<Dictionary<int, bool>> GetAllReviewersRespondedAsync(
+    private async Task<Dictionary<(int, int?), bool>> GetAllReviewersRespondedAsync(
         int projectId, byte? phaseCode, IEnumerable<int> questionIds)
     {
-        // 題組類 N+1 列拆列（母題 + N 子題）後，呼叫端傳進來的 ids 可能含同一 QuestionId 多次。
-        // 用 HashSet 去重後再查，避免 ToDictionary 撞重複 key 拋 ArgumentException。
         var ids = questionIds.ToHashSet();
         if (ids.Count == 0) return new();
 
         var stage = phaseCode switch
         {
-            3 => (byte)1,   // 互審
-            5 => (byte)2,   // 專審
-            7 => (byte)3,   // 總審
+            3 => (byte)1,
+            5 => (byte)2,
+            7 => (byte)3,
             _ => (byte)0
         };
         if (stage == 0) return new();
 
-        // GROUP BY QuestionId：當分配筆數 = 已完成審題（DecidedAt 非 NULL）筆數時，回傳該 QuestionId
+        // 每個 (QuestionId, SubQuestionId) row 自己看 DecidedAt — 完全 row-level，不做群組推導
         const string sql = """
-            SELECT QuestionId
-            FROM   dbo.MT_ReviewAssignments
-            WHERE  ProjectId   = @ProjectId
-              AND  ReviewStage = @Stage
-              AND  QuestionId IN @Ids
-            GROUP BY QuestionId
-            HAVING COUNT(*) > 0
-               AND COUNT(*) = SUM(CASE WHEN DecidedAt IS NOT NULL
-                                       THEN 1 ELSE 0 END);
+            SELECT DISTINCT ra.QuestionId, ra.SubQuestionId
+            FROM   dbo.MT_ReviewAssignments ra
+            WHERE  ra.ProjectId   = @ProjectId
+              AND  ra.ReviewStage = @Stage
+              AND  ra.QuestionId IN @Ids
+              AND  ra.DecidedAt IS NOT NULL;
             """;
 
         using var conn = _db.CreateConnection();
-        var responded = (await conn.QueryAsync<int>(sql, new
+        var doneUnits = await conn.QueryAsync<(int QuestionId, int? SubQuestionId)>(sql, new
         {
             ProjectId = projectId,
             Stage     = stage,
             Ids       = ids
-        })).ToHashSet();
+        });
 
-        return ids.ToDictionary(id => id, id => responded.Contains(id));
+        var result = new Dictionary<(int, int?), bool>();
+        foreach (var u in doneUnits)
+        {
+            result[(u.QuestionId, u.SubQuestionId)] = true;
+        }
+        return result;
     }
 
     /// <summary>
@@ -473,9 +473,11 @@ public class OverviewService(
             if (r.IsDeleted) { BumpKey(OverviewStatusKey.Deleted); continue; }
 
             // 用 QuestionListItem 走 Match* 條件——欄位夠用即可
+            // SubQuestionId 必須帶入，MatchReviewed/AwaitingReview 用 (Id, SubQuestionId) lookup
             var item = new QuestionListItem
             {
                 Id        = r.Id,
+                SubQuestionId = r.SubId,
                 Status    = r.Status,
                 IsDeleted = false,
                 HasRepliedThisStage = r.HasRepliedThisStage

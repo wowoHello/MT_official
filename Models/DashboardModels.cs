@@ -99,16 +99,28 @@ public class DashboardKpiDto
     public ReviewPhaseLabel CurrentReviewPhase { get; set; } = ReviewPhaseLabel.None;
 
     /// <summary>
-    /// 當前審題階段「已完成審題」的數量（MT_ReviewAssignments 中 Comment 不為空）。
-    /// 非審題階段時為 0。
+    /// 當前審題階段「母題已完成審題」的數量（MT_ReviewAssignments 中 SubQuestionId IS NULL 且 DecidedAt 非 NULL）。
+    /// 非審題階段時為 0。母題、子題獨立計數互不影響。
     /// </summary>
     public int ReviewedCount { get; set; }
 
     /// <summary>
-    /// 當前審題階段「應審題目總數」（MT_ReviewAssignments 中對應 ReviewStage 的全部分配筆數）。
+    /// 當前審題階段「母題應審總數」（MT_ReviewAssignments 中 SubQuestionId IS NULL 的全部分配筆數）。
     /// 非審題階段時為 0。
     /// </summary>
     public int ReviewTotalCount { get; set; }
+
+    /// <summary>
+    /// 當前審題階段「子題已完成審題」的數量（MT_ReviewAssignments 中 SubQuestionId 非 NULL 且 DecidedAt 非 NULL）。
+    /// 非審題階段時為 0。母題、子題獨立計數互不影響。
+    /// </summary>
+    public int ReviewedSubCount { get; set; }
+
+    /// <summary>
+    /// 當前審題階段「子題應審總數」（MT_ReviewAssignments 中 SubQuestionId 非 NULL 的全部分配筆數）。
+    /// 非審題階段時為 0。
+    /// </summary>
+    public int ReviewTotalSubCount { get; set; }
 
     /// <summary>梯次結案時間（MT_Projects.ClosedAt），用於卡片 3 已結案狀態顯示。null 代表尚未結案。</summary>
     public DateTime? ClosedAt { get; set; }

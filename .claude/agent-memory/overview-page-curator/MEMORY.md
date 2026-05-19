@@ -1,9 +1,9 @@
 - [Overview 參考素材路徑](reference_overview_source.md) — 改用 D:\MTrefer\pageFinal_doc\Overview.md，舊原型 html/js 已棄用
 - [網站功能介紹總文件](reference_site_features_doc.md) — D:\jay_liu\Desktop\命題系統相關\網站功能介紹.md，含 Overview 113~155 行權威規格與白話補述
 - [Overview 狀態篩選下拉設計](project_overview_status_filter_design.md) — OverviewStatusKey 11 個識別碼 / TranslateStatusKey + Match* 三方共用 / 後端粗篩+前端精篩
-- [Overview 頁面版面與資料錨點](project_overview_layout_anchors.md) — 5 張統計卡 / 12 欄表格 / 詳情 SlideOver 上題目內容下審題歷程 / ResolveDisplayStatus 五條規則
-- [OverviewService 依賴與委派](project_overview_service_dependencies.md) — 注入 IQuestionService/IReviewService/IDatabaseService/IPhaseTransitionCoordinator 四個依賴
+- [Overview 頁面版面與資料錨點](project_overview_layout_anchors.md) — 5 張統計卡 / 12 欄表格 / 詳情 SlideOver / ResolveDisplayStatus + 母題結案 fallback
+- [OverviewService 依賴與委派](project_overview_service_dependencies.md) — 注入 IQuestionService/IReviewService/IDatabaseService/IPhaseTransitionCoordinator/IAnnotationService 五依賴；GetAllReviewersRespondedAsync 改 per-row DecidedAt
 - [Overview 相關資料庫關鍵欄位](project_db_schema_overview_relevant.md) — Stage A 子題提升為審題單元 / Plan_014 本輪過濾 / MT_QuestionImages 圖片獨立表
 - [修題階段燈號雙態呈現](feedback_revision_phase_display.md) — 已送出藍勾+綠 Badge / 未送出紅筆+橘 Badge，由 PhaseProgressStepper 統一處理
-- [七階段燈號判定條件](project_overview_phase_lamps.md) — ResolveStage 6 種 tone / preDone/revisionSent/draftFailed 三種僅 Overview 觸發
+- [七階段燈號判定條件](project_overview_phase_lamps.md) — ResolveStage 7 種 tone（新增 reviewDone）/ 4 個參數 / preDone/revisionSent/draftFailed/reviewDone 四種僅 Overview 觸發
 - [Overview 可檢視角色](project_overview_viewer_roles.md) — 管理者/計畫主持人/總召/教務管理者，外部教師禁入

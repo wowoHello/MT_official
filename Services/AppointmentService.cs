@@ -213,7 +213,10 @@ public class AppointmentService : IAppointmentService
             selectSql, new { Id = certId });
         if (row is null) return false;
 
-        var fileName = $"{row.Value.UserId}_{row.Value.CreatedAt:yyyyMMdd}_{row.Value.RoleId}.jpg";
+        // CertId 作為檔名前綴：cert 表 IDENTITY PK 全表唯一，防止「同 UserId+RoleId+CreatedAt
+        // 跨梯次（不同 ProjectId）」的聘書 jpg 互相覆蓋（DB UNIQUE 是 UserId+ProjectId+RoleId，
+        // 但檔名規則缺 ProjectId 會撞檔，導致下載時檔名字號與圖內字號不一致）
+        var fileName = $"{certId}_{row.Value.UserId}_{row.Value.CreatedAt:yyyyMMdd}_{row.Value.RoleId}.jpg";
         var filesDir = Path.Combine(webRootPath, "files");
         Directory.CreateDirectory(filesDir);
         var filePath = Path.Combine(filesDir, fileName);
@@ -566,7 +569,8 @@ public class AppointmentService : IAppointmentService
         return new AppointmentDraftDto
         {
             CertId          = r.CertId,
-            TargetFileName  = $"{r.UserId}_{r.CreatedAt:yyyyMMdd}_{r.RoleId}.jpg",
+            // CertId 前綴必須與 SaveDrawnFileAsync 同步（同檔內 line 219），避免跨梯次相同 user+role 撞檔
+            TargetFileName  = $"{r.CertId}_{r.UserId}_{r.CreatedAt:yyyyMMdd}_{r.RoleId}.jpg",
             CertNumberText  = FormatCertNumber(r.Year, r.CertNumber),
             School          = r.School,
             DisplayName     = r.DisplayName,

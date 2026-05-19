@@ -13,7 +13,7 @@
 {
     @* 空狀態：整段「規則備註 + 加圖片」合併為單一按鈕，整列都可點，年長者好瞄準 *@
     <div class="mt-2 flex justify-end">
-        @if (!IsReadOnly)
+        @if (!EffectiveReadOnly)
         {
             <button type="button" @onclick="PickAndUploadAsync"
                 class="text-xs text-gray-400 hover:text-morandi hover:bg-morandi/5 inline-flex items-center gap-3 px-3 py-1.5 rounded-md cursor-pointer transition-colors">
@@ -38,7 +38,7 @@ else
                     <img src="@img.ImagePath" alt="@($"附圖 {idx + 1}")" loading="lazy"
                          class="w-full h-full object-cover cursor-zoom-in" />
                 </a>
-                @if (!IsReadOnly)
+                @if (!EffectiveReadOnly)
                 {
                     <button type="button" @onclick="() => RemoveAsync(idx)"
                         class="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-white/95 text-terracotta opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity duration-150 flex items-center justify-center cursor-pointer shadow-sm"
@@ -56,7 +56,7 @@ else
                 <i class="fa-solid fa-spinner fa-spin text-morandi text-sm"></i>
             </div>
         }
-        else if (!IsReadOnly)
+        else if (!EffectiveReadOnly)
         {
             @* 加號：與縮圖等尺寸維持節奏 *@
             <button type="button" @onclick="PickAndUploadAsync"
@@ -82,12 +82,18 @@ else
     [Parameter] public EventCallback<List<QuestionImage>> ImagesChanged { get; set; }
     [Parameter] public bool IsReadOnly { get; set; }
 
+    /// <summary>從父層 QuestionForm Modal 接收唯讀狀態（沿著 cascading 鏈傳入）。</summary>
+    [CascadingParameter(Name = "IsFormReadOnly")] private bool IsFormReadOnly { get; set; }
+
+    /// <summary>顯式 IsReadOnly 或 cascading IsFormReadOnly 任一為 true 即視為唯讀。</summary>
+    private bool EffectiveReadOnly => IsReadOnly || IsFormReadOnly;
+
     private bool isUploading;
     private string? errorMessage;
 
     private async Task PickAndUploadAsync()
     {
-        if (IsReadOnly || isUploading) return;
+        if (EffectiveReadOnly || isUploading) return;
         errorMessage = null;
         isUploading = true;
         StateHasChanged();
@@ -118,7 +124,7 @@ else
 
     private async Task RemoveAsync(int idx)
     {
-        if (IsReadOnly) return;
+        if (EffectiveReadOnly) return;
         if (idx < 0 || idx >= Images.Count) return;
         var next = Images.ToList();
         next.RemoveAt(idx);

@@ -160,6 +160,7 @@
                                     @* ----- 左：屬性側欄（240/256px，可收合） ----- *@
                                     <div class="@(sidebarCollapsed ? "w-0" : "w-56 lg:w-64") flex-shrink-0 bg-white border-r border-gray-200 overflow-hidden flex flex-col transition-all duration-300 ease-in-out">
                                         <QuestionAttributesSidebar IsCollapsed="sidebarCollapsed"
+                                            LockQuestionType="true"
                                             QuestionType="@data.Question.QuestionType" QuestionTypeChanged="OnQuestionTypeChanged"
                                             @bind-Level="data.Question.Level" @bind-Difficulty="data.Question.Difficulty"
                                             @bind-Topic="data.Question.Topic" @bind-Subtopic="data.Question.Subtopic"
