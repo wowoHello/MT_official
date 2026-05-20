@@ -1,2 +1,2 @@
-- [Teachers.razor 完成度狀態](project_teachers_status.md) — 2026-05-19 複核：確認批次匯入（ParseExcelAsync/ImportTeachersAsync/三類別）已落地；行數更新（.razor 1971/Service 1264/Models 355）；TM-11 仍未處理
+- [Teachers.razor 完成度狀態](project_teachers_status.md) — 2026-05-20 複核：行數更新（.razor 2061/Service 1423/Models 388）；匯出名單功能確認落地；Education 對應修正（含專科=1）；DB schema 約束確認；TM-11 仍未處理
 - [教師管理頁參考文件路徑](reference_teachers_doc.md) — 主文件改為 D:\MTrefer\pageFinal_doc\Teachers.md，舊原型 html/js 路徑已棄用

@@ -1,14 +1,14 @@
 ---
 name: Teachers.razor 完成度狀態
-description: Teachers.razor 頁面程式碼現況（2026-05-17 全面重讀），記錄架構、各波次改動、技術債與關鍵實作細節
+description: Teachers.razor 頁面程式碼現況（2026-05-20 全面重讀），記錄架構、各波次改動、技術債與關鍵實作細節
 type: project
 ---
 
-## 檔案規模（2026-05-19 複核）
+## 檔案規模（2026-05-20 複核）
 
-- `Components/Pages/Teachers.razor`：**1,971 行**（UI + @code block；含批次匯入 Slide-over 大幅增加）
-- `Services/TeacherService.cs`：**1,264 行**（含 ParseExcelAsync + ImportTeachersAsync + ExcelHelper）
-- `Models/TeacherModels.cs`：**355 行**（含 BatchImportRow / BatchImportRowStatus / BatchImportRowResult 三個批次匯入類別）
+- `Components/Pages/Teachers.razor`：**2,061 行**（UI + @code block；含批次匯入 Slide-over + 匯出名單邏輯）
+- `Services/TeacherService.cs`：**1,423 行**（含 ParseExcelAsync + ImportTeachersAsync + ExportProjectTeachersAsync + BuildExportWorkbook）
+- `Models/TeacherModels.cs`：**388 行**（含 BatchImportRow / BatchImportRowStatus / BatchImportRowResult + TeacherExportRow / TeacherExportResult）
 
 三檔案規則完全符合。TeacherService 注入 5 個依賴：`IDatabaseService`、`ILogger`、`IHttpContextAccessor`、`IQuestionTypeCatalog`、`IAppointmentService`。
 
@@ -108,6 +108,7 @@ UI 狀態：`composePage`、`reviewPage`（int）、`isLoadingCompose`、`isLoad
 | 參與專案 | `GetTeacherProjectsAsync(userId)`, `GetAvailableProjectsAsync(userId)`, `GetExternalRoleOptionsAsync()`, `AssignToProjectAsync(req, operatorId)`, `RemoveFromProjectAsync(userId, projectId, operatorId)` |
 | CRUD + 帳號 | `CreateTeacherAsync(req, operatorId)`, `UpdateTeacherAsync(req, operatorId)`, `ToggleTeacherStatusAsync(teacherId, operatorId)`, `ResetTeacherPasswordAsync(teacherId, operatorId)` |
 | 批次匯入 | `ParseExcelAsync(Stream fileStream)`, `ImportTeachersAsync(IReadOnlyList<BatchImportRow> rows, int operatorId)` |
+| 匯出名單 | `ExportProjectTeachersAsync(projectId, projectName)` |
 
 ---
 
@@ -141,6 +142,13 @@ UI 狀態：`composePage`、`reviewPage`（int）、`isLoadingCompose`、`isLoad
 
 **命題歷程統計**：AdoptedCount `IN (9, 12)`，RejectedCount `IN (10, 11)`，ReviewingCount `BETWEEN 1 AND 8`。`StatusClosedAdopted=12` / `StatusClosedNotAdopted=11`（TeacherService 常數）。
 
+**Education 對應（DB：tinyint）**：0=其它 / 1=專科 / 2=學士 / 3=碩士 / 4=博士；`ParseEducation` helper：「其它」→0、「專科」→1、「學士」→2、「碩士」→3、「博士」→4。DB 中 `MT_Teachers.Education` 為 `tinyint NULL`。
+
+**DB schema 關鍵約束（2026-05-20 從 MT_DB.sql 確認）**：
+- `MT_Teachers`：`UNIQUE (UserId)` + `UNIQUE (TeacherCode)`，Education 為 `tinyint NULL`
+- `MT_Users`：`PasswordHash` 為 `nvarchar(150)`（PBKDF2 升級後格式），`UQ_MT_Users_Email` + `UQ_MT_Users_Username` 均為 filtered UNIQUE INDEX
+- `MT_ProjectMembers`：`UQ_MT_ProjectMembers_ProjectId_UserId` UNIQUE 約束已建立
+
 ---
 
 ## 批次匯入功能（2026-05-18 計畫書已落地）
@@ -152,6 +160,17 @@ UI 狀態：`composePage`、`reviewPage`（int）、`isLoadingCompose`、`isLoad
 - TeacherService 新增 `ParseExcelAsync` + `ImportTeachersAsync`（NPOI XSSFWorkbook 讀 .xlsx）
 - Models 新增 `BatchImportRow` / `BatchImportRowStatus` / `BatchImportRowResult` 三個類別
 - 公版範本放置於 `wwwroot/temp/教師資料匯入_公版.xlsx`（需手動複製）
+
+## 匯出名單功能（2026-05-20 複核確認已落地）
+
+- Teachers.razor 右上角「匯出名單」按鈕 → `HandleExport()`
+- 需先選擇梯次（CascadingParameter `CurrentProject`），否則提示警告
+- `ExportProjectTeachersAsync(projectId, projectName)`：3 條 SQL 查命題身分 / 審題身分 / 角色，組裝 `TeacherExportResult`
+- `BuildExportWorkbook(result)`（Teachers.razor 私有方法）：NPOI 建立 .xlsx，含梯次名稱列、欄位標題列、資料列（命題/審題 × 教師 × 題型計數）
+- `JS.InvokeVoidAsync("downloadByteArray", base64, fileName, mimeType)` 觸發瀏覽器下載
+- 欄位順序（Type Id）：一般(1) / 閱讀題組(5) / 長文(4) / 短文題組(3) / 聽力(6) / 聽力題組(7) / 採用數 / 不採用數
+- TypeId=2（精選單選）被排除（`QuestionTypeId <> 2`）
+- Models 新增 `TeacherExportRow` / `TeacherExportResult` 兩個匯出類別
 
 ---
 

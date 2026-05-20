@@ -59,24 +59,27 @@ public class SimilarityService(
             return Array.Empty<SimilarityCompareResult>();
         }
 
-        // 2. 撈候選（同梯次 + 同題型 + 同等級 + 排除自己 + Status >= 2）
-        //    Plan A 設計：只跟「定型題目」（已送審或更後）比，避免比到中間態草稿
+        // 2. 撈候選（跨所有梯次 + 同題型 + 同等級 + 排除自己 + 排除無效題目）
+        //    Plan A 設計：所有梯次都納入，讓教師看到跨年度可能重複題；
+        //    排除 Status 0(草稿) / 10(不採用) / 11(結案未採用) 與已刪除題目
         using var conn = (SqlConnection)_db.CreateConnection();
         await conn.OpenAsync();
 
         var selfFilter = draft.QuestionId.HasValue ? "AND q.Id <> @SelfId" : string.Empty;
         var candidatesSql = $"""
-            SELECT q.Id, q.ProjectId, q.QuestionTypeId, q.Level,
+            SELECT q.Id, q.ProjectId, p.Name AS ProjectName,
+                   q.QuestionTypeId, q.Level,
                    q.QuestionCode, q.CreatorId, u.DisplayName AS CreatorName,
                    q.Stem, q.ArticleTitle, q.ArticleContent,
                    q.OptionA, q.OptionB, q.OptionC, q.OptionD
             FROM dbo.MT_Questions q
+            INNER JOIN dbo.MT_Projects p ON p.Id = q.ProjectId
             LEFT JOIN dbo.MT_Users u ON u.Id = q.CreatorId
-            WHERE q.ProjectId      = @ProjectId
-              AND q.QuestionTypeId = @TypeId
+            WHERE q.QuestionTypeId = @TypeId
               AND q.Level          = @Level
               AND q.IsDeleted      = 0
-              AND q.Status        >= 2
+              AND q.DeletedAt     IS NULL
+              AND q.Status NOT IN (0, 10, 11)
               {selfFilter};
             """;
         var rows = (await conn.QueryAsync<CandidateRow>(candidatesSql, new
@@ -94,7 +97,7 @@ public class SimilarityService(
             return Array.Empty<SimilarityCompareResult>();
         }
 
-        // 3. 題組類（3/5/7）一次撈全部候選的子題
+        // 3. 題組類（3/5/7）一次撈全部候選的子題（套同樣過濾條件）
         var subsByParent = new Dictionary<int, List<SubQuestionLoadRow>>();
         if (draft.QuestionTypeId is 3 or 5 or 7)
         {
@@ -102,7 +105,10 @@ public class SimilarityService(
             const string subSql = """
                 SELECT Id, ParentQuestionId, Stem, OptionA, OptionB, OptionC, OptionD
                 FROM dbo.MT_SubQuestions
-                WHERE ParentQuestionId IN @Ids AND IsDeleted = 0
+                WHERE ParentQuestionId IN @Ids
+                  AND IsDeleted   = 0
+                  AND DeletedAt  IS NULL
+                  AND Status     NOT IN (0, 10, 11)
                 ORDER BY ParentQuestionId, SortOrder;
                 """;
             var allSubs = await conn.QueryAsync<SubQuestionLoadRow>(subSql, new { Ids = ids });
@@ -159,6 +165,7 @@ public class SimilarityService(
             {
                 ComparedQuestionId   = row.Id,
                 ComparedQuestionCode = row.QuestionCode ?? string.Empty,
+                ProjectName          = row.ProjectName ?? string.Empty,
                 Score                = score,
                 Determination        = det,
                 CreatorName          = row.CreatorName ?? string.Empty
@@ -176,7 +183,8 @@ public class SimilarityService(
     // ====================================================================
 
     private record CandidateRow(
-        int Id, int ProjectId, int QuestionTypeId, byte Level,
+        int Id, int ProjectId, string? ProjectName,
+        int QuestionTypeId, byte Level,
         string? QuestionCode, int CreatorId, string? CreatorName,
         string? Stem, string? ArticleTitle, string? ArticleContent,
         string? OptionA, string? OptionB, string? OptionC, string? OptionD);

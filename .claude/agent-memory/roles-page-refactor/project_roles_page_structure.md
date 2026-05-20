@@ -1,18 +1,18 @@
 ---
-name: Roles 頁面當前真實結構（2026-05-17 更新）
+name: Roles 頁面當前真實結構（2026-05-20 更新）
 description: Roles.razor / RoleService.cs / RoleModels.cs 的實際結構摘要，含三個 Modal、SignalR 廣播、歷史優化紀錄、關鍵設計決策
 type: project
 ---
 
 ## 檔案清單（三檔規則合規狀況）
 
-1. `Components/Pages/Roles.razor` — UI + @code（1316 行）
-2. `Services/RoleService.cs` — 商業邏輯 + Dapper 查詢（1141 行）
-3. `Models/RoleModels.cs` — 主要 ViewModel/DTO（224 行）
-4. `Models/ModulePermission.cs` — 獨立小檔（約 13 行），待機合併入 RoleModels.cs
-5. `Models/RoleTag.cs` — 獨立 record（約 8 行），`record RoleTag(string Name, int Category)`，待機合併入 RoleModels.cs
+1. `Components/Pages/Roles.razor` — UI + @code（**1311 行**，2026-05-20 驗證）
+2. `Services/RoleService.cs` — 商業邏輯 + Dapper 查詢（**1098 行**，2026-05-20 驗證）
+3. `Models/RoleModels.cs` — 主要 ViewModel/DTO（**222 行**，2026-05-20 驗證）
+4. `Models/ModulePermission.cs` — 獨立小檔（13 行）；**注意**：此檔被 AuthService / AnnouncementService / MembershipService / AppointmentCertEndpoints 等多個 Service 引用，**並非僅服務 Roles 頁面**，不適合強行合併入 RoleModels.cs
+5. `Models/RoleTag.cs` — 獨立 record（8 行），`record RoleTag(string Name, int Category)`；被 RoleService / ProjectService / TeacherService 引用，同樣跨頁面共用
 
-**Why 違規：** ModulePermission.cs 和 RoleTag.cs 應集中在 RoleModels.cs，目前分拆屬低優先技術債。
+**Why 5 檔現況：** ModulePermission.cs 和 RoleTag.cs 實際上是**全站共用**的小型 Model，不是 Roles 頁面專屬的技術債，合併入 RoleModels.cs 反而會讓其他 Service 依賴錯誤的命名空間。維持現狀是正確的。
 
 ## 兩大 Tab 結構
 
@@ -23,110 +23,129 @@ type: project
 
 1. **帳號 SlideOver**（`CustomModal.ModalType.SlideOver`，max-w-xl）：新增/編輯內部人員，欄位含姓名、登入帳號（編輯時不可改）、信箱（選填）、身份別下拉（僅顯示 Category=0 的內部角色）、公司職稱（選填）、帳號狀態 radio（啟用/停用）、備註。新增時顯示預設密碼提示 `01024304`。
 2. **角色 Modal**（`CustomModal.ModalType.Center`）：新增/編輯/檢視角色。欄位含角色名稱、分類（0=內部/1=外部）、角色描述、功能模組 Toggle 清單。預設角色（IsDefault=true）進入為唯讀模式（isRoleReadOnly=true），所有欄位 disabled。
-3. **角色使用者清單 Modal**（`CustomModal.ModalType.Center`）：點擊角色卡片上的「X 位使用者」開啟。Source=0 為系統角色（MT_Users.RoleId），Source=1 為梯次指派（MT_ProjectMemberRoles）。
+3. **角色使用者清單 Modal**（`CustomModal.ModalType.Center`）：點擊角色卡片上的「X 位使用者」開啟。Source=0 為系統角色（MT_Users.RoleId），Source=1 為梯次指派（MT_ProjectMemberRoles）。支援 `roleUsersCategory` 旗標，顯示「教師角色」或「系統角色」標籤。
 
-## RoleService 主要公開 Method 清單（1141 行）
+## RoleService 主要公開 Method 清單（1098 行）
 
 ### Tab A — 人員帳號管理
 - `GetInternalAccountsAsync()` — 取所有 Category=0 帳號清單
 - `GetAccountDetailAsync(int userId)` — 取詳情含 EnabledModules
 - `CreateAccountAsync(CreateAccountRequest, int operatorId)` — 含 PBKDF2 雜湊、SqlException 2601/2627 翻譯
-- `UpdateAccountAsync(UpdateAccountRequest, int operatorId)` — 含 SqlException 翻譯
-- `ToggleAccountStatusAsync(int userId, int operatorId)` — 帳號啟用/停用
-- `ResetAccountPasswordAsync(int userId, int operatorId)` — 重設為預設密碼 `01024304`（PBKDF2）
+- `UpdateAccountAsync(UpdateAccountRequest, int operatorId)` — 含 SqlException 翻譯、before/after 快照 OldValue/NewValue
+- `ToggleAccountStatusAsync(int userId, int operatorId)` — 帳號啟用/停用，自己不能停用自己
+- `ResetAccountPasswordAsync(int userId, int operatorId)` — 重設為預設密碼 `01024304`（PBKDF2）+ LockoutUntil=NULL
 
 ### Tab B — 角色權限管理
-- `GetRolesAsync()` — 取角色卡片清單含 UserCount/EnabledModuleCount
-- `GetRoleDetailAsync(int roleId)` — 取角色含完整 Permissions
-- `CreateRoleAsync(CreateRoleRequest, int operatorId)` — 含 MergeRolePermissionsAsync
-- `UpdateRoleAsync(UpdateRoleRequest, int operatorId)` — 含 MergeRolePermissionsAsync
-- `DeleteRoleAsync(int roleId, int operatorId)` — 先計算引用數，有使用者即擋下
-- `GetRoleUsersAsync(int roleId)` — 兩個來源 UNION（MT_Users + MT_ProjectMemberRoles）
+- `GetRolesAsync()` — 取角色卡片清單含 UserCount/EnabledModuleCount；UserCount = MT_Users.RoleId + MT_ProjectMemberRoles（DISTINCT UserId，排除已在 MT_Users 計算者）
+- `GetRoleDetailAsync(int roleId)` — 取角色含完整 Permissions（所有 MT_Modules LEFT JOIN MT_RolePermissions）
+- `CreateRoleAsync(CreateRoleRequest, int operatorId)` — 含 EnsureRoleNameUniqueAsync + MergeRolePermissionsAsync + AuditLog
+- `UpdateRoleAsync(UpdateRoleRequest, int operatorId)` — 含 EnsureRoleEditableAsync + MergeRolePermissionsAsync + permissionDiff diff
+- `DeleteRoleAsync(int roleId, int operatorId)` — 先計算 MT_Users.RoleId + MT_ProjectMemberRoles 引用數，有使用者即擋下
+- `GetRoleUsersAsync(int roleId)` — UNION ALL 兩個來源（MT_Users Source=0，MT_ProjectMemberRoles Source=1 含 ProjectName/ProjectCode）
 - `GetInternalRoleOptionsAsync()` — 取 Category=0 角色供帳號身份別下拉
-- `GetActiveModulesAsync()` — 取 MT_Modules 動態清單
+- `GetActiveModulesAsync()` — 取 MT_Modules 動態清單（僅 IsActive=1）
 
 ### 共用
 - `GetUserModuleCardsAsync(int userId, int? projectId)` — thin wrapper 委派至 IMembershipService（30 秒 TTL cache）
-- `ChangeOwnPasswordAsync(int userId, string oldPassword, string newPassword)` — 用 PBKDF2 驗舊密碼 + 雜湊新密碼
+- `GetUserProfileAsync(int userId, int? projectId?)` — 取個人資料，含 `List<RoleTag> ProjectRoles`（梯次內所有身份）
+- `ChangeOwnPasswordAsync(int userId, string oldPassword, string newPassword)` — 用 PBKDF2 驗舊密碼 + 雜湊新密碼，最小 6 碼
 
 ### 私有輔助
-- `BroadcastRoleChangedAsync()` — 先 InvalidateAll cache，再 SignalR SendAsync("ReceiveRoleChanged")，失敗不阻擋
-- `MergeRolePermissionsAsync(conn, trans, roleId, permissions)` — DELETE + 批次單一 INSERT
-- `WriteAuditAsync(conn, ...)` — 統一寫 MT_AuditLogs，帶 IP、ProjectId=NULL（角色/帳號變更不綁梯次）
-- `ValidateAccountRequired(...)` / `ValidateRoleRequired(...)` — 防呆驗證
+- `BroadcastRoleChangedAsync()` — 先 `_membership.InvalidateAll()` 清 cache，再 SignalR `SendAsync("ReceiveRoleChanged")`，失敗只 LogWarning 不阻擋
+- `MergeRolePermissionsAsync(conn, trans, roleId, permissions)` — DELETE + 動態拼 VALUES 單一 INSERT（2 round-trip）
+- `WriteAuditAsync(conn, ...)` — instance method，統一寫 MT_AuditLogs，帶 `ClientIpResolver.Resolve(_httpContextAccessor)` IP；ProjectId=NULL（角色/帳號變更不綁梯次）
+- `ReadAccountSnapshotAsync(conn, userId)` — 讀取帳號快照供 OldValue 使用
+- `ReadRoleSnapshotAsync(conn, roleId)` — 讀取角色快照供 OldValue 使用（含已啟用模組列表）
+- `BuildPermissionSnapshotAsync(conn, permissions)` — 組裝 audit 用的權限快照列表
+- `EnsureRoleIsInternalAsync(conn, roleId)` — 確認角色 Category=0
+- `EnsureRoleNameUniqueAsync(conn, name, excludeRoleId)` — 確認角色名稱不重複（SELECT COUNT 預檢，注意：角色名稱未加 UNIQUE 索引，與帳號不同）
+- `EnsureRoleEditableAsync(conn, roleId)` — 確認非預設角色
 
 ## 安全性歷史優化（第一波）
 
 ### PBKDF2 雜湊接入（取代 SHA256）
-- `CreateAccountAsync`：`var passwordHash = AuthService.HashPassword(DefaultInternalPassword)` — `01024304` 預設密碼用 PBKDF2 雜湊
-- `ResetAccountPasswordAsync`：同上，重設時重新 PBKDF2
+- `CreateAccountAsync`：`AuthService.HashPassword(DefaultInternalPassword)` — `01024304` 預設密碼用 PBKDF2 雜湊
+- `ResetAccountPasswordAsync`：同上，LockoutUntil 一併清 NULL
 - `ChangeOwnPasswordAsync`：`AuthService.VerifyPassword(oldPassword, currentHash)` 驗舊密碼 + `AuthService.HashPassword(newPassword)` 雜湊新密碼
 - 格式：`PBKDF2.v1$<iter>$<salt-base64>$<hash-base64>`，與舊 SHA256 Base64 格式自動相容（login auto-upgrade）
 
 ### 移除 EnsureUsernameUniqueAsync（第一波 #4）
-- 原本每次新增/編輯帳號前都有一個 `SELECT COUNT` 預檢的 round-trip
-- 改靠 `UQ_MT_Users_Username` / `UQ_MT_Users_Email` UNIQUE 索引 + catch `SqlException ex when ex.Number is 2601 or 2627` 翻譯成「帳號已存在」/「Email 信箱已存在」人話
-- 每次建立帳號節省一次 round-trip
+- 改靠 `UQ_MT_Users_Username` / `UQ_MT_Users_Email` UNIQUE 索引 + catch `SqlException ex when ex.Number is 2601 or 2627` 翻譯成「帳號已存在」/「Email 信箱已存在」
+- **MT_Roles.Name 仍用 SELECT COUNT 預檢**（EnsureRoleNameUniqueAsync）—— 角色名稱沒有 UNIQUE 索引，是尚存的技術債
 
 ## 效能歷史優化（第三波 #18）
 
 ### MergeRolePermissionsAsync 批次 INSERT
-- 改前：`foreach` 每個模組權限獨立 INSERT = 8 次 + 1 次 DELETE = **9 round-trip**
-- 改後：1 次 DELETE + 動態拼 `INSERT ... VALUES (),(),...` = **2 round-trip**
-- 觸發點：`CreateRoleAsync`（行 561）+ `UpdateRoleAsync`（行 628）
-- `Permissions` 欄位（TINYINT，區塊細部權限）目前交由 DB 預設值（1=編輯）處理，未來若需細部權限可在此處加入 args
+- 改前：`foreach` 每個模組權限獨立 INSERT = N 次 + 1 次 DELETE = **N+1 round-trip**
+- 改後：1 次 DELETE + 動態拼 `INSERT INTO MT_RolePermissions (RoleId, ModuleId, IsEnabled) VALUES (@RoleId, @M0, @E0), ...` = **2 round-trip**
+- `Permissions` 欄位（TINYINT，區塊細部權限）目前交由 DB 預設值（1=編輯）處理，MergeRolePermissionsAsync 未寫入此欄
+- 觸發點：`CreateRoleAsync` + `UpdateRoleAsync`
 
 ## IMembershipService 整合（第二波 #7）
 
-- `GetUserModuleCardsAsync` 變 thin wrapper（5 行），SQL 邏輯搬到 `MembershipService.cs`
+- `GetUserModuleCardsAsync` 變 thin wrapper，SQL 邏輯全在 `MembershipService.cs`（Scoped + IMemoryCache Singleton，30 秒 TTL）
 - `BroadcastRoleChangedAsync` 先呼叫 `_membership.InvalidateAll()` 清除所有快取，再廣播 SignalR
-- 觸發 InvalidateAll 的 5 個 RoleService method：`UpdateAccountAsync`、`ToggleAccountStatusAsync`、`CreateRoleAsync`、`UpdateRoleAsync`、`DeleteRoleAsync`
-- Cache TTL = 30 秒，角色/帳號異動後立即清除，不用等 TTL 到期
+- 觸發 InvalidateAll 的 5 個方法：`UpdateAccountAsync`、`ToggleAccountStatusAsync`、`CreateRoleAsync`、`UpdateRoleAsync`、`DeleteRoleAsync`
+- Cache Key 格式：`mem:roles:{userId}:{projectId}` / `mem:cards:{userId}:{projectId}`
+- 雙層失效 Token：per-user CancellationTokenSource（InvalidateUser） + 全域 CancellationTokenSource（InvalidateAll）
 
 ## SignalR 廣播角色變更機制
 
 - Event 名稱：`"ReceiveRoleChanged"`
 - Hub：`ProjectsHub`（`/hubs/projects`），角色/帳號 CUD 成功後透過 `BroadcastRoleChangedAsync` 廣播
-- 失敗策略：catch 例外後 LogWarning，不阻擋主流程回傳
+- 失敗策略：catch 例外後 LogWarning，不阻擋主流程
 
 ## 預設角色 vs 自訂角色
 
-- **預設角色**（`MT_Roles.IsDefault = true`）：命題教師、審題委員（專審）、總召；角色 Modal 開啟為完全唯讀（`isRoleReadOnly=true`），所有欄位 disabled，Toggle 不可操作
-- **自訂角色**（`IsDefault = false`）：可新增/編輯/刪除，Toggle 自由操作；刪除前計算 MT_Users.RoleId + MT_ProjectMemberRoles 引用數，有使用者即擋下
+- **預設角色**（`MT_Roles.IsDefault = true`）：命題教師、審題委員（專審）、總召；角色 Modal 開啟為完全唯讀（`isRoleReadOnly=true`），角色卡片僅顯示「檢視」按鈕（無刪除）
+- **自訂角色**（`IsDefault = false`）：可新增/編輯/刪除；刪除前計算 MT_Users.RoleId + MT_ProjectMemberRoles 引用數，有使用者即擋下並顯示 Swal warning
+
+## 稽核日誌完整覆蓋（before/after 快照）
+
+所有 CRUD 操作均寫入 MT_AuditLogs（ProjectId = NULL），包含：
+- `CreateAccountAsync`：newValue 含 `targetDisplayName`
+- `UpdateAccountAsync`：oldValue（快照前）+ newValue（快照後），含 permissionDiff 概念
+- `ToggleAccountStatusAsync`：oldValue/newValue 含 statusText
+- `ResetAccountPasswordAsync`：newValue 含 `passwordReset: true`
+- `CreateRoleAsync`：newValue 含 permissions 列表
+- `UpdateRoleAsync`：oldValue + newValue 含 permissionDiff（added/removed 陣列）
+- `DeleteRoleAsync`：oldValue 含完整 permissions，newValue = null
+- `ChangeOwnPasswordAsync`：newValue 含 `passwordChanged: true`
 
 ## 8 個功能模組 Toggle
 
-- 模組清單**動態來自 `MT_Modules` 資料表**（`GetActiveModulesAsync`），不是硬編碼 8 個
-- 每個模組都是**單純 ON/OFF 開關**，沒有「僅瀏覽/瀏覽與編輯」兩級分權（公告模組亦同）
-- `MT_RolePermissions.Permissions TINYINT` 欄位是 DB 層保留的擴充空間（值 0=檢視/1=編輯），目前 UI 完全不使用，MergeRolePermissionsAsync 未寫入此欄
+- 模組清單**動態來自 `MT_Modules` 資料表**（GetActiveModulesAsync），不是硬編碼
+- 每個模組都是**單純 ON/OFF 開關**，無「僅瀏覽/瀏覽與編輯」兩級分權（公告模組亦同）
+- `MT_RolePermissions.Permissions TINYINT` 是 DB 預留空間（預設值 1），目前 UI/Service 完全不使用
 
-## 關鍵 Model 類別（RoleModels.cs 224 行）
+## 關鍵 Model 類別（RoleModels.cs 222 行）
 
-- `InternalAccountItem`：左側清單用（無 Note/IsFirstLogin）
+- `InternalAccountItem`：左側清單用（含 IsDefaultRole）
 - `AccountDetailDto`：右側詳情用（含 Note/IsFirstLogin/CreatedAt/LastLoginAt/EnabledModules）
+- `CreateAccountRequest` / `UpdateAccountRequest`：表單請求 DTO（**無 [Required] Data Annotation，前端驗證靠 @code 手動判斷**）
 - `RoleCardItem`：角色卡片（含 UserCount/EnabledModuleCount/EnabledModules）
 - `RoleDetailDto`：角色 Modal 用（含完整 Permissions 清單）
 - `RolePermissionToggle`：Toggle UI 元件資料（ModuleId/ModuleKey/Name/Icon/PageUrl/IsEnabled）
 - `RolePermissionInput`：寫入權限用（ModuleId/IsEnabled）
-- `RoleUserItem`：角色使用者清單（Source=0/1 兩種來源）
+- `RoleUserItem`：角色使用者清單（Source=0/1，ProjectName/ProjectCode 僅 Source=1 時有值）
 - `UserProfileDto`：個人資料 Modal 用（含 `List<RoleTag> ProjectRoles`）
 - `UserModuleCard`：首頁功能卡片用（含 IsEnabled）
 
-## 資料表對照
+## 資料表對照（2026-05-20 DB Schema 確認）
 
-| 功能 | 資料表 |
-|------|--------|
-| 角色定義 | MT_Roles（Category:0=內部/1=外部，IsDefault 鎖定預設角色） |
-| 功能模組 | MT_Modules（ModuleKey 唯一小寫，IsActive 控制顯示） |
-| 角色與模組對應 | MT_RolePermissions（IsEnabled BIT，Permissions TINYINT 保留未用） |
-| 使用者帳號 | MT_Users（Status:0=停用/1=啟用，IsFirstLogin，LockoutUntil，PasswordHash nvarchar(150) PBKDF2 格式） |
-| 梯次角色指派 | MT_ProjectMemberRoles（外部教師在梯次中的角色） |
+| 功能 | 資料表 | 關鍵約束 |
+|------|--------|---------|
+| 角色定義 | MT_Roles（Category:0=內部/1=外部，IsDefault BIT，預設 0） | **無 Name UNIQUE 索引**（技術債） |
+| 功能模組 | MT_Modules（ModuleKey 唯一小寫，IsActive 控制顯示） | `UQ_MT_Modules_ModuleKey` |
+| 角色與模組對應 | MT_RolePermissions（IsEnabled BIT 預設 0，Permissions TINYINT 預設 1） | `UQ_MT_RolePermissions_RoleId_ModuleId` |
+| 使用者帳號 | MT_Users（Status:0=停用/1=啟用，IsFirstLogin，LockoutUntil，PasswordHash nvarchar(150) PBKDF2 格式） | `UQ_MT_Users_Username`（filtered）、`UQ_MT_Users_Email`（filtered） |
+| 梯次角色指派 | MT_ProjectMemberRoles | FK → MT_Roles.Id |
 
-**How to apply:**
-- 若未來需實作「僅瀏覽/瀏覽與編輯」細部權限，MT_RolePermissions.Permissions 欄位已準備好，需同步更新 RolePermissionToggle、RolePermissionInput 及 MergeRolePermissionsAsync
-- 新增 Model 類別優先放入 RoleModels.cs，避免再產生小檔案
-- PBKDF2 接入路徑：所有密碼操作統一走 `AuthService.HashPassword()` / `AuthService.VerifyPassword()`，不要在 RoleService 內自行計算
-- SqlException 2601/2627 翻譯已涵蓋帳號唯一、Email 唯一兩個場景，不要再加手動預檢 SELECT COUNT
+**How to apply：**
+- 若未來需實作細部權限（僅瀏覽/瀏覽與編輯），MT_RolePermissions.Permissions 欄位已準備好，需同步更新 RolePermissionToggle、RolePermissionInput 及 MergeRolePermissionsAsync
+- 新增 Model 類別優先放入 RoleModels.cs；若是多頁面共用的小型 Model（如 RoleTag、ModulePermission）則放在獨立檔案是正確作法
+- PBKDF2 路徑：統一走 `AuthService.HashPassword()` / `AuthService.VerifyPassword()`
+- SqlException 2601/2627 翻譯涵蓋帳號唯一、Email 唯一；角色名稱唯一仍靠 SELECT COUNT 預檢
 
 **Why（第三波 #18 決策）：**
-保留 DELETE + 單一批次 INSERT 模式（而非 UPSERT/MERGE），因為角色模組數量有限（≤10），DELETE + INSERT 邏輯最簡單且 transaction 安全。
+保留 DELETE + 單一批次 INSERT（而非 UPSERT/MERGE），因角色模組數量有限（≤10），邏輯最簡單且 transaction 安全。

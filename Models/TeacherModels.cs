@@ -353,3 +353,42 @@ public class TeacherFormModel
     public int Status { get; set; } = 1;
     public string? Note { get; set; }
 }
+
+// ─── 匯出名單 ───
+
+/// <summary>匯出報表中的單筆資料列（一位教師 × 一種身分）。</summary>
+public class TeacherExportRow
+{
+    public string DisplayName { get; set; } = "";
+    /// <summary>身分標籤，直接取自 MT_Roles.Name（「命題教師」/「審題委員」/「總召集人」/「計畫主持人」等）。</summary>
+    public string RoleLabel { get; set; } = "";
+    /// <summary>
+    /// 是否該列適用題數統計。
+    /// true：命題 / 審題委員身分，題數欄位顯示實際數字（含 0）。
+    /// false：管理身分（總召集人、計畫主持人等），題數欄位渲染為「－」。
+    /// </summary>
+    public bool HasNumericStats { get; set; } = true;
+    /// <summary>一般單選題數（TypeId=1）。</summary>
+    public int Type1Count { get; set; }
+    /// <summary>閱讀題組數（TypeId=5）。</summary>
+    public int Type5Count { get; set; }
+    /// <summary>長文題數（TypeId=4）。</summary>
+    public int Type4Count { get; set; }
+    /// <summary>短文題組數（TypeId=3）。</summary>
+    public int Type3Count { get; set; }
+    /// <summary>聽力測驗題數（TypeId=6）。</summary>
+    public int Type6Count { get; set; }
+    /// <summary>聽力題組題數（TypeId=7）。</summary>
+    public int Type7Count { get; set; }
+    /// <summary>採用題數（Status=10 已採用；或 Status IN (11,12) 結案判採用）。</summary>
+    public int AdoptedCount { get; set; }
+    /// <summary>不採用題數（Status=11 結案未採用；或 Status=12 結案不採用）。</summary>
+    public int RejectedCount { get; set; }
+}
+
+/// <summary>匯出服務的回傳結果，包含梯次名稱與所有資料列。</summary>
+public class TeacherExportResult
+{
+    public string ProjectName { get; set; } = "";
+    public List<TeacherExportRow> Rows { get; set; } = [];
+}

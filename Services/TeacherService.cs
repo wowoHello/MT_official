@@ -44,6 +44,9 @@ public interface ITeacherService
     // === 批次匯入 ===
     Task<(List<BatchImportRow> Rows, string? ParseError)> ParseExcelAsync(Stream fileStream);
     Task<List<BatchImportRowResult>> ImportTeachersAsync(IReadOnlyList<BatchImportRow> rows, int operatorId);
+
+    // === 匯出名單 ===
+    Task<TeacherExportResult> ExportProjectTeachersAsync(int projectId, string projectName);
 }
 
 /// <summary>
@@ -53,11 +56,9 @@ public class TeacherService : ITeacherService
 {
     private const string DefaultTeacherPassword = "CSF@01024304";
 
-    // 題目結案後狀態碼常數（對應 MT_Questions.Status 結案分支）
-    // StatusClosedAdopted = 12 (Archived) / StatusClosedNotAdopted = 11 (ClosedNotAdopted)
     // 與 QuestionStatus.Adopted=9 / Rejected=10 命名區分，避免混淆
-    private const int StatusClosedAdopted      = 12;   // 結案入庫（原 13，前移）
-    private const int StatusClosedNotAdopted   = 11;   // 結案未採用（原 12，前移）
+    private const int StatusClosedAdopted      = 12;   // 結案入庫
+    private const int StatusClosedNotAdopted   = 11;   // 結案未採用
 
     private readonly IDatabaseService _db;
     private readonly ILogger<TeacherService> _logger;
@@ -1236,6 +1237,237 @@ public class TeacherService : ITeacherService
         warnings.Add(message);
         return defaultValue;
     }
+
+    // ==================================================================
+    // 匯出名單
+    // ==================================================================
+
+    /// <summary>
+    /// 查詢指定梯次的命題教師與審題委員，依身分各產生一列，彙整各題型計數與採用/不採用計數。
+    /// 命題身分：CreatorId 在此梯次且非草稿非軟刪除的題目集合。
+    /// 審題身分：ReviewerId 在此梯次 ReviewAssignments 對應題目的 DISTINCT 集合。
+    /// </summary>
+    public async Task<TeacherExportResult> ExportProjectTeachersAsync(int projectId, string projectName)
+    {
+        using var conn = _db.CreateConnection();
+
+        // ── 查詢 1：成員身分（權威來源）──
+        // 此梯次每位 ProjectMember 對應的 RoleName 集合（一個 UserId 可有多筆 RoleName）
+        const string memberSql = """
+            SELECT
+                u.Id           AS UserId,
+                u.DisplayName  AS DisplayName,
+                r.Name         AS RoleName
+            FROM dbo.MT_ProjectMembers pm
+            INNER JOIN dbo.MT_Users u ON u.Id = pm.UserId
+            INNER JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
+            INNER JOIN dbo.MT_Roles r ON r.Id = pmr.RoleId
+            WHERE pm.ProjectId = @ProjectId;
+            """;
+
+        // ── 查詢 2：命題活動統計（依 CreatorId × TypeId）──
+        // Status <> 0 排草稿，IsDeleted = 0 排軟刪除，不含 TypeId=2（精選單選將廢除）
+        const string composeSql = """
+            SELECT
+                q.CreatorId      AS UserId,
+                q.QuestionTypeId AS TypeId,
+                SUM(CASE WHEN q.Status IN (9, 12) THEN 1 ELSE 0 END) AS AdoptedCount,
+                SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END) AS RejectedCount,
+                COUNT(*)         AS TypeCount
+            FROM dbo.MT_Questions q
+            WHERE q.ProjectId      = @ProjectId
+              AND q.IsDeleted      = 0
+              AND q.Status         <> 0
+              AND q.QuestionTypeId <> 2
+            GROUP BY q.CreatorId, q.QuestionTypeId;
+            """;
+
+        // ── 查詢 3：審題活動統計（依 ReviewerId × TypeId，DISTINCT QuestionId）──
+        // 跨三審全算（ReviewStage 不限），同題不重複計
+        const string reviewSql = """
+            SELECT
+                distinct_q.ReviewerId     AS UserId,
+                distinct_q.QuestionTypeId AS TypeId,
+                SUM(CASE WHEN distinct_q.Status IN (9, 12) THEN 1 ELSE 0 END) AS AdoptedCount,
+                SUM(CASE WHEN distinct_q.Status IN (10, 11) THEN 1 ELSE 0 END) AS RejectedCount,
+                COUNT(*) AS TypeCount
+            FROM (
+                SELECT DISTINCT ra.ReviewerId, q.QuestionTypeId, q.Id AS QuestionId, q.Status
+                FROM dbo.MT_ReviewAssignments ra
+                INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
+                WHERE q.ProjectId      = @ProjectId
+                  AND q.IsDeleted      = 0
+                  AND q.QuestionTypeId <> 2
+            ) AS distinct_q
+            GROUP BY distinct_q.ReviewerId, distinct_q.QuestionTypeId;
+            """;
+
+        var param = new { ProjectId = projectId };
+
+        // ── 撈三組資料（共用同一連線，依序執行）──
+        var memberRows  = (await conn.QueryAsync<ExportMemberRow>(memberSql,  param)).AsList();
+        var composeRows = (await conn.QueryAsync<ExportTypeRow >(composeSql, param)).AsList();
+        var reviewRows  = (await conn.QueryAsync<ExportTypeRow >(reviewSql,  param)).AsList();
+
+        // ── 統計資料以 UserId 索引（避免重名衝突）──
+        var composeByUser = composeRows
+            .GroupBy(r => r.UserId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+        var reviewByUser  = reviewRows
+            .GroupBy(r => r.UserId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        // ── 身分歸屬（權威來源：MT_ProjectMemberRoles + MT_Roles.Name）──
+        // 命題教師：精確匹配 Role.Name = N'命題教師'
+        // 審題類（套用 review stats）：LIKE N'審題%' OR == '總召集人'
+        //   原因：總召集人在 MT_ReviewAssignments 內也是 ReviewerId（負責總審階段）
+        // 純管理身分（題數全「－」）：計畫主持人、系統管理員 等
+        // 所有 RoleLabel 直接帶 MT_Roles.Name 原值
+        static bool IsReviewerRole(string name) =>
+            name == "總召集人" ||
+            name.StartsWith("審題", StringComparison.Ordinal);
+
+        var memberInfo = memberRows
+            .GroupBy(r => r.UserId)
+            .ToDictionary(
+                g => g.Key,
+                g => new ExportMemberInfo
+                {
+                    DisplayName      = g.First().DisplayName,
+                    ProposerRoleName = g.FirstOrDefault(r => r.RoleName == "命題教師")?.RoleName,
+                    ReviewerRoleNames = g
+                        .Where(r => IsReviewerRole(r.RoleName))
+                        .Select(r => r.RoleName)
+                        .Distinct()
+                        .OrderBy(n => n, StringComparer.Ordinal)
+                        .ToList(),
+                    AdminRoles = g
+                        .Where(r => r.RoleName != "命題教師" && !IsReviewerRole(r.RoleName))
+                        .Select(r => r.RoleName)
+                        .Distinct()
+                        .OrderBy(n => n, StringComparer.Ordinal)
+                        .ToList(),
+                });
+
+        var exportRows = new List<TeacherExportRow>();
+
+        // ── 命題教師列（有命題身分的成員，依 DisplayName 排序；題數 0 也照出）──
+        foreach (var kv in memberInfo
+                     .Where(kv => kv.Value.ProposerRoleName != null)
+                     .OrderBy(kv => kv.Value.DisplayName, StringComparer.Ordinal))
+        {
+            var stats = composeByUser.TryGetValue(kv.Key, out var rows)
+                ? rows
+                : new List<ExportTypeRow>();
+
+            exportRows.Add(new TeacherExportRow
+            {
+                DisplayName     = kv.Value.DisplayName,
+                RoleLabel       = kv.Value.ProposerRoleName!,    // 「命題教師」(MT_Roles.Name)
+                HasNumericStats = true,
+                Type1Count      = SumByType(stats, 1),
+                Type3Count      = SumByType(stats, 3),
+                Type4Count      = SumByType(stats, 4),
+                Type5Count      = SumByType(stats, 5),
+                Type6Count      = SumByType(stats, 6),
+                Type7Count      = SumByType(stats, 7),
+                AdoptedCount    = stats.Sum(r => r.AdoptedCount),
+                RejectedCount   = stats.Sum(r => r.RejectedCount),
+            });
+        }
+
+        // ── 審題類列（審題委員 / 總召集人 等；各自列出一行，套用 review stats）──
+        // 排序：先 RoleName（審題委員 < 總召集人 by Unicode）、再 DisplayName
+        var reviewerRows = memberInfo
+            .SelectMany(kv => kv.Value.ReviewerRoleNames.Select(role => (
+                UserId: kv.Key,
+                DisplayName: kv.Value.DisplayName,
+                RoleName: role)))
+            .OrderBy(t => t.RoleName,    StringComparer.Ordinal)
+            .ThenBy (t => t.DisplayName, StringComparer.Ordinal);
+
+        foreach (var (userId, displayName, roleName) in reviewerRows)
+        {
+            var stats = reviewByUser.TryGetValue(userId, out var rows)
+                ? rows
+                : new List<ExportTypeRow>();
+
+            exportRows.Add(new TeacherExportRow
+            {
+                DisplayName     = displayName,
+                RoleLabel       = roleName,    // 「審題委員」/「總召集人」(MT_Roles.Name)
+                HasNumericStats = true,
+                Type1Count      = SumByType(stats, 1),
+                Type3Count      = SumByType(stats, 3),
+                Type4Count      = SumByType(stats, 4),
+                Type5Count      = SumByType(stats, 5),
+                Type6Count      = SumByType(stats, 6),
+                Type7Count      = SumByType(stats, 7),
+                AdoptedCount    = stats.Sum(r => r.AdoptedCount),
+                RejectedCount   = stats.Sum(r => r.RejectedCount),
+            });
+        }
+
+        // ── 純管理身分列（計畫主持人 / 系統管理員 等，題數欄全部「－」）──
+        var adminRoleRows = memberInfo
+            .SelectMany(kv => kv.Value.AdminRoles.Select(role => (
+                DisplayName: kv.Value.DisplayName,
+                RoleName: role)))
+            .OrderBy(t => t.RoleName,    StringComparer.Ordinal)
+            .ThenBy (t => t.DisplayName, StringComparer.Ordinal);
+
+        foreach (var (displayName, roleName) in adminRoleRows)
+        {
+            exportRows.Add(new TeacherExportRow
+            {
+                DisplayName     = displayName,
+                RoleLabel       = roleName,
+                HasNumericStats = false,    // 觸發 BuildExportWorkbook 渲染「－」
+            });
+        }
+
+        return new TeacherExportResult
+        {
+            ProjectName = projectName,
+            Rows        = exportRows,
+        };
+    }
+
+    // ── 輔助：Dapper 對應型別（供 ExportProjectTeachersAsync 內部使用）──
+
+    private sealed class ExportTypeRow
+    {
+        public int    UserId       { get; set; }
+        public int    TypeId       { get; set; }
+        public int    AdoptedCount { get; set; }
+        public int    RejectedCount { get; set; }
+        public int    TypeCount    { get; set; }
+    }
+
+    private sealed class ExportMemberRow
+    {
+        public int    UserId      { get; set; }
+        public string DisplayName { get; set; } = "";
+        public string RoleName    { get; set; } = "";
+    }
+
+    private sealed class ExportMemberInfo
+    {
+        public string  DisplayName       { get; set; } = "";
+        /// <summary>命題身分 RoleName（直接帶 MT_Roles.Name 的「命題教師」）；null 表示無此身分。</summary>
+        public string? ProposerRoleName  { get; set; }
+        /// <summary>
+        /// 審題相關身分清單：含「審題委員」(LIKE '審題%') 與「總召集人」。
+        /// 每個 RoleName 在報表中產生一列、套用相同 review stats（DISTINCT QuestionId）。
+        /// 該人同時掛多個審題身分 → 產生多列。
+        /// </summary>
+        public List<string> ReviewerRoleNames { get; set; } = new();
+        /// <summary>純管理身分（計畫主持人、系統管理員 等），題數欄全部「－」。</summary>
+        public List<string> AdminRoles       { get; set; } = new();
+    }
+
+    private static int SumByType(IEnumerable<ExportTypeRow> rows, int typeId) =>
+        rows.Where(r => r.TypeId == typeId).Sum(r => r.TypeCount);
 
     private async Task WriteAuditAsync(
         IDbConnection conn,

@@ -55,7 +55,15 @@ type: project
 - `EventType=1`（登入）：所有嘗試皆記錄（驗證碼失敗、帳密失敗、成功皆記）
 - `EventType=2`（登出）：`/auth/logout` endpoint 呼叫 `LogLogoutAsync`，反查 MT_Users 取得 Username
 - **不寫 MT_AuditLogs**（登入/登出不是資料 CUD，只寫 LoginLogs）
-- 欄位：UserId（失敗時可能 null）、Username、ProjectId（登入時 NULL）、EventType、IsSuccess、IpAddress、UserAgent、FailReason
+- DB 欄位：Id、UserId（失敗時可能 null）、Username、IsSuccess、IpAddress、UserAgent、FailReason、CreatedAt、ProjectId（登入/登出時不傳，DB 預設 NULL）、EventType
+- 程式碼 INSERT 語句不含 ProjectId 欄位（留給 DB DEFAULT）
+
+## /auth/login 與 /auth/logout 端點位置
+
+- 認證 endpoint 抽出至 `Endpoints/AuthEndpoints.cs`（`public static class AuthEndpoints`）
+- `Program.cs` 透過 `app.MapAuthEndpoints()` extension 方法掛載
+- `/auth/login`：接收 `key` query string → `CompleteSignInAsync` → 首次登入導 `~/first-login-password`，否則導 `~/`
+- `/auth/logout`：try/catch 寫 LogLogout → `SignOutAsync` → 導 `~/login`（稽核失敗不阻擋登出）
 
 ## 防枚舉設計
 

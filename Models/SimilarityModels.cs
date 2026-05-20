@@ -69,6 +69,9 @@ public class SimilarityCompareResult
     /// <summary>被比對的題目代號（Q-115-00069 之類）</summary>
     public string ComparedQuestionCode { get; set; } = string.Empty;
 
+    /// <summary>所屬梯次名稱（跨梯次比對時 UI 需區分）</summary>
+    public string ProjectName { get; set; } = string.Empty;
+
     /// <summary>分數 0~100，已四捨五入至小數第 2 位</summary>
     public decimal Score { get; set; }
 

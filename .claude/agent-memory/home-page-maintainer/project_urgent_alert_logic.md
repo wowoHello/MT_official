@@ -7,7 +7,8 @@ type: project
 ## 觸發條件
 
 - 必須有選定梯次（projectId）且 userId > 0
-- 已結案的梯次（`ClosedAt IS NOT NULL` 或 `EndDate < 今日`）直接回傳空陣列
+- 第一步先執行獨立 `closedCheckSql`：`ClosedAt IS NOT NULL OR EndDate < CAST(GETDATE() AS DATE)` → 結果 = 1 則直接回傳空陣列，不執行後續 10 結果集 SQL
+- 所有結果集共用單一 `QueryMultipleAsync` 呼叫（參數：UserId, ProjectId, Threshold=5）
 
 ## 閥值常數
 
@@ -84,5 +85,7 @@ RoleConvener = "總召集人"
 
 ## 已知技術債
 
+- **SQL 內部評論不一致**：`const string sql` 的標頭評論寫「8 個結果集」，但實際有 10 個（含管理員 9/10）——評論未更新，不影響執行
 - 結果集 #4 與 #10 的 NOT EXISTS 子查詢邏輯完全相同（個人 vs 全梯次），應抽共用 CTE 或 View
 - 結果集 #2 自行 JOIN MT_ProjectMembers/Roles，未使用 IMembershipService cache（第二波 #7 建好但未整合）
+- alert 卡片點擊無跳頁行為（`warning_MODIFY.md` 規劃的 `?tab=compose/revision` 連結尚未實作到 Blazor）

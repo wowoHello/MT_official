@@ -7,3 +7,4 @@
 - [修題階段燈號雙態呈現](feedback_revision_phase_display.md) — 已送出藍勾+綠 Badge / 未送出紅筆+橘 Badge，由 PhaseProgressStepper 統一處理
 - [七階段燈號判定條件](project_overview_phase_lamps.md) — ResolveStage 7 種 tone（新增 reviewDone）/ 4 個參數 / preDone/revisionSent/draftFailed/reviewDone 四種僅 Overview 觸發
 - [Overview 可檢視角色](project_overview_viewer_roles.md) — 管理者/計畫主持人/總召/教務管理者，外部教師禁入
+- [Overview 相似題 Banner 待辦](project_overview_similarity_banner_gap.md) — Plan_Similarity §5.5 規劃但尚未實作；ReviewSimilarityBanner 元件已存在可複用

@@ -1,16 +1,37 @@
 ---
 name: Announcements 頁面當前完整狀態
-description: 2026-05-17 讀碼刷新：三檔行數、主要方法、DB 設計決策、權限演進史、已知技術債
+description: 2026-05-20 讀碼驗證：三檔行數、DB 欄位型別、TogglePin 樂觀更新、UI 篩選狀態、已知技術債
 type: project
 ---
 
-## 三檔現況（2026-05-17 確認）
+## 三檔現況（2026-05-20 確認，行數與 2026-05-17 一致）
 
 | 檔案 | 行數量級 | 主要職責 |
 |------|---------|---------|
 | `Components/Pages/Announcements.razor` | ~884 行 | UI 列表 + SlideOver + 檢視 Modal + @code 邏輯 |
 | `Services/AnnouncementService.cs` | ~441 行 | 9 個 Service 方法 + EnsureCanEditAsync 權限門鎖 |
 | `Models/AnnouncementModels.cs` | ~100 行 | 2 個 Enum + 5 個 DTO/Model class |
+
+## DB 欄位型別（MT_Announcements，2026-05-20 schema 確認）
+
+| 欄位 | 型別 | 備註 |
+|------|------|------|
+| Id | INT IDENTITY(1,1) | PK |
+| Category | TINYINT NOT NULL | 1-4 |
+| Status | TINYINT NOT NULL DEFAULT(0) | 0=草稿, 1=發佈 |
+| ProjectId | INT NULL | FK→MT_Projects.Id；NULL=全站廣播 |
+| PublishDate | datetime2(7) NOT NULL | 注意是 datetime2，非 datetime |
+| UnpublishDate | datetime2(7) NULL | NULL=不自動下架 |
+| IsPinned | BIT NOT NULL DEFAULT(0) | |
+| Title | NVARCHAR(200) NOT NULL | 上限 200 字元 |
+| Content | NVARCHAR(MAX) NOT NULL | HTML 富文本 |
+| AuthorId | INT NOT NULL | FK→MT_Users.Id |
+| CreatedAt | datetime2(7) NOT NULL DEFAULT(sysdatetime()) | |
+| UpdatedAt | datetime2(7) NOT NULL DEFAULT(sysdatetime()) | |
+
+無任何索引（除 PK）。FK 約束：AuthorId→MT_Users.Id、ProjectId→MT_Projects.Id。
+
+**Why:** 記錄 datetime2 型別很重要：若日後有精確度相關 bug（如秒數比較誤差），先確認 C# DateTime 的 Kind 與 SQL datetime2 的對應。
 
 ## 四種分類（Category TINYINT，Enum AnnouncementCategory）
 
@@ -41,6 +62,41 @@ type: project
 - 同時批次寫 AuditLog（SQL SERVER 內含 INSERT...SELECT 一趟搞定）
 
 **注意**：自動下架「未持久化」是設計決策，不是 bug。已下架公告下次頁面載入後仍可自動從日期推導出正確狀態。
+
+## UI 狀態篩選選項（filterDisplayStatus 下拉）
+
+實作有五個選項（規格書只提三種）：
+- `all`（所有狀態）
+- `已發佈`
+- `未發佈`（規格書未列，但實作存在）
+- `草稿`
+- `已下架`
+
+篩選以 `DisplayStatus` 計算屬性比對，不是 DB Status 欄位直接比對。
+
+**How to apply:** 若未來要調整篩選選項，需同時確認 `DisplayStatus` computed property 的回傳字串值與 `filterDisplayStatus` 的選項值一致。
+
+## TogglePin 樂觀更新模式（HandleTogglePin）
+
+置頂切換採用**樂觀更新**：
+1. 立即修改前端 `announcements` list 中的 IsPinned（UI 瞬間反應）
+2. 同時發出 Toast 通知（fire-and-forget）
+3. 呼叫 `TogglePinAsync` 後端同步
+4. 失敗時重新 `LoadDataAsync()` 還原正確狀態
+
+**Why:** 置頂切換是低風險操作，樂觀更新讓年長使用者感受到立即回饋，不用等後端確認。失敗率極低，且有 LoadDataAsync 兜底。
+
+**How to apply:** 若未來要在其他欄位做類似的快速切換（如發佈/下架），可參考此模式；但涉及複雜業務規則的操作不應套用此模式。
+
+## 表單日期防呆機制（OnPublishDateChanged / OnUnpublishDateChanged）
+
+- 上架日期改動後：若上架日期 > 下架日期 → 清空下架日期 + SweetAlert2 提示
+- 下架日期改動後：若下架日期 < 上架日期 → 清空下架日期 + SweetAlert2 提示
+- SaveAndPublish 時額外檢查：若已置頂但下架日期已過 → 自動取消置頂並提示
+- SaveAsDraft 時：若已勾置頂 → 自動取消置頂並提示
+- Backdrop 點擊自動存草稿時：三個必填欄位（Title/PublishDate/Content）任一空白 → 不觸發存草稿
+
+`TruncateSeconds` 方法統一截斷秒數，避免 datetime-local 輸入（精度到分鐘）與 DB 比對時產生誤差。
 
 ## 排序規則（實際實作 vs 規格書差異）
 

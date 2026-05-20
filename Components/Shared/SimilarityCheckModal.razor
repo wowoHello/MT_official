@@ -30,13 +30,16 @@
                 </p>
             </div>
         }
-        else if (Results.Count == 0)
+        else if (!HasMeaningfulResults)
         {
+            @* 兩種情境統一顯示空狀態：
+               (1) 完全沒有同型同級候選題
+               (2) 有候選但最高分仍 < 5%（雜訊閾值，視為實質無相似） *@
             <div class="py-10 text-center">
                 <i class="fa-regular fa-circle-check text-3xl text-sage mb-3"></i>
                 <p class="text-sm font-bold text-slate-main">未發現相似題</p>
                 <p class="text-xs text-gray-400 mt-1">
-                    本梯次同題型同等級題目皆無顯著相似內容 ✨
+                    跨梯次同題型同等級題目皆無顯著相似內容 ✨
                 </p>
             </div>
         }
@@ -46,23 +49,25 @@
                 <p class="text-sm text-gray-600 mb-3">
                     題目
                     <strong class="font-mono text-slate-main">@SourceCode</strong>
-                    在本梯次比對結果（Top @Results.Count）：
+                    跨梯次比對結果（@DisplayResults.Count() 筆）：
                 </p>
                 <div class="overflow-hidden rounded-lg border border-gray-200">
                     <table class="w-full text-sm">
                         <thead class="bg-gray-50">
                             <tr>
                                 <th class="px-3 py-2 text-left font-bold text-gray-600">比對題號</th>
+                                <th class="px-3 py-2 text-left font-bold text-gray-600">所屬梯次</th>
                                 <th class="px-3 py-2 text-left font-bold text-gray-600">命題者</th>
                                 <th class="px-3 py-2 text-right font-bold text-gray-600">相似度</th>
                                 <th class="px-3 py-2 text-left font-bold text-gray-600">判定</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
-                            @foreach (var item in Results)
+                            @foreach (var item in DisplayResults)
                             {
                                 <tr class="hover:bg-gray-50/60 transition-colors">
                                     <td class="px-3 py-2 font-mono text-slate-main">@item.ComparedQuestionCode</td>
+                                    <td class="px-3 py-2 text-gray-600">@item.ProjectName</td>
                                     <td class="px-3 py-2 text-gray-700">@item.CreatorName</td>
                                     <td class="px-3 py-2 text-right">
                                         <span class="font-bold @GetScoreColor(item.Determination)">
@@ -82,7 +87,7 @@
                 <p class="text-xs text-gray-400 mt-3 flex items-start gap-1">
                     <i class="fa-solid fa-circle-info mt-0.5"></i>
                     <span>
-                        比對範圍：本梯次同題型同等級且已送審以上題目；
+                        比對範圍：跨所有梯次的同題型同等級題目（排除：草稿、不採用、結案未採用、已刪除）；
                         演算法：4-gram Jaccard 字面相似度（不含語意分析）。
                     </span>
                 </p>
@@ -98,6 +103,11 @@
 </CustomModal>
 
 @code {
+    /// <summary>
+    /// 雜訊閾值：低於此分數視同無相似（避免 0-5% 的偶發 gram 重疊干擾）
+    /// </summary>
+    private const decimal NoiseThreshold = 5m;
+
     [Parameter] public bool IsVisible { get; set; }
     [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
 
@@ -107,6 +117,14 @@
         = Array.Empty<SimilarityCompareResult>();
 
     [Parameter] public string SourceCode { get; set; } = string.Empty;
+
+    /// <summary>是否有「實質意義」的結果（Top-1 分數 ≥ 雜訊閾值）</summary>
+    private bool HasMeaningfulResults =>
+        Results.Count > 0 && Results.Max(r => r.Score) >= NoiseThreshold;
+
+    /// <summary>顯示時也過濾掉雜訊列，只列出 Score ≥ NoiseThreshold 的</summary>
+    private IEnumerable<SimilarityCompareResult> DisplayResults =>
+        Results.Where(r => r.Score >= NoiseThreshold);
 
     private Task OnVisibleChanged(bool v) => IsVisibleChanged.InvokeAsync(v);
 

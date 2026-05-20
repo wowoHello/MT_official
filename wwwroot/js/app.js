@@ -14,6 +14,7 @@
  *   6. 聘書 Canvas 繪製           — AppointmentCert
  *   7. 字體縮放控制器             — FontController
  *   8. 拖曳上傳轉發               — DropForward
+ *   9. 檔案下載                   — downloadByteArray
  */
 
 
@@ -710,4 +711,28 @@ window.FontController = {
     dispose() {
         clearTimeout(this._idleTimer);
     }
+};
+
+// ============================================================
+//  9. 檔案下載（Base64 → Blob → <a> 自動點擊）
+//     Blazor 端呼叫：JS.InvokeVoidAsync("downloadByteArray", base64, fileName, mimeType)
+// ============================================================
+
+/**
+ * 將 Base64 字串轉為 Blob 並透過動態 <a> 觸發瀏覽器下載。
+ * @param {string} base64   - 檔案位元組的 Base64 字串
+ * @param {string} fileName - 下載儲存的檔名（例：教師名單_xxx.xlsx）
+ * @param {string} mimeType - MIME 類型（例：application/vnd.openxmlformats-officedocument.spreadsheetml.sheet）
+ */
+window.downloadByteArray = (base64, fileName, mimeType) => {
+    const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    const blob  = new Blob([bytes], { type: mimeType });
+    const url   = URL.createObjectURL(blob);
+    const link  = document.createElement('a');
+    link.href     = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 };

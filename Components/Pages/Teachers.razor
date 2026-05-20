@@ -1635,7 +1635,143 @@
     // ──── 匯出名單 ────
     private async Task HandleExport()
     {
-        await JS.InvokeVoidAsync("Swal.fire", new { icon = "info", title = "功能開發中", text = "匯出名單功能將於後續版本提供。", confirmButtonColor = "#6B8EAD" });
+        if (CurrentProject is null)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "warning", title = "尚未選擇梯次", text = "請先於頂部切換器選擇梯次，再進行匯出。", confirmButtonColor = "#6B8EAD" });
+            return;
+        }
+
+        try
+        {
+            // ── 1. 查詢資料 ──
+            var result = await TeacherService.ExportProjectTeachersAsync(CurrentProject.Id, CurrentProject.Name);
+
+            if (result.Rows.Count == 0)
+            {
+                await JS.InvokeVoidAsync("Swal.fire", new { icon = "info", title = "無資料", text = "此梯次目前沒有命題或審題身分的教師資料可匯出。", confirmButtonColor = "#6B8EAD" });
+                return;
+            }
+
+            // ── 2. 建立 NPOI Workbook ──
+            var bytes = BuildExportWorkbook(result);
+
+            // ── 3. 產生安全檔名 ──
+            var invalidChars = new[] { '/', '\\', ':', '*', '?', '"', '<', '>', '|' };
+            var safeName     = string.Join("_", result.ProjectName.Split(invalidChars, StringSplitOptions.None));
+            var timestamp    = DateTime.Now.ToString("yyyyMMdd_HHmm");
+            var fileName     = $"教師名單_{safeName}_{timestamp}.xlsx";
+
+            // ── 4. JS Blob 觸發下載 ──
+            await JS.InvokeVoidAsync("downloadByteArray", Convert.ToBase64String(bytes), fileName,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "匯出教師名單失敗");
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "error", title = "匯出失敗", text = ex.Message, confirmButtonColor = "#6B8EAD" });
+        }
+    }
+
+    /// <summary>使用 NPOI 將 TeacherExportResult 轉為 .xlsx byte[]。</summary>
+    private static byte[] BuildExportWorkbook(TeacherExportResult result)
+    {
+        using var workbook = new NPOI.XSSF.UserModel.XSSFWorkbook();
+        var sheet = workbook.CreateSheet("教師名單");
+
+        // ── 標頭樣式（粗體、灰底、置中）──
+        var headerFont = workbook.CreateFont();
+        headerFont.IsBold = true;
+        var headerStyle = workbook.CreateCellStyle();
+        headerStyle.SetFont(headerFont);
+        headerStyle.FillForegroundColor = NPOI.HSSF.Util.HSSFColor.Grey25Percent.Index;
+        headerStyle.FillPattern = NPOI.SS.UserModel.FillPattern.SolidForeground;
+        headerStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Center;
+        headerStyle.VerticalAlignment = NPOI.SS.UserModel.VerticalAlignment.Center;
+
+        // ── 資料樣式（置中）──
+        var dataStyle = workbook.CreateCellStyle();
+        dataStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Center;
+        dataStyle.VerticalAlignment = NPOI.SS.UserModel.VerticalAlignment.Center;
+
+        // ── 標題列樣式（梯次名稱，水平置中）──
+        var titleStyle = workbook.CreateCellStyle();
+        titleStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Center;
+        titleStyle.VerticalAlignment = NPOI.SS.UserModel.VerticalAlignment.Center;
+
+        // ── 第 1 列：梯次名稱（水平置中、高度 20pt）──
+        var metaRow = sheet.CreateRow(0);
+        metaRow.HeightInPoints = 20;
+        var metaCellLabel = metaRow.CreateCell(0);
+        metaCellLabel.SetCellValue("梯次名稱");
+        metaCellLabel.CellStyle = titleStyle;
+        var metaCellValue = metaRow.CreateCell(1);
+        metaCellValue.SetCellValue(result.ProjectName);
+        metaCellValue.CellStyle = titleStyle;
+
+        // ── 第 2 列：欄位標題 ──
+        string[] headers = ["教師姓名", "教師身分", "一般單選題數", "閱讀題組數", "長文題數", "短文題組數", "聽力測驗題數", "聽力題組題數", "採用題數", "不採用題數"];
+        var headerRow = sheet.CreateRow(1);
+        headerRow.HeightInPoints = 20;
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var cell = headerRow.CreateCell(i);
+            cell.SetCellValue(headers[i]);
+            cell.CellStyle = headerStyle;
+        }
+
+        // ── 第 3 列起：資料（置中樣式 + 高度 20pt）──
+        // 管理身分（HasNumericStats=false）：題數欄全部以「－」渲染
+        const string Dash = "－";
+        for (int i = 0; i < result.Rows.Count; i++)
+        {
+            var r   = result.Rows[i];
+            var row = sheet.CreateRow(i + 2);
+            row.HeightInPoints = 20;
+
+            void AddCell(int col, Action<NPOI.SS.UserModel.ICell> setValue)
+            {
+                var c = row.CreateCell(col);
+                setValue(c);
+                c.CellStyle = dataStyle;
+            }
+
+            void AddCount(int col, int value)
+            {
+                AddCell(col, c =>
+                {
+                    if (r.HasNumericStats) c.SetCellValue(value);
+                    else                   c.SetCellValue(Dash);
+                });
+            }
+
+            AddCell (0, c => c.SetCellValue(r.DisplayName));
+            AddCell (1, c => c.SetCellValue(r.RoleLabel));
+            AddCount(2, r.Type1Count);
+            AddCount(3, r.Type5Count);
+            AddCount(4, r.Type4Count);
+            AddCount(5, r.Type3Count);
+            AddCount(6, r.Type6Count);
+            AddCount(7, r.Type7Count);
+            AddCount(8, r.AdoptedCount);
+            AddCount(9, r.RejectedCount);
+        }
+
+        // ── 固定欄寬（NPOI 單位：256 = 1 個 ASCII 字元寬，中文字 ≈ 512 單位）──
+        // 公式：中文標題字數 × 512 + 1024 緩衝，依各欄實際標題長度微調
+        sheet.SetColumnWidth(0, 3500);   // 教師姓名（4 字）
+        sheet.SetColumnWidth(1, 20 * 256);   // 教師身分（指定 20 字元寬，容納「命題教師」「總召集人」等）
+        sheet.SetColumnWidth(2, 4000);   // 一般單選題數（6 字）
+        sheet.SetColumnWidth(3, 3500);   // 閱讀題組數（5 字）
+        sheet.SetColumnWidth(4, 3000);   // 長文題數（4 字）
+        sheet.SetColumnWidth(5, 3500);   // 短文題組數（5 字）
+        sheet.SetColumnWidth(6, 4000);   // 聽力測驗題數（6 字）
+        sheet.SetColumnWidth(7, 4000);   // 聽力題組題數（6 字）
+        sheet.SetColumnWidth(8, 3000);   // 採用題數（4 字）
+        sheet.SetColumnWidth(9, 3500);   // 不採用題數（5 字）
+
+        using var ms = new System.IO.MemoryStream();
+        workbook.Write(ms, leaveOpen: true);
+        return ms.ToArray();
     }
 
     // ──── 批次匯入：事件 Handler ────

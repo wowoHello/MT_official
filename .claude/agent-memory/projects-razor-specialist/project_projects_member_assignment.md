@@ -1,6 +1,6 @@
 ---
-name: Projects 人員指派與配額分配引擎（2026-05-17 更新）
-description: 人才庫來源、PersonItem/AllocationItem 結構、配額引擎、鎖定防呆、DB 寫入策略
+name: Projects 人員指派與配額分配引擎（2026-05-20 更新）
+description: 人才庫來源、PersonItem/AllocationItem 結構、配額引擎、鎖定防呆、DB 寫入策略、Level 欄位、AppointmentService 業務鍵設計
 type: project
 ---
 
@@ -77,3 +77,17 @@ allocationTeachers[t].Quotas[q] = baseQuota + (t < remainder ? 1 : 0);
 ## MemberDetailDto.HasDownloadableCerts（新欄位，2026-05-17 確認）
 
 GetProjectDetailAsync 取完成員清單後，批次呼叫 `_appointmentSvc.GetDownloadableUserIdsInProjectAsync(projectId)`，填入每位成員的聘書可下載標記，供右側詳情區的「下載聘書」按鈕條件渲染。
+
+## DB Level 欄位（2026-05-20 補充）
+
+`MT_ProjectTargets.Level TINYINT NULL` 與 `MT_MemberQuotas.Level TINYINT NULL` 兩個欄位在 db.md schema 中存在，但目前 UI 送出時一律傳 NULL，Service 端 INSERT 也不帶此欄位（DB 預設 NULL）。設計意圖是未來支援「按等級分設題目配額」，目前尚未啟用。
+
+**How to apply**: 若未來要開啟按等級配額，需同時修改 `ProjectMemberQuotaDto`（加 Level 屬性）、AllocationItem Quotas 結構（2D 矩陣而非 1D 陣列）與 ReplaceProjectChildRecordsAsync 的 INSERT SQL。
+
+## IAppointmentService 業務鍵設計（2026-05-20 補充）
+
+`SyncCertificatesAsync` 與整個 AppointmentService 使用 **(UserId, ProjectId, RoleId)** 作為業務鍵，刻意不使用 `MT_ProjectMembers.Id` 作為外鍵。
+
+**Why**: `ReplaceProjectChildRecordsAsync` 在編輯模式下會 DELETE 再 INSERT 全部子記錄，MT_ProjectMembers 的 `Id` 每次編輯都會換號，若 Appointment 掛 FK 到 ProjectMemberId 則每次編輯後聘書全部成為孤兒記錄。改用業務複合鍵可跨越 DELETE/INSERT 找回對應聘書。
+
+**How to apply**: 修改 ReplaceProjectChildRecords 邏輯時，不得改變 MT_ProjectMembers 的刪除語意（全刪重插），否則 AppointmentService 的業務鍵查詢將出錯。

@@ -35,7 +35,10 @@ Login.razor **不使用 DataAnnotationsValidator**，改用自訂 `Dictionary<st
 
 ## 已登入導向
 
-- `OnInitializedAsync` 檢查 `AuthenticationState`，已登入則 `Navigation.NavigateTo(string.Empty)`（導至根路由）
+- `OnInitializedAsync` 檢查 `AuthenticationState`，已登入時：
+  - 若 Cookie 有 `IsFirstLogin=true` Claim → `Navigation.NavigateTo("first-login-password", replace: true)`
+  - 否則 → `Navigation.NavigateTo(string.Empty, replace: true)`（導至根路由 `/`）
+  - **replace: true** 避免在 browser history 多塞一筆，防止使用者按上一頁繞回
 
 ## 表單模型
 

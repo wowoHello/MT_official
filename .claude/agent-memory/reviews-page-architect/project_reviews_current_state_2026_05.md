@@ -42,10 +42,10 @@ PhaseCode → Stage 對照（在 GetMyAssignmentsAsync 中設值）：
 - BumpReturnCount 後 ReturnCount+1 >= 3 → CanEditByReviewer=1 → 解鎖「編輯題目」橘鈕
 - 母題與子題各自獨立計次（SubQuestionId NULL-safe 比對）
 
-### 三檔行數量級（2026-05-19 量測）
-- `ReviewService.cs`：1673 行
-- `Reviews.razor`：1310 行
-- `ReviewModels.cs`：311 行
+### 三檔行數量級（2026-05-20 量測）
+- `ReviewService.cs`：1689 行（比上次量測多 16 行）
+- `Reviews.razor`：1333 行（比上次量測多 23 行）
+- `ReviewModels.cs`：327 行（比上次量測多 16 行）
 - `Components/Shared/ReviewForms/`：6 個元件（ReviewModal / ReviewActionPanel / ReviewDecisionBar / ReviewQuestionDisplay / ReviewHistoryTimeline / ReviewSimilarityBanner）
 
 ### ReviewService 關鍵方法（現況）
@@ -146,5 +146,35 @@ END
 - 用於母題列顯示「子題索引卡」狀態（完成/待審）
 - 非題組或無 Assignment 時，SiblingUnits 為空 List
 
-**Why:** 2026-05-17 記憶刷新任務，補充效能優化歷史（第二波 #6/#9、第三波 #14）及三檔行數量級
-**How to apply:** 後續任何涉及 Reviews 頁面的任務，先對照此快照確認狀態編碼、PhaseCode 對應、DecisionBar 配置、以及 GetModalDataAsync 的 QueryMultiple 結構是否有變更
+### Stage B-4 子題獨立決策機制（現況已落地）
+- `GetMyAssignmentsAsync` SQL：`AND (SubQuestionId IS NULL AND q.Status NOT IN (9,10,11,12) OR SubQuestionId IS NOT NULL AND sq.Status NOT IN (9,10,11,12))` — 母題與子題用各自 Status 篩除最終態
+- `GetHistoryAsync` SQL：UNION ALL 兩段（母題段 + 子題段），子題段不檢查 q.Status，母題採用後已決策子題仍獨立呈現
+- `SubmitDecisionAsync`：母題單元 → 更新 MT_Questions.Status；子題單元 → 更新 MT_SubQuestions.Status（Adopted/Rejected/Archived 同時寫 DecidedAt）
+- `ReviewListItem.UnitStatus`：Service 端計算，母題取 q.Status、子題取 sq.Status，UI 守門用（例如「編輯題目」鈕僅在 UnitStatus=7 時解鎖）
+- `BumpReturnCountAsync`：按單元（QuestionId + SubQuestionId）各自計次，MERGE + HOLDLOCK 防並發
+
+### 第 4 次送審強制最終決策邏輯（SubmitDecisionAsync 步驟 6-1）
+- PhaseCode=8 + Final Stage + Reject + existingReturnCount >= 3 → newUnitStatus 直接設 Rejected(10)，不再 Bump
+- 避免 ReturnCount 變 4 導致歷程顯示「總審第四次退回」語意錯誤
+
+### MapDecisionToQuestionStatus 狀態流轉規則（私有方法，集中維護）
+| PhaseCode | Decision | 新 Status |
+|-----------|----------|-----------|
+| 7（首輪）| Approve | 9（Adopted）|
+| 7（首輪）| Revise/Reject | null（Buffer，等 PhaseCode=8 批次分流）|
+| 8（次輪+）| Approve | 9（Adopted）|
+| 8（次輪+）| Revise | 8（FinalEditing，退回老師修）|
+| 8（次輪+）| Reject | null（Caller 依 ReturnCount 判定 8 或 10）|
+
+### FilteredAssignments 預設篩選行為（Plan_013 §3.4）
+- 預設 `queryStatus="all"` 只顯示非歷史紀錄（`!a.IsHistorical`），避免不同階段分配堆疊誤解
+- 使用者可切換「歷史紀錄」選項單獨查看 IsHistorical=true 的項目
+
+### PhaseCoordinator 背景執行模式（OnInitializedAsync 優化）
+- `RunPhaseCoordinatorBackgroundAsync`：fire-and-forget，60 秒 cache hit 即刻返回
+- 主流程不等 Coordinator（5~10 秒互審/專審/總審分配），先用 DB 現況渲染
+- Coordinator 完成後 `InvokeAsync` 切回 UI thread reload 兩個列表
+- 已切換專案的防護：`if (CurrentProject?.Id != projectId) return`
+
+**Why:** 2026-05-20 記憶刷新任務，補充 Stage B-4 子題獨立決策細節、第 4 次送審強制最終決策邏輯、MapDecisionToQuestionStatus 規則表、FilteredAssignments 預設行為、PhaseCoordinator 背景執行模式，並更新行數量級
+**How to apply:** 後續任何涉及 Reviews 頁面的任務，先對照此快照確認狀態編碼、PhaseCode 對應、DecisionBar 配置、Stage B-4 子題機制、以及 GetModalDataAsync 的 QueryMultiple 結構是否有變更
