@@ -163,7 +163,8 @@
             </div>
 
             @* ── Right Panel: Teacher Details ── *@
-            <div class="hidden lg:flex flex-col flex-grow bg-oatmeal overflow-hidden">
+            @* 整個右側為單一捲動容器：頂部資訊卡與 Tab 列會一起隨內容滾動，不再 sticky *@
+            <div class="hidden lg:flex flex-col flex-grow bg-oatmeal overflow-y-auto custom-scroll">
                 @if (selectedDetail is null)
                 {
                     <div class="flex-grow flex flex-col items-center justify-center text-gray-400 p-8">
@@ -236,8 +237,8 @@
                         </div>
                     </div>
 
-                    <!-- Tab 內容 -->
-                    <div class="flex-grow overflow-y-auto custom-scroll p-6">
+                    <!-- Tab 內容（與上方資訊卡共用外層捲軸） -->
+                    <div class="p-6">
                         @* ── Tab: 基本資料 ── *@
                         @if (detailTab == "info")
                         {

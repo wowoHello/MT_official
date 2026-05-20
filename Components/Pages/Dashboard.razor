@@ -332,6 +332,17 @@
                             </div>
                         </div>
                     }
+                    else if (kpi.RevisionTotalCount == 0)
+                    {
+                        @* 修題階段但無待修題目：虛線空狀態卡 *@
+                        <div class="flex items-center gap-2.5 px-3 py-2 bg-stone-50 rounded-lg border border-dashed border-stone-200">
+                            <i class="fa-solid fa-circle-check text-stone-400 text-base shrink-0"></i>
+                            <div class="min-w-0">
+                                <p class="text-sm font-medium text-stone-600 truncate">本階段已無待修題目</p>
+                                <p class="text-xs text-stone-400 mt-0.5 truncate">@kpi.PhaseStatusText</p>
+                            </div>
+                        </div>
+                    }
                     else
                     {
                         @* 修題階段：XX/OO 題 *@

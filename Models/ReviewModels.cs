@@ -205,6 +205,14 @@ public class ReviewListItem
     public ReviewStage Stage { get; set; }
     public ReviewDecision? Decision { get; set; }
     public ReviewTaskStatus Status { get; set; }
+
+    /// <summary>
+    /// 該單元自身的當前 Status（母題列取 MT_Questions.Status、子題列取 MT_SubQuestions.Status）。
+    /// 用於 UI 守門 — 例如「編輯題目」按鈕僅在 UnitStatus=7（FinalReviewing 已送審）時解鎖，
+    /// 避免 user 修題中（Status=8）總召也能編輯題目造成衝突。
+    /// </summary>
+    public byte UnitStatus { get; set; }
+
     /// <summary>最後編輯時間（已完成顯示 DecidedAt；尚未編輯顯示分配當下 CreatedAt）</summary>
     public DateTime LastEditedAt { get; set; }
 

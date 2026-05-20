@@ -117,6 +117,11 @@ builder.Services.AddScoped<IMembershipService, MembershipService>();
 // 聘書 Canvas 繪製 + zip 打包下載
 builder.Services.AddScoped<IAppointmentService, AppointmentService>();
 
+// 相似度分析：4-gram Jaccard 計算引擎 + MT_SimilarityChecks 讀寫
+// 服務的場景：CwtList 命題送審自動寫入 / Modal【🔍 比對相似題】鈕 /
+//            SimilarityAnalysis.razor 管理員批次掃描 / Dashboard KPI 卡
+builder.Services.AddScoped<ISimilarityService, SimilarityService>();
+
 var app = builder.Build();
 
 // 預先載入題型字典（fail-fast：DB 連不上就讓站台不啟動，避免帶空資料上線）

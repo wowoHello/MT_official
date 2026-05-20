@@ -1,0 +1,145 @@
+@* ====================================================================== *@
+@*  SimilarityCheckModal — 相似題比對結果彈窗（共用元件）                    *@
+@*  用法：                                                                  *@
+@*    <SimilarityCheckModal @bind-IsVisible="show"                          *@
+@*                          Loading="@loading"                              *@
+@*                          Results="@results"                              *@
+@*                          SourceCode="Q-115-00001" />                     *@
+@*  特性：                                                                  *@
+@*    - Loading 時顯示 spinner                                              *@
+@*    - 無結果時顯示空狀態鼓勵語                                            *@
+@*    - 有結果時顯示三欄表格（題號 / 命題者 / 相似度 / 判定）                *@
+@*    - 四色判定：紅(≥80) / 橘(≥60) / 黃(≥40) / 綠(<40)                     *@
+@* ====================================================================== *@
+@using MT.Models
+
+<CustomModal IsVisible="@IsVisible"
+             IsVisibleChanged="@OnVisibleChanged"
+             Type="CustomModal.ModalType.Center"
+             Title="@($"🗂️ 相似題比對")"
+             CloseOnBackdropClick="true">
+    <ChildContent>
+        @if (Loading)
+        {
+            <div class="py-10 text-center">
+                <i class="fa-solid fa-spinner fa-spin text-3xl text-morandi mb-3"></i>
+                <p class="text-sm text-gray-600">
+                    正在比對題目
+                    <strong class="font-mono text-slate-main">@SourceCode</strong>
+                    與本梯次同題型同等級的相似度…
+                </p>
+            </div>
+        }
+        else if (Results.Count == 0)
+        {
+            <div class="py-10 text-center">
+                <i class="fa-regular fa-circle-check text-3xl text-sage mb-3"></i>
+                <p class="text-sm font-bold text-slate-main">未發現相似題</p>
+                <p class="text-xs text-gray-400 mt-1">
+                    本梯次同題型同等級題目皆無顯著相似內容 ✨
+                </p>
+            </div>
+        }
+        else
+        {
+            <div>
+                <p class="text-sm text-gray-600 mb-3">
+                    題目
+                    <strong class="font-mono text-slate-main">@SourceCode</strong>
+                    在本梯次比對結果（Top @Results.Count）：
+                </p>
+                <div class="overflow-hidden rounded-lg border border-gray-200">
+                    <table class="w-full text-sm">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-3 py-2 text-left font-bold text-gray-600">比對題號</th>
+                                <th class="px-3 py-2 text-left font-bold text-gray-600">命題者</th>
+                                <th class="px-3 py-2 text-right font-bold text-gray-600">相似度</th>
+                                <th class="px-3 py-2 text-left font-bold text-gray-600">判定</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            @foreach (var item in Results)
+                            {
+                                <tr class="hover:bg-gray-50/60 transition-colors">
+                                    <td class="px-3 py-2 font-mono text-slate-main">@item.ComparedQuestionCode</td>
+                                    <td class="px-3 py-2 text-gray-700">@item.CreatorName</td>
+                                    <td class="px-3 py-2 text-right">
+                                        <span class="font-bold @GetScoreColor(item.Determination)">
+                                            @item.Score.ToString("F1")%
+                                        </span>
+                                    </td>
+                                    <td class="px-3 py-2">
+                                        <span class="text-xs px-2 py-0.5 rounded-full font-bold @GetBadgeClass(item.Determination)">
+                                            @GetLabel(item.Determination)
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <p class="text-xs text-gray-400 mt-3 flex items-start gap-1">
+                    <i class="fa-solid fa-circle-info mt-0.5"></i>
+                    <span>
+                        比對範圍：本梯次同題型同等級且已送審以上題目；
+                        演算法：4-gram Jaccard 字面相似度（不含語意分析）。
+                    </span>
+                </p>
+            </div>
+        }
+    </ChildContent>
+    <FooterContent>
+        <button type="button" @onclick="CloseAsync"
+                class="px-5 py-2 text-sm bg-morandi hover:bg-[#5a7894] text-white rounded-lg font-bold transition-colors cursor-pointer focus:outline-none">
+            關閉
+        </button>
+    </FooterContent>
+</CustomModal>
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
+
+    [Parameter] public bool Loading { get; set; }
+
+    [Parameter] public IReadOnlyList<SimilarityCompareResult> Results { get; set; }
+        = Array.Empty<SimilarityCompareResult>();
+
+    [Parameter] public string SourceCode { get; set; } = string.Empty;
+
+    private Task OnVisibleChanged(bool v) => IsVisibleChanged.InvokeAsync(v);
+
+    private Task CloseAsync()
+    {
+        IsVisible = false;
+        return IsVisibleChanged.InvokeAsync(false);
+    }
+
+    /// <summary>分數顏色：紅(≥80) / 橘(≥60) / 黃(≥40) / 綠(<40)</summary>
+    private static string GetScoreColor(SimilarityDetermination det) => det switch
+    {
+        SimilarityDetermination.Duplicate => "text-red-600",
+        SimilarityDetermination.Risky     => "text-amber-600",
+        SimilarityDetermination.Safe      => "text-yellow-600",
+        _                                  => "text-sage"
+    };
+
+    /// <summary>標籤底色（莫蘭迪色系，避免過度刺眼）</summary>
+    private static string GetBadgeClass(SimilarityDetermination det) => det switch
+    {
+        SimilarityDetermination.Duplicate => "bg-red-100 text-red-700",
+        SimilarityDetermination.Risky     => "bg-amber-100 text-amber-700",
+        SimilarityDetermination.Safe      => "bg-yellow-50 text-yellow-700 border border-yellow-200",
+        _                                  => "bg-sage/15 text-sage"
+    };
+
+    /// <summary>判定中文標籤</summary>
+    private static string GetLabel(SimilarityDetermination det) => det switch
+    {
+        SimilarityDetermination.Duplicate => "確認重複",
+        SimilarityDetermination.Risky     => "高度相似",
+        SimilarityDetermination.Safe      => "低度相似",
+        _                                  => "無疑慮"
+    };
+}

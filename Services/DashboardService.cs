@@ -494,15 +494,23 @@ public class DashboardService : IDashboardService
         // 單元粒度（Stage B-4-2 後）：母題與每子題各為獨立修題單元
         // ─ AssignedUnits CTE 改為 (QuestionId, SubQuestionId) 兩維 distinct，與審題卡片 COUNT(*) 對齊
         // ─ EXISTS 子句加 ISNULL(SubQuestionId, -1) NULL-safe 比對，避免母題 reply 認證子題、或反之
+        // ─ Status 過濾用「分支邏輯」：母題列依 q.Status、子題列依 sq.Status，與 ReviewService.GetMyAssignmentsAsync 對齊，
+        //   避免「子題自己已是 Status=10 但母題仍 Status=8」這類混合狀態造成 Dashboard 與 Reviews 列表數字不一致
         const string sql = """
             WITH AssignedUnits AS (
                 SELECT DISTINCT ra.QuestionId, ra.SubQuestionId
                 FROM   dbo.MT_ReviewAssignments ra
                 JOIN   dbo.MT_Questions q ON q.Id = ra.QuestionId
+                LEFT JOIN dbo.MT_SubQuestions sq ON sq.Id = ra.SubQuestionId
                 WHERE  ra.ProjectId   = @pid
                   AND  ra.ReviewStage = @reviewStage
                   AND  ra.DecidedAt IS NOT NULL
                   AND  q.IsDeleted = 0
+                  -- 排除所有「已最終決策 / 結案處理」狀態：9=採用、10=不採用、11=結案未採用、12=結案入庫
+                  AND (
+                        (ra.SubQuestionId IS NULL     AND q.Status  NOT IN (9, 10, 11, 12))
+                     OR (ra.SubQuestionId IS NOT NULL AND sq.Status NOT IN (9, 10, 11, 12))
+                  )
             )
             SELECT
                 (SELECT COUNT(*) FROM AssignedUnits) AS TotalCount,
@@ -528,46 +536,8 @@ public class DashboardService : IDashboardService
         var revised = row?.Revised ?? 0;
         var total   = row?.TotalCount ?? 0;
 
-        // Fallback：階段尚未跑過 EnsurePhaseTransitionAsync 時 assignments 可能還沒建好
-        // → 待修池與已修數都改用單元粒度（母題單元 + 子題單元分別計算），與主路徑口徑一致
-        if (total == 0)
-        {
-            // 待修總數 = 母題單元（MT_Questions）+ 子題單元（MT_SubQuestions），兩段相加
-            const string fallbackTotalSql = """
-                SELECT
-                    (SELECT COUNT(*)
-                     FROM   dbo.MT_Questions
-                     WHERE  ProjectId = @pid AND IsDeleted = 0
-                       AND  Status BETWEEN 2 AND 8)
-                  + (SELECT COUNT(*)
-                     FROM   dbo.MT_SubQuestions sq
-                     JOIN   dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
-                     WHERE  q.ProjectId = @pid AND q.IsDeleted = 0
-                       AND  sq.IsDeleted = 0
-                       AND  sq.Status BETWEEN 2 AND 8)
-                """;
-            total = await conn.ExecuteScalarAsync<int>(fallbackTotalSql, new { pid = projectId });
-
-            // Plan_014：本輪過濾 — PC=8 跨輪退回後舊 reply 不算本輪已修
-            // 已修數 = (QuestionId, SubQuestionId) 兩維 distinct，與主路徑單元粒度一致
-            const string fallbackRevisedSql = """
-                SELECT COUNT(*) FROM (
-                    SELECT DISTINCT rr.QuestionId, rr.SubQuestionId
-                    FROM   dbo.MT_RevisionReplies rr
-                    JOIN   dbo.MT_Questions q ON q.Id = rr.QuestionId
-                    WHERE  q.ProjectId = @pid AND q.IsDeleted = 0
-                      AND  rr.Stage    = @revisionStage
-                      AND  rr.Content IS NOT NULL
-                      AND  LEN(TRIM(rr.Content)) > 0
-                      AND  rr.CreatedAt > ISNULL(
-                          (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt
-                           WHERE QuestionId = rr.QuestionId),
-                          '1900-01-01')
-                ) t
-                """;
-            revised = await conn.ExecuteScalarAsync<int>(
-                fallbackRevisedSql, new { pid = projectId, revisionStage });
-        }
+        // assignments 為 0 表示本修題階段尚無待修題目（非 fallback 情境），直接回傳 0/0
+        if (total == 0) return (label, 0, 0);
 
         return (label, revised, total);
     }
@@ -801,6 +771,7 @@ public class DashboardService : IDashboardService
                       AND  ra.ReviewStage = @reviewStage
                       AND  ra.DecidedAt IS NOT NULL
                       AND  q.IsDeleted = 0
+                      AND  q.Status NOT IN (9, 10, 11, 12)
                     GROUP BY ra.QuestionId, q.CreatorId
                 )
                 SELECT  rs.CreatorId AS UserId,
@@ -951,6 +922,7 @@ public class DashboardService : IDashboardService
                           AND  ra.ReviewStage = @reviewStage
                           AND  ra.DecidedAt IS NOT NULL
                           AND  q.IsDeleted = 0
+                          AND  q.Status NOT IN (9, 10, 11, 12)
                           AND  q.CreatorId IN @userIds
                         GROUP BY ra.QuestionId, q.CreatorId, q.QuestionTypeId
                     )

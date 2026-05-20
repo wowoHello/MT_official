@@ -7,7 +7,9 @@
 @implements IAsyncDisposable
 @inject IReviewService ReviewService
 @inject IAnnotationService AnnotationService
+@inject ISimilarityService SimilarityService
 @inject IJSRuntime JS
+@inject ILogger<ReviewModal> Logger
 
 @if (IsVisible)
 {
@@ -84,21 +86,52 @@
                             <i class="fa-solid fa-clock mr-1"></i>最後編輯時間：@EditedAtLabel
                         </span>
 
+                        @* 三退階段徽章：
+                           FinalReturnCount=2 → 預警「下次退回將解鎖」
+                           FinalReturnCount>=3 → 真解鎖「解鎖修改並裁決」（第 4 次送審到總召手裡，必須最終決策）*@
                         @if (data.FinalReturnCount >= 2 && stage == ReviewStage.Final)
                         {
                             <span class="ml-2 inline-flex items-center px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold border border-red-200 shrink-0">
-                                <i class="fa-solid fa-triangle-exclamation mr-1"></i> 已退回 2 次，解鎖編輯與總決策
+                                <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+                                @if (data.FinalReturnCount >= 3)
+                                {
+                                    <span>已退回 3 次，解鎖修改並裁決</span>
+                                }
+                                else
+                                {
+                                    <span>已退回 2 次，下次退回將由總召直接修改並裁決</span>
+                                }
                             </span>
                         }
                     }
                 }
             </div>
 
-            <button type="button" @onclick="CloseAsync"
-                    title="關閉"
-                    class="text-gray-400 hover:text-terracotta hover:bg-gray-100 text-2xl w-10 h-10 flex items-center justify-center rounded-lg transition cursor-pointer focus:outline-none">
-                <i class="fa-solid fa-xmark"></i>
-            </button>
+            <div class="flex items-center gap-2 shrink-0">
+                @if (data is not null && !isLoading)
+                {
+                    <button type="button" @onclick="OpenSimilarityCheckAsync"
+                            disabled="@isCheckingSimilarity"
+                            title="比對本梯次同題型同等級的相似題目"
+                            class="px-3 py-1.5 text-xs border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
+                        @if (isCheckingSimilarity)
+                        {
+                            <i class="fa-solid fa-spinner fa-spin"></i>
+                            <span>比對中…</span>
+                        }
+                        else
+                        {
+                            <i class="fa-solid fa-clone"></i>
+                            <span>試題重複比對</span>
+                        }
+                    </button>
+                }
+                <button type="button" @onclick="CloseAsync"
+                        title="關閉"
+                        class="text-gray-400 hover:text-terracotta hover:bg-gray-100 text-2xl w-10 h-10 flex items-center justify-center rounded-lg transition cursor-pointer focus:outline-none">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
         </div>
 
         @* ====== Body：左 70% 題目 + 右 30% 操作 ====== *@
@@ -195,10 +228,14 @@
                         : (data.MyAssignment?.IsCompleted ?? false)
                             ? "已退回，等命題老師修題"
                             : (string?)null;
+                    @* 總召代修+裁決模式（CanFinalReviewerEdit=true + Final stage）— 隱藏「我的審題意見」整段，
+                       第 4 次送審到總召手裡時，總召直接編輯題目並下最終裁決，不需再寫意見 *@
+                    var hideCommentSection = data.MyAssignment?.Stage == ReviewStage.Final && data.CanFinalReviewerEdit;
                     <ReviewActionPanel @ref="actionPanel"
                                        @bind-Comment="commentDraft"
                                        IsReadOnly="@isActionReadOnly"
                                        LockReason="@lockReason"
+                                       HideCommentSection="@hideCommentSection"
                                        History="@data.History"
                                        SimilarQuestions="@data.SimilarQuestions"
                                        Annotations="@annotations"
@@ -241,6 +278,12 @@
     </div>
 }
 
+<!-- 相似題比對結果彈窗 (Plan A) -->
+<SimilarityCheckModal @bind-IsVisible="showSimilarityModal"
+                      Loading="@isCheckingSimilarity"
+                      Results="@similarityResults"
+                      SourceCode="@(data?.Question.QuestionCode ?? "")" />
+
 @code {
     [Parameter] public bool IsVisible { get; set; }
     [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
@@ -256,6 +299,9 @@
 
     /// <summary>當前登入者 Id（用於撈自己的 Assignment / 決策權限判斷）</summary>
     [Parameter, EditorRequired] public int CurrentUserId { get; set; }
+
+    /// <summary>當前梯次 Id（Plan A 相似度比對用於過濾範圍）</summary>
+    [Parameter] public int ProjectId { get; set; }
 
     /// <summary>
     /// 由父層（Reviews.razor）傳入 Service 端已計算好的 IsHistorical 旗標。
@@ -305,6 +351,12 @@
     private string? loadError;
     private int? loadedQuestionId;
     private int? loadedSubQuestionId;   // 與 loadedQuestionId 一起判定是否需要 re-load（換單元也要重撈）
+
+    // Plan A 相似題比對
+    private bool showSimilarityModal = false;
+    private bool isCheckingSimilarity = false;
+    private IReadOnlyList<MT.Models.SimilarityCompareResult> similarityResults
+        = Array.Empty<MT.Models.SimilarityCompareResult>();
 
     /// <summary>
     /// Modal 開啟期間使用者實際看到的子題單元 — 從 Parameter SubQuestionId 初始化，
@@ -555,10 +607,13 @@
 
     private async Task OnSubmitDecisionAsync(ReviewDecision decision)
     {
-        if (data?.MyAssignment is null || isSubmitting) return;
+        // 明確拆兩段 check 讓編譯器 null-flow analysis 認得 data 與 data.MyAssignment 後續均非 null
+        if (data is null || data.MyAssignment is null || isSubmitting) return;
 
         // 決策一律強制留意見（與 ReviewDecisionBar disabled 條件對齊，第二道防線）
-        if ((commentDraft ?? string.Empty).Trim().Length < MinCommentLength)
+        // 例外：總召代修+裁決模式（CanFinalReviewerEdit=true）不需要意見，直接決策
+        if (!data.CanFinalReviewerEdit
+            && (commentDraft ?? string.Empty).Trim().Length < MinCommentLength)
         {
             await ShowToastAsync("warning", $"意見需至少 {MinCommentLength} 字才能送出決策");
             return;
@@ -758,6 +813,38 @@
             return display == DateTime.MinValue
                 ? "—"
                 : display.ToString("yyyy/MM/dd HH:mm");
+        }
+    }
+
+    /// <summary>
+    /// 開啟「試題重複比對」彈窗 — Plan A 即時計算（不寫 DB）
+    /// 從當前 data.Question 組裝 QuestionDraftSnapshot 給 SimilarityService 比對
+    /// </summary>
+    private async Task OpenSimilarityCheckAsync()
+    {
+        if (isCheckingSimilarity || data is null) return;
+
+        isCheckingSimilarity = true;
+        similarityResults = Array.Empty<MT.Models.SimilarityCompareResult>();
+        showSimilarityModal = true;
+        StateHasChanged();
+
+        try
+        {
+            // 從審題端 data.Question 組裝 snapshot；ProjectId 從 Parameter 傳入
+            var snapshot = data.Question.ToDraftSnapshot(ProjectId);
+            var results = await SimilarityService.ComputeOnDemandAsync(snapshot, topN: 5);
+            similarityResults = results;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "OpenSimilarityCheckAsync 失敗：QuestionId={Id}", data.Question.Id);
+            similarityResults = Array.Empty<MT.Models.SimilarityCompareResult>();
+        }
+        finally
+        {
+            isCheckingSimilarity = false;
+            StateHasChanged();
         }
     }
 

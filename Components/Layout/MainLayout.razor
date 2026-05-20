@@ -771,22 +771,22 @@
         // 前端驗證
         if (string.IsNullOrWhiteSpace(pwdOld))
         {
-            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "請輸入舊密碼。", "warning");
+            await SafeJsVoidAsync("Swal.fire", "驗證未通過", "請輸入舊密碼。", "warning");
             return;
         }
         if (string.IsNullOrWhiteSpace(pwdNew) || pwdNew.Length < 6)
         {
-            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "新密碼至少需 6 碼。", "warning");
+            await SafeJsVoidAsync("Swal.fire", "驗證未通過", "新密碼至少需 6 碼。", "warning");
             return;
         }
         if (pwdNew == pwdOld)
         {
-            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "新密碼不可與舊密碼相同。", "warning");
+            await SafeJsVoidAsync("Swal.fire", "驗證未通過", "新密碼不可與舊密碼相同。", "warning");
             return;
         }
         if (pwdNew != pwdConfirm)
         {
-            await JS.InvokeVoidAsync("Swal.fire", "驗證未通過", "確認密碼與新密碼不一致。", "warning");
+            await SafeJsVoidAsync("Swal.fire", "驗證未通過", "確認密碼與新密碼不一致。", "warning");
             return;
         }
 
@@ -796,7 +796,7 @@
             if (currentUserId is not int uid) return;
             await RoleService.ChangeOwnPasswordAsync(uid, pwdOld, pwdNew);
 
-            await JS.InvokeVoidAsync("Swal.fire", new
+            await SafeJsVoidAsync("Swal.fire", new
             {
                 icon = "success",
                 title = "密碼已變更",
@@ -813,12 +813,12 @@
         }
         catch (InvalidOperationException ex)
         {
-            await JS.InvokeVoidAsync("Swal.fire", "變更失敗", ex.Message, "warning");
+            await SafeJsVoidAsync("Swal.fire", "變更失敗", ex.Message, "warning");
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "變更密碼失敗");
-            await JS.InvokeVoidAsync("Swal.fire", "系統錯誤", "變更密碼失敗，請稍後再試。", "error");
+            await SafeJsVoidAsync("Swal.fire", "系統錯誤", "變更密碼失敗，請稍後再試。", "error");
         }
         finally
         {
@@ -829,7 +829,7 @@
     // ──── 共用：尚未上線功能的提示（下載聘書按鈕等開發中按鈕共用）────
     private async Task ShowComingSoonAsync(string featureName)
     {
-        await JS.InvokeVoidAsync("Swal.fire", new
+        await SafeJsVoidAsync("Swal.fire", new
         {
             icon = "info",
             title = $"「{featureName}」即將推出",
@@ -840,7 +840,7 @@
 
     private async Task Logout()
     {
-        var confirmed = await JS.InvokeAsync<bool>("swalInterop.confirm", new
+        var confirmed = await SafeJsAsync<bool>("swalInterop.confirm", new
         {
             title = "確認登出？",
             text = "登出後將回到登入頁面。",
@@ -852,10 +852,26 @@
             cancelButtonText = "取消"
         });
 
-        if (confirmed)
+        if (confirmed == true)
         {
             Navigation.NavigateTo("auth/logout", forceLoad: true);
         }
+    }
+
+    // ──── JS interop 安全呼叫（吞掉 circuit 斷線 / 1 分鐘 timeout，避免污染呼叫端流程）────
+    // 適用：等使用者互動的 SweetAlert 等長停留呼叫；fire-and-forget 場景請直接 `_ = JS.InvokeVoidAsync(...)`
+    private async Task SafeJsVoidAsync(string identifier, params object?[] args)
+    {
+        try { await JS.InvokeVoidAsync(identifier, args); }
+        catch (JSDisconnectedException) { /* circuit 已斷，使用者已離開頁面 */ }
+        catch (TaskCanceledException ex) { Logger.LogDebug(ex, "JS interop 取消或逾時：{Id}", identifier); }
+    }
+
+    private async Task<T?> SafeJsAsync<T>(string identifier, params object?[] args)
+    {
+        try { return await JS.InvokeAsync<T>(identifier, args); }
+        catch (JSDisconnectedException) { return default; }
+        catch (TaskCanceledException ex) { Logger.LogDebug(ex, "JS interop 取消或逾時：{Id}", identifier); return default; }
     }
 
     // ================================================================

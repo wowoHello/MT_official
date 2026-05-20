@@ -7,7 +7,10 @@
 
 <div class="flex flex-col h-full overflow-hidden">
 
-    @* ===== 區塊 1：意見編輯框 + 罐頭訊息（固定，不隨歷程捲動） ===== *@
+    @* ===== 區塊 1：意見編輯框 + 罐頭訊息（固定，不隨歷程捲動） =====
+       HideCommentSection=true（總召代修+裁決模式）：整段隱藏，僅留下半歷程軌跡與相似題 *@
+    @if (!HideCommentSection)
+    {
     <div class="p-5 border-b border-gray-100 bg-gradient-to-b from-white to-gray-50/50 flex-shrink-0">
         <h3 class="text-sm font-bold text-slate-main mb-3 flex items-center gap-2">
             <i class="fa-solid fa-comment-dots text-morandi"></i>
@@ -59,6 +62,7 @@
                        data-ms-editor="false"
                        class="review-textarea no-underline w-full h-[200px] px-3 py-2 text-sm leading-relaxed text-slate-main border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-morandi focus:border-morandi resize-none read-only:bg-gray-50 read-only:cursor-not-allowed" />
     </div>
+    }
 
     @* ===== 下半部：劃記評語 + 歷程軌跡 + 相似題比對（共用同一個內捲容器） ===== *@
     <div class="flex-1 min-h-0 overflow-y-auto custom-scroll">
@@ -135,6 +139,12 @@
     [Parameter] public bool IsReadOnly { get; set; }
     /// <summary>唯讀時 lock 標籤上顯示的原因（null/空 → 預設「已決策」）</summary>
     [Parameter] public string? LockReason { get; set; }
+
+    /// <summary>
+    /// 隱藏「我的審題意見」整段（標題 + 罐頭訊息 + 文字框）— 用於總召代修+裁決模式（CanFinalReviewerEdit=true）。
+    /// 下半部歷程軌跡 / 相似題 / 劃記仍正常顯示。
+    /// </summary>
+    [Parameter] public bool HideCommentSection { get; set; }
     [Parameter] public List<ReviewHistoryEntry> History { get; set; } = new();
     [Parameter] public List<ReviewSimilarityEntry> SimilarQuestions { get; set; } = new();
 

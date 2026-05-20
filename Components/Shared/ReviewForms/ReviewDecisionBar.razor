@@ -391,23 +391,10 @@
 
     private RenderFragment RenderFinalThirdButtons => __builder =>
     {
-        <button type="button"
-                disabled="@IsSubmitting"
-                @onclick="() => OnSaveDraft.InvokeAsync()"
-                class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
-            @if (IsBusy("save"))
-            {
-                <i class="fa-solid fa-spinner fa-spin mr-1"></i>
-                <span>儲存中…</span>
-            }
-            else
-            {
-                <i class="fa-regular fa-floppy-disk mr-1"></i>
-                <span>儲存意見草稿</span>
-            }
-        </button>
+        @* 總召代修+裁決模式（CanFinalReviewerEdit=true）— 意見區已隱藏，不需要儲存草稿與意見字數守門。
+           只保留三個動作：編輯題目 / 不採用 / 採用，全部直接可按 *@
+        <span></span>   @* 佔位讓 justify-between 仍把按鈕群推到右側 *@
         <div class="flex items-center gap-3">
-            @ShortCommentHint
             <button type="button"
                     disabled="@IsSubmitting"
                     @onclick="() => OnRequestEdit.InvokeAsync()"
@@ -425,8 +412,7 @@
             </button>
             <span class="w-px h-8 bg-gray-300 mx-2"></span>
             <button type="button"
-                    disabled="@(IsSubmitting || IsCommentTooShort)"
-                    title="@(IsCommentTooShort ? ShortCommentTooltip : null)"
+                    disabled="@IsSubmitting"
                     @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Reject)"
                     class="px-5 py-2.5 bg-red-700 hover:bg-red-800 text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
                 @if (IsBusy("reject"))
@@ -441,8 +427,7 @@
                 }
             </button>
             <button type="button"
-                    disabled="@(IsSubmitting || IsCommentTooShort)"
-                    title="@(IsCommentTooShort ? ShortCommentTooltip : null)"
+                    disabled="@IsSubmitting"
                     @onclick="() => OnSubmitDecision.InvokeAsync(ReviewDecision.Approve)"
                     class="px-6 py-2.5 bg-sage hover:bg-[#7a9a82] text-white rounded-lg font-bold text-sm transition shadow-sm cursor-pointer focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed">
                 @if (IsBusy("approve"))

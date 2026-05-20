@@ -475,9 +475,12 @@
                                                     //   Pending（待審）               → 「審題」綠
                                                     //   Completed + CanFinalEdit=true → 「編輯題目」橘（第 3 次解鎖總召自改）
                                                     //   Completed + 其他             → 「檢視」灰（已退回，等命題老師改）
+                                                    // UnitStatus=7（FinalReviewing 已送審）才解鎖：user 修題中（UnitStatus=8）期間總召不該編輯，
+                                                    // 避免雙方同時動題目衝突。第 4 次送審到總召手裡時 UnitStatus 才從 8 變 7。
                                                     bool isEditUnlocked = item.CanFinalReviewerEdit
                                                                          && item.Stage == ReviewStage.Final
-                                                                         && item.IsCompleted;
+                                                                         && item.IsCompleted
+                                                                         && item.UnitStatus == QuestionStatus.FinalReviewing;
                                                     var (btnIcon, btnLabel, btnCss) = historical
                                                         ? ("fa-solid fa-eye",               "檢視",      "text-gray-400 hover:text-gray-600")
                                                         : !item.IsCompleted
@@ -621,6 +624,7 @@
              QuestionId="@selectedQuestionId"
              SubQuestionId="@selectedSubQuestionId"
              CurrentUserId="@(currentUserId ?? 0)"
+             ProjectId="@(CurrentProject?.Id ?? 0)"
              IsHistoricalFromService="@selectedIsHistorical"
              OnDecisionMade="OnDecisionMadeAsync"
              OnRequestFinalEdit="OpenFinalEditModalAsync" />

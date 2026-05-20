@@ -162,6 +162,8 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 r.Stage,
                 r.Decision,
                 r.Status,
+                -- 該單元自身 Status：母題列取 q.Status、子題列取 sq.Status（給 UI 守門用，例如總召「編輯題目」按鈕僅在 UnitStatus=7 解鎖）
+                CASE WHEN r.SubQuestionId IS NULL THEN q.Status ELSE sq.Status END AS UnitStatus,
                 r.LastEditedAt,
                 ISNULL(rc.ReturnCount, 0)      AS ReturnCount,
                 ISNULL(rc.CanEditByReviewer, 0) AS CanEditByReviewer
@@ -223,6 +225,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 Stage                = stage,
                 Decision             = r.Decision is null ? null : (ReviewDecision)r.Decision.Value,
                 Status               = (ReviewTaskStatus)r.Status,
+                UnitStatus           = r.UnitStatus,
                 LastEditedAt         = r.LastEditedAt,
                 FinalReturnCount     = r.ReturnCount,
                 CanFinalReviewerEdit = r.CanEditByReviewer,
@@ -758,7 +761,9 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             byte? oldUnitStatus = null;
             byte? newUnitStatus = MapDecisionToQuestionStatus(meta.Stage, req.Decision, currentPhaseCode);
 
-            // 6-1. 第 3 輪 Reject 偵測：PhaseCode=8 + Final + Reject + 該「單元」已退回 ≥2 次 → Rejected(10)
+            // 6-1. 第 4 次送審強制最終決策：PhaseCode=8 + Final + Reject + 該「單元」已退回 ≥3 次 → Rejected(10)
+            //      業務規則：最多退回 3 次（user 仍能於第 3 次退回後修題重送 = 第 4 次送審），
+            //      第 4 次送審時總召不能再退回，按 Reject 即為「最終不採用」直接 Rejected。
             //      Stage B-4：退回計次按單元獨立 — 比對 (QuestionId, SubQuestionId) 兩欄
             if (newUnitStatus is null
                 && currentPhaseCode == 8
@@ -775,7 +780,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                     """,
                     new { Id = meta.QuestionId, SubId = meta.SubQuestionId }, tx) ?? 0;
 
-                if (existingReturnCount >= 2)
+                if (existingReturnCount >= 3)
                 {
                     newUnitStatus = QuestionStatus.Rejected;   // 10
                 }
@@ -817,12 +822,16 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 }
             }
 
-            // 7. 總召「改後再審」或「不採用」→ 累加退回計數（達 2 次解鎖總召自編）
+            // 7. 總召「改後再審」或「不採用」→ 累加退回計數（達 3 次解鎖總召自編）
             //    Stage B-4：按單元獨立計次 — 母題與每子題分別累計，互不影響第 3 輪解鎖判定
             //    再次決策時不重複加，避免使用者「Revise → Approve → Revise」誤計多次
             //    Reject 同樣計入：退回次數涵蓋所有「不採用→交回修改」情境
+            //    例外：步驟 6-1 偵測到 existingReturnCount >= 3 + Reject → newUnitStatus 已設為 Rejected(10)，
+            //          表示「第 4 次送審強制最終決策」，這次不該再 Bump（否則 ReturnCount 變 4，
+            //          歷程軌跡會顯示「總審第四次退回」語意錯誤）
             if (!isResubmit && meta.Stage == (byte)ReviewStage.Final &&
-                (req.Decision == ReviewDecision.Revise || req.Decision == ReviewDecision.Reject))
+                (req.Decision == ReviewDecision.Revise || req.Decision == ReviewDecision.Reject) &&
+                newUnitStatus != QuestionStatus.Rejected)
             {
                 await BumpReturnCountAsync(conn, tx, meta.QuestionId, meta.SubQuestionId, operatorUserId);
             }
@@ -1438,6 +1447,11 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     /// 產出「總審第一次退回 / 總審第二次退回...」。
     /// 不採用與改後採用在語意上同屬「退回給命題者」，故共用同一序列。
     /// 互審/專審無「退回」業務概念，不處理。
+    ///
+    /// 業務規則：最多退回 3 次（idx 1~3）。idx >= 4 表示「第 4 次送審強制最終決策」場景：
+    ///   - Reject 第 4 筆 → label「總審最終不採用」（不是退回，而是直接 Rejected(10)）
+    ///   - Revise 第 4 筆 → 理論上 UI 端 RenderFinalThirdButtons 已不顯示「改後採用」按鈕不會發生；
+    ///     若舊資料有就保險顯示「總審第N次退回」維持資訊
     /// </summary>
     private static void ApplyFinalReturnSequence(List<ReviewHistoryEntry> entries)
     {
@@ -1450,7 +1464,14 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
             .OrderBy(x => x.At))
         {
             idx++;
-            e.Label = $"總審第{ToChineseOrdinal(idx)}次退回";
+            if (idx >= 4 && e.Label == finalRejectLabel)
+            {
+                e.Label = "總審最終不採用";
+            }
+            else
+            {
+                e.Label = $"總審第{ToChineseOrdinal(idx)}次退回";
+            }
         }
     }
 
@@ -1587,6 +1608,8 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         public byte Stage { get; set; }
         public byte? Decision { get; set; }
         public byte Status { get; set; }
+        /// <summary>該單元當前 Status（母題列=q.Status、子題列=sq.Status；SQL 已用 CASE 分支取對）</summary>
+        public byte UnitStatus { get; set; }
         public DateTime LastEditedAt { get; set; }
         /// <summary>總召退回次數（LEFT JOIN MT_ReviewReturnCounts；非 Final 行為 0）</summary>
         public int ReturnCount { get; set; }

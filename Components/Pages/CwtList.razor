@@ -7,6 +7,7 @@
 @using MT.Components.Shared.QuestionForms
 @using MT.Components.Shared.QuestionPreviews
 @inject IQuestionService QuestionService
+@inject ISimilarityService SimilarityService
 @inject IPhaseTransitionCoordinator PhaseCoordinator
 @inject NavigationManager Navigation
 @inject ILogger<CwtList> Logger
@@ -366,6 +367,20 @@
             class="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
             <i class="fa-regular fa-eye"></i> 預覽
         </button>
+        <button @onclick="OpenSimilarityCheckAsync" disabled="@(isSaving || isCheckingSimilarity)"
+            title="比對本梯次同題型同等級的相似題目"
+            class="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
+            @if (isCheckingSimilarity)
+            {
+                <i class="fa-solid fa-spinner fa-spin"></i>
+                <span>比對中…</span>
+            }
+            else
+            {
+                <i class="fa-solid fa-clone"></i>
+                <span>相似題</span>
+            }
+        </button>
         @if (IsEditableStatus(currentFormStatus))
         {
             <button @onclick="() => SaveAsync(QuestionStatus.Draft)" disabled="@isSaving"
@@ -519,6 +534,12 @@
     }
 </QuestionPreviewModal>
 
+<!-- 相似題比對結果彈窗 -->
+<SimilarityCheckModal @bind-IsVisible="showSimilarityModal"
+                      Loading="@isCheckingSimilarity"
+                      Results="@similarityResults"
+                      SourceCode="@(string.IsNullOrEmpty(formData.QuestionCode) ? "新題目" : formData.QuestionCode)" />
+
 @code {
     [CascadingParameter(Name = "CurrentProject")]
     private ProjectSwitcherItem? CurrentProject { get; set; }
@@ -544,6 +565,11 @@
 
     // 預覽 Modal
     private bool showPreviewModal = false;
+
+    // 相似題比對 Modal（Plan A）
+    private bool showSimilarityModal = false;
+    private bool isCheckingSimilarity = false;
+    private IReadOnlyList<MT.Models.SimilarityCompareResult> similarityResults = Array.Empty<MT.Models.SimilarityCompareResult>();
 
     // 表單狀態統一收攏（題型 / 等級 / 難度 / 8 屬性 / 主題內容 / 子題清單）
     private QuestionFormData formData = new();
@@ -1111,6 +1137,40 @@
     /// formData.Id == 0 → CreateAsync；> 0 → UpdateAsync。
     /// Service 層自動寫入 MT_AuditLogs。
     ///
+    /// 開啟「相似題比對」彈窗 — Plan A 即時計算（不寫 DB）
+    /// 從當前 formData 組裝 QuestionDraftSnapshot 給 SimilarityService 比對
+    /// </summary>
+    private async Task OpenSimilarityCheckAsync()
+    {
+        if (isCheckingSimilarity || CurrentProject is null) return;
+
+        // 1. 立即開啟彈窗 + Loading 狀態
+        isCheckingSimilarity = true;
+        similarityResults = Array.Empty<MT.Models.SimilarityCompareResult>();
+        showSimilarityModal = true;
+        StateHasChanged();
+
+        try
+        {
+            // 2. 用 extension method 組裝 snapshot（共用邏輯放在 SimilarityModels.cs）
+            var snapshot = formData.ToDraftSnapshot(CurrentProject.Id);
+            // 3. 呼叫 Service 計算 Top-5
+            var results = await SimilarityService.ComputeOnDemandAsync(snapshot, topN: 5);
+            similarityResults = results;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "OpenSimilarityCheckAsync 失敗：FormDataId={Id}", formData.Id);
+            similarityResults = Array.Empty<MT.Models.SimilarityCompareResult>();
+        }
+        finally
+        {
+            isCheckingSimilarity = false;
+            StateHasChanged();
+        }
+    }
+
+    /// <summary>
     /// 進入儲存前先以 QuestionFormValidator 做欄位完整性檢查：
     ///   - Draft  → 寬鬆驗證（題型 + 等級）
     ///   - Other  → 嚴格驗證（依題型逐欄）

@@ -1698,19 +1698,10 @@ public class QuestionService(
         }
         if (hasEditingUnit == 0) return false;
 
-        // 守門：ReturnCount >= 3 表示已達退回上限（總召已解鎖 CanEditByReviewer=1 將親自代修+裁決）
-        //   業務規則：第 3 次後教師退場、不可再重送；總召 FinalReviewerEditAndDecideAsync 才是唯一路徑。
-        //   防止教師與總召同時操作造成競態（教師重送把 Status 8→7，總召同時讀舊資料寫決策）。
-        //   單元級檢查：母題與子題各自獨立計次，用 (QuestionId, SubQuestionId) NULL-safe 比對。
-        var returnCount = await conn.ExecuteScalarAsync<int?>(
-            """
-            SELECT ReturnCount
-            FROM dbo.MT_ReviewReturnCounts
-            WHERE QuestionId = @Id
-              AND ISNULL(SubQuestionId, -1) = ISNULL(@SubId, -1);
-            """,
-            new { Id = questionId, SubId = subQuestionId });
-        if (returnCount >= 3) return false;
+        // 業務規則：最多退回 3 次；user 在 ReturnCount=3 後仍可修題重送（第 4 次送審），
+        //   總召收到第 4 次送審時 CanEditByReviewer 已為 true（BumpReturnCount 設定），UI 顯示解鎖代修+裁決，
+        //   且 SubmitDecisionAsync 第 4 次送審不再退回（按 Reject 直接 Rejected）。
+        //   不需要在此擋送審路徑，user 永遠可重送，由總召端決定後續。
 
         using var tx = conn.BeginTransaction(IsolationLevel.Serializable);
         try

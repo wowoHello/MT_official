@@ -327,26 +327,22 @@
                                 }
                             </button>
 
-                            @* [完成送審] 僅總審修題（PhaseCode=8）擁有；ReturnCount >= 3 時封鎖（總召代修裁決中） *@
+                            @* [完成送審] 僅總審修題（PhaseCode=8）擁有。
+                               業務規則：最多退回 3 次；user 在每次退回後（含第 3 次）皆可修題重送。
+                               第 4 次送審後總召收到時已解鎖代修，不會再退回給 user。送審按鈕無需 ReturnCount 守門。 *@
                             @if (data.CurrentPhaseCode == 8)
                             {
-                                var hasReachedReturnLimit = data.FinalReturnCount >= 3;
-                                var resubmitDisabledTitle =
-                                    hasReachedReturnLimit ? "此題已達退回上限，等待總召最終裁決"
-                                    : string.IsNullOrWhiteSpace(revisionNote) ? "請先填寫修題說明"
+                                var resubmitDisabledTitle = string.IsNullOrWhiteSpace(revisionNote)
+                                    ? "請先填寫修題說明"
                                     : "送回給總召再次審題";
 
                                 <button type="button" @onclick="OnResubmitAsync"
-                                        disabled="@(isSaving || string.IsNullOrWhiteSpace(revisionNote) || hasReachedReturnLimit)"
+                                        disabled="@(isSaving || string.IsNullOrWhiteSpace(revisionNote))"
                                         title="@resubmitDisabledTitle"
                                         class="px-5 py-2 text-sm bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
                                     @if (isSaving && pendingAction == "resubmit")
                                     {
                                         <span><i class="fa-solid fa-spinner fa-spin"></i> 送出中…</span>
-                                    }
-                                    else if (hasReachedReturnLimit)
-                                    {
-                                        <i class="fa-solid fa-lock"></i> <span>等待總召裁決</span>
                                     }
                                     else
                                     {
@@ -703,14 +699,6 @@
     private async Task OnResubmitAsync()
     {
         if (data is null || !data.IsEditable || data.CurrentPhaseCode != 8 || isSaving) return;
-
-        // 退回上限守門：FinalReturnCount >= 3 時禁止再次送審（總召代修裁決中）
-        // 即使按鈕已 disabled，仍可能被 DevTools 移除 disabled 點擊；後端 ResubmitAfterFinalEditingAsync 亦會擋
-        if (data.FinalReturnCount >= 3)
-        {
-            await ShowToastAsync("info", "此題已達退回上限，等待總召最終裁決");
-            return;
-        }
 
         // 題目欄位完整性檢查（與完成修題共用同一份 validator）
         var errors = QuestionFormValidator.ValidateForCompletion(data.Question);
