@@ -1256,9 +1256,9 @@ public class TeacherService : ITeacherService
         using var conn = _db.CreateConnection();
         var param = new { ProjectId = projectId };
 
-        // ── 0. 查 Project meta（ProjectType + ExamLevel）──
+        // ── 0. 查 Project meta（ProjectType + ExamLevel + ClosedAt）──
         var projectMeta = await conn.QuerySingleAsync<ExportProjectMeta>(
-            "SELECT ProjectType, ExamLevel FROM dbo.MT_Projects WHERE Id = @ProjectId;", param);
+            "SELECT ProjectType, ExamLevel, ClosedAt FROM dbo.MT_Projects WHERE Id = @ProjectId;", param);
 
         // 等級字串（CWT 用 GeneralLevelLabels；LCT 為「－」）
         var examLevelLabel = projectMeta.ProjectType == 0 && projectMeta.ExamLevel.HasValue
@@ -1285,10 +1285,13 @@ public class TeacherService : ITeacherService
         Dictionary<int, ExportUserCells> reviewCells;
         string[] categoryHeaders;
 
+        // 結案判斷：ClosedAt 非 NULL 表示已手動結案入庫，此時才顯示實際採用/不採用數字
+        bool isClosed = projectMeta.ClosedAt.HasValue;
+
         if (projectMeta.ProjectType == 0)
         {
-            composeCells    = await BuildCwtComposeCellsAsync(conn, projectId);
-            reviewCells     = await BuildCwtReviewCellsAsync(conn, projectId);
+            composeCells    = await BuildCwtComposeCellsAsync(conn, projectId, isClosed);
+            reviewCells     = await BuildCwtReviewCellsAsync(conn, projectId, isClosed);
             categoryHeaders = new[]
             {
                 "一般單選題數", "閱讀題組母題數", "閱讀題組子題數",
@@ -1297,8 +1300,8 @@ public class TeacherService : ITeacherService
         }
         else
         {
-            composeCells    = await BuildLctComposeCellsAsync(conn, projectId);
-            reviewCells     = await BuildLctReviewCellsAsync(conn, projectId);
+            composeCells    = await BuildLctComposeCellsAsync(conn, projectId, isClosed);
+            reviewCells     = await BuildLctReviewCellsAsync(conn, projectId, isClosed);
             categoryHeaders = new[]
             {
                 "難度一題數", "難度二題數", "難度三題數",
@@ -1407,7 +1410,7 @@ public class TeacherService : ITeacherService
     //  採用/不採用：Status=12 / Status=11（母+子加總）
     // ============================================================
     private static async Task<Dictionary<int, ExportUserCells>> BuildCwtComposeCellsAsync(
-        IDbConnection conn, int projectId)
+        IDbConnection conn, int projectId, bool isClosed)
     {
         var param = new { ProjectId = projectId };
 
@@ -1459,11 +1462,11 @@ public class TeacherService : ITeacherService
         var quotas    = (await conn.QueryAsync<CwtQuotaRow >(quotaSql,  param)).AsList();
         var masters   = (await conn.QueryAsync<CwtBucketRow>(masterSql, param)).AsList();
         var subs      = (await conn.QueryAsync<CwtBucketRow>(subSql,    param)).AsList();
-        return AssembleCwtCells(quotas, masters, subs);
+        return AssembleCwtCells(quotas, masters, subs, isClosed);
     }
 
     private static async Task<Dictionary<int, ExportUserCells>> BuildCwtReviewCellsAsync(
-        IDbConnection conn, int projectId)
+        IDbConnection conn, int projectId, bool isClosed)
     {
         var param = new { ProjectId = projectId };
 
@@ -1527,14 +1530,15 @@ public class TeacherService : ITeacherService
         var reviewRows     = (await conn.QueryAsync<CwtReviewRow   >(reviewSql,         param)).AsList();
         var masterAdoption = (await conn.QueryAsync<AdoptionRow    >(masterAdoptionSql, param)).AsList();
         var subAdoption    = (await conn.QueryAsync<AdoptionRow    >(subAdoptionSql,    param)).AsList();
-        return AssembleCwtReviewCells(reviewRows, masterAdoption, subAdoption);
+        return AssembleCwtReviewCells(reviewRows, masterAdoption, subAdoption, isClosed);
     }
 
     /// <summary>把 CWT 命題側資料攤平成 6 個 X/Y cell + 採用/不採用。無分母（quota=0）→「－」。</summary>
     private static Dictionary<int, ExportUserCells> AssembleCwtCells(
         List<CwtQuotaRow> quotas,
         List<CwtBucketRow> masters,
-        List<CwtBucketRow> subs)
+        List<CwtBucketRow> subs,
+        bool isClosed)
     {
         // 收集所有出現過的 UserId（quota / 實際命題的 superset）
         var allUserIds = new HashSet<int>(quotas.Select(q => q.UserId)
@@ -1591,11 +1595,12 @@ public class TeacherService : ITeacherService
                 }
             }
 
+            // 未結案前採用/不採用無意義（值恆為 0，顯示 0 會誤導使用者）
             result[uid] = new ExportUserCells
             {
                 CategoryCells = cells,
-                AdoptedCell   = hasAnyQuota ? adoptedTotal .ToString() : "－",
-                RejectedCell  = hasAnyQuota ? rejectedTotal.ToString() : "－",
+                AdoptedCell   = isClosed && hasAnyQuota ? adoptedTotal .ToString() : "－",
+                RejectedCell  = isClosed && hasAnyQuota ? rejectedTotal.ToString() : "－",
             };
         }
 
@@ -1606,7 +1611,8 @@ public class TeacherService : ITeacherService
     private static Dictionary<int, ExportUserCells> AssembleCwtReviewCells(
         List<CwtReviewRow> reviewRows,
         List<AdoptionRow>  masterAdoption,
-        List<AdoptionRow>  subAdoption)
+        List<AdoptionRow>  subAdoption,
+        bool isClosed)
     {
         var allUserIds = new HashSet<int>(reviewRows.Select(r => r.UserId)
             .Concat(masterAdoption.Select(a => a.UserId))
@@ -1653,11 +1659,12 @@ public class TeacherService : ITeacherService
             int rejected = masterAdoption.Where(a => a.UserId == uid).Sum(a => a.Rejected)
                          + subAdoption   .Where(a => a.UserId == uid).Sum(a => a.Rejected);
 
+            // 未結案前採用/不採用無意義（值恆為 0，顯示 0 會誤導使用者）
             result[uid] = new ExportUserCells
             {
                 CategoryCells = cells,
-                AdoptedCell   = hasAny ? adopted .ToString() : "－",
-                RejectedCell  = hasAny ? rejected.ToString() : "－",
+                AdoptedCell   = isClosed && hasAny ? adopted .ToString() : "－",
+                RejectedCell  = isClosed && hasAny ? rejected.ToString() : "－",
             };
         }
 
@@ -1671,7 +1678,7 @@ public class TeacherService : ITeacherService
     //  不採用：TypeId=6 Status=11（聽力題組不入庫不計入）
     // ============================================================
     private static async Task<Dictionary<int, ExportUserCells>> BuildLctComposeCellsAsync(
-        IDbConnection conn, int projectId)
+        IDbConnection conn, int projectId, bool isClosed)
     {
         var param = new { ProjectId = projectId };
 
@@ -1740,14 +1747,14 @@ public class TeacherService : ITeacherService
         var groups        = (await conn.QueryAsync<LctGroupRow >(groupSql,         param)).AsList();
         var groupAdoption = (await conn.QueryAsync<LctGroupRow >(groupAdoptionSql, param)).AsList();
 
-        return AssembleLctComposeCells(quotas, singles, groups, groupAdoption);
+        return AssembleLctComposeCells(quotas, singles, groups, groupAdoption, isClosed);
     }
 
     // ============================================================
     //  LCT 統計載入：審題側（X = 完成數、Y = 該人指派數）
     // ============================================================
     private static async Task<Dictionary<int, ExportUserCells>> BuildLctReviewCellsAsync(
-        IDbConnection conn, int projectId)
+        IDbConnection conn, int projectId, bool isClosed)
     {
         var param = new { ProjectId = projectId };
 
@@ -1841,13 +1848,14 @@ public class TeacherService : ITeacherService
         var singleAdoption = (await conn.QueryAsync<AdoptionRow       >(singleAdoptionSql, param)).AsList();
         var groupAdoption  = (await conn.QueryAsync<LctGroupRow       >(groupAdoptionSql,  param)).AsList();
 
-        return AssembleLctReviewCells(singles, groups, singleAdoption, groupAdoption);
+        return AssembleLctReviewCells(singles, groups, singleAdoption, groupAdoption, isClosed);
     }
 
     /// <summary>把 LCT 命題側資料攤平成 6 cells + 採用/不採用。</summary>
     private static Dictionary<int, ExportUserCells> AssembleLctComposeCells(
         List<LctQuotaRow> quotas, List<LctSingleRow> singles,
-        List<LctGroupRow> groups, List<LctGroupRow> groupAdoption)
+        List<LctGroupRow> groups, List<LctGroupRow> groupAdoption,
+        bool isClosed)
     {
         var allUserIds = new HashSet<int>(quotas.Select(q => q.UserId)
             .Concat(singles.Select(s => s.UserId))
@@ -1898,11 +1906,12 @@ public class TeacherService : ITeacherService
                 }
             }
 
+            // 未結案前採用/不採用無意義（值恆為 0，顯示 0 會誤導使用者）
             result[uid] = new ExportUserCells
             {
                 CategoryCells = cells,
-                AdoptedCell   = hasAnyQuota ? adoptedTotal .ToString() : "－",
-                RejectedCell  = hasAnyQuota ? rejectedTotal.ToString() : "－",
+                AdoptedCell   = isClosed && hasAnyQuota ? adoptedTotal .ToString() : "－",
+                RejectedCell  = isClosed && hasAnyQuota ? rejectedTotal.ToString() : "－",
             };
         }
 
@@ -1912,7 +1921,8 @@ public class TeacherService : ITeacherService
     /// <summary>把 LCT 審題側資料攤平成 6 cells + 採用/不採用。</summary>
     private static Dictionary<int, ExportUserCells> AssembleLctReviewCells(
         List<LctReviewSingleRow> singles, List<LctReviewGroupRow> groups,
-        List<AdoptionRow> singleAdoption, List<LctGroupRow> groupAdoption)
+        List<AdoptionRow> singleAdoption, List<LctGroupRow> groupAdoption,
+        bool isClosed)
     {
         var allUserIds = new HashSet<int>(singles.Select(s => s.UserId)
             .Concat(groups        .Select(g => g.UserId))
@@ -1959,11 +1969,12 @@ public class TeacherService : ITeacherService
             int rejected = singleAdoption.Where(a => a.UserId == uid).Sum(a => a.Rejected);
             // LCT 聽力題組不入庫不計入 不採用
 
+            // 未結案前採用/不採用無意義（值恆為 0，顯示 0 會誤導使用者）
             result[uid] = new ExportUserCells
             {
                 CategoryCells = cells,
-                AdoptedCell   = hasAny ? adopted .ToString() : "－",
-                RejectedCell  = hasAny ? rejected.ToString() : "－",
+                AdoptedCell   = isClosed && hasAny ? adopted .ToString() : "－",
+                RejectedCell  = isClosed && hasAny ? rejected.ToString() : "－",
             };
         }
 
@@ -1980,11 +1991,12 @@ public class TeacherService : ITeacherService
         public static readonly ExportUserCells AllDashes = new();
     }
 
-    /// <summary>MT_Projects 查 ProjectType + ExamLevel 的 DTO。</summary>
+    /// <summary>MT_Projects 查 ProjectType + ExamLevel + ClosedAt 的 DTO。</summary>
     private sealed class ExportProjectMeta
     {
-        public byte  ProjectType { get; set; }
-        public byte? ExamLevel   { get; set; }
+        public byte      ProjectType { get; set; }
+        public byte?     ExamLevel   { get; set; }
+        public DateTime? ClosedAt    { get; set; }
     }
 
     /// <summary>CWT 命題側 quota DTO（依 UserId × TypeId × Granularity）。</summary>

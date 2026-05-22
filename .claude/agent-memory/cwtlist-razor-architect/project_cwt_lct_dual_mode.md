@@ -64,5 +64,7 @@ C# 端 `ComputeQuotaCompleted` 依四種 case 計算 Completed：
 - LCT 配額卡點擊 `OpenComposeModal(typeKey, q.Level)` 帶 Level；CWT 一律帶 ExamLevel
 - LCT 聽力題組（TypeId=7）配額計算用 Questions（母題），非 SubQuestions — 與 CWT 題組相反
 
-**剩餘技術債（非雙模式問題）：**
-- 配額卡片只顯示前 7 個 grid（lg:grid-cols-7）；若 LCT 教師同時被分配多種 TypeId+Level 配額可能超過 7 個會折行（目前未見實際發生）
+**配額卡 grid 響應式分層（2026-05-22 完成）：**
+- CwtList.razor:93 使用 `grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 auto-rows-fr`
+- 同步把空態 fallback 的 `col-span-7` 改為 `col-span-full`（CwtList.razor:122）以配合響應式欄數
+- 不再寫死 7 欄，LCT 教師多 TypeId+Level 配額不會固定折在第 8 個位置
