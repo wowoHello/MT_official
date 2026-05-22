@@ -7,6 +7,13 @@ public class QuotaProgressItem
 {
     public int QuestionTypeId { get; set; }
     public string TypeName { get; set; } = string.Empty;
+
+    /// <summary>LCT 聽力測驗（TypeId=6）按難度配額時為 1-5；其他情境為 NULL。</summary>
+    public byte? Level { get; set; }
+
+    /// <summary>0=母題或單題；1=子題（僅 CWT 題組類 TypeId=3/5）。</summary>
+    public byte Granularity { get; set; }
+
     public int Target { get; set; }
     public int Completed { get; set; }
     public int Percent => Target > 0 ? Math.Min(100, Completed * 100 / Target) : 0;
@@ -278,6 +285,68 @@ public static class QuestionConstants
     };
     public static readonly Dictionary<string, int> TypeKeyToId =
         TypeIdToKey.ToDictionary(kv => kv.Value, kv => kv.Key);
+
+    // ----- 使用者選取入口的隱藏白名單 -----
+    // 「保留資料、僅隱藏選取入口」：解碼用 (TypeLabels/TypeIdToKey) 仍保留全 7 項，
+    // 讓既有 TypeId=2 舊資料能正確顯示題型名稱；但所有讓使用者「選新題型」的下拉
+    // 都改用 VisibleTypeIdToKey / VisibleTypeKeyLabels 過濾。
+    // 若日後需復原精選單選題，把 id 從 HiddenTypeIds 拿掉即可。
+    public static readonly HashSet<int> HiddenTypeIds = [2]; // 精選單選題（暫不開放）
+
+    public static readonly HashSet<string> HiddenTypeKeys =
+        HiddenTypeIds.Select(id => TypeIdToKey[id]).ToHashSet();
+
+    public static readonly IReadOnlyList<KeyValuePair<int, string>> VisibleTypeIdToKey =
+        TypeIdToKey.Where(kv => !HiddenTypeIds.Contains(kv.Key)).ToList();
+
+    public static readonly IReadOnlyList<KeyValuePair<string, string>> VisibleTypeKeyLabels =
+        TypeLabels.Where(kv => !HiddenTypeKeys.Contains(kv.Key)).ToList();
+
+    /// <summary>
+    /// 依專案類型與 CWT 統一等級，回傳當前可命題的題型清單（TypeId → key）。
+    /// - CWT：排除聽力類（屬於 LCT），再依 examLevel 過濾不相容題型（如優等不允許在一般單選題）
+    /// - LCT：只回聽力類（聽力測驗 + 聽力題組）
+    /// 隱藏的精選單選題（HiddenTypeIds）兩種模式都不會回。
+    /// </summary>
+    public static IEnumerable<KeyValuePair<int, string>> GetVisibleTypeIdToKeyForProject(
+        ProjectType projectType, byte? examLevel)
+    {
+        foreach (var kv in VisibleTypeIdToKey)
+        {
+            var key = kv.Value;
+            if (projectType == ProjectType.Cwt)
+            {
+                // CWT 排除聽力類
+                if (key is QuestionTypeCodes.Listen or QuestionTypeCodes.ListenGroup) continue;
+                // examLevel 有值 → 過濾不允許該等級的題型；TypeLevels 為空陣列代表無等級限制（如 ListenGroup 母題）
+                if (examLevel.HasValue
+                    && TypeLevels.TryGetValue(key, out var levels)
+                    && levels.Length > 0
+                    && !levels.Contains(examLevel.Value))
+                {
+                    continue;
+                }
+            }
+            else // LCT
+            {
+                if (key is not (QuestionTypeCodes.Listen or QuestionTypeCodes.ListenGroup)) continue;
+            }
+            yield return kv;
+        }
+    }
+
+    /// <summary>同上，回傳 string key → label 清單，供以 string key 操作的下拉使用（如 Reviews / QuestionAttributesSidebar）。</summary>
+    public static IEnumerable<KeyValuePair<string, string>> GetVisibleTypeKeyLabelsForProject(
+        ProjectType projectType, byte? examLevel)
+    {
+        foreach (var (id, key) in GetVisibleTypeIdToKeyForProject(projectType, examLevel))
+        {
+            if (TypeLabels.TryGetValue(key, out var label))
+            {
+                yield return new KeyValuePair<string, string>(key, label);
+            }
+        }
+    }
 
     // ======================================================================
     //  解碼 Helper：依母題題型決定子題 CoreAbility / Indicator 的中文

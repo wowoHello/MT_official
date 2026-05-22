@@ -272,6 +272,38 @@ ResolveLogTypeLabel 方法解析 NewValue/OldValue JSON 的 kind 欄位：
 - 梯次階段轉換：`IPhaseTransitionCoordinator.EnsureAsync`（DI 注入 Dashboard.razor），60 秒去重
 - 梯次切換：CascadingParameter "CurrentProject"（ProjectSwitcherItem?）
 
+## CWT / LCT 雙模式（2026-05-21 新增）
+
+### DB 端定義
+- `MT_Projects.ProjectType` TINYINT：0=CWT（全民中檢）、1=LCT（聽力中心）。預設 0。
+- `MT_Projects.ExamLevel` TINYINT NULL：CWT 統一命題等級 0-4；LCT 模式 NULL。
+- 無 `MT_LCT_*` 等獨立資料表；以 `ProjectType` 欄位區分，同一組題型/配額/審題表共用。
+
+### Model 端定義
+- `enum ProjectType : byte { Cwt = 0, Lct = 1 }`（定義於 `Models/ProjectModels.cs`）
+- `ProjectSwitcherItem.ProjectType`、`ProjectDetailItem.ProjectType` 等多個 DTO 均帶此欄位
+  → CascadingParameter `CurrentProject.ProjectType` 供各頁面取用
+
+### Dashboard Service 雙模式邏輯（已實作）
+- `GetKpiAsync(int projectId, ProjectType projectType)` —— projectType 由 Razor 端傳入（`CurrentProject.ProjectType ?? ProjectType.Cwt`），**不需額外 DB round-trip**
+- `bool isLct = projectType == ProjectType.Lct`
+- 題型 IN 清單分支：
+  - CWT：`activeTypeIds = [1, 3, 4, 5]`（一般/短文題組/長文/閱讀題組，排除精選/聽力/聽力題組）
+  - LCT：`activeTypeIds = [6, 7]`（聽力測驗/聽力題組）
+- 卡片 1 目標明細：CWT → 7 種題型（`sqlTargetsCwt`，閱讀/短文拆母+子 Granularity 0/1）；LCT → 難度一~五 5 桶（`sqlTargetsLct`，Level 欄位）
+- 圖表 1（AchievementByType）/ 圖表 2（StatusByType）/ 卡片 2 AdoptedSubCount：均有 CWT/LCT 分支 SQL
+- 卡片 2 DisplayLabel：CWT 聽力排除（TypeId 6/7）；LCT 排除聽力題組母題（TypeId=7, SubId=NULL）
+- BuildUrgentItemsAsync：命題落後分支中 quota 來源也依 activeTypeIds 過濾
+
+### 目前 Dashboard 是否支援雙模式？
+**是，已完整實作。** KPI 卡、兩張圖表、逾期待辦、Breakdown 均依 `projectType` 分路查詢。
+
+### 待補項目
+- `GetAuditLogsAsync` 未接收 `projectType`，LOG 過濾純依 ProjectId；LCT 梯次的 LOG 顯示不受影響（LOG 本身不區分題型）。**無需修改。**
+- `GetRevisionProgressAsync` / `GetReviewProgressAsync` 未依 `activeTypeIds` 過濾：這兩個函式計算的是「分配了多少審題任務」，與題型無關，依 ReviewAssignments 計數即可。**無需修改。**
+
+---
+
 ## 已知技術債
 - UrgentItems 不截斷（全部警示皆顯示），資料量大時清單很長
 - BuildUrgentItemsAsync 修題/審題分支的落後清單 SQL 與批次明細 SQL 結構部分重複

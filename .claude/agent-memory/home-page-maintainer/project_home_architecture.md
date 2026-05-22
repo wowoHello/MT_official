@@ -52,10 +52,11 @@ type: project
 **Why:** 防止無任務的使用者誤入頁面，比起在子頁面處理更能早期攔截。
 **How to apply:** 修改導航邏輯時須維持此防護。警示連結若未來改為帶 tab 參數（如 ?tab=compose），需在此處加 query string 而非在 module.PageUrl 硬編。
 
-## 已知技術債（2026-05-20 更新）
+## 已知技術債（2026-05-21 更新）
 
 1. **結果集 #4 與 #10 邏輯重複**：同一個「修題中本輪未回覆」SQL 在個人視角和管理員視角各寫一次（Plan_DB_PerfReview 已記錄）。
 2. **HomeService 未整合 IMembershipService**：結果集 #2（梯次角色）是 HomeService 自己打 DB，而非用第二波 #7 建好的 `IMembershipService` cache，是已知未整合殘餘。
 3. **使用說明手冊未串接 DB**：`MT_UserGuideFiles` 資料表存在（欄位：Id, FileName, FilePath, FileSize, UploadedBy, IsActive），`ShowManualComingSoon` 方法目前只顯示 Toast（swalInterop.fireToast），尚未串接真正下載。
 4. **急件警示無直接連結**：alert 卡片點擊無跳頁行為（`warning_MODIFY.md` 規劃的 `?tab=compose/revision` 連結尚未實作到 Blazor 版本）。
 5. **SQL 評論不一致**：HomeService `const string sql` 標頭評論寫「8 個結果集」，實際有 10 個（管理員視角 9/10 未在標頭反映）。
+6. **CWT/LCT 未區分**：`GetUrgentAlertsAsync` 不讀取 `ProjectType`，LCT 梯次的配額缺口計算行為未驗證。詳見 `project_cwt_lct_distinction.md`。

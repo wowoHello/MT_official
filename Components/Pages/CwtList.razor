@@ -106,7 +106,7 @@
                 {
                     @foreach (var q in quotaProgress)
                     {
-                        @QuotaCard(q.QuestionTypeId, q.TypeName, q.Completed, q.Target)
+                        @QuotaCard(q)
                     }
                 }
                 else
@@ -208,7 +208,11 @@
                         <select value="@queryTypeId" @onchange="OnTypeFilterChanged"
                             class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                             <option value="">所有題型</option>
-                            @foreach (var (id, key) in QuestionConstants.TypeIdToKey)
+                            @* 依當前梯次的 ProjectType + ExamLevel 過濾：CWT 排除聽力類 / 不相容等級；LCT 只顯示聽力類。
+                               再用 listResult.TypeIdCounts「有才顯示」交集，避免列出梯次內沒題目的題型 *@
+                            @foreach (var (id, key) in QuestionConstants.GetVisibleTypeIdToKeyForProject(
+                                CurrentProject?.ProjectType ?? ProjectType.Cwt,
+                                CurrentProject?.ExamLevel))
                             {
                                 if (!listResult.TypeIdCounts.ContainsKey(id)) continue;
                                 <option value="@id">@QuestionConstants.TypeLabels.GetValueOrDefault(key, key)</option>
@@ -427,6 +431,8 @@
                     <div class="@(sidebarCollapsed ? "w-0" : "w-60 lg:w-72") flex-shrink-0 bg-white border-r border-gray-200 overflow-hidden flex flex-col transition-all duration-300 ease-in-out">
                         <QuestionAttributesSidebar IsCollapsed="sidebarCollapsed"
                             QuestionType="@formData.QuestionType" QuestionTypeChanged="OnQuestionTypeChanged"
+                            ProjectType="@(CurrentProject?.ProjectType ?? ProjectType.Cwt)"
+                            ExamLevel="@CurrentProject?.ExamLevel"
                             @bind-Level="formData.Level" @bind-Difficulty="formData.Difficulty"
                             @bind-Topic="formData.Topic" @bind-Subtopic="formData.Subtopic"
                             @bind-WritingMode="formData.WritingMode" @bind-Genre="formData.Genre"
@@ -1113,6 +1119,11 @@
     private void OnQuestionTypeChanged(string newType)
     {
         formData = new() { QuestionType = newType };
+        // CWT 統一等級：題型切換不重置 Level（題目 Level 強制 = 專案 ExamLevel）
+        if (CurrentProject?.ProjectType == ProjectType.Cwt && CurrentProject.ExamLevel.HasValue)
+        {
+            formData.Level = CurrentProject.ExamLevel.Value;
+        }
         // 重要：清掉前一題型留下的紅框（Stem / Options / Analysis 等共用 FieldKey
         // 在新題型仍會命中，造成切過去就一片紅）
         invalidFields.Clear();
@@ -1124,6 +1135,11 @@
         if (!string.IsNullOrEmpty(presetTypeKey) && QuestionConstants.TypeKeyToId.ContainsKey(presetTypeKey))
         {
             formData.QuestionType = presetTypeKey;
+        }
+        // CWT 統一等級：開新題時自動帶入專案 ExamLevel；LCT 不處理
+        if (CurrentProject?.ProjectType == ProjectType.Cwt && CurrentProject.ExamLevel.HasValue)
+        {
+            formData.Level = CurrentProject.ExamLevel.Value;
         }
         currentFormStatus = QuestionStatus.Draft;
         currentFormUpdatedAt = null;
@@ -1388,16 +1404,17 @@
         </div>
     };
 
-    private RenderFragment QuotaCard(int questionTypeId, string typeName, int current, int target) => __builder =>
+    private RenderFragment QuotaCard(QuotaProgressItem q) => __builder =>
     {
-        var percent  = target > 0 ? (int)((double)current / target * 100) : 0;
-        var barColor = percent >= 100 ? "bg-sage" : percent > 0 ? "bg-morandi" : "bg-gray-200";
-        var typeKey  = QuestionConstants.TypeIdToKey.GetValueOrDefault(questionTypeId, "single");
-        var locked   = IsCompositionPhaseClosed;
-        var reached  = target > 0 && current >= target;
-        var tooltip  = locked  ? "命題階段已結束，無法新增題目"
-                     : reached ? $"已達標，仍可超量命題（{current}/{target}）"
-                               : $"點擊新增「{typeName}」題目";
+        var percent     = q.Percent;
+        var barColor    = percent >= 100 ? "bg-sage" : percent > 0 ? "bg-morandi" : "bg-gray-200";
+        var typeKey     = QuestionConstants.TypeIdToKey.GetValueOrDefault(q.QuestionTypeId, "single");
+        var locked      = IsCompositionPhaseClosed;
+        var reached     = q.Target > 0 && q.Completed >= q.Target;
+        var displayName = q.TypeName + GetQuotaSuffix(q);
+        var tooltip     = locked  ? "命題階段已結束，無法新增題目"
+                        : reached ? $"已達標，仍可超量命題（{q.Completed}/{q.Target}）"
+                                  : $"點擊新增「{displayName}」題目";
 
         <button type="button"
             @onclick="() => OpenComposeModal(typeKey)"
@@ -1414,10 +1431,10 @@
                     <i class="fa-solid fa-check text-xs"></i>已達標
                 </span>
             }
-            <div class="text-xs font-bold text-gray-600 mb-1 truncate pr-12">@typeName</div>
+            <div class="text-xs font-bold text-gray-600 mb-1 truncate pr-12">@displayName</div>
             <div class="flex items-baseline gap-1 mb-2">
-                <span class="text-lg font-black text-slate-main">@current</span>
-                <span class="text-xs text-gray-400">/ @target</span>
+                <span class="text-lg font-black text-slate-main">@q.Completed</span>
+                <span class="text-xs text-gray-400">/ @q.Target</span>
             </div>
             <div class="w-full bg-gray-100 rounded-full h-1.5">
                 <div class="@barColor h-1.5 rounded-full transition-all" style="width: @(percent)%"></div>
@@ -1430,4 +1447,16 @@
             }
         </button>
     };
+
+    /// <summary>配額卡片標題後綴：依 Level / Granularity / TypeId 自動產生「- 難度三 / - 母題 / - 子題」。</summary>
+    private static string GetQuotaSuffix(QuotaProgressItem q)
+    {
+        if (q.Level.HasValue)
+            return $" - {QuestionConstants.ListenLevelLabels.GetValueOrDefault(q.Level.Value, "")}";
+        if (q.Granularity == 1)
+            return " - 子題";
+        if (q.QuestionTypeId is 3 or 5 && q.Granularity == 0)
+            return " - 母題";
+        return "";
+    }
 }

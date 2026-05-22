@@ -89,7 +89,7 @@
                             @foreach (var t in kpi.TargetBreakdown)
                             {
                                 <div class="flex justify-between gap-2">
-                                    <span class="text-gray-500 truncate">@t.TypeName</span>
+                                    <span class="text-gray-500 truncate">@t.DisplayLabel</span>
                                     <span class="font-semibold text-[var(--color-slate-main)] tabular-nums shrink-0">@t.TargetCount</span>
                                 </div>
                             }
@@ -114,7 +114,7 @@
                 <!-- Main -->
                 <div class="flex items-baseline gap-1.5 mb-3">
                     <h3 class="text-4xl font-black text-[var(--color-sage)] tabular-nums leading-none">
-                        @(isLoading ? "…" : kpi.AdoptedCount.ToString())
+                        @(isLoading ? "…" : kpi.AdoptedTotal.ToString())
                     </h3>
                     <span class="text-sm text-gray-400">題</span>
                 </div>
@@ -133,7 +133,7 @@
                         <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
                             <div class="h-full bg-[var(--color-sage)] rounded-full transition-all duration-500" style="width:@(kpi.AdoptedPercent)%"></div>
                         </div>
-                        <div class="text-xs text-gray-400 mt-1.5 tabular-nums">@kpi.AdoptedCount / @kpi.TotalTarget 已採用</div>
+                        <div class="text-xs text-gray-400 mt-1.5 tabular-nums">@kpi.AdoptedTotal / @kpi.TotalTarget 已採用</div>
                     }
                 </div>
             </div>
@@ -345,13 +345,27 @@
                     }
                     else
                     {
-                        @* 修題階段：XX/OO 題 *@
-                        <h3 class="flex items-baseline gap-1 leading-none">
+                        @* 修題階段：主數字（合計）+ 母/子題拆解行 *@
+                        <h3 class="flex items-baseline gap-1 leading-none mb-2">
                             <span class="text-4xl font-black text-[var(--color-terracotta)] tabular-nums">@kpi.RevisedCount</span>
                             <span class="text-2xl text-gray-300 mx-0.5">/</span>
                             <span class="text-2xl font-bold text-gray-400 tabular-nums">@kpi.RevisionTotalCount</span>
                             <span class="text-sm text-gray-400 ml-1">題</span>
                         </h3>
+                        @* 母/子題細分（與卡片 3 樣式一致；僅在有子題時顯示雙行）*@
+                        @if (kpi.RevisionMasterTotal > 0 || kpi.RevisionSubTotal > 0)
+                        {
+                            <div class="flex flex-col gap-0.5 text-xs text-gray-500">
+                                @if (kpi.RevisionMasterTotal > 0)
+                                {
+                                    <span class="tabular-nums">母題 @kpi.RevisedMasterCount / @kpi.RevisionMasterTotal</span>
+                                }
+                                @if (kpi.RevisionSubTotal > 0)
+                                {
+                                    <span class="tabular-nums">子題 @kpi.RevisedSubCount / @kpi.RevisionSubTotal</span>
+                                }
+                            </div>
+                        }
                     }
                 </div>
                 <!-- Footer：依 PhaseStatusType 顯示真正當前階段（與卡片 3 共用邏輯） -->
@@ -433,7 +447,10 @@
                     {
                         <EmptyState IconClass="fa-spinner" Message="載入中…" Compact="true" CssClass="h-full" />
                     }
-                    else if (!kpi.StatusByType.Any(x => x.Drafts > 0 || x.InProgress > 0 || x.DoneStage > 0 || x.Adopted > 0 || x.Rejected > 0))
+                    @* 空狀態判定改為「列表為空才視為無資料」（從前一版「所有桶都 0 視為無資料」放寬）。
+                       目的：CWT/LCT 都已透過 SQL JOIN 確保桶列表非空（CWT 6 桶 / LCT 5 桶），
+                       新建專案設定目標後即立刻看到桶結構（空棒 = 0），與「題型缺口達成率」呈現一致。 *@
+                    else if (!kpi.StatusByType.Any())
                     {
                         <EmptyState IconClass="fa-chart-column" Message="尚無數據" SubMessage="新增題目後將自動產生統計" Compact="true" CssClass="h-full" />
                     }
@@ -791,7 +808,9 @@
             kpi = new DashboardKpiDto();
             chartsNeedRender = false;
             selectedDetailItem = null;
-            logPage = null;
+            // 對齊 LoadLogsAsync 行 842 的處理：給空物件而非 null，
+            // 否則 LOG 區塊 if 三分支（loading / empty / list）全 miss → 卡片下半部完全空白
+            logPage = new AuditLogPage();
             return;
         }
 
@@ -816,7 +835,9 @@
             // 60 秒去重 + idempotent，確保管理員開儀表板就能看到真實的審題分配資料（而非 fallback 估算值）
             await PhaseCoordinator.EnsureAsync(projectId);
 
-            kpi = await DashboardService.GetKpiAsync(projectId);
+            // 傳入當前梯次的 ProjectType（CWT/LCT），Service 依此切換題型過濾邏輯
+            var projectType = CurrentProject?.ProjectType ?? ProjectType.Cwt;
+            kpi = await DashboardService.GetKpiAsync(projectId, projectType);
             chartsNeedRender = true;
         }
         catch (Exception ex)
@@ -907,7 +928,7 @@
         {
             var achievementItems = kpi.AchievementByType.Select(item => new
             {
-                typeName  = item.TypeName,
+                typeName  = item.DisplayLabel,
                 produced  = item.Produced,
                 target    = item.Target,
                 fillColor = ResolveBarColor(item.Produced, item.Target)
@@ -917,9 +938,10 @@
         }
 
         // ── 圖表 2：依題型狀態分佈（Vertical Stacked Bar） ──
-        if (kpi.StatusByType.Any(x => x.Drafts > 0 || x.InProgress > 0 || x.DoneStage > 0 || x.Adopted > 0 || x.Rejected > 0))
+        // 同 razor empty state 判斷邏輯：列表非空即渲染（即使全 0 也顯示空棒，與 CWT/LCT UX 一致）
+        if (kpi.StatusByType.Any())
         {
-            var categories = kpi.StatusByType.Select(x => x.TypeName).ToArray();
+            var categories = kpi.StatusByType.Select(x => x.DisplayLabel).ToArray();
 
             var chart2Options = new
             {

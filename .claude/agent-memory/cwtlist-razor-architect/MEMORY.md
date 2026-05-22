@@ -5,5 +5,6 @@
 - [七種題型表單實作位置與差異點](project_question_types.md) — 7 個 QuestionForm 元件、子題增刪規則、屬性側欄差異
 - [審修作業區修題工作區（RevisionSlideOver）](project_revision_slideover.md) — FullScreen 三欄結構、本輪 reply 隔離、PhaseCode 對齊
 - [配額進度卡片與命題階段鎖死（Plan_008）](project_quota_and_phase_lock.md) — Completed 計入 Status≥1、階段結束全頁多重鎖死
+- [CWT/LCT 雙模式與 Granularity（2026-05-21 新加）](project_cwt_lct_dual_mode.md) — DB 已加 ProjectType/ExamLevel/Granularity；題型過濾與 Level 鎖定已完成；配額卡片拆母/子尚未實作
 - [DB schema 演化重點（Stage A 子題提升）](project_db_schema_evolution.md) — MT_QuestionImages、子題 Status 三欄、Review/Revision 三表加 SubQuestionId
 - [CwtList 與其他頁面的關聯點](project_page_relations.md) — 與 Projects/Reviews/Overview/Dashboard/Teachers 的視角差異與共用 Service

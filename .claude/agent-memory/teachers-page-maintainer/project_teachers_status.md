@@ -1,6 +1,6 @@
 ---
 name: Teachers.razor 完成度狀態
-description: Teachers.razor 頁面程式碼現況（2026-05-20 全面重讀），記錄架構、各波次改動、技術債與關鍵實作細節
+description: Teachers.razor 頁面程式碼現況（2026-05-21 補充 CWT/LCT 雙模式），記錄架構、各波次改動、技術債與關鍵實作細節
 type: project
 ---
 
@@ -174,7 +174,29 @@ UI 狀態：`composePage`、`reviewPage`（int）、`isLoadingCompose`、`isLoad
 
 ---
 
-## 已知技術債（2026-05-19 複核）
+## CWT / LCT 雙模式對 Teachers 頁面的影響（2026-05-21 評估）
+
+### DB 現況
+- `MT_Projects.ProjectType TINYINT NOT NULL DEFAULT(0)`：0=CWT（全民中檢，7種題型）、1=LCT（聽力中心，按難度一~五）
+- `MT_Projects.ExamLevel TINYINT NULL`：CWT 統一命題等級（0初等~4優等）；LCT 模式 NULL
+- `MT_MemberQuotas.Granularity TINYINT NOT NULL DEFAULT(0)`：0=母題、1=子題；LCT 一律 0
+- `MT_Teachers` 本身**無** ProjectType 欄位——教師是跨類型的人才庫，同一位教師可參與 CWT 也可參與 LCT 梯次
+- `MT_ProjectTargets.Level TINYINT NULL`：LCT 難度等級 1~5；CWT 一律 null
+
+### TeacherService 現況與缺口
+- `GetTeacherProjectsAsync` SELECT 未含 `p.ProjectType` + `p.ExamLevel`，`TeacherProjectItem` 無這兩個屬性
+- `GetTeacherComposeHistoryAsync` 與 `GetTeacherReviewHistoryAsync` 的 SQL 未帶 `p.ProjectType`，`TeacherComposeItem` / `TeacherReviewItem` 無 `ProjectType` 屬性
+- **後果**：「參與專案 Tab」無法顯示每個梯次是 CWT 或 LCT 的 badge；命題/審題歷程清單無法標示題目屬於哪個類型的專案
+- **匯出名單**：`ExportProjectTeachersAsync` 目前未區分 CWT/LCT，若 LCT 梯次命題配額按難度分（`Level` 欄位），匯出的欄位設計（Type1~7 的題型計數）對 LCT 梯次可能不適用
+
+### 評估結論
+- **無迫切 bug**：目前若系統內無 LCT 梯次資料，功能正常運作
+- **待改項目（建議列為 TM-12）**：`TeacherProjectItem` 加 `ProjectType` 屬性，並在「參與專案 Tab」的梯次卡片顯示 CWT/LCT badge
+- **待改項目（建議列為 TM-13）**：歷程列表（命題/審題）是否需標注 `ProjectType`，待使用者確認業務需求後再規劃計畫書
+
+---
+
+## 已知技術債（2026-05-21 更新）
 
 - **TM-01**：EditForm 缺 DataAnnotationsValidator，驗證改用手動 SweetAlert（`HandleSaveTeacher` 開頭 3 個 if）。`TeacherFormModel` 無任何 DataAnnotation Attribute。
 - **TM-02**：`ProjectDropdownItem` 定義於 AnnouncementModels.cs（跨模型依賴）。
@@ -184,6 +206,8 @@ UI 狀態：`composePage`、`reviewPage`（int）、`isLoadingCompose`、`isLoad
 - **TM-08**：帳號狀態 Radio 使用原生 `input type="radio"` 而非 Blazor `InputRadio`。
 - **TM-10**：`composeFilterProjectId` / `reviewFilterProjectId` 為 string 型別，`int.Parse()` 轉換（非數字字串仍可能例外）。
 - **TM-11（新）**：`AssignToProjectAsync` 中角色逐一 INSERT（N 次），未改成批次 INSERT（第三波 #18 類似問題已在 RoleService 修，但 TeacherService 這裡未跟進）。
+- **TM-12（2026-05-21 新）**：`TeacherProjectItem` 缺 `ProjectType` 屬性，「參與專案 Tab」梯次卡片無法顯示 CWT/LCT badge。`GetTeacherProjectsAsync` SQL 需加 `p.ProjectType`。
+- **TM-13（2026-05-21 新）**：命題/審題歷程列表（`TeacherComposeItem` / `TeacherReviewItem`）無 `ProjectType` 欄位，無法依 CWT/LCT 顯示不同標籤。需業務確認是否必要後再規劃計畫書。
 
 **已解除技術債**：
 - TM-06（2026-05-08 修正）：預設角色查詢改為 `N'預設教師'`。

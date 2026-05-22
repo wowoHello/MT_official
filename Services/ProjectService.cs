@@ -125,7 +125,9 @@ public class ProjectService : IProjectService
                 p.ClosedAt,
                 (SELECT TOP 1 ph.StartDate FROM dbo.MT_ProjectPhases ph WHERE ph.ProjectId = p.Id AND ph.PhaseCode = 2) AS CompositionStartDate,
                 ISNULL(u.DisplayName, N'系統') AS CreatorName,
-                (SELECT COUNT(*) FROM dbo.MT_ProjectMembers pm WHERE pm.ProjectId = p.Id) AS MemberCount
+                (SELECT COUNT(*) FROM dbo.MT_ProjectMembers pm WHERE pm.ProjectId = p.Id) AS MemberCount,
+                ISNULL(p.ProjectType, 0) AS ProjectType,
+                p.ExamLevel
             FROM dbo.MT_Projects p
             LEFT JOIN dbo.MT_Users u ON u.Id = p.CreatedBy
             WHERE p.IsDeleted = 0
@@ -200,7 +202,9 @@ public class ProjectService : IProjectService
                 p.StartDate,
                 p.EndDate,
                 p.ClosedAt,
-                (SELECT TOP 1 ph.StartDate FROM dbo.MT_ProjectPhases ph WHERE ph.ProjectId = p.Id AND ph.PhaseCode = 2) AS CompositionStartDate
+                (SELECT TOP 1 ph.StartDate FROM dbo.MT_ProjectPhases ph WHERE ph.ProjectId = p.Id AND ph.PhaseCode = 2) AS CompositionStartDate,
+                ISNULL(p.ProjectType, 0) AS ProjectType,
+                p.ExamLevel
             FROM dbo.MT_Projects p
             INNER JOIN (
                 SELECT DISTINCT ProjectId
@@ -231,7 +235,9 @@ public class ProjectService : IProjectService
                 p.Id, p.ProjectCode, p.Name, p.Year, p.School,
                 p.StartDate, p.EndDate, p.ClosedAt,
                 (SELECT TOP 1 ph.StartDate FROM dbo.MT_ProjectPhases ph WHERE ph.ProjectId = p.Id AND ph.PhaseCode = 2) AS CompositionStartDate,
-                ISNULL(u.DisplayName, N'系統') AS CreatorName
+                ISNULL(u.DisplayName, N'系統') AS CreatorName,
+                ISNULL(p.ProjectType, 0) AS ProjectType,
+                p.ExamLevel
             FROM dbo.MT_Projects p
             LEFT JOIN dbo.MT_Users u ON u.Id = p.CreatedBy
             WHERE p.Id = @ProjectId AND p.IsDeleted = 0;
@@ -242,11 +248,11 @@ public class ProjectService : IProjectService
             WHERE ProjectId = @ProjectId
             ORDER BY SortOrder;
 
-            -- 3. Targets（TypeName 由 IQuestionTypeCatalog 在 C# 端補；不再 JOIN MT_QuestionTypes）
-            SELECT pt.QuestionTypeId, pt.TargetCount
+            -- 3. Targets（TypeName 由 IQuestionTypeCatalog 在 C# 端補；帶 Granularity/Level 供雙模式渲染）
+            SELECT pt.QuestionTypeId, ISNULL(pt.Granularity, 0) AS Granularity, pt.Level, pt.TargetCount
             FROM dbo.MT_ProjectTargets pt
             WHERE pt.ProjectId = @ProjectId
-            ORDER BY pt.QuestionTypeId;
+            ORDER BY pt.QuestionTypeId, pt.Granularity, pt.Level;
 
             -- 4. Members and Roles（帶 Category 供 UI 配色）
             SELECT
@@ -277,6 +283,9 @@ public class ProjectService : IProjectService
             foreach (var t in detail.Targets)
             {
                 t.TypeName = _typeCatalog.GetName(t.QuestionTypeId);
+                t.DisplayLabel = detail.ProjectType == ProjectType.Lct
+                    ? $"難度{ChineseOrdinal(t.Level ?? 0)}"
+                    : BuildCwtTargetLabel(t.QuestionTypeId, t.Granularity, _typeCatalog.GetName(t.QuestionTypeId));
             }
             
             var memberRows = await multi.ReadAsync<ProjectMemberRow>();
@@ -539,9 +548,9 @@ public class ProjectService : IProjectService
             var projectCode = BuildNextProjectCode(req.Year, latestCode);
 
             const string projectSql = """
-                INSERT INTO dbo.MT_Projects (ProjectCode, Name, Year, School, StartDate, EndDate, CreatedBy)
+                INSERT INTO dbo.MT_Projects (ProjectCode, Name, Year, School, StartDate, EndDate, CreatedBy, ProjectType, ExamLevel)
                 OUTPUT INSERTED.Id
-                VALUES (@ProjectCode, @Name, @Year, @School, @StartDate, @EndDate, @CreatedBy);
+                VALUES (@ProjectCode, @Name, @Year, @School, @StartDate, @EndDate, @CreatedBy, @ProjectType, @ExamLevel);
                 """;
 
             var projectStartDate = req.Phases.FirstOrDefault(p => p.PhaseCode == 1)?.StartDate ?? DateTime.Today;
@@ -557,7 +566,10 @@ public class ProjectService : IProjectService
                     School = req.School,
                     StartDate = projectStartDate,
                     EndDate = projectEndDate,
-                    CreatedBy = req.CreatedBy
+                    CreatedBy = req.CreatedBy,
+                    ProjectType = (byte)req.ProjectType,
+                    // LCT 模式統一寫 NULL；CWT 模式應填 0~4。若 UI 漏帶值也以 NULL 入庫，避免污染
+                    ExamLevel = req.ProjectType == ProjectType.Cwt ? req.ExamLevel : (byte?)null
                 },
                 transaction: trans);
 
@@ -723,6 +735,27 @@ public class ProjectService : IProjectService
     }
 
     /// <summary>
+    /// CWT 模式題型目標的顯示標籤（閱讀/短文題組需區分母/子題）。
+    /// </summary>
+    private static string BuildCwtTargetLabel(int typeId, byte granularity, string typeName)
+    {
+        // typeId=3:閱讀題組, typeId=5:短文題組 才需要區分母/子題
+        if (typeId is 3 or 5)
+        {
+            return granularity == 1 ? $"{typeName}（子題）" : $"{typeName}（母題）";
+        }
+        return typeName;
+    }
+
+    /// <summary>
+    /// 數字轉中文序數（1→一, 2→二, …, 5→五）。LCT 難度顯示用。
+    /// </summary>
+    private static string ChineseOrdinal(int n) => n switch
+    {
+        1 => "一", 2 => "二", 3 => "三", 4 => "四", 5 => "五", _ => n.ToString()
+    };
+
+    /// <summary>
     /// 依年度與目前最新流水號，產生下一個專案代碼。
     /// </summary>
     private static string BuildNextProjectCode(string rocYear, string? latestCode)
@@ -761,7 +794,9 @@ public class ProjectService : IProjectService
                 p.Year,
                 p.Name,
                 p.School,
-                p.ClosedAt
+                p.ClosedAt,
+                ISNULL(p.ProjectType, 0) AS ProjectType,
+                p.ExamLevel
             FROM dbo.MT_Projects p
             WHERE p.Id = @ProjectId
               AND p.IsDeleted = 0;
@@ -777,10 +812,12 @@ public class ProjectService : IProjectService
 
             SELECT
                 QuestionTypeId,
+                ISNULL(Granularity, 0) AS Granularity,
+                Level,
                 TargetCount
             FROM dbo.MT_ProjectTargets
             WHERE ProjectId = @ProjectId
-            ORDER BY QuestionTypeId;
+            ORDER BY QuestionTypeId, Granularity, Level;
 
             SELECT
                 pm.Id AS ProjectMemberId,
@@ -800,11 +837,13 @@ public class ProjectService : IProjectService
             SELECT
                 mq.ProjectMemberId,
                 mq.QuestionTypeId,
+                ISNULL(mq.Granularity, 0) AS Granularity,
+                mq.Level,
                 mq.QuotaCount
             FROM dbo.MT_MemberQuotas mq
             INNER JOIN dbo.MT_ProjectMembers pm ON pm.Id = mq.ProjectMemberId
             WHERE pm.ProjectId = @ProjectId
-            ORDER BY mq.ProjectMemberId, mq.QuestionTypeId;
+            ORDER BY mq.ProjectMemberId, mq.QuestionTypeId, mq.Granularity, mq.Level;
 
             SELECT
                 q.CreatorId AS UserId,
@@ -845,6 +884,8 @@ public class ProjectService : IProjectService
                     .Select(quota => new ProjectMemberQuotaDto
                     {
                         QuestionTypeId = quota.QuestionTypeId,
+                        Granularity = quota.Granularity,
+                        Level = quota.Level,
                         QuotaCount = quota.QuotaCount
                     })
                     .ToList(),
@@ -911,8 +952,8 @@ public class ProjectService : IProjectService
         }
 
         const string targetSql = """
-            INSERT INTO dbo.MT_ProjectTargets (ProjectId, QuestionTypeId, TargetCount)
-            VALUES (@ProjectId, @QuestionTypeId, @TargetCount);
+            INSERT INTO dbo.MT_ProjectTargets (ProjectId, QuestionTypeId, Granularity, Level, TargetCount)
+            VALUES (@ProjectId, @QuestionTypeId, @Granularity, @Level, @TargetCount);
             """;
 
         foreach (var target in targets.Where(target => target.TargetCount > 0))
@@ -923,6 +964,8 @@ public class ProjectService : IProjectService
                 {
                     ProjectId = projectId,
                     QuestionTypeId = target.QuestionTypeId,
+                    Granularity = target.Granularity,
+                    Level = target.Level,
                     TargetCount = target.TargetCount
                 },
                 transaction: transaction);
@@ -940,8 +983,8 @@ public class ProjectService : IProjectService
             """;
 
         const string quotaSql = """
-            INSERT INTO dbo.MT_MemberQuotas (ProjectMemberId, QuestionTypeId, QuotaCount)
-            VALUES (@ProjectMemberId, @QuestionTypeId, @QuotaCount);
+            INSERT INTO dbo.MT_MemberQuotas (ProjectMemberId, QuestionTypeId, Granularity, Level, QuotaCount)
+            VALUES (@ProjectMemberId, @QuestionTypeId, @Granularity, @Level, @QuotaCount);
             """;
 
         foreach (var alloc in memberAllocations.Where(allocation => allocation.UserId > 0))
@@ -975,6 +1018,8 @@ public class ProjectService : IProjectService
                     {
                         ProjectMemberId = memberId,
                         QuestionTypeId = quota.QuestionTypeId,
+                        Granularity = quota.Granularity,
+                        Level = quota.Level,
                         QuotaCount = quota.QuotaCount
                     },
                     transaction: transaction);
@@ -1059,13 +1104,14 @@ public class ProjectService : IProjectService
             }
         }
 
-        // 2. 配額比對：以 (UserId, QuestionTypeId) 為鍵
+        // 2. 配額比對：以 (UserId, QuestionTypeId, Granularity, Level) 為鍵
+        //    CWT 閱讀/短文題組：母題(Granularity=0)和子題(Granularity=1)是不同欄位，不可互蓋。
         var oldQuotas = oldSnapshot.MemberAllocations
-            .SelectMany(m => m.Quotas.Select(q => new { m.UserId, q.QuestionTypeId, q.QuotaCount }))
-            .ToDictionary(x => (x.UserId, x.QuestionTypeId), x => x.QuotaCount);
+            .SelectMany(m => m.Quotas.Select(q => new { m.UserId, q.QuestionTypeId, q.Granularity, q.Level, q.QuotaCount }))
+            .ToDictionary(x => (x.UserId, x.QuestionTypeId, x.Granularity, x.Level), x => x.QuotaCount);
         var newQuotas = req.MemberAllocations
-            .SelectMany(m => m.Quotas.Select(q => new { m.UserId, q.QuestionTypeId, q.QuotaCount }))
-            .ToDictionary(x => (x.UserId, x.QuestionTypeId), x => x.QuotaCount);
+            .SelectMany(m => m.Quotas.Select(q => new { m.UserId, q.QuestionTypeId, q.Granularity, q.Level, q.QuotaCount }))
+            .ToDictionary(x => (x.UserId, x.QuestionTypeId, x.Granularity, x.Level), x => x.QuotaCount);
         var allQuotaKeys = oldQuotas.Keys.Union(newQuotas.Keys);
         foreach (var key in allQuotaKeys)
         {
@@ -1130,6 +1176,8 @@ public class ProjectService : IProjectService
     {
         public int ProjectMemberId { get; set; }
         public int QuestionTypeId { get; set; }
+        public byte Granularity { get; set; }
+        public byte? Level { get; set; }
         public int QuotaCount { get; set; }
     }
 

@@ -146,9 +146,21 @@
                     <div class="px-8 pt-6 pb-2">
                         <div class="flex flex-col items-start justify-between gap-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:flex-row sm:items-start">
                             <div class="flex flex-col gap-1">
-                                <div class="flex items-center gap-2 mb-1">
+                                <div class="flex items-center gap-2 mb-1 flex-wrap">
                                     <StatusBadge StatusText="@GetProjectStatusText((byte)selectedDetail.EffectiveStatus)" Compact="true" ShowIcon="false" />
                                     <span class="text-xs text-gray-500">@(selectedDetail.Year)年度</span>
+                                    @* 專案類型徽章 — 兩色區分 CWT / LCT，讓使用者快速分辨 *@
+                                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold border @(selectedDetail.ProjectType == ProjectType.Lct ? "bg-terracotta/10 text-terracotta border-terracotta/30" : "bg-morandi/10 text-morandi border-morandi/30")">
+                                        @(selectedDetail.ProjectType == ProjectType.Lct ? "LCT" : "CWT")
+                                    </span>
+                                    @* CWT 模式才顯示命題等級徽章；LCT 等級為每題各自設定，不在頂部顯示 *@
+                                    @if (selectedDetail.ProjectType == ProjectType.Cwt && selectedDetail.ExamLevel.HasValue
+                                         && QuestionConstants.GeneralLevelLabels.TryGetValue(selectedDetail.ExamLevel.Value, out var lvLabel))
+                                    {
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-bold border bg-sage/10 text-sage border-sage/30">
+                                            <i class="fa-solid fa-layer-group mr-1"></i> 命題等級：@lvLabel
+                                        </span>
+                                    }
                                 </div>
                                 <h2 class="text-2xl font-black text-slate-main">@selectedDetail.Name</h2>
                                 <div class="flex flex-col gap-0.5 text-sm text-gray-500 mt-1">
@@ -321,15 +333,71 @@
                                     <EmptyState IconClass="fa-bullseye" Message="尚未設定題型目標"
                                         SubMessage="請透過編輯專案來設定各題型的目標數量。" Compact="true" />
                                 }
-                                else
+                                else if (selectedDetail.ProjectType == ProjectType.Lct)
                                 {
-                                    <div class="grid grid-cols-3 gap-2">
+                                    @* LCT 模式：5 個獨立卡片（難度一~五） *@
+                                    <div class="grid grid-cols-5 gap-2">
                                         @foreach (var t in selectedDetail.Targets)
                                         {
-                                            <div class="bg-gray-50 border border-gray-100 rounded-lg p-3 text-center">
-                                                <div class="text-xs text-gray-500 mb-1">@t.TypeName</div>
+                                            <div class="bg-gray-50 border border-gray-200 rounded-xl p-3 text-center">
+                                                <div class="text-xs text-gray-500 mb-1">@t.DisplayLabel</div>
                                                 <div class="text-lg font-black text-slate-main">@t.TargetCount</div>
+                                                <div class="text-xs text-gray-400">題</div>
                                             </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    @* CWT 模式：依 QuestionTypeId 分組
+                                       —— 單體題型（1 列）用普通卡；題組類（2 列：母+子）用複合卡，視覺上「黏在一起」。
+                                       Service 已 ORDER BY (QuestionTypeId, Granularity)，分組後同一 TypeId 的 [0]=母題、[1]=子題 *@
+                                    var typeGroups = selectedDetail.Targets
+                                        .GroupBy(t => t.QuestionTypeId)
+                                        .OrderBy(g => g.Key)
+                                        .Select(g => g.OrderBy(t => t.Granularity).ToList())
+                                        .ToList();
+                                    <div class="grid grid-cols-3 gap-3">
+                                        @foreach (var grp in typeGroups)
+                                        {
+                                            var isGroupType = grp.Count == 2; // 題組類有母+子兩列
+                                            var typeName = grp[0].TypeName; // ProjectService 端已用 QuestionTypeCatalog 補上
+
+                                            @if (isGroupType)
+                                            {
+                                                @* 複合卡：外殼漸層 + 內部兩泡泡 + 中間 link icon，視覺暗示「母題與子題環環相扣」 *@
+                                                <div class="col-span-3 sm:col-span-2 relative rounded-2xl p-4 border-2 border-morandi/25 bg-gradient-to-r from-morandi/10 via-white to-morandi/10 shadow-sm">
+                                                    @* 浮在左上角的題組標題：用較重的 badge 區隔單體與題組 *@
+                                                    <div class="absolute -top-2.5 left-4 bg-morandi text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1">
+                                                        <i class="fa-solid fa-link-simple text-xs"></i> @typeName
+                                                    </div>
+                                                    <div class="flex items-center gap-2 mt-2">
+                                                        @* 母題泡泡 *@
+                                                        <div class="flex-1 bg-white rounded-xl border border-morandi/30 py-2.5 text-center shadow-sm">
+                                                            <div class="text-xs text-gray-500 mb-0.5">母題</div>
+                                                            <div class="text-xl font-black text-morandi leading-none">@grp[0].TargetCount</div>
+                                                            <div class="text-xs text-gray-400 mt-0.5">組</div>
+                                                        </div>
+                                                        @* 連結圖示：環環相扣的視覺核心 *@
+                                                        <i class="fa-solid fa-link text-morandi/60 shrink-0"></i>
+                                                        @* 子題泡泡 *@
+                                                        <div class="flex-1 bg-white rounded-xl border border-morandi/30 py-2.5 text-center shadow-sm">
+                                                            <div class="text-xs text-gray-500 mb-0.5">子題</div>
+                                                            <div class="text-xl font-black text-morandi leading-none">@grp[1].TargetCount</div>
+                                                            <div class="text-xs text-gray-400 mt-0.5">題</div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                @* 單體題型：簡潔卡片，與複合卡視覺份量明顯區分 *@
+                                                <div class="col-span-3 sm:col-span-1 bg-gray-50 border border-gray-200 rounded-2xl p-4 text-center flex flex-col justify-center">
+                                                    <div class="text-xs text-gray-500 mb-1">@typeName</div>
+                                                    <div class="text-xl font-black text-slate-main">@grp[0].TargetCount</div>
+                                                    <div class="text-xs text-gray-400 mt-0.5">題</div>
+                                                </div>
+                                            }
                                         }
                                     </div>
                                 }
@@ -427,6 +495,38 @@
                             placeholder="由產學計畫區間自動帶入"
                             class="w-full px-3 py-2 border border-gray-200 rounded bg-gray-50 text-sm text-gray-600 cursor-not-allowed">
                     </div>
+                    @* 專案類型：新增模式可選 CWT/LCT；編輯模式 disabled（題目配額已寫入，切換會資料污染）*@
+                    <div>
+                        <label class="block text-sm font-medium mb-1 text-gray-700">專案類型 <span class="text-red-500">*</span></label>
+                        <select value="@formModel.ProjectType" @onchange="OnProjectTypeChanged"
+                            disabled="@isEditMode"
+                            title="@(isEditMode ? "專案類型一經建立不可變更" : null)"
+                            class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:outline-none text-sm bg-white cursor-pointer disabled:bg-gray-50 disabled:text-gray-600 disabled:cursor-not-allowed">
+                            <option value="@ProjectType.Cwt">CWT（全民中檢）</option>
+                            <option value="@ProjectType.Lct">LCT（聽力中文檢定）</option>
+                        </select>
+                    </div>
+                    @* 命題等級：僅 CWT 模式顯示；LCT 模式各題自選聽力難度。
+                       編輯模式同步 disabled — 命題已開始後改變等級會造成 Level 不一致（教師命的初等卻被改為優等）。 *@
+                    @if (formModel.ProjectType == ProjectType.Cwt)
+                    {
+                        <div class="col-span-2">
+                            <label class="block text-sm font-medium mb-1 text-gray-700">命題等級 <span class="text-red-500">*</span></label>
+                            <select value="@(formModel.ExamLevel?.ToString() ?? "0")" @onchange="OnExamLevelChanged"
+                                disabled="@isEditMode"
+                                title="@(isEditMode ? "命題等級一經建立不可變更" : "整個專案統一命題等級，命題教師命題時無需自選")"
+                                class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:outline-none text-sm bg-white cursor-pointer disabled:bg-gray-50 disabled:text-gray-600 disabled:cursor-not-allowed">
+                                @foreach (var kv in QuestionConstants.GeneralLevelLabels)
+                                {
+                                    <option value="@kv.Key">@kv.Value</option>
+                                }
+                            </select>
+                            <p class="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                                <i class="fa-solid fa-circle-info text-morandi"></i>
+                                此專案的所有題目皆採此等級命題；新增題目時題型下拉會自動隱藏不相容的題型。
+                            </p>
+                        </div>
+                    }
                     <div class="col-span-2">
                         <label class="block text-sm font-medium mb-1 text-gray-700">專案名稱 <span class="text-red-500">*</span></label>
                         <input type="text" @bind="formModel.Name" required placeholder="如: 春季全民中檢"
@@ -506,7 +606,9 @@
                 <div class="@(IsCompositionPhaseEnded ? "bg-gray-100 p-3 rounded border border-gray-300 cursor-not-allowed" : "bg-white p-3 rounded border border-morandi/30")"
                      title="@(IsCompositionPhaseEnded ? "命題階段已結束，題數需求不可再修改" : null)">
                     <label class="block text-sm font-bold text-gray-700 mb-2">專案需求題數 / 組數</label>
-                    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-sm">
+                    @* 依 ProjectType 動態切換欄數：CWT 6 欄（一般/閱讀母/閱讀子/長文/短文母/短文子）、LCT 5 欄（難度一~五）。
+                       兩個候選 class 字面值都寫在這裡，Tailwind v4 scanner 才能 generate。 *@
+                    <div class="grid grid-cols-2 sm:grid-cols-4 @(formModel.ProjectType == ProjectType.Lct ? "lg:grid-cols-5" : "lg:grid-cols-6") gap-2 text-sm">
                         @foreach (var qt in questionTypes)
                         {
                             <div>
@@ -691,7 +793,7 @@
                                     <div class="w-8 h-8 rounded-full bg-morandi text-white flex items-center justify-center font-bold text-xs">@(idx + 1)</div>
                                     <div class="font-bold text-sm text-slate-main truncate">@teacher.Name</div>
                                 </div>
-                                <div class="flex-grow grid grid-cols-4 sm:grid-cols-7 gap-2 w-full">
+                                <div class="flex-grow grid grid-cols-4 @(formModel.ProjectType == ProjectType.Lct ? "sm:grid-cols-5" : "sm:grid-cols-6") gap-2 w-full">
                                     @for (int j = 0; j < questionTypes.Count; j++)
                                     {
                                         var qIdx = j;
@@ -718,7 +820,7 @@
                         <span>分配狀態檢核：(已分配 / 需分配)</span>
                         <span>@GetValidationMessage()</span>
                     </div>
-                    <div class="grid grid-cols-4 sm:grid-cols-7 gap-1">
+                    <div class="grid grid-cols-4 @(formModel.ProjectType == ProjectType.Lct ? "sm:grid-cols-5" : "sm:grid-cols-6") gap-1">
                         @for (int i = 0; i < questionTypes.Count; i++)
                         {
                             var qt = questionTypes[i];
@@ -846,17 +948,29 @@
     // --- 8 階段時程定義 ---
     private StageItem[] stages = [];
 
-    // --- 7 種題型 ---
-    private List<QuestionTypeTarget> questionTypes = new()
-    {
-        new() { Key = "single",      Label = "一般單選題" },
-        new() { Key = "select",      Label = "精選單選題" },
-        new() { Key = "readGroup",   Label = "閱讀題組" },
-        new() { Key = "longText",    Label = "長文題目" },
-        new() { Key = "shortGroup",  Label = "短文題組" },
-        new() { Key = "listen",      Label = "聽力測驗" },
-        new() { Key = "listenGroup", Label = "聽力題組" },
-    };
+    // --- 題型目標清單（依 ProjectType 動態建立） ---
+    private List<QuestionTypeTarget> questionTypes = BuildCwtQuestionTypes();
+
+    /// <summary>CWT 模式：6 欄位（一般/閱讀母/閱讀子/長文/短文母/短文子），其他題型不獨立設目標。</summary>
+    private static List<QuestionTypeTarget> BuildCwtQuestionTypes() =>
+    [
+        new() { Key = "single",         Label = "一般單選題",   QuestionTypeId = 1, Granularity = 0 },
+        new() { Key = "readGroupMain",  Label = "閱讀題組母題", QuestionTypeId = 3, Granularity = 0 },
+        new() { Key = "readGroupSub",   Label = "閱讀題組子題", QuestionTypeId = 3, Granularity = 1 },
+        new() { Key = "longText",       Label = "長文題目",     QuestionTypeId = 4, Granularity = 0 },
+        new() { Key = "shortGroupMain", Label = "短文題組母題", QuestionTypeId = 5, Granularity = 0 },
+        new() { Key = "shortGroupSub",  Label = "短文題組子題", QuestionTypeId = 5, Granularity = 1 },
+    ];
+
+    /// <summary>LCT 模式：5 欄位（難度一~五），QuestionTypeId=6，Granularity=0，Level=1~5。</summary>
+    private static List<QuestionTypeTarget> BuildLctQuestionTypes() =>
+    [
+        new() { Key = "lct1", Label = "難度一", QuestionTypeId = 6, Granularity = 0, Level = 1 },
+        new() { Key = "lct2", Label = "難度二", QuestionTypeId = 6, Granularity = 0, Level = 2 },
+        new() { Key = "lct3", Label = "難度三", QuestionTypeId = 6, Granularity = 0, Level = 3 },
+        new() { Key = "lct4", Label = "難度四", QuestionTypeId = 6, Granularity = 0, Level = 4 },
+        new() { Key = "lct5", Label = "難度五", QuestionTypeId = 6, Granularity = 0, Level = 5 },
+    ];
 
     // --- 可選身份 ---
     private List<RoleOption> projectRoles = new();
@@ -992,10 +1106,36 @@
         editingProjectId = null;
         formModel = new();
         personSearchKeyword = "";
-        foreach (var qt in questionTypes) qt.Count = null;
+        // 新增模式預設 CWT；編輯模式由 ApplyProjectEditData 覆寫
+        questionTypes = BuildCwtQuestionTypes();
         foreach (var p in talentPool) { p.IsSelected = false; p.SelectedRoleIds.Clear(); p.CreatedQuestionCount = 0; }
         allocationTeachers.Clear();
         InitStages();
+    }
+
+    /// <summary>
+    /// 新增模式下切換 ProjectType：整份替換 questionTypes，清空 allocationTeachers（配額結構不同）。
+    /// 編輯模式下 ProjectType 欄位已 disabled，此 handler 不會被觸發。
+    /// </summary>
+    private void OnProjectTypeChanged(ChangeEventArgs e)
+    {
+        if (!Enum.TryParse<ProjectType>(e.Value?.ToString(), out var pt)) return;
+        formModel.ProjectType = pt;
+        questionTypes = pt == ProjectType.Lct ? BuildLctQuestionTypes() : BuildCwtQuestionTypes();
+        allocationTeachers.Clear(); // 配額 Quotas 長度需重建
+        // ExamLevel 切換邏輯：CWT 預設初等 (0)；LCT 不使用此欄位 → 清為 null
+        formModel.ExamLevel = pt == ProjectType.Cwt ? (byte)0 : (byte?)null;
+    }
+
+    /// <summary>
+    /// 命題等級下拉變更（僅 CWT 模式可達；編輯模式 disabled 不觸發）。
+    /// </summary>
+    private void OnExamLevelChanged(ChangeEventArgs e)
+    {
+        if (byte.TryParse(e.Value?.ToString(), out var lv))
+        {
+            formModel.ExamLevel = lv;
+        }
     }
 
     /// <summary>初始化 8 階段時程（空白日期）</summary>
@@ -1525,6 +1665,8 @@
                     Name = req.Name,
                     School = req.School,
                     UpdatedBy = currentUserId.Value,
+                    ProjectType = formModel.ProjectType,
+                    ExamLevel = req.ExamLevel,
                     Phases = req.Phases,
                     Targets = req.Targets,
                     MemberAllocations = req.MemberAllocations
@@ -1560,7 +1702,10 @@
             Year = formModel.Year.Trim(),
             Name = formModel.Name.Trim(),
             School = string.IsNullOrWhiteSpace(formModel.School) ? null : formModel.School.Trim(),
-            CreatedBy = currentUserId
+            CreatedBy = currentUserId,
+            ProjectType = formModel.ProjectType,
+            // LCT 模式由 ProjectService 端轉 NULL；此處原樣帶過
+            ExamLevel = formModel.ProjectType == ProjectType.Cwt ? formModel.ExamLevel : null
         };
 
         for (var i = 0; i < stages.Length; i++)
@@ -1577,14 +1722,16 @@
             }
         }
 
-        for (var i = 0; i < questionTypes.Count; i++)
+        foreach (var qt in questionTypes)
         {
-            var count = questionTypes[i].Count ?? 0;
+            var count = qt.Count ?? 0;
             if (count > 0)
             {
                 req.Targets.Add(new ProjectTargetDto
                 {
-                    QuestionTypeId = i + 1,
+                    QuestionTypeId = qt.QuestionTypeId,
+                    Granularity = qt.Granularity,
+                    Level = qt.Level,
                     TargetCount = count
                 });
             }
@@ -1605,13 +1752,15 @@
                 var allocation = allocationTeachers.FirstOrDefault(a => a.UserId == person.UserId);
                 if (allocation != null)
                 {
-                    for (var i = 0; i < allocation.Quotas.Length; i++)
+                    for (var i = 0; i < questionTypes.Count; i++)
                     {
                         if (allocation.Quotas[i] > 0)
                         {
                             allocDto.Quotas.Add(new ProjectMemberQuotaDto
                             {
-                                QuestionTypeId = i + 1,
+                                QuestionTypeId = questionTypes[i].QuestionTypeId,
+                                Granularity = questionTypes[i].Granularity,
+                                Level = questionTypes[i].Level,
                                 QuotaCount = allocation.Quotas[i]
                             });
                         }
@@ -1632,6 +1781,14 @@
         formModel.Year = project.Year.ToString();
         formModel.Name = project.Name;
         formModel.School = project.School ?? string.Empty;
+        formModel.ProjectType = project.ProjectType;
+        // CWT 統一等級回填；LCT 模式為 NULL（與 DB 一致），UI 端 if 條件不顯示等級下拉
+        formModel.ExamLevel = project.ExamLevel;
+
+        // 依 ProjectType 初始化對應題型清單（編輯模式下 ProjectType dropdown 為 disabled）
+        questionTypes = project.ProjectType == ProjectType.Lct
+            ? BuildLctQuestionTypes()
+            : BuildCwtQuestionTypes();
 
         foreach (var phase in project.Phases)
         {
@@ -1645,15 +1802,17 @@
             stages[phaseIndex].End = phase.EndDate;
         }
 
+        // 以 (QuestionTypeId, Granularity, Level) 三元組比對回填目標題數
         foreach (var target in project.Targets)
         {
-            var targetIndex = target.QuestionTypeId - 1;
-            if (targetIndex < 0 || targetIndex >= questionTypes.Count)
+            var qt = questionTypes.FirstOrDefault(q =>
+                q.QuestionTypeId == target.QuestionTypeId &&
+                q.Granularity == target.Granularity &&
+                q.Level == target.Level);
+            if (qt is not null)
             {
-                continue;
+                qt.Count = target.TargetCount;
             }
-
-            questionTypes[targetIndex].Count = target.TargetCount;
         }
 
         var memberAllocations = project.MemberAllocations.ToDictionary(allocation => allocation.UserId);
@@ -1686,15 +1845,17 @@
             }
 
             Array.Fill(teacher.Quotas, 0);
+            // 以 (QuestionTypeId, Granularity, Level) 三元組找到 questionTypes 的索引，再填 Quotas[index]
             foreach (var quota in allocation.Quotas)
             {
-                var quotaIndex = quota.QuestionTypeId - 1;
-                if (quotaIndex < 0 || quotaIndex >= teacher.Quotas.Length)
+                var qtIndex = questionTypes.FindIndex(q =>
+                    q.QuestionTypeId == quota.QuestionTypeId &&
+                    q.Granularity == quota.Granularity &&
+                    q.Level == quota.Level);
+                if (qtIndex >= 0 && qtIndex < teacher.Quotas.Length)
                 {
-                    continue;
+                    teacher.Quotas[qtIndex] = quota.QuotaCount;
                 }
-
-                teacher.Quotas[quotaIndex] = quota.QuotaCount;
             }
         }
     }
@@ -1729,6 +1890,13 @@
         public string Year { get; set; } = "";
         public string Name { get; set; } = "";
         public string School { get; set; } = "";
+        /// <summary>專案類型：0=CWT（7 種題型），1=LCT（按難度一~五）。新增後不可變更。</summary>
+        public ProjectType ProjectType { get; set; } = ProjectType.Cwt;
+        /// <summary>
+        /// CWT 統一命題等級（0=初等、1=中等、2=中高等、3=高等、4=優等）；LCT 模式為 NULL。
+        /// 新增 CWT 專案預設 0（初等），新增/編輯 LCT 不使用此欄位。
+        /// </summary>
+        public byte? ExamLevel { get; set; } = 0;
     }
 
     private sealed class StageItem
@@ -1747,8 +1915,13 @@
         public string Key { get; set; } = "";
         public string Label { get; set; } = "";
         public int? Count { get; set; }
-
-        // 題組類 (Key 結尾為 "Group") 以「組」為配額單位，子題數由命題老師依內容決定；其他題型以「題」為單位。
+        /// <summary>DB 題型 Id，CWT 1-7，LCT 全為 6（聽力類）。</summary>
+        public int QuestionTypeId { get; set; }
+        /// <summary>母/子題粒度：0=整題/母題，1=子題。LCT 一律 0。</summary>
+        public byte Granularity { get; set; }
+        /// <summary>LCT 難度等級 1~5；CWT 一律 null。</summary>
+        public byte? Level { get; set; }
+        /// <summary>題組類（Key 結尾 "Group"）以「組」為單位；其他以「題」為單位。LCT 一律「題」。</summary>
         public string Unit => Key.EndsWith("Group", StringComparison.Ordinal) ? "組" : "題";
     }
 

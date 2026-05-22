@@ -4,6 +4,8 @@
 - [Overview 頁面版面與資料錨點](project_overview_layout_anchors.md) — 5 張統計卡 / 12 欄表格 / 詳情 SlideOver / ResolveDisplayStatus + 母題結案 fallback
 - [OverviewService 依賴與委派](project_overview_service_dependencies.md) — 注入 IQuestionService/IReviewService/IDatabaseService/IPhaseTransitionCoordinator/IAnnotationService 五依賴；GetAllReviewersRespondedAsync 改 per-row DecidedAt
 - [Overview 相關資料庫關鍵欄位](project_db_schema_overview_relevant.md) — Stage A 子題提升為審題單元 / Plan_014 本輪過濾 / MT_QuestionImages 圖片獨立表
+- [Overview CWT/LCT 雙模式整合缺口](project_overview_cwt_lct_gap.md) — 2026-05-21 DB 新增 ProjectType/ExamLevel，Overview 三檔零引用，題型下拉與 LevelLabel 待補
+- [DB migration 腳本位置速查](reference_db_migration_scripts.md) — sql 目錄索引、CWT/LCT 三支 migration、vw_QuestionRoundStartedAt
 - [修題階段燈號雙態呈現](feedback_revision_phase_display.md) — 已送出藍勾+綠 Badge / 未送出紅筆+橘 Badge，由 PhaseProgressStepper 統一處理
 - [七階段燈號判定條件](project_overview_phase_lamps.md) — ResolveStage 7 種 tone（新增 reviewDone）/ 4 個參數 / preDone/revisionSent/draftFailed/reviewDone 四種僅 Overview 觸發
 - [Overview 可檢視角色](project_overview_viewer_roles.md) — 管理者/計畫主持人/總召/教務管理者，外部教師禁入

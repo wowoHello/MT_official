@@ -156,4 +156,12 @@ public class OverviewListResult
     /// 規則表與 OverviewService.TranslateStatusKey + Overview.razor::ResolveDisplayStatus 同源。
     /// </summary>
     public Dictionary<string, int> StatusKeyCounts { get; set; } = new();
+
+    /// <summary>
+    /// 此梯次每個 QuestionTypeId 對應的題數（key 不存在 = 該題型無題）。
+    /// 用於題型下拉動態渲染：避免列出梯次內沒題目的題型造成使用者選了卻篩到空畫面，
+    /// 同時讓被全站隱藏的精選單選題（HiddenTypeIds）自然不會在此出現。
+    /// 計算範圍：忽略所有 filter，以梯次全題目（含 IsDeleted）為基底，邏輯與 StatusKeyCounts 同源。
+    /// </summary>
+    public Dictionary<int, int> TypeIdCounts { get; set; } = new();
 }

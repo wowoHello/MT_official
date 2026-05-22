@@ -9,6 +9,7 @@ bin/
 obj/
 example/
 wwwroot/uploads/
+wwwroot/files/
 .dotnet-home/
 # dotenv files
 .env

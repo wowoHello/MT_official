@@ -57,6 +57,26 @@ type: project
 - **不寫 MT_AuditLogs**（登入/登出不是資料 CUD，只寫 LoginLogs）
 - DB 欄位：Id、UserId（失敗時可能 null）、Username、IsSuccess、IpAddress、UserAgent、FailReason、CreatedAt、ProjectId（登入/登出時不傳，DB 預設 NULL）、EventType
 - 程式碼 INSERT 語句不含 ProjectId 欄位（留給 DB DEFAULT）
+- 2026-05-15 新增複合 nonclustered index：`IX_MT_LoginLogs_UserId_IsSuccess_CreatedAt`，供 `CountConsecutiveFailedAttemptsAsync` 索引 seek 用
+
+## MT_Users 欄位（2026-05-21 schema 確認）
+
+- Id、Username（varchar 50）、DisplayName（nvarchar 100）、Email（varchar 255）
+- RoleId、Status（0=停用, 1=啟用, **2=手動鎖定**）
+- CompanyTitle（nvarchar 100，教師為 NULL）
+- IsFirstLogin（bit, DEFAULT 1）
+- Note（nvarchar 500）
+- LastLoginAt（datetime2, nullable）
+- CreatedAt、UpdatedAt（datetime2）
+- LockoutUntil（datetime2, nullable）：自動暫時鎖定結束時間
+- PasswordHash（nvarchar 150）：PBKDF2 格式約 90 字元，舊 SHA256 Base64 約 44 字元
+- 索引：UNIQUE clustered (Id), UNIQUE nonclustered (Username), UQ_MT_Users_Email, UQ_MT_Users_Username, IX_MT_Users_Email
+
+## MT_PasswordResetTokens 欄位（2026-05-21 schema 確認）
+
+- Id、UserId（FK → MT_Users.Id）、Token（nvarchar 500）、ExpiresAt、IsUsed（bit）、CreatedAt、RequestIp
+- Token 欄位有 UNIQUE NONCLUSTERED INDEX（自動建立的）
+- 既有 UNIQUE 約束已在第二波 #11 確認可用，無需額外索引
 
 ## /auth/login 與 /auth/logout 端點位置
 

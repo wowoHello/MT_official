@@ -77,9 +77,21 @@ public class DashboardKpiDto
     /// <summary>STATUS = 9（採用）且 IsDeleted = 0 的總數。</summary>
     public int AdoptedCount { get; set; }
 
-    /// <summary>採用率百分比（AdoptedCount / TotalTarget * 100），已 clamp 0~100。</summary>
+    /// <summary>
+    /// 採用的子題數（MT_SubQuestions.Status IN (9, 12)，依 ProjectType 題型範圍過濾）。
+    /// 卡片 2 大數字 = AdoptedCount（母題）+ AdoptedSubCount（子題）。
+    /// </summary>
+    public int AdoptedSubCount { get; set; }
+
+    /// <summary>
+    /// 卡片 2 顯示用：母題 + 子題採用合計。
+    /// CWT 排除聽力類（TypeId 6/7）；LCT 排除聽力題組母題（TypeId=7, SubId=NULL）。
+    /// </summary>
+    public int AdoptedTotal => AdoptedCount + AdoptedSubCount;
+
+    /// <summary>採用率百分比（AdoptedTotal / TotalTarget * 100），已 clamp 0~100。</summary>
     public int AdoptedPercent => TotalTarget > 0
-        ? Math.Min(100, AdoptedCount * 100 / TotalTarget)
+        ? Math.Min(100, AdoptedTotal * 100 / TotalTarget)
         : 0;
 
     // ── 卡片 3：各階段審題 ──────────────────────────────────────
@@ -129,16 +141,34 @@ public class DashboardKpiDto
     public RevisionPhaseLabel CurrentRevisionPhase { get; set; } = RevisionPhaseLabel.None;
 
     /// <summary>
-    /// 當前修題階段「已修完」題目數（已寫過 MT_RevisionReplies.Content 的 distinct QuestionId）。
+    /// 當前修題階段「母題已修完」數（母題 RevisionReplies.Content 非空、本輪內）。
     /// 非修題階段時為 0。
     /// </summary>
-    public int RevisedCount { get; set; }
+    public int RevisedMasterCount { get; set; }
 
     /// <summary>
-    /// 當前修題階段「待修總數」（對應 ReviewStage 有 Comment 的 distinct QuestionId）。
+    /// 當前修題階段「母題待修總數」（依 ReviewAssignments + SubQuestionId IS NULL 計算）。
     /// 非修題階段時為 0。
     /// </summary>
-    public int RevisionTotalCount { get; set; }
+    public int RevisionMasterTotal { get; set; }
+
+    /// <summary>
+    /// 當前修題階段「子題已修完」數（子題 RevisionReplies.Content 非空、本輪內）。
+    /// 非修題階段時為 0。
+    /// </summary>
+    public int RevisedSubCount { get; set; }
+
+    /// <summary>
+    /// 當前修題階段「子題待修總數」（依 ReviewAssignments + SubQuestionId IS NOT NULL 計算）。
+    /// 非修題階段時為 0。
+    /// </summary>
+    public int RevisionSubTotal { get; set; }
+
+    /// <summary>卡片 4 顯示用：母題 + 子題已修完合計。</summary>
+    public int RevisedCount => RevisedMasterCount + RevisedSubCount;
+
+    /// <summary>卡片 4 顯示用：母題 + 子題待修總數合計。</summary>
+    public int RevisionTotalCount => RevisionMasterTotal + RevisionSubTotal;
 
     // ── 圖表區資料 ───────────────────────────────────────────────
     /// <summary>圖表 1：各題型缺口達成率（7 筆，LEFT JOIN 保證即使無資料仍回傳）。</summary>
@@ -268,39 +298,90 @@ public class UrgentTeacherDetail
 
 /// <summary>
 /// 單一題型的目標題數明細（卡片 1 Footer 迷你表格用）。
+/// CWT 模式：TypeName 即「一般單選題」等；閱讀/短文題組拆成母+子兩筆（Granularity 區分）。
+/// LCT 模式：TypeName 為「難度一」等五個桶。
 /// </summary>
 public class DashboardTargetBreakdown
 {
     public string TypeName { get; set; } = string.Empty;
     public int TargetCount { get; set; }
+    /// <summary>
+    /// 母/子題粒度：0=母題或單題，1=子題。
+    /// 僅 CWT 模式的閱讀/短文題組子題會為 1，其餘固定為 0。
+    /// </summary>
+    public byte Granularity { get; set; }
+
+    /// <summary>
+    /// UI 顯示標籤（由 Service 端組裝）。
+    /// CWT：「閱讀題組母題」/「閱讀題組子題」等區分母子；LCT：「難度一」~「難度五」。
+    /// Razor 端請使用此欄位取代 TypeName。
+    /// </summary>
+    public string DisplayLabel { get; set; } = string.Empty;
 }
 
 /// <summary>
-/// 圖表 1：題型缺口達成率（每題型 1 筆）。
-/// Produced = Status 2~9（送審後所有進度中的題目）
-/// Target   = MT_ProjectTargets.TargetCount
+/// 圖表 1：題型缺口達成率（CWT 6 筆 / LCT 5 筆）。
+/// Produced = Status 非草稿/不採用的題目計數；Target = MT_ProjectTargets.TargetCount。
+/// CWT 模式：閱讀題組(TypeId=3)/短文題組(TypeId=5) 各拆母+子兩列（Granularity 0/1）。
+/// LCT 模式：依難度一~五分組（Level 1-5），TypeId=7 子題計入對應難度桶。
 /// </summary>
 public class DashboardAchievementItem
 {
-    /// <summary>題型 ID（MT_QuestionTypes.Id），供 TypeShortage 批次查詢教師使用。</summary>
+    /// <summary>題型 ID（MT_QuestionTypes.Id），CWT 模式使用；LCT 模式固定為 0。</summary>
     public int QuestionTypeId { get; set; }
 
     public string TypeName { get; set; } = string.Empty;
 
-    /// <summary>已產出數（Status 2~9，含採用、審修中，不含草稿）。</summary>
+    /// <summary>已產出數（Status 非 0/10/11，含採用、審修中，不含草稿/不採用）。</summary>
     public int Produced { get; set; }
 
     /// <summary>目標題數（MT_ProjectTargets.TargetCount）。</summary>
     public int Target { get; set; }
+
+    /// <summary>
+    /// 母/子題粒度：0=母題或單題，1=子題。
+    /// CWT 模式閱讀/短文題組子題為 1，其餘（含 LCT 全部）固定為 0。
+    /// </summary>
+    public byte Granularity { get; set; }
+
+    /// <summary>
+    /// 難度等級：LCT 模式 1-5；CWT 模式固定為 null。
+    /// </summary>
+    public byte? Level { get; set; }
+
+    /// <summary>
+    /// UI 顯示標籤（由 Service 端組裝），對應 ApexCharts Y 軸 label。
+    /// CWT：「閱讀題組母題」/「閱讀題組子題」等；LCT：「難度一」~「難度五」。
+    /// Razor 端傳給 JS interop 時請使用此欄位取代 TypeName。
+    /// </summary>
+    public string DisplayLabel { get; set; } = string.Empty;
 }
 
 /// <summary>
-/// 圖表 2：依題型狀態分佈（每題型 1 筆，5 個狀態桶，依當前階段動態分組）。
+/// 圖表 2：依題型狀態分佈（CWT 6 軸 / LCT 5 軸，5 個狀態桶，依當前階段動態分組）。
 /// 規則：階段為推進型，故只區分「草稿 / 進行中 / 完成 / 採用 / 不採用」。
+/// CWT 模式：閱讀題組/短文題組各拆母+子兩列（Granularity 0/1）。
+/// LCT 模式：依難度一~五分組（Level 1-5）。
 /// </summary>
 public class DashboardStatusByTypeItem
 {
     public string TypeName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 母/子題粒度：0=母題或單題，1=子題。
+    /// CWT 閱讀/短文題組子題為 1，其餘（含 LCT 全部）固定為 0。
+    /// </summary>
+    public byte Granularity { get; set; }
+
+    /// <summary>難度等級：LCT 模式 1-5；CWT 模式固定為 null。</summary>
+    public byte? Level { get; set; }
+
+    /// <summary>
+    /// UI 顯示標籤（由 Service 端組裝），對應 ApexCharts X 軸 label。
+    /// CWT：「閱讀題組母題」/「閱讀題組子題」等；LCT：「難度一」~「難度五」。
+    /// Razor 端傳給 JS interop 時請使用此欄位取代 TypeName。
+    /// </summary>
+    public string DisplayLabel { get; set; } = string.Empty;
 
     /// <summary>命題草稿（Status = 0）；進入審題後若仍為草稿視同捨去。</summary>
     public int Drafts { get; set; }

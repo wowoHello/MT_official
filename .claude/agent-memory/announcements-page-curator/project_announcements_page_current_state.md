@@ -181,13 +181,33 @@ ModuleCards?.Any(m =>
 
 所有寫入前呼叫 `EnsureCanEditAsync`（走 IMembershipService）。
 
-## 已知技術債（2026-05-17 更新）
+## CWT / LCT 雙模式與公告頁的關係（2026-05-21 新增）
+
+`MT_Projects` 新增兩個欄位（已在 DB schema 確認，`ProjectModels.cs` 已實作）：
+
+| 欄位 | 型別 | 說明 |
+|------|------|------|
+| `ProjectType` | TINYINT NOT NULL DEFAULT(0) | 0=CWT（全民中檢，7種題型），1=LCT（聽力中心，難度一~五） |
+| `ExamLevel` | TINYINT NULL | CWT 統一命題等級：0=初等、1=中等、2=中高等、3=高等、4=優等；LCT 模式 NULL |
+
+**公告頁面影響評估**：
+
+目前 `GetProjectDropdownAsync()` 只拉 `SELECT Id, Name FROM MT_Projects WHERE IsDeleted=0 ORDER BY Year DESC, Name`，**不區分 CWT/LCT**，所有梯次同一下拉混列。
+
+是否需要調整下拉分組（例如「CWT 梯次」/ 「LCT 梯次」optgroup），**需待使用者確認業務需求**，目前不主動修改。
+
+**Why:** 使用者提到命題類型現在區分 CWT 與 LCT，這影響梯次下拉的呈現方式；但公告功能本身（分類/狀態/置頂/內容）與 ProjectType 無關，不需要因此修改公告業務邏輯。
+
+**How to apply:** 若未來決定在公告表單梯次下拉中分組顯示 CWT/LCT，只需修改 `GetProjectDropdownAsync()` SQL（加入 `ProjectType` 欄位）與 `ProjectDropdownItem` DTO（加入 `ProjectType` 屬性），Razor 端改用 `<optgroup>`。
+
+## 已知技術債（2026-05-21 更新）
 
 | 優先 | 缺口 | 狀態 |
 |:---:|------|------|
 | P1 | 使用說明手冊顯示硬編碼假資料（3 筆 PDF），未接 MT_UserGuideFiles | 未解決 |
 | P2 | InlineQuillEditor.razor 缺少 12 個中文標點符號快速插入列 UI | 未解決 |
 | P2 | 表單無「狀態下拉」欄位（無法手動設為已下架；已下架僅由日期決定） | 設計決策，可接受 |
+| P3 | GetProjectDropdownAsync 下拉未分組 CWT/LCT | 待確認業務需求 |
 
 **已修復缺口**（供歷史參考）：
 - P0：`HasAnnouncementPermission()` 改用 PageUrl 比對（已修復）

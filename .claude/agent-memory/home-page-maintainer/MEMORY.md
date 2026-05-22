@@ -3,3 +3,4 @@
 - [急件警示產生邏輯](project_urgent_alert_logic.md) — 10 結果集、5 AlertType、雙視角、closedCheckSql 前置、vw_QuestionRoundStartedAt、角色常數（2026-05-20）
 - [首頁公告看板實作](project_home_announcements.md) — 分類標籤配色、NEW 標籤判斷、相對日期格式、Modal 顯示
 - [功能模組卡片機制](project_home_module_cards.md) — ModuleCards 由 MainLayout CascadingValue 傳入，Home 不查 DB
+- [CWT/LCT 類型區分對 Home 影響](project_cwt_lct_distinction.md) — ProjectType 0=CWT/1=LCT，HomeService 未讀取，LCT 配額缺口行為待驗證（2026-05-21）

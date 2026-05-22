@@ -79,34 +79,97 @@ public class QuestionService(
 
     public async Task<List<QuotaProgressItem>> GetMyQuotaProgressAsync(int userId, int projectId)
     {
+        // 三段 SQL 一次往返：
+        //   ① 配額列（含 Level / Granularity 維度）
+        //   ② 該教師此梯次的 Questions 統計（按 TypeId + Level）
+        //   ③ 該教師此梯次的 SubQuestions 統計（按母題的 TypeId）
+        // C# 端再依 4 種 case 計算 Completed，避免 SQL 端寫複雜 CASE WHEN subquery
         const string sql = """
+            -- ① 配額列
             SELECT
                 mq.QuestionTypeId,
-                mq.QuotaCount  AS Target,
-                COUNT(q.Id)    AS Completed
+                mq.Level,
+                mq.Granularity,
+                mq.QuotaCount AS Target
             FROM dbo.MT_MemberQuotas mq
-            INNER JOIN dbo.MT_ProjectMembers pm  ON pm.Id  = mq.ProjectMemberId
-            LEFT  JOIN dbo.MT_Questions      q   ON q.CreatorId      = pm.UserId
-                                                AND q.ProjectId      = @ProjectId
-                                                AND q.QuestionTypeId = mq.QuestionTypeId
-                                                AND q.IsDeleted      = 0
-                                                AND q.Status         >= 1
+            INNER JOIN dbo.MT_ProjectMembers pm ON pm.Id = mq.ProjectMemberId
             WHERE pm.UserId    = @UserId
-              AND pm.ProjectId = @ProjectId
-            GROUP BY mq.QuestionTypeId, mq.QuotaCount;
+              AND pm.ProjectId = @ProjectId;
+
+            -- ② Questions 統計（按 TypeId + Level）
+            SELECT
+                q.QuestionTypeId,
+                q.Level,
+                COUNT(*) AS Cnt
+            FROM dbo.MT_Questions q
+            WHERE q.CreatorId = @UserId
+              AND q.ProjectId = @ProjectId
+              AND q.IsDeleted = 0
+              AND q.Status   >= 1
+            GROUP BY q.QuestionTypeId, q.Level;
+
+            -- ③ SubQuestions 統計（按母題的 TypeId）
+            SELECT
+                q.QuestionTypeId,
+                COUNT(*) AS Cnt
+            FROM dbo.MT_SubQuestions sq
+            INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+            WHERE q.CreatorId = @UserId
+              AND q.ProjectId = @ProjectId
+              AND q.IsDeleted = 0
+              AND sq.Status  >= 1
+            GROUP BY q.QuestionTypeId;
             """;
 
         using var conn = _db.CreateConnection();
-        var rows = (await conn.QueryAsync<QuotaProgressItem>(sql, new { UserId = userId, ProjectId = projectId })).ToList();
+        using var multi = await conn.QueryMultipleAsync(sql, new { UserId = userId, ProjectId = projectId });
 
-        // catalog 補 TypeName 並依 SortOrder 排序（原 SQL 用 qt.SortOrder，現由記憶體字典代勞）
-        foreach (var row in rows)
+        var quotas = (await multi.ReadAsync<QuotaProgressItem>()).ToList();
+        var questionCounts = (await multi.ReadAsync<(int QuestionTypeId, byte? Level, int Cnt)>()).ToList();
+        var subCounts = (await multi.ReadAsync<(int QuestionTypeId, int Cnt)>()).ToList();
+
+        foreach (var quota in quotas)
         {
-            row.TypeName = _typeCatalog.GetName(row.QuestionTypeId);
+            quota.TypeName = _typeCatalog.GetName(quota.QuestionTypeId);
+            quota.Completed = ComputeQuotaCompleted(quota, questionCounts, subCounts);
         }
-        return rows
-            .OrderBy(r => _typeCatalog.Get(r.QuestionTypeId)?.SortOrder ?? int.MaxValue)
+
+        // SortOrder（catalog）→ Level（LCT 難度卡保持難一到難五順序）→ Granularity（母題在前）
+        return quotas
+            .OrderBy(q => _typeCatalog.Get(q.QuestionTypeId)?.SortOrder ?? int.MaxValue)
+            .ThenBy(q => q.Level ?? byte.MaxValue)
+            .ThenBy(q => q.Granularity)
             .ToList();
+    }
+
+    /// <summary>
+    /// 依配額的 (TypeId, Level, Granularity) 三鍵計算實際完成度：
+    ///   - LCT 單題 (Level 非 NULL, Granularity=0)：按 TypeId+Level 取 Questions 計數
+    ///   - CWT 子題 (Granularity=1)：按 TypeId 取 SubQuestions 計數
+    ///   - 其他（CWT 母題/單題、LCT 聽力題組）：按 TypeId 取 Questions 計數合計
+    /// 採用 Status >= 1（命題完成以上皆入帳）與既有邏輯一致。
+    /// </summary>
+    private static int ComputeQuotaCompleted(
+        QuotaProgressItem quota,
+        IReadOnlyList<(int QuestionTypeId, byte? Level, int Cnt)> questionCounts,
+        IReadOnlyList<(int QuestionTypeId, int Cnt)> subCounts)
+    {
+        if (quota.Level.HasValue && quota.Granularity == 0)
+        {
+            return questionCounts
+                .Where(c => c.QuestionTypeId == quota.QuestionTypeId && c.Level == quota.Level)
+                .Sum(c => c.Cnt);
+        }
+        if (quota.Granularity == 1)
+        {
+            return subCounts
+                .Where(c => c.QuestionTypeId == quota.QuestionTypeId)
+                .Sum(c => c.Cnt);
+        }
+        // CWT 母題/單題 與 LCT 聽力題組：按 TypeId 合計所有 Level（CWT 模式 Level 已鎖梯次 ExamLevel，合計等同單 Level 計數）
+        return questionCounts
+            .Where(c => c.QuestionTypeId == quota.QuestionTypeId)
+            .Sum(c => c.Cnt);
     }
 
     public async Task<ProjectPhaseInfo?> GetCurrentPhaseAsync(int projectId)

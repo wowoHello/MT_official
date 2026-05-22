@@ -48,6 +48,12 @@
                                 <span class="flex-shrink-0 whitespace-nowrap rounded-md bg-morandi/10 px-1.5 py-0.5 text-xs font-bold text-morandi">
                                     @($"{currentProject.Year}年度")
                                 </span>
+                                @* 專案類型 badge：CWT = morandi 藍灰 + 筆尖圖示；LCT = terracotta 赤陶 + 耳機圖示。
+                                   兩色系皆屬晨光書房莫蘭迪色系，但對比足以讓使用者一眼分辨。 *@
+                                <span class="inline-flex items-center gap-1 flex-shrink-0 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-xs font-bold @(currentProject.ProjectType == ProjectType.Lct ? "bg-terracotta/10 text-terracotta border-terracotta/30" : "bg-morandi/10 text-morandi border-morandi/30")">
+                                    <i class="fa-solid @(currentProject.ProjectType == ProjectType.Lct ? "fa-headphones" : "fa-pen-nib")"></i>
+                                    @(currentProject.ProjectType == ProjectType.Lct ? "LCT" : "CWT")
+                                </span>
                                 <span class="text-gray-300">|</span>
                                 <span class="truncate text-sm font-bold text-slate-main">@currentProject.Name</span>
                             </div>
@@ -88,7 +94,14 @@
                                             title="@($"專案編號 {project.ProjectCode}")"
                                             class="flex w-full cursor-pointer items-center justify-between gap-3 border-b border-gray-50 px-4 py-2.5 text-left text-sm transition-colors hover:bg-morandi/5 @(isSelected ? "bg-blue-50/50" : "")">
                                         <div class="flex min-w-0 flex-col gap-0.5">
-                                            <span class="truncate @(isSelected ? "font-bold text-morandi" : "font-medium text-gray-700")">@project.DisplayName</span>
+                                            <div class="flex items-center gap-1.5 min-w-0">
+                                                @* 下拉項目的 CWT/LCT badge：與頂部 button 同設計，但縮小至更小尺寸 *@
+                                                <span class="inline-flex items-center gap-0.5 flex-shrink-0 whitespace-nowrap rounded border px-1 py-px text-xs font-bold @(project.ProjectType == ProjectType.Lct ? "bg-terracotta/10 text-terracotta border-terracotta/30" : "bg-morandi/10 text-morandi border-morandi/30")">
+                                                    <i class="fa-solid @(project.ProjectType == ProjectType.Lct ? "fa-headphones" : "fa-pen-nib")"></i>
+                                                    @(project.ProjectType == ProjectType.Lct ? "LCT" : "CWT")
+                                                </span>
+                                                <span class="truncate @(isSelected ? "font-bold text-morandi" : "font-medium text-gray-700")">@project.DisplayName</span>
+                                            </div>
                                             <span class="flex items-center gap-1.5 text-xs text-gray-500 tabular-nums">
                                                 <i class="fa-regular fa-calendar text-xs text-gray-400"></i>
                                                 @project.StartDate.ToString("yyyy/MM/dd") — @project.EndDate.ToString("yyyy/MM/dd")
@@ -113,7 +126,14 @@
                                             title="@($"專案編號 {project.ProjectCode}")"
                                             class="flex w-full cursor-pointer items-center justify-between gap-3 border-b border-gray-50 px-4 py-2.5 text-left text-sm transition-colors hover:bg-morandi/5 @(isSelected ? "bg-blue-50/50" : "")">
                                         <div class="flex min-w-0 flex-col gap-0.5">
-                                            <span class="truncate @(isSelected ? "font-bold text-morandi" : "font-medium text-gray-700")">@project.DisplayName</span>
+                                            <div class="flex items-center gap-1.5 min-w-0">
+                                                @* 下拉項目的 CWT/LCT badge：與頂部 button 同設計，但縮小至更小尺寸 *@
+                                                <span class="inline-flex items-center gap-0.5 flex-shrink-0 whitespace-nowrap rounded border px-1 py-px text-xs font-bold @(project.ProjectType == ProjectType.Lct ? "bg-terracotta/10 text-terracotta border-terracotta/30" : "bg-morandi/10 text-morandi border-morandi/30")">
+                                                    <i class="fa-solid @(project.ProjectType == ProjectType.Lct ? "fa-headphones" : "fa-pen-nib")"></i>
+                                                    @(project.ProjectType == ProjectType.Lct ? "LCT" : "CWT")
+                                                </span>
+                                                <span class="truncate @(isSelected ? "font-bold text-morandi" : "font-medium text-gray-700")">@project.DisplayName</span>
+                                            </div>
                                             <span class="flex items-center gap-1.5 text-xs text-gray-500 tabular-nums">
                                                 <i class="fa-regular fa-calendar text-xs text-gray-400"></i>
                                                 @project.StartDate.ToString("yyyy/MM/dd") — @project.EndDate.ToString("yyyy/MM/dd")

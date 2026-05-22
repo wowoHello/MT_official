@@ -36,8 +36,8 @@ public interface IOverviewService
     /// <summary>依題型組成詳情面板用的標籤（主類/次類/文體/核心能力…）。</summary>
     Dictionary<string, string> BuildPreviewTags(QuestionFormData formData);
 
-    /// <summary>依題型挑等級標籤字典（聽力 vs 一般題等級顯示不同）。</summary>
-    string LevelLabel(string typeKey, byte? level);
+    /// <summary>依題型挑等級標籤字典（聽力 vs 一般題等級顯示不同；LCT 梯次一律走聽力等級用語）。</summary>
+    string LevelLabel(string typeKey, byte? level, ProjectType projectType = ProjectType.Cwt);
 }
 
 public class OverviewService(
@@ -100,7 +100,7 @@ public class OverviewService(
 
         await Task.WhenAll(countsTask, listTask, pendingTask);
 
-        var (statusRowCounts, statusKeyCounts) = countsTask.Result;
+        var (statusRowCounts, statusKeyCounts, typeIdCounts) = countsTask.Result;
         var list = listTask.Result;
         var items = list.Items;
 
@@ -149,7 +149,8 @@ public class OverviewService(
             // 梯次當前 PhaseCode（null = 不在任何進行中階段）；轉 byte? 讓 UI 端易於比對 QuestionStatus 常數
             CurrentPhaseCode     = phaseCode,
             AllReviewersResponded = responded,
-            StatusKeyCounts      = statusKeyCounts
+            StatusKeyCounts      = statusKeyCounts,
+            TypeIdCounts         = typeIdCounts
         };
     }
 
@@ -396,13 +397,14 @@ public class OverviewService(
     /// 一筆列可能同時落在多個 StatusKey（例：修題中 + 修題已送出 → 正常；修題已送出單獨計於 RevisionSubmitted）。
     /// 若梯次無題目直接回空 dict，下拉只會剩「所有狀態」一個選項。
     /// </summary>
-    private async Task<(Dictionary<byte, int> StatusRowCounts, Dictionary<string, int> StatusKeyCounts)>
+    private async Task<(Dictionary<byte, int> StatusRowCounts, Dictionary<string, int> StatusKeyCounts, Dictionary<int, int> TypeIdCounts)>
         BuildOverviewCountsAsync(int projectId, byte? phaseCode)
     {
-        // 輕量 SQL：母題 + 子題 UNION ALL，每列各自帶自身 Status / HasRepliedThisStage / IsDeleted
+        // 輕量 SQL：母題 + 子題 UNION ALL，每列各自帶自身 Status / HasRepliedThisStage / IsDeleted / QuestionTypeId
         // HasRepliedThisStage 邏輯與 QuestionService.ListAsync 同步：EXISTS RevisionReplies 同 Stage + UserId=CreatorId
         // Plan_014：與 ListAsync 同步加上「本輪過濾」— PC=8 跨輪退回後舊 reply 不算本輪已修
         // 子題列：RevisionReplies 用 SubQuestionId = sq.Id 比對
+        // QuestionTypeId 母題與子題都帶（子題 TypeId = 母題 TypeId），但 TypeIdCounts 只依母題列累計避免題組類重複加總
         const string sql = """
             -- 母題列
             SELECT
@@ -410,6 +412,7 @@ public class OverviewService(
                 CAST(NULL AS INT) AS SubId,
                 q.Status,
                 q.IsDeleted,
+                q.QuestionTypeId,
                 CAST(CASE WHEN EXISTS (
                     SELECT 1 FROM dbo.MT_RevisionReplies rr
                     WHERE rr.QuestionId = q.Id
@@ -433,6 +436,7 @@ public class OverviewService(
                 sq.Id AS SubId,
                 sq.Status,
                 q.IsDeleted,
+                q.QuestionTypeId,
                 CAST(CASE WHEN EXISTS (
                     SELECT 1 FROM dbo.MT_RevisionReplies rr
                     WHERE rr.QuestionId    = q.Id
@@ -452,22 +456,27 @@ public class OverviewService(
 
         using var conn = _db.CreateConnection();
         var rows = (await conn.QueryAsync<StatusBucketRow>(sql, new { ProjectId = projectId })).AsList();
-        if (rows.Count == 0) return (new(), new());
+        if (rows.Count == 0) return (new(), new(), new());
 
         // 全體審題者已給意見字典：只 query 仍在審題鎖定狀態且未刪的題目（其他狀態查了沒意義）
         var responded = await GetAllReviewersRespondedAsync(
             projectId, phaseCode,
             rows.Where(r => !r.IsDeleted && IsReviewLocked(r.Status)).Select(r => r.Id));
 
-        var rowCounts = new Dictionary<byte, int>();
-        var keyCounts = new Dictionary<string, int>();
+        var rowCounts  = new Dictionary<byte, int>();
+        var keyCounts  = new Dictionary<string, int>();
+        var typeCounts = new Dictionary<int, int>();
         void BumpStatus(byte s) => rowCounts[s] = rowCounts.GetValueOrDefault(s, 0) + 1;
         void BumpKey(string k)  => keyCounts[k] = keyCounts.GetValueOrDefault(k, 0) + 1;
+        void BumpType(int id)   => typeCounts[id] = typeCounts.GetValueOrDefault(id, 0) + 1;
 
         foreach (var r in rows)
         {
             // StatusRowCounts：IsDeleted=1 不計（與舊 BuildStatusRowCountsAsync WHERE q.IsDeleted=0 對齊）
             if (!r.IsDeleted) BumpStatus(r.Status);
+
+            // TypeIdCounts：只依母題列（SubId IS NULL）累計，避免題組類被子題重複加總；含 IsDeleted 讓篩選下拉切到「命題刪除」仍可見對應題型
+            if (r.SubId is null) BumpType(r.QuestionTypeId);
 
             // StatusKeyCounts：命題刪除獨立桶且優先（與其他 key 互斥）
             if (r.IsDeleted) { BumpKey(OverviewStatusKey.Deleted); continue; }
@@ -504,11 +513,11 @@ public class OverviewService(
                 BumpKey(OverviewStatusKey.NotAdopted);
         }
 
-        return (rowCounts, keyCounts);
+        return (rowCounts, keyCounts, typeCounts);
     }
 
     /// <summary>BuildOverviewCountsAsync 用的輕量資料列（含子題列 — Id=母題 QId、SubId=子題 Id 或 NULL）。</summary>
-    private record StatusBucketRow(int Id, int? SubId, byte Status, bool IsDeleted, bool HasRepliedThisStage);
+    private record StatusBucketRow(int Id, int? SubId, byte Status, bool IsDeleted, int QuestionTypeId, bool HasRepliedThisStage);
 
     public async Task<List<OverviewCreatorOption>> GetCreatorOptionsAsync(int projectId)
     {
@@ -608,10 +617,13 @@ public class OverviewService(
         return tags;
     }
 
-    public string LevelLabel(string typeKey, byte? level)
+    public string LevelLabel(string typeKey, byte? level, ProjectType projectType = ProjectType.Cwt)
     {
         if (level is null) return "";
-        return typeKey is QuestionTypeCodes.Listen or QuestionTypeCodes.ListenGroup
+        // LCT 梯次一律用聽力等級用語（難度一~五）；CWT 維持原本「聽力題型走 ListenLevelLabels、其餘走 GeneralLevelLabels」邏輯
+        var useListenLabels = projectType == ProjectType.Lct
+            || typeKey is QuestionTypeCodes.Listen or QuestionTypeCodes.ListenGroup;
+        return useListenLabels
             ? QuestionConstants.ListenLevelLabels.GetValueOrDefault(level.Value, "")
             : QuestionConstants.GeneralLevelLabels.GetValueOrDefault(level.Value, "");
     }

@@ -1,2 +1,2 @@
-- [Announcements 頁面當前完整狀態](project_announcements_page_current_state.md) — 2026-05-20：DB 欄位型別(datetime2/nvarchar上限)、TogglePin樂觀更新、UI篩選五選項、表單日期防呆機制補充
+- [Announcements 頁面當前完整狀態](project_announcements_page_current_state.md) — 2026-05-21：新增 CWT/LCT 雙模式對公告頁影響評估（ProjectDropdown 未分組，待確認需求）
 - [Announcements 頁面參考素材位置](reference_announcements_prototype.md) — 原型已整合至 D:\MTrefer\pageFinal_doc\Announcements.md，舊 HTML/JS 棄用

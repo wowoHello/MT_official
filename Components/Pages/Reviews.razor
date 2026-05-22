@@ -230,7 +230,7 @@
                             <select value="@queryType" @onchange="OnTypeFilterChanged"
                                 class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                                 <option value="all">所有題型</option>
-                                @foreach (var kv in QuestionConstants.TypeLabels)
+                                @foreach (var kv in QuestionConstants.VisibleTypeKeyLabels)
                                 {
                                     if (!typeKeyCounts.ContainsKey(kv.Key)) continue;
                                     <option value="@kv.Key">@kv.Value</option>

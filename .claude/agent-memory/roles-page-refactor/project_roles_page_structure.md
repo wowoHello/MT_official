@@ -131,15 +131,38 @@ type: project
 - `UserProfileDto`：個人資料 Modal 用（含 `List<RoleTag> ProjectRoles`）
 - `UserModuleCard`：首頁功能卡片用（含 IsEnabled）
 
-## 資料表對照（2026-05-20 DB Schema 確認）
+## 資料表對照（2026-05-21 DB Schema 確認）
 
 | 功能 | 資料表 | 關鍵約束 |
 |------|--------|---------|
-| 角色定義 | MT_Roles（Category:0=內部/1=外部，IsDefault BIT，預設 0） | **無 Name UNIQUE 索引**（技術債） |
+| 角色定義 | MT_Roles（Category:0=內部/1=外部，IsDefault BIT，預設 0） | **Name 已有 UNIQUE 索引**（2026-05-21 dump 確認已建）|
 | 功能模組 | MT_Modules（ModuleKey 唯一小寫，IsActive 控制顯示） | `UQ_MT_Modules_ModuleKey` |
 | 角色與模組對應 | MT_RolePermissions（IsEnabled BIT 預設 0，Permissions TINYINT 預設 1） | `UQ_MT_RolePermissions_RoleId_ModuleId` |
 | 使用者帳號 | MT_Users（Status:0=停用/1=啟用，IsFirstLogin，LockoutUntil，PasswordHash nvarchar(150) PBKDF2 格式） | `UQ_MT_Users_Username`（filtered）、`UQ_MT_Users_Email`（filtered） |
 | 梯次角色指派 | MT_ProjectMemberRoles | FK → MT_Roles.Id |
+| 專案類型 | MT_Projects.ProjectType TINYINT：0=CWT、1=LCT；MT_Projects.ExamLevel TINYINT NULL（LCT 時為 NULL） | 預設值 0（CWT） |
+
+## CWT / LCT 雙類型專案對角色系統的影響（2026-05-21 分析）
+
+**MT_Projects 新增欄位（2026-05-21 dump 確認）：**
+- `ProjectType TINYINT NOT NULL DEFAULT 0` — 0=CWT、1=LCT
+- `ExamLevel TINYINT NULL` — CWT 時為 0=初等/1=中等/2=中高等/3=高等/4=優等；LCT 時為 NULL
+
+**角色系統目前支援狀況：**
+- `MT_Roles` 結構**未區分 CWT/LCT**，角色是全站共用（非按 ProjectType 分組）
+- `MT_RolePermissions` 與 `MT_Modules` 同樣**沒有 ProjectType 欄位**，8 個功能模組對所有專案類型一視同仁
+- 目前如果要新增「LCT 命題教師」「LCT 審題委員」等角色，**現有 schema 架構可以支援**（只需在 MT_Roles 插入新列），不需要修改 DB schema
+- 角色分類仍是 Category=0（內部）/ Category=1（外部），LCT 角色沿用此欄位即可
+
+**待決議（需使用者確認）：**
+1. LCT 專案是否需要獨立的角色（如「LCT 命題教師」），還是與 CWT 角色共用「命題教師」身分？
+2. LCT 專案是否有不同的功能模組需求（例如 LCT 無需「命題儀表板」），還是與 CWT 共用同一套 8 模組？
+3. 若需要按 ProjectType 控制模組存取，MT_Modules 需要新增 `ForProjectType TINYINT NULL`（NULL=全類型）
+
+**How to apply：**
+- 等使用者確認 LCT 角色策略後再動 DB/程式碼
+- 若確定共用角色（最簡化方案），不需修改 Roles.razor / RoleService.cs / RoleModels.cs 任何檔案
+- 若確定獨立角色，只需在 MT_Roles 插入新 row + IsDefault=true 固定，不需改 schema
 
 **How to apply：**
 - 若未來需實作細部權限（僅瀏覽/瀏覽與編輯），MT_RolePermissions.Permissions 欄位已準備好，需同步更新 RolePermissionToggle、RolePermissionInput 及 MergeRolePermissionsAsync
