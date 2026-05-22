@@ -96,40 +96,45 @@ public class DashboardService : IDashboardService
             ORDER BY Granularity, TypeName
             """;
 
-        // LCT SQL：依難度一~五展開（聽力測驗直接取 Level；聽力題組母題不計，子題固定貢獻難度三/四）
+        // LCT SQL：6 桶 — 聽力測驗 5 個難度（TypeId=6 按 Level）+ 聽力題組（TypeId=7 整組）
+        // 注意：聽力題組「不再」自動拆成難三/難四 — 與 Projects 端「聽力題組獨立計算」的設計一致
+        //   1 聽力題組 = 1 整組計數單位（規格固定 1 母題 + 難三/難四 2 子題）
         // 注意：欄位名稱是 MT_ProjectTargets.Level（不是 ExamLevel — ExamLevel 是 MT_Projects 上的 CWT 統一等級）
         // 注意：SQL Server CTE body 不能直接用 VALUES row constructor，必須包在 SELECT FROM (VALUES ...) AS v(...) 內
+        // 注意：UNION ALL 的最終 ORDER BY 不能對 union 子查詢的欄位排序，需包外層 select 並引用 SortKey
         const string sqlTargetsLct = """
             WITH LevelBuckets(LevelNum, LevelName) AS (
                 SELECT LevelNum, LevelName
                 FROM (VALUES (1, N'難度一'), (2, N'難度二'), (3, N'難度三'), (4, N'難度四'), (5, N'難度五'))
                      AS v(LevelNum, LevelName)
             ),
-            LctTargets AS (
-                -- TypeId=6 聽力測驗：按設定的 Level 分桶
-                SELECT [Level] AS LevelNum, SUM(TargetCount) AS TargetCount
+            Type6Agg AS (
+                -- 聽力測驗（TypeId=6）：按設定的 Level 分桶
+                SELECT [Level] AS LevelNum, SUM(TargetCount) AS TotalTarget
                 FROM   dbo.MT_ProjectTargets
                 WHERE  ProjectId = @pid AND QuestionTypeId = 6 AND [Level] IS NOT NULL
                 GROUP BY [Level]
-                UNION ALL
-                -- TypeId=7 聽力題組：子題固定貢獻難度三/四，取母題目標數代入
-                -- 每 1 母題貢獻 1 個難度三子題 + 1 個難度四子題
-                SELECT 3, SUM(TargetCount) FROM dbo.MT_ProjectTargets WHERE ProjectId = @pid AND QuestionTypeId = 7
-                UNION ALL
-                SELECT 4, SUM(TargetCount) FROM dbo.MT_ProjectTargets WHERE ProjectId = @pid AND QuestionTypeId = 7
-            ),
-            LctAgg AS (
-                SELECT LevelNum, SUM(TargetCount) AS TotalTarget
-                FROM   LctTargets
-                GROUP BY LevelNum
             )
-            SELECT
-                lb.LevelName AS TypeName,
-                ISNULL(la.TotalTarget, 0) AS TargetCount,
-                0 AS Granularity
-            FROM   LevelBuckets lb
-            LEFT JOIN LctAgg la ON la.LevelNum = lb.LevelNum
-            ORDER BY lb.LevelNum
+            SELECT TypeName, TargetCount, Granularity
+            FROM (
+                -- 聽力測驗 5 個難度桶
+                SELECT
+                    lb.LevelName AS TypeName,
+                    ISNULL(la.TotalTarget, 0) AS TargetCount,
+                    CAST(0 AS TINYINT) AS Granularity,
+                    lb.LevelNum AS SortKey
+                FROM   LevelBuckets lb
+                LEFT JOIN Type6Agg la ON la.LevelNum = lb.LevelNum
+                UNION ALL
+                -- 聽力題組（TypeId=7）：獨立分類，整組視為 1 計數單位
+                SELECT
+                    N'聽力題組',
+                    ISNULL((SELECT SUM(TargetCount) FROM dbo.MT_ProjectTargets
+                            WHERE ProjectId = @pid AND QuestionTypeId = 7), 0),
+                    CAST(0 AS TINYINT),
+                    99
+            ) tmp
+            ORDER BY SortKey
             """;
 
         // ──────────────────────────────────────────────────────────────
@@ -252,8 +257,10 @@ public class DashboardService : IDashboardService
             ORDER BY QuestionTypeId, Granularity
             """;
 
-        // LCT 圖表 1：X 軸五個難度桶，Produced = 聽力測驗已產出(按 Questions.Level) + 聽力題組子題已完成(按 SortOrder→Level 映射)
-        // 補充 Granularity=0 / Level=難度序號，供 Service 端 DisplayLabel 組裝
+        // LCT 圖表 1：6 個 X 軸桶 — 聽力測驗 5 個難度 + 聽力題組（整組）
+        // 設計與 sqlTargetsLct 一致：聽力題組獨立分類，不再 fold-in 到難三/難四
+        //   聽力題組 Produced 採用「TypeId=7 母題 Status NOT IN (0,10,11)」= 整組已產出
+        //   每 1 master = 1 整組（規格固定 1 母題 + 難三/難四 2 子題，子題不獨立計）
         const string sqlAchievementLct = """
             WITH LevelBuckets(LevelNum, LevelName) AS (
                 SELECT LevelNum, LevelName
@@ -268,48 +275,41 @@ public class DashboardService : IDashboardService
                 WHERE  ProjectId = @pid AND IsDeleted = 0 AND QuestionTypeId = 6 AND [Level] IS NOT NULL
                 GROUP BY [Level]
             ),
-            ProducedType7 AS (
-                -- 聽力題組（TypeId=7）：子題本身 schema 沒 Level 欄位，但規格固定 SortOrder=1→難度三、SortOrder=2→難度四
-                SELECT CASE sq.SortOrder WHEN 1 THEN 3 WHEN 2 THEN 4 END AS LevelNum,
-                       SUM(CASE WHEN sq.Status NOT IN (0, 10, 11) THEN 1 ELSE 0 END) AS Produced
-                FROM   dbo.MT_SubQuestions sq
-                JOIN   dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
-                WHERE  q.ProjectId = @pid AND q.IsDeleted = 0 AND sq.IsDeleted = 0
-                  AND  q.QuestionTypeId = 7 AND sq.SortOrder IN (1, 2)
-                GROUP BY sq.SortOrder
-            ),
-            ProducedAgg AS (
-                SELECT LevelNum, SUM(Produced) AS Produced FROM ProducedType6 GROUP BY LevelNum
-                UNION ALL
-                SELECT LevelNum, SUM(Produced) AS Produced FROM ProducedType7 GROUP BY LevelNum
-            ),
-            ProducedByLevel AS (
-                SELECT LevelNum, SUM(Produced) AS Produced FROM ProducedAgg GROUP BY LevelNum
-            ),
-            LctTargets AS (
+            Type6Targets AS (
                 SELECT [Level] AS LevelNum, SUM(TargetCount) AS TotalTarget
                 FROM   dbo.MT_ProjectTargets
                 WHERE  ProjectId = @pid AND QuestionTypeId = 6 AND [Level] IS NOT NULL
                 GROUP BY [Level]
-                UNION ALL
-                SELECT 3, SUM(TargetCount) FROM dbo.MT_ProjectTargets WHERE ProjectId = @pid AND QuestionTypeId = 7
-                UNION ALL
-                SELECT 4, SUM(TargetCount) FROM dbo.MT_ProjectTargets WHERE ProjectId = @pid AND QuestionTypeId = 7
-            ),
-            LctTargetAgg AS (
-                SELECT LevelNum, SUM(TotalTarget) AS TotalTarget FROM LctTargets GROUP BY LevelNum
             )
-            SELECT
-                0                        AS QuestionTypeId,
-                lb.LevelName             AS TypeName,
-                ISNULL(p.Produced, 0)    AS Produced,
-                ISNULL(t.TotalTarget, 0) AS Target,
-                CAST(0 AS TINYINT)       AS Granularity,
-                CAST(lb.LevelNum AS TINYINT) AS Level
-            FROM   LevelBuckets lb
-            LEFT JOIN ProducedByLevel p ON p.LevelNum = lb.LevelNum
-            LEFT JOIN LctTargetAgg   t ON t.LevelNum  = lb.LevelNum
-            ORDER BY lb.LevelNum
+            SELECT QuestionTypeId, TypeName, Produced, Target, Granularity, Level
+            FROM (
+                -- 聽力測驗 5 個難度桶
+                SELECT
+                    0                            AS QuestionTypeId,
+                    lb.LevelName                 AS TypeName,
+                    ISNULL(p.Produced, 0)        AS Produced,
+                    ISNULL(t.TotalTarget, 0)     AS Target,
+                    CAST(0 AS TINYINT)           AS Granularity,
+                    CAST(lb.LevelNum AS TINYINT) AS Level,
+                    lb.LevelNum                  AS SortKey
+                FROM   LevelBuckets lb
+                LEFT JOIN ProducedType6 p ON p.LevelNum = lb.LevelNum
+                LEFT JOIN Type6Targets  t ON t.LevelNum = lb.LevelNum
+                UNION ALL
+                -- 聽力題組（TypeId=7）：獨立分類，以母題 Status 為準（1 master = 1 整組）
+                SELECT
+                    7,
+                    N'聽力題組',
+                    ISNULL((SELECT SUM(CASE WHEN Status NOT IN (0, 10, 11) THEN 1 ELSE 0 END)
+                            FROM dbo.MT_Questions
+                            WHERE ProjectId = @pid AND IsDeleted = 0 AND QuestionTypeId = 7), 0),
+                    ISNULL((SELECT SUM(TargetCount) FROM dbo.MT_ProjectTargets
+                            WHERE ProjectId = @pid AND QuestionTypeId = 7), 0),
+                    CAST(0 AS TINYINT),
+                    CAST(NULL AS TINYINT),
+                    99
+            ) tmp
+            ORDER BY SortKey
             """;
 
         // ── 並行發出 5 個 task ──
@@ -483,6 +483,13 @@ public class DashboardService : IDashboardService
     /// <param name="getTypeName">IQuestionTypeCatalog.GetName — 本方法為 static，透過委派注入。</param>
     private static string BuildDisplayLabel(string typeName, byte granularity, byte? level, Func<int, string> _)
     {
+        // 聽力題組（LCT 獨立分類）：整組視為原子單位，無 母/子 區別。
+        // 必須先於下方「題組」關鍵字檢查處理，否則會被誤掛上「（母題）」字尾。
+        if (typeName == "聽力題組")
+        {
+            return "聽力題組";
+        }
+
         // LCT 模式：level 有值，直接對應「難度X」
         if (level.HasValue)
         {
@@ -746,15 +753,14 @@ public class DashboardService : IDashboardService
     }
 
     /// <summary>
-    /// LCT 模式的圖表 2：X 軸為難度一~五（Level 1-5）。
+    /// LCT 模式的圖表 2：X 軸為 6 桶 — 難度一~五（聽力測驗 Level 1-5）+ 聽力題組（整組獨立桶）。
     /// 設計鏡像 CWT 命題階段邏輯（sqlCompositionPhase）：InProgress = MAX(0, Target - Drafts - DoneStage - Adopted - Rejected)，
     /// 確保剛建專案設定目標後立即看到「階段進行中」橙色 bar（高度=該難度目標），與 CWT 行為一致。
     /// 目前所有階段共用此邏輯（暫不分修/審題細分），未來若 LCT 進到後續階段顯示需精修可再加 PhaseCode 分支。
     ///
-    /// 統計來源：
-    /// - TypeId=6 聽力測驗：MT_Questions.Level 直接分組
-    /// - TypeId=7 聽力題組：子題按 SortOrder 映射（1→難度三、2→難度四，母題本身不計）
-    /// - TypeId=7 母題目標數 → 同時計入難度三、難度四（每 1 母題貢獻 1 個難度三子題 + 1 個難度四子題）
+    /// 統計來源（聽力題組獨立計算，不再 fold-in 至難三/難四）：
+    /// - TypeId=6 聽力測驗：MT_Questions.Level 直接分組（5 桶）
+    /// - TypeId=7 聽力題組：母題 Status 直接分組（1 桶，1 master = 1 整組單位）
     /// </summary>
     private static async Task<List<DashboardStatusByTypeItem>> LoadStatusByTypeRowsLctAsync(
         System.Data.IDbConnection conn, int projectId, int? currentPhaseForChart)
@@ -765,20 +771,14 @@ public class DashboardService : IDashboardService
                 FROM (VALUES (1, N'難度一'), (2, N'難度二'), (3, N'難度三'), (4, N'難度四'), (5, N'難度五'))
                      AS v(LevelNum, LevelName)
             ),
-            -- 各難度目標：聽力測驗自身 Level + 聽力題組母題目標 *對應到難度三、四
-            LctTargets AS (
-                SELECT lb.LevelNum,
-                       ISNULL((SELECT SUM(TargetCount)
-                               FROM dbo.MT_ProjectTargets
-                               WHERE ProjectId = @pid AND QuestionTypeId = 6 AND [Level] = lb.LevelNum), 0)
-                       + CASE WHEN lb.LevelNum IN (3, 4)
-                              THEN ISNULL((SELECT SUM(TargetCount)
-                                           FROM dbo.MT_ProjectTargets
-                                           WHERE ProjectId = @pid AND QuestionTypeId = 7), 0)
-                              ELSE 0 END AS TotalTarget
-                FROM LevelBuckets lb
+            -- 聽力測驗各難度目標
+            Type6Targets AS (
+                SELECT [Level] AS LevelNum, SUM(TargetCount) AS TotalTarget
+                FROM   dbo.MT_ProjectTargets
+                WHERE  ProjectId = @pid AND QuestionTypeId = 6 AND [Level] IS NOT NULL
+                GROUP BY [Level]
             ),
-            -- 聽力測驗（TypeId=6）按題目自身 Level 統計（仿 CWT 命題階段 Status 桶）
+            -- 聽力測驗（TypeId=6）按題目自身 Level 統計
             Type6Counts AS (
                 SELECT [Level] AS LevelNum,
                        SUM(CASE WHEN Status = 0          THEN 1 ELSE 0 END) AS Drafts,
@@ -789,52 +789,61 @@ public class DashboardService : IDashboardService
                 WHERE  ProjectId = @pid AND IsDeleted = 0 AND QuestionTypeId = 6 AND [Level] IS NOT NULL
                 GROUP BY [Level]
             ),
-            -- 聽力題組（TypeId=7）子題按 SortOrder 映射難度三/四
-            Type7SubCounts AS (
-                SELECT CASE sq.SortOrder WHEN 1 THEN 3 WHEN 2 THEN 4 END AS LevelNum,
-                       SUM(CASE WHEN sq.Status = 0          THEN 1 ELSE 0 END) AS Drafts,
-                       SUM(CASE WHEN sq.Status IN (1, 2)    THEN 1 ELSE 0 END) AS DoneStage,
-                       SUM(CASE WHEN sq.Status IN (9, 12)   THEN 1 ELSE 0 END) AS Adopted,
-                       SUM(CASE WHEN sq.Status IN (10, 11)  THEN 1 ELSE 0 END) AS Rejected
-                FROM   dbo.MT_SubQuestions sq
-                JOIN   dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
-                WHERE  q.ProjectId = @pid AND q.IsDeleted = 0 AND sq.IsDeleted = 0
-                  AND  q.QuestionTypeId = 7 AND sq.SortOrder IN (1, 2)
-                GROUP BY sq.SortOrder
-            ),
-            Produced AS (
-                SELECT LevelNum,
-                       SUM(Drafts)    AS Drafts,
-                       SUM(DoneStage) AS DoneStage,
-                       SUM(Adopted)   AS Adopted,
-                       SUM(Rejected)  AS Rejected
-                FROM (
-                    SELECT LevelNum, Drafts, DoneStage, Adopted, Rejected FROM Type6Counts
-                    UNION ALL
-                    SELECT LevelNum, Drafts, DoneStage, Adopted, Rejected FROM Type7SubCounts
-                ) m
-                GROUP BY LevelNum
+            -- 聽力題組（TypeId=7）按 master Status 統計（1 master = 1 整組）
+            Type7Counts AS (
+                SELECT
+                    SUM(CASE WHEN Status = 0          THEN 1 ELSE 0 END) AS Drafts,
+                    SUM(CASE WHEN Status IN (1, 2)    THEN 1 ELSE 0 END) AS DoneStage,
+                    SUM(CASE WHEN Status IN (9, 12)   THEN 1 ELSE 0 END) AS Adopted,
+                    SUM(CASE WHEN Status IN (10, 11)  THEN 1 ELSE 0 END) AS Rejected,
+                    ISNULL((SELECT SUM(TargetCount) FROM dbo.MT_ProjectTargets
+                            WHERE ProjectId = @pid AND QuestionTypeId = 7), 0) AS TotalTarget
+                FROM   dbo.MT_Questions
+                WHERE  ProjectId = @pid AND IsDeleted = 0 AND QuestionTypeId = 7
             )
-            -- 主 SELECT：仿 CWT 命題階段 InProgress 公式 = MAX(0, Target - Drafts - DoneStage - Adopted - Rejected)
-            SELECT
-                lb.LevelName                 AS TypeName,
-                CAST(0 AS TINYINT)           AS Granularity,
-                CAST(lb.LevelNum AS TINYINT) AS Level,
-                ISNULL(p.Drafts, 0)          AS Drafts,
-                CASE WHEN ISNULL(t.TotalTarget, 0)
-                          - ISNULL(p.Drafts, 0) - ISNULL(p.DoneStage, 0)
-                          - ISNULL(p.Adopted, 0) - ISNULL(p.Rejected, 0) > 0
-                     THEN ISNULL(t.TotalTarget, 0)
-                          - ISNULL(p.Drafts, 0) - ISNULL(p.DoneStage, 0)
-                          - ISNULL(p.Adopted, 0) - ISNULL(p.Rejected, 0)
-                     ELSE 0 END              AS InProgress,
-                ISNULL(p.DoneStage, 0)       AS DoneStage,
-                ISNULL(p.Adopted, 0)         AS Adopted,
-                ISNULL(p.Rejected, 0)        AS Rejected
-            FROM      LevelBuckets lb
-            LEFT JOIN LctTargets   t ON t.LevelNum = lb.LevelNum
-            LEFT JOIN Produced     p ON p.LevelNum = lb.LevelNum
-            ORDER BY lb.LevelNum
+            SELECT TypeName, Granularity, Level, Drafts, InProgress, DoneStage, Adopted, Rejected
+            FROM (
+                -- 聽力測驗 5 個難度桶
+                SELECT
+                    lb.LevelName                 AS TypeName,
+                    CAST(0 AS TINYINT)           AS Granularity,
+                    CAST(lb.LevelNum AS TINYINT) AS Level,
+                    ISNULL(c.Drafts, 0)          AS Drafts,
+                    CASE WHEN ISNULL(t.TotalTarget, 0)
+                              - ISNULL(c.Drafts, 0) - ISNULL(c.DoneStage, 0)
+                              - ISNULL(c.Adopted, 0) - ISNULL(c.Rejected, 0) > 0
+                         THEN ISNULL(t.TotalTarget, 0)
+                              - ISNULL(c.Drafts, 0) - ISNULL(c.DoneStage, 0)
+                              - ISNULL(c.Adopted, 0) - ISNULL(c.Rejected, 0)
+                         ELSE 0 END              AS InProgress,
+                    ISNULL(c.DoneStage, 0)       AS DoneStage,
+                    ISNULL(c.Adopted, 0)         AS Adopted,
+                    ISNULL(c.Rejected, 0)        AS Rejected,
+                    lb.LevelNum                  AS SortKey
+                FROM      LevelBuckets lb
+                LEFT JOIN Type6Targets t ON t.LevelNum = lb.LevelNum
+                LEFT JOIN Type6Counts  c ON c.LevelNum = lb.LevelNum
+                UNION ALL
+                -- 聽力題組 整組獨立桶
+                SELECT
+                    N'聽力題組',
+                    CAST(0 AS TINYINT),
+                    CAST(NULL AS TINYINT),
+                    ISNULL(t7.Drafts, 0),
+                    CASE WHEN ISNULL(t7.TotalTarget, 0)
+                              - ISNULL(t7.Drafts, 0) - ISNULL(t7.DoneStage, 0)
+                              - ISNULL(t7.Adopted, 0) - ISNULL(t7.Rejected, 0) > 0
+                         THEN ISNULL(t7.TotalTarget, 0)
+                              - ISNULL(t7.Drafts, 0) - ISNULL(t7.DoneStage, 0)
+                              - ISNULL(t7.Adopted, 0) - ISNULL(t7.Rejected, 0)
+                         ELSE 0 END,
+                    ISNULL(t7.DoneStage, 0),
+                    ISNULL(t7.Adopted, 0),
+                    ISNULL(t7.Rejected, 0),
+                    99
+                FROM Type7Counts t7
+            ) tmp
+            ORDER BY SortKey
             """;
 
         return (await conn.QueryAsync<DashboardStatusByTypeItem>(sql, new { pid = projectId })).ToList();

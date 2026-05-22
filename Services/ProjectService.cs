@@ -279,12 +279,18 @@ public class ProjectService : IProjectService
                 return null;
                 
             detail.Phases = (await multi.ReadAsync<PhaseDetailDto>()).ToList();
-            detail.Targets = (await multi.ReadAsync<TargetDetailDto>()).ToList();
+            // 詳情頁固定顯示完整題型結構（含 0 的項目）— 對 DB 列 + 標準模板做 left-join 式擴展，
+            // 避免老專案缺欄、或使用者刻意填 0 時詳情卡片空缺造成「資料不一致」的視覺錯覺
+            detail.Targets = ExpandToFullTargetList(
+                (await multi.ReadAsync<TargetDetailDto>()).ToList(),
+                detail.ProjectType);
             foreach (var t in detail.Targets)
             {
                 t.TypeName = _typeCatalog.GetName(t.QuestionTypeId);
                 t.DisplayLabel = detail.ProjectType == ProjectType.Lct
-                    ? $"難度{ChineseOrdinal(t.Level ?? 0)}"
+                    ? (t.QuestionTypeId == 7
+                        ? "聽力題組"
+                        : $"難度{ChineseOrdinal(t.Level ?? 0)}")
                     : BuildCwtTargetLabel(t.QuestionTypeId, t.Granularity, _typeCatalog.GetName(t.QuestionTypeId));
             }
             
@@ -745,6 +751,59 @@ public class ProjectService : IProjectService
             return granularity == 1 ? $"{typeName}（子題）" : $"{typeName}（母題）";
         }
         return typeName;
+    }
+
+    /// <summary>
+    /// 詳情頁固定模板（QuestionTypeId, Granularity, Level）：
+    /// CWT — 6 項（一般 / 閱讀母+子 / 長文 / 短文母+子）；
+    /// LCT — 6 項（聽力題目難度一~五 + 聽力題組整體）。
+    /// 與 <see cref="ExpandToFullTargetList"/> 搭配使用，缺項補 0。
+    /// </summary>
+    private static readonly (int TypeId, byte Granularity, byte? Level)[] CwtTargetTemplate =
+    [
+        (1, 0, null),  // 一般單選題
+        (3, 0, null),  // 閱讀題組母題
+        (3, 1, null),  // 閱讀題組子題
+        (4, 0, null),  // 長文題目
+        (5, 0, null),  // 短文題組母題
+        (5, 1, null),  // 短文題組子題
+    ];
+
+    private static readonly (int TypeId, byte Granularity, byte? Level)[] LctTargetTemplate =
+    [
+        (6, 0, 1),     // 聽力題目 難度一
+        (6, 0, 2),     // 聽力題目 難度二
+        (6, 0, 3),     // 聽力題目 難度三
+        (6, 0, 4),     // 聽力題目 難度四
+        (6, 0, 5),     // 聽力題目 難度五
+        (7, 0, null),  // 聽力題組（整組，固定母題 + 難三/難四 2 子題）
+    ];
+
+    /// <summary>
+    /// 以固定模板對 DB 載入的 Targets 做 left-join 擴展，模板存在但 DB 沒有的項目補 TargetCount=0。
+    /// 保證詳情頁卡片數量永遠一致（避免老資料缺欄或 0 值被 INSERT 過濾後消失造成的視覺錯亂）。
+    /// </summary>
+    private static List<TargetDetailDto> ExpandToFullTargetList(
+        List<TargetDetailDto> dbRows,
+        ProjectType projectType)
+    {
+        var template = projectType == ProjectType.Lct ? LctTargetTemplate : CwtTargetTemplate;
+        var result = new List<TargetDetailDto>(template.Length);
+        foreach (var (typeId, granularity, level) in template)
+        {
+            var existing = dbRows.FirstOrDefault(r =>
+                r.QuestionTypeId == typeId &&
+                r.Granularity == granularity &&
+                r.Level == level);
+            result.Add(existing ?? new TargetDetailDto
+            {
+                QuestionTypeId = typeId,
+                Granularity = granularity,
+                Level = level,
+                TargetCount = 0
+            });
+        }
+        return result;
     }
 
     /// <summary>

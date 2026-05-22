@@ -1100,7 +1100,6 @@
 
         var isLongText = detailItem.TypeKey == QuestionTypeCodes.LongText;
         var content    = isLongText ? detailData.GradingNote : detailData.Analysis;
-        var label      = isLongText ? "批閱說明" : "試題解析";
         var icon       = isLongText ? "fa-list-check" : "fa-lightbulb";
         var fieldKey   = isLongText ? "gradingNote" : "analysis";
 
@@ -1113,7 +1112,7 @@
                 </span>
                 <div class="flex flex-col leading-tight">
                     <span class="text-xs font-medium tracking-wider text-slate-500">命題教師專屬</span>
-                    <span class="text-sm font-bold text-slate-700">審題輔助資訊（@label）</span>
+                    <span class="text-sm font-bold text-slate-700">審題參考資訊（題旨說明與解題詮釋）</span>
                 </div>
                 <i class="fa-solid fa-chevron-down ml-auto text-sm text-slate-400 transition-transform duration-200 group-open:rotate-180"></i>
             </summary>
@@ -1142,7 +1141,7 @@
                 </span>
                 <div class="flex flex-col leading-tight">
                     <span class="text-xs font-medium tracking-wider text-slate-500">命題教師專屬</span>
-                    <span class="text-sm font-bold text-slate-700">審題輔助資訊（子題試題解析）</span>
+                    <span class="text-sm font-bold text-slate-700">審題參考資訊（子題題旨說明與解題詮釋）</span>
                 </div>
                 <i class="fa-solid fa-chevron-down ml-auto text-sm text-slate-400 transition-transform duration-200 group-open:rotate-180"></i>
             </summary>

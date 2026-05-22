@@ -335,14 +335,20 @@
                                 }
                                 else if (selectedDetail.ProjectType == ProjectType.Lct)
                                 {
-                                    @* LCT 模式：5 個獨立卡片（難度一~五） *@
-                                    <div class="grid grid-cols-5 gap-2">
+                                    @* LCT 模式：5 個聽力題目（難度一~五）+ 1 個聽力題組（不分難度，以「組」計）
+                                       聽力題組視覺上稍作區隔（淡莫蘭迪邊框）以暗示「整組固定 2 子題：難三+難四」 *@
+                                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
                                         @foreach (var t in selectedDetail.Targets)
                                         {
-                                            <div class="bg-gray-50 border border-gray-200 rounded-xl p-3 text-center">
+                                            var isGroup = t.QuestionTypeId == 7;
+                                            var cardClass = isGroup
+                                                ? "bg-morandi/5 border border-morandi/30 rounded-xl p-3 text-center"
+                                                : "bg-gray-50 border border-gray-200 rounded-xl p-3 text-center";
+                                            var unitText = isGroup ? "組" : "題";
+                                            <div class="@cardClass">
                                                 <div class="text-xs text-gray-500 mb-1">@t.DisplayLabel</div>
-                                                <div class="text-lg font-black text-slate-main">@t.TargetCount</div>
-                                                <div class="text-xs text-gray-400">題</div>
+                                                <div class="text-lg font-black @(isGroup ? "text-morandi" : "text-slate-main")">@t.TargetCount</div>
+                                                <div class="text-xs text-gray-400">@unitText</div>
                                             </div>
                                         }
                                     </div>
@@ -606,9 +612,8 @@
                 <div class="@(IsCompositionPhaseEnded ? "bg-gray-100 p-3 rounded border border-gray-300 cursor-not-allowed" : "bg-white p-3 rounded border border-morandi/30")"
                      title="@(IsCompositionPhaseEnded ? "命題階段已結束，題數需求不可再修改" : null)">
                     <label class="block text-sm font-bold text-gray-700 mb-2">專案需求題數 / 組數</label>
-                    @* 依 ProjectType 動態切換欄數：CWT 6 欄（一般/閱讀母/閱讀子/長文/短文母/短文子）、LCT 5 欄（難度一~五）。
-                       兩個候選 class 字面值都寫在這裡，Tailwind v4 scanner 才能 generate。 *@
-                    <div class="grid grid-cols-2 sm:grid-cols-4 @(formModel.ProjectType == ProjectType.Lct ? "lg:grid-cols-5" : "lg:grid-cols-6") gap-2 text-sm">
+                    @* CWT / LCT 皆 6 欄：CWT（一般/閱讀母/閱讀子/長文/短文母/短文子）、LCT（難度一~五 + 聽力題組）。 *@
+                    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 text-sm">
                         @foreach (var qt in questionTypes)
                         {
                             <div>
@@ -793,7 +798,7 @@
                                     <div class="w-8 h-8 rounded-full bg-morandi text-white flex items-center justify-center font-bold text-xs">@(idx + 1)</div>
                                     <div class="font-bold text-sm text-slate-main truncate">@teacher.Name</div>
                                 </div>
-                                <div class="flex-grow grid grid-cols-4 @(formModel.ProjectType == ProjectType.Lct ? "sm:grid-cols-5" : "sm:grid-cols-6") gap-2 w-full">
+                                <div class="flex-grow grid grid-cols-4 sm:grid-cols-6 gap-2 w-full">
                                     @for (int j = 0; j < questionTypes.Count; j++)
                                     {
                                         var qIdx = j;
@@ -820,7 +825,7 @@
                         <span>分配狀態檢核：(已分配 / 需分配)</span>
                         <span>@GetValidationMessage()</span>
                     </div>
-                    <div class="grid grid-cols-4 @(formModel.ProjectType == ProjectType.Lct ? "sm:grid-cols-5" : "sm:grid-cols-6") gap-1">
+                    <div class="grid grid-cols-4 sm:grid-cols-6 gap-1">
                         @for (int i = 0; i < questionTypes.Count; i++)
                         {
                             var qt = questionTypes[i];
@@ -962,14 +967,19 @@
         new() { Key = "shortGroupSub",  Label = "短文題組子題", QuestionTypeId = 5, Granularity = 1 },
     ];
 
-    /// <summary>LCT 模式：5 欄位（難度一~五），QuestionTypeId=6，Granularity=0，Level=1~5。</summary>
+    /// <summary>
+    /// LCT 模式：6 欄位 — 聽力題目（QuestionTypeId=6）依難度一~五各自獨立，
+    /// 加上聽力題組（QuestionTypeId=7）整體一個欄位以「組」計（不分難度）。
+    /// 聽力題組 Level 為 null，與 DB MT_ProjectTargets.Level (nullable) 對應。
+    /// </summary>
     private static List<QuestionTypeTarget> BuildLctQuestionTypes() =>
     [
-        new() { Key = "lct1", Label = "難度一", QuestionTypeId = 6, Granularity = 0, Level = 1 },
-        new() { Key = "lct2", Label = "難度二", QuestionTypeId = 6, Granularity = 0, Level = 2 },
-        new() { Key = "lct3", Label = "難度三", QuestionTypeId = 6, Granularity = 0, Level = 3 },
-        new() { Key = "lct4", Label = "難度四", QuestionTypeId = 6, Granularity = 0, Level = 4 },
-        new() { Key = "lct5", Label = "難度五", QuestionTypeId = 6, Granularity = 0, Level = 5 },
+        new() { Key = "lct1",     Label = "難度一",   QuestionTypeId = 6, Granularity = 0, Level = 1 },
+        new() { Key = "lct2",     Label = "難度二",   QuestionTypeId = 6, Granularity = 0, Level = 2 },
+        new() { Key = "lct3",     Label = "難度三",   QuestionTypeId = 6, Granularity = 0, Level = 3 },
+        new() { Key = "lct4",     Label = "難度四",   QuestionTypeId = 6, Granularity = 0, Level = 4 },
+        new() { Key = "lct5",     Label = "難度五",   QuestionTypeId = 6, Granularity = 0, Level = 5 },
+        new() { Key = "lctGroup", Label = "聽力題組", QuestionTypeId = 7, Granularity = 0, Level = null },
     ];
 
     // --- 可選身份 ---
