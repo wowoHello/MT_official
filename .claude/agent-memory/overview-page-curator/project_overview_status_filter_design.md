@@ -22,6 +22,6 @@ Overview 頁面的「狀態篩選」下拉選單**不能直接拿 `QuestionStatu
 - `MatchAwaitingReview` / `MatchReviewed` 函式以 `(i.Id, i.SubQuestionId)` lookup 做 unified 過濾
 - razor 端 foreach 在進入 stepper / Badge 之前先算 `var allResponded = result.AllReviewersResponded.GetValueOrDefault((item.Id, item.SubQuestionId));`，避免重複查 dict
 
-**動態下拉**：下拉只渲染梯次內實際存在的 key，由 `OverviewListResult.StatusKeyCounts` 提供（忽略所有 filter，以梯次全題為基底）。razor `ResolveDisplayStatus` 各條件已抽成 `OverviewService.Match*` 靜態函式，razor + `TranslateStatusKey.postFilter` + `BuildStatusKeyCountsAsync` 三方共用。`Overview.razor::LoadAsync` 結尾有守門：當前 `queryStatus` 不在 `StatusKeyCounts` 時自動清空為「所有狀態」並重載。
+**動態下拉**：下拉只渲染梯次內實際存在的 key，由 `OverviewListResult.StatusKeyCounts` 提供（忽略所有 filter，以梯次全題為基底）。razor `ResolveDisplayStatus` 各條件已抽成 `OverviewService.Match*` 靜態函式，razor + `TranslateStatusKey.postFilter` + `BuildOverviewCountsAsync` 三方共用（2026-05-22：方法名已從 `BuildStatusKeyCountsAsync` 改為 `BuildOverviewCountsAsync`，且合併 StatusRowCounts + StatusKeyCounts + TypeIdCounts 三種 dict）。`Overview.razor::LoadAsync` 結尾有守門：當前 `queryStatus` 不在 `StatusKeyCounts` 時自動清空為「所有狀態」並重載。
 
 **StatusCounts 不受影響**：底下 4 張統計卡（總題數/命題進行中/已採用/待修編）由 `IQuestionService.GetStatusCountsAsync` 算原始 byte 統計，篩選只影響列表本身。

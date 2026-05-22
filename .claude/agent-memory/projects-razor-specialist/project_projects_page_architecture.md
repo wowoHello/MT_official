@@ -9,7 +9,7 @@ type: project
 | 資料表 | 新欄位 | 型別 | 預設值 | 部署狀態 | Migration 檔案 |
 |--------|--------|------|--------|----------|----------------|
 | MT_Projects | `ProjectType` | TINYINT NOT NULL | DEFAULT 0 | ✅ 已執行 | migrate_project_type_and_granularity.sql |
-| MT_Projects | `ExamLevel` | TINYINT NULL | — | ⏳ 待執行 | migrate_project_exam_level.sql |
+| MT_Projects | `ExamLevel` | TINYINT NULL | — | ✅ 已執行 | migrate_project_exam_level.sql |
 | MT_ProjectTargets | `Granularity` | TINYINT NOT NULL | DEFAULT 0 | ✅ 已執行 | migrate_project_type_and_granularity.sql |
 | MT_MemberQuotas | `Granularity` | TINYINT NOT NULL | DEFAULT 0 | ✅ 已執行 | migrate_memberquotas_granularity.sql（補刀） |
 
@@ -18,16 +18,15 @@ type: project
 - `ExamLevel`（CWT 專用）：0=初等、1=中等、2=中高等、3=高等、4=優等；LCT 模式一律 NULL
 - `Granularity`（CWT 閱讀/短文題組）：0=母題或單題、1=子題；LCT 一律 0
 
-**注意**：`migrate_project_exam_level.sql` 標記「部署狀態：待執行」，`MT_Projects.ExamLevel` 欄位尚未在 DB 中建立。
-`ProjectService.cs` 的 SQL 已帶入 `p.ExamLevel`，一旦部署此 migration 即可正常運作。
+**注意**：所有 4 個 CWT/LCT 欄位均已部署（Phase 0 健檢 2026-05-21 通過，0 列異常）。`ProjectService.cs` 所有 SQL 完整帶入 `p.ExamLevel`，可正常運作。
 
-## 三檔規模（2026-05-21 更新）
+## 三檔規模（2026-05-22 更新）
 
 | 檔案 | 行數 | 主要職責 |
 |------|------|---------|
-| Components/Pages/Projects.razor | 1834 行 | UI 標記、表單狀態、配額引擎 |
-| Services/ProjectService.cs | 1182 行 | 全部 DB 操作與 SignalR 廣播 |
-| Models/ProjectModels.cs | 258 行 | DTO / Enum / Helper |
+| Components/Pages/Projects.razor | 1968 行 | UI 標記、表單狀態、配額引擎 |
+| Services/ProjectService.cs | 1248 行 | 全部 DB 操作與 SignalR 廣播 |
+| Models/ProjectModels.cs | 273 行 | DTO / Enum / Helper |
 
 ## CWT / LCT 雙模式實作（2026-05-21 確認完成）
 
@@ -95,8 +94,19 @@ IAppointmentService _appointmentSvc        // 聘書同步（新增/編輯後呼
 Why: 邏輯太特殊（需要四種來源取聯集），不適合 IMembershipService 的「角色集合」模型。
 How to apply: 第三波改造時若要優化此查詢，需另建 SQL View 而非套用 IMembershipService。
 
-### 聘書功能（新增，2026-05-17 確認）
+### 聘書功能（新增，2026-05-22 更新）
 `MemberDetailDto.HasDownloadableCerts` 欄位：批次查 `_appointmentSvc.GetDownloadableUserIdsInProjectAsync` 後填入，供 UI 顯示下載聘書按鈕。
+
+IAppointmentService 完整方法（2026-05-22 確認）：
+- `SyncCertificatesAsync` — 新增/編輯後同步聘書 metadata
+- `SaveDrawnFileAsync` — 儲存 JS Canvas 繪製結果
+- `GetPendingDraftsForUserAsync` / `GetPendingDraftsByProjectAsync` — 取未完成草稿
+- `ListByUserAsync` — 列出可下載聘書
+- `BuildDownloadForUserProjectAsync` — 組合下載檔案
+- `GetDownloadableProjectIdsForUserAsync` / `GetDownloadableUserIdsInProjectAsync` — 批次查詢可下載狀態
+- `HasDownloadableCertsAsync` — 單筆查詢
+- `GetCertEditPanelAsync` — 聘書自訂起迄日面板資料（新，Projects.razor 的 EditAppointmentPeriodModal 使用）
+- `UpdateCustomPeriodsAsync` — 更新自訂聘書起迄日（新，儲存後觸發 DrawPendingAppointmentsAsync 重繪）
 
 ### EditAppointmentPeriodModal（2026-05-20 補充）
 Projects.razor 內嵌聘書起迄日編輯 Modal 的狀態變數：

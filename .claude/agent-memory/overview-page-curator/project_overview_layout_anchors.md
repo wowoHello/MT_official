@@ -41,6 +41,6 @@ var allResponded = result.AllReviewersResponded.GetValueOrDefault((item.Id, item
 // stepper 與 ResolveDisplayStatus 共用，避免重複查 dict
 ```
 
-**PhaseTransitionCoordinator 串接**：`OnParametersSetAsync` 與 `OverviewService.LoadAsync` 都呼叫 `IPhaseTransitionCoordinator.EnsureAsync(projectId)` —— 否則使用者只進 Overview 不進 CwtList/Reviews 時，題目會卡在 FinalReviewing(7) 不會轉 Adopted/FinalEditing。
+**PhaseTransitionCoordinator 串接**：僅由 `OverviewService.LoadAsync` 開頭呼叫一次 `IPhaseTransitionCoordinator.EnsureAsync(projectId)`（razor 端原本的呼叫已於「修補 B」刪除，避免雙呼叫贅餘 round-trip；Coordinator 自身有 60 秒去重保護），確保使用者只進 Overview 不進 CwtList/Reviews 時題目仍能從 FinalReviewing(7) 推進。
 
 **Dashboard 教師跳轉**：路由帶 query `?creatorId=X`，Overview 透過 `[SupplyParameterFromQuery] CreatorId` 接收，`OnParametersSetAsync` 比對 `creatorOptions` 後自動套 `filter.CreatorId` 與 `queryCreatorId`。

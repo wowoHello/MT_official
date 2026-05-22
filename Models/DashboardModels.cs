@@ -288,6 +288,11 @@ public class DashboardUrgentItem
 public class UrgentTeacherDetail
 {
     public int QuestionTypeId { get; set; }
+    /// <summary>母/子題粒度（0=母題或單題，1=子題）。CWT 閱讀/短文題組才會出現 1；其餘固定 0。</summary>
+    public byte Granularity { get; set; }
+    /// <summary>難度等級（LCT 聽力測驗 1~5；其他題型固定 null）。</summary>
+    public byte? Level { get; set; }
+    /// <summary>UI 顯示標籤（CWT 帶（母題）/（子題）後綴；LCT 顯示「難度X」或「聽力題組」）。</summary>
     public string TypeName { get; set; } = "";
     public int Assigned { get; set; }
     public int Produced { get; set; }
@@ -317,6 +322,12 @@ public class DashboardTargetBreakdown
     /// Razor 端請使用此欄位取代 TypeName。
     /// </summary>
     public string DisplayLabel { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 已產出數（Status NOT IN (0, 10, 11)，不含草稿/不採用）。
+    /// 管理員視角：比 CwtList 配額卡（Status &gt;= 1）更保守，排除最終不採用的題目。
+    /// </summary>
+    public int Produced { get; set; }
 }
 
 /// <summary>

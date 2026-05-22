@@ -31,7 +31,7 @@ string Id
 int UserId
 string Name
 string Identifier
-int[] Quotas        // 長度 = questionTypes.Count（7 種題型），index 對應 questionTypes 順序
+int[] Quotas        // 長度 = questionTypes.Count（CWT=6 欄、LCT=6 欄），index 對應 questionTypes 順序
 ```
 
 **RebuildAllocationTeachers()**: 每次配額區塊渲染前重建，篩選出 IsSelected=true 且有「命題教師」RoleId 的人員；保留既有 AllocationItem 的配額數值（換人名單時不清空）。
@@ -78,11 +78,16 @@ allocationTeachers[t].Quotas[q] = baseQuota + (t < remainder ? 1 : 0);
 
 GetProjectDetailAsync 取完成員清單後，批次呼叫 `_appointmentSvc.GetDownloadableUserIdsInProjectAsync(projectId)`，填入每位成員的聘書可下載標記，供右側詳情區的「下載聘書」按鈕條件渲染。
 
-## DB Level 欄位（2026-05-20 補充）
+## DB Level 欄位（2026-05-22 更新：LCT 已完整支援）
 
-`MT_ProjectTargets.Level TINYINT NULL` 與 `MT_MemberQuotas.Level TINYINT NULL` 兩個欄位在 db.md schema 中存在，但目前 UI 送出時一律傳 NULL，Service 端 INSERT 也不帶此欄位（DB 預設 NULL）。設計意圖是未來支援「按等級分設題目配額」，目前尚未啟用。
+`MT_ProjectTargets.Level TINYINT NULL` 與 `MT_MemberQuotas.Level TINYINT NULL` 已在 CWT/LCT 雙模式中完整使用：
+- `ProjectTargetDto.Level (byte?)` 與 `ProjectMemberQuotaDto.Level (byte?)` 均已有此欄位
+- LCT 模式下 `BuildLctQuestionTypes()` 產生 5 個 QuestionTypeTarget，各帶 Level=1~5
+- `ReplaceProjectChildRecordsAsync` INSERT SQL 已帶入 `Level` 欄位
+- CWT 模式 Level 一律為 null（不按等級細分）
+- `ApplyProjectEditData` 以 `(QuestionTypeId, Granularity, Level)` 三元組比對回填配額
 
-**How to apply**: 若未來要開啟按等級配額，需同時修改 `ProjectMemberQuotaDto`（加 Level 屬性）、AllocationItem Quotas 結構（2D 矩陣而非 1D 陣列）與 ReplaceProjectChildRecordsAsync 的 INSERT SQL。
+**How to apply**: Level 欄位已為生產功能（LCT），非未來功能。若 CWT 未來要按等級細分配額，需新增額外欄位，避免與現有 LCT Level 語意衝突。
 
 ## IAppointmentService 業務鍵設計（2026-05-20 補充）
 

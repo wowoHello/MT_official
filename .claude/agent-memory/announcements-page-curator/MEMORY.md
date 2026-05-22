@@ -1,2 +1,2 @@
-- [Announcements 頁面當前完整狀態](project_announcements_page_current_state.md) — 2026-05-21：新增 CWT/LCT 雙模式對公告頁影響評估（ProjectDropdown 未分組，待確認需求）
+- [Announcements 頁面當前完整狀態](project_announcements_page_current_state.md) — 2026-05-22 讀碼精確確認：行數、interface 簽章、Models 清單、AutoUnpinExpiredAsync SQL JSON 拼接技術債
 - [Announcements 頁面參考素材位置](reference_announcements_prototype.md) — 原型已整合至 D:\MTrefer\pageFinal_doc\Announcements.md，舊 HTML/JS 棄用

@@ -1,10 +1,10 @@
 - [CwtList 整合規格文件路徑](reference_cwtlist_spec_doc.md) — 權威文件位於 D:\MTrefer\pageFinal_doc\CwtList.md，舊原型 html/js 已棄用
-- [CwtList 實作現況概覽](project_implementation_state.md) — 正式實作；Plan_008-014 歷程；輔助 Service 例外；圖片獨立表上線
-- [14 種狀態碼與三 Tab 範圍](project_status_codes.md) — Status 0-12（11=ClosedNotAdopted、12=Archived；舊 SentBack 廢用；db.md/規格書註解仍是舊版）
-- [三 Tab 佈局與統計卡片組成](project_three_tabs_layout.md) — revision tab 已升 4 卡（含「已修題」），列表分流 Modal vs SlideOver
+- [CwtList 實作現況概覽](project_implementation_state.md) — 1575/3122/756 行；Plan_008-014 + Stage B-4-2；PhaseCoordinator 改背景跑；vw_QuestionRoundStartedAt 全梯次整合
+- [14 種狀態碼與三 Tab 範圍](project_status_codes.md) — Status 0-12（11=ClosedNotAdopted、12=Archived；舊 SentBack 廢用）
+- [三 Tab 佈局與統計卡片組成](project_three_tabs_layout.md) — revision 4 卡用 RevisionStatCard 雙值（母 X / 子 Y）、子題列 ↳ 視覺、ListAsync 拆 N+1
 - [七種題型表單實作位置與差異點](project_question_types.md) — 7 個 QuestionForm 元件、子題增刪規則、屬性側欄差異
-- [審修作業區修題工作區（RevisionSlideOver）](project_revision_slideover.md) — FullScreen 三欄結構、本輪 reply 隔離、PhaseCode 對齊
-- [配額進度卡片與命題階段鎖死（Plan_008）](project_quota_and_phase_lock.md) — Completed 計入 Status≥1、階段結束全頁多重鎖死
-- [CWT/LCT 雙模式與 Granularity（2026-05-21 新加）](project_cwt_lct_dual_mode.md) — DB 已加 ProjectType/ExamLevel/Granularity；題型過濾與 Level 鎖定已完成；配額卡片拆母/子尚未實作
+- [審修作業區修題工作區（RevisionSlideOver）](project_revision_slideover.md) — Stage B-4-2 子題單元、SubQuestionId 串接四處、修題追加非 UPSERT
+- [配額進度卡片與命題階段鎖死（Plan_008 + 雙模式）](project_quota_and_phase_lock.md) — 三段 QueryMultiple、Compute 4 case、雙段卡 QuotaCardWithSub、PhaseCoordinator 背景跑
+- [CWT/LCT 雙模式與 Granularity（2026-05-22 配額系統已完成）](project_cwt_lct_dual_mode.md) — DB/題型過濾/Level 鎖定/配額母+子拆分皆已完成；QuotaProgressItem 已加 Level+Granularity
 - [DB schema 演化重點（Stage A 子題提升）](project_db_schema_evolution.md) — MT_QuestionImages、子題 Status 三欄、Review/Revision 三表加 SubQuestionId
 - [CwtList 與其他頁面的關聯點](project_page_relations.md) — 與 Projects/Reviews/Overview/Dashboard/Teachers 的視角差異與共用 Service

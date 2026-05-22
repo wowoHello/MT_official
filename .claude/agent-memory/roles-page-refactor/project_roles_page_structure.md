@@ -1,14 +1,14 @@
 ---
-name: Roles 頁面當前真實結構（2026-05-20 更新）
+name: Roles 頁面當前真實結構（2026-05-22 更新）
 description: Roles.razor / RoleService.cs / RoleModels.cs 的實際結構摘要，含三個 Modal、SignalR 廣播、歷史優化紀錄、關鍵設計決策
 type: project
 ---
 
 ## 檔案清單（三檔規則合規狀況）
 
-1. `Components/Pages/Roles.razor` — UI + @code（**1311 行**，2026-05-20 驗證）
-2. `Services/RoleService.cs` — 商業邏輯 + Dapper 查詢（**1098 行**，2026-05-20 驗證）
-3. `Models/RoleModels.cs` — 主要 ViewModel/DTO（**222 行**，2026-05-20 驗證）
+1. `Components/Pages/Roles.razor` — UI + @code（**1316 行**，2026-05-22 驗證）
+2. `Services/RoleService.cs` — 商業邏輯 + Dapper 查詢（**1141 行**，2026-05-22 驗證）
+3. `Models/RoleModels.cs` — 主要 ViewModel/DTO（**224 行**，2026-05-22 驗證）
 4. `Models/ModulePermission.cs` — 獨立小檔（13 行）；**注意**：此檔被 AuthService / AnnouncementService / MembershipService / AppointmentCertEndpoints 等多個 Service 引用，**並非僅服務 Roles 頁面**，不適合強行合併入 RoleModels.cs
 5. `Models/RoleTag.cs` — 獨立 record（8 行），`record RoleTag(string Name, int Category)`；被 RoleService / ProjectService / TeacherService 引用，同樣跨頁面共用
 

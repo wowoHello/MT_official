@@ -105,7 +105,7 @@ public static class QuestionConstants
         [QuestionTypeCodes.Select]      = [0, 1, 2],
         [QuestionTypeCodes.LongText]    = [0, 1, 2, 4],
         [QuestionTypeCodes.ReadGroup]   = [0, 1, 2, 3, 4],
-        [QuestionTypeCodes.ShortGroup]  = [0, 1, 2, 3, 4],  // 現況以網站為主
+        [QuestionTypeCodes.ShortGroup]  = [3, 4],           // 短文題組僅高等、優等
         [QuestionTypeCodes.Listen]      = [1, 2, 3, 4, 5],
         [QuestionTypeCodes.ListenGroup] = []                // 母題無等級
     };

@@ -1,2 +1,2 @@
-- [Teachers.razor 完成度狀態](project_teachers_status.md) — 2026-05-21 補充 CWT/LCT 評估：ProjectType 欄位未在 TeacherProjectItem 露出（TM-12）；歷程列表同問題（TM-13）；無迫切 bug
+- [Teachers.razor 完成度狀態](project_teachers_status.md) — 2026-05-22 死代碼清除：TeacherService.cs 從 2,422 降至 2,116 行（TM-14 已解）
 - [教師管理頁參考文件路徑](reference_teachers_doc.md) — 主文件改為 D:\MTrefer\pageFinal_doc\Teachers.md，舊原型 html/js 路徑已棄用

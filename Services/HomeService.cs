@@ -30,12 +30,14 @@ public class HomeService : IHomeService
 
     private readonly IDatabaseService _db;
     private readonly IAnnouncementService _announcementService;
+    private readonly IQuestionService _questionService;
     private readonly ILogger<HomeService> _logger;
 
-    public HomeService(IDatabaseService db, IAnnouncementService announcementService, ILogger<HomeService> logger)
+    public HomeService(IDatabaseService db, IAnnouncementService announcementService, IQuestionService questionService, ILogger<HomeService> logger)
     {
         _db = db;
         _announcementService = announcementService;
+        _questionService = questionService;
         _logger = logger;
     }
 
@@ -134,11 +136,48 @@ public class HomeService : IHomeService
                 INNER JOIN dbo.MT_Roles r ON r.Id = u.RoleId
                 WHERE u.Id = @UserId;
 
-                -- 7) 全梯次配額缺口（命題階段倒數時用）
+                -- 7) 全梯次配額缺口（命題階段倒數時用） — 以 MT_ProjectTargets 為主表，
+                --    每列 target 直接算 Produced，最後 clamp 在 Target 上限再加總。
+                --
+                --    設計重點：
+                --    A. CWT 配額不分等級 → Target.Level = NULL，但 Questions.Level 是命題者填的「初/中/高」標籤
+                --       → JOIN 用 NULL = NULL 永遠失敗、Produced 漏算。改為「Target.Level IS NULL 就吃所有 Level、
+                --         非 NULL 才依 Level 過濾」(LCT 模式聽力測驗 Level 1~5 才有意義)
+                --    B. 母題 / 子題分 Granularity 計：
+                --       - Granularity=0：MT_Questions（依 t.QuestionTypeId、可選 Level 過濾）
+                --       - Granularity=1：MT_SubQuestions JOIN MT_Questions（依 t.QuestionTypeId）
+                --    C. clamp（CASE WHEN Produced > Target）避免單一桶超量灌水 ProducedTotal
                 SELECT
-                    ISNULL((SELECT SUM(TargetCount) FROM dbo.MT_ProjectTargets WHERE ProjectId = @ProjectId), 0) AS TargetTotal,
-                    ISNULL((SELECT COUNT(*) FROM dbo.MT_Questions
-                            WHERE ProjectId = @ProjectId AND IsDeleted = 0 AND Status >= 1), 0) AS ProducedTotal;
+                    ISNULL(SUM(t.TargetCount), 0) AS TargetTotal,
+                    ISNULL(SUM(
+                        CASE WHEN x.Produced > t.TargetCount
+                             THEN t.TargetCount
+                             ELSE x.Produced END
+                    ), 0) AS ProducedTotal
+                FROM dbo.MT_ProjectTargets t
+                CROSS APPLY (
+                    SELECT CASE WHEN t.Granularity = 0 THEN
+                        -- 母題層：依 QuestionTypeId 計，若 Target.Level 非 NULL（LCT 聽力測驗 1~5）再加 Level 過濾
+                        ISNULL((SELECT COUNT(*)
+                                FROM dbo.MT_Questions q
+                                WHERE q.ProjectId      = @ProjectId
+                                  AND q.IsDeleted      = 0
+                                  AND q.Status        >= 1
+                                  AND q.QuestionTypeId = t.QuestionTypeId
+                                  AND (t.[Level] IS NULL OR q.[Level] = t.[Level])), 0)
+                    ELSE
+                        -- 子題層：CWT 閱讀題組(3)/短文題組(5) 才有子題目標
+                        ISNULL((SELECT COUNT(*)
+                                FROM dbo.MT_SubQuestions sq
+                                JOIN dbo.MT_Questions  qq ON qq.Id = sq.ParentQuestionId
+                                WHERE qq.ProjectId      = @ProjectId
+                                  AND qq.IsDeleted      = 0
+                                  AND sq.IsDeleted      = 0
+                                  AND sq.Status        >= 1
+                                  AND qq.QuestionTypeId = t.QuestionTypeId), 0)
+                    END AS Produced
+                ) x
+                WHERE t.ProjectId = @ProjectId;
 
                 -- 8) 逾期階段（最新一個 EndDate < 今日 且下一階段尚未開始）
                 SELECT TOP 1 p.PhaseCode, p.PhaseName,
@@ -223,11 +262,16 @@ public class HomeService : IHomeService
                 });
             }
 
+            // 個人配額缺口：複用 GetMyQuotaProgressAsync 的 per-row 計算
+            // （quotaRow 的 SUM(QuotaCount) - COUNT(MT_Questions) 算法不正確 — 沒含子題、沒 cap 到 Target）
+            var quotaProgress = await _questionService.GetMyQuotaProgressAsync(userId, projectId.Value);
+            var personalQuotaShortage = quotaProgress.Sum(q => Math.Max(0, q.Target - q.Completed));
+
             // [警示二/三] 各階段倒數（個人積壓 + 管理員彙整 + 配額缺口）
             foreach (var phase in phases)
             {
                 // 個人視角（命題教師 / 審題委員 / 總召）
-                BuildAlertForPhase(phase, roles, quotaRow, editingByStatus, reviewByStage, alerts);
+                BuildAlertForPhase(phase, roles, personalQuotaShortage, editingByStatus, reviewByStage, alerts);
 
                 // 管理員視角：各階段全梯次彙整（與個人 backlog 可並存，防重複只針對 AdminSummary 本身）
                 if (isAdmin)
@@ -354,7 +398,7 @@ public class HomeService : IHomeService
     private static void BuildAlertForPhase(
         PhaseRow phase,
         HashSet<string> roles,
-        QuotaRow quota,
+        int personalQuotaShortage,
         Dictionary<byte, int> editingByStatus,
         Dictionary<byte, int> reviewByStage,
         List<UrgentAlertItem> output)
@@ -365,7 +409,7 @@ public class HomeService : IHomeService
         {
             2 => (
                 roles.Contains(RoleProposer),
-                Math.Max(0, quota.Quota - quota.Produced),
+                personalQuotaShortage,
                 "未命題"),
             3 => (
                 roles.Contains(RoleProposer),

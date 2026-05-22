@@ -1,14 +1,14 @@
 ---
 name: Teachers.razor 完成度狀態
-description: Teachers.razor 頁面程式碼現況（2026-05-21 補充 CWT/LCT 雙模式），記錄架構、各波次改動、技術債與關鍵實作細節
+description: Teachers.razor 頁面程式碼現況（2026-05-22 複核），記錄架構、各波次改動、技術債與關鍵實作細節
 type: project
 ---
 
-## 檔案規模（2026-05-20 複核）
+## 檔案規模（2026-05-22 更新）
 
-- `Components/Pages/Teachers.razor`：**2,061 行**（UI + @code block；含批次匯入 Slide-over + 匯出名單邏輯）
-- `Services/TeacherService.cs`：**1,423 行**（含 ParseExcelAsync + ImportTeachersAsync + ExportProjectTeachersAsync + BuildExportWorkbook）
-- `Models/TeacherModels.cs`：**388 行**（含 BatchImportRow / BatchImportRowStatus / BatchImportRowResult + TeacherExportRow / TeacherExportResult）
+- `Components/Pages/Teachers.razor`：**2,143 行**（UI + @code block；含批次匯入 Slide-over + 匯出名單 + 聘書相關 UI 邏輯）
+- `Services/TeacherService.cs`：**2,116 行**（2026-05-22 刪除死代碼 306 行，原 2,422 行）
+- `Models/TeacherModels.cs`：**403 行**（含 BatchImportRow / BatchImportRowStatus / BatchImportRowResult + TeacherExportRow / TeacherExportResult）
 
 三檔案規則完全符合。TeacherService 注入 5 個依賴：`IDatabaseService`、`ILogger`、`IHttpContextAccessor`、`IQuestionTypeCatalog`、`IAppointmentService`。
 
@@ -59,10 +59,11 @@ type: project
 - 右上角「加入梯次」按鈕（`OpenAssignModal`）
 - 每張專案卡片：狀態標籤（準備中/進行中/已結案）、ProjectCode、ProjectYear + ProjectName、角色 Badge 列、命題數 + 採用數 + 採用率
 - 僅非結案梯次顯示「移除」按鈕（`HandleRemoveFromProject`）
-- **下載聘書功能（新，2026-05-15 之後）**：若 `project.HasDownloadableCerts == true`，顯示：
-  - 「編輯聘期」按鈕（`OpenEditPeriodModal(userId, projectId)`）
+- **下載聘書功能**：若 `project.HasDownloadableCerts == true`，顯示：
+  - 「編輯聘期」按鈕（`OpenEditPeriodModal(userId, projectId)`）→ 開 `<EditAppointmentPeriodModal>` 元件
   - 「下載聘書」連結（`api/appointment-cert/download/{projectId}/user/{userId}`，target=_blank）
   - 此功能依賴 `IAppointmentService`，TeacherService 注入後批次查 `GetDownloadableProjectIdsForUserAsync`
+- **DrawPendingAppointmentsAsync**：加入梯次或編輯聘期儲存後，呼叫 `JS.InvokeVoidAsync("AppointmentCert.drawAndUpload", ...)` 即時繪製並上傳未完成聘書；無 pending 時靜默略過
 
 **SlideOver（CustomModal, ModalType.SlideOver, max-w-2xl）**：
 - 頂部提醒 Banner：教師姓名、任教學校、職稱用於產聘書，請正確填寫
@@ -70,6 +71,8 @@ type: project
   1. 基本資料（姓名必填、性別、信箱-新增必填-編輯 disabled、電話、身分證）
   2. 任教背景（學校必填、系所、職稱下拉-固定選項、專長、年資 InputNumber、學歷下拉）
   3. 帳號設定（帳號狀態原生 `input type="radio"`、備註 InputTextArea、預設密碼說明）
+
+**EditAppointmentPeriodModal 元件**：`@bind-IsVisible="showEditPeriodModal"`，傳入 `UserId` + `ProjectId`，儲存後觸發 `HandleEditPeriodSaved()`。
 
 **加入梯次 Modal（CustomModal, ModalType.Center）**：
 - 梯次下拉（`GetAvailableProjectsAsync`，排除已加入 + 已結案）
@@ -161,16 +164,20 @@ UI 狀態：`composePage`、`reviewPage`（int）、`isLoadingCompose`、`isLoad
 - Models 新增 `BatchImportRow` / `BatchImportRowStatus` / `BatchImportRowResult` 三個類別
 - 公版範本放置於 `wwwroot/temp/教師資料匯入_公版.xlsx`（需手動複製）
 
-## 匯出名單功能（2026-05-20 複核確認已落地）
+## 匯出名單功能（2026-05-22 複核確認已落地，含 CWT/LCT 雙模式）
 
 - Teachers.razor 右上角「匯出名單」按鈕 → `HandleExport()`
 - 需先選擇梯次（CascadingParameter `CurrentProject`），否則提示警告
-- `ExportProjectTeachersAsync(projectId, projectName)`：3 條 SQL 查命題身分 / 審題身分 / 角色，組裝 `TeacherExportResult`
-- `BuildExportWorkbook(result)`（Teachers.razor 私有方法）：NPOI 建立 .xlsx，含梯次名稱列、欄位標題列、資料列（命題/審題 × 教師 × 題型計數）
+- `ExportProjectTeachersAsync(projectId, projectName)`：
+  - 先查 `ProjectType + ExamLevel`，依此分流 CWT/LCT 計算邏輯
+  - CWT（ProjectType=0）：命題側用 `LoadCwtComposeCellsAsync` / 審題側用 `LoadCwtReviewCellsAsync`
+  - LCT（ProjectType=1）：命題側用 `LoadLctComposeCellsAsync` / 審題側用 `LoadLctReviewCellsAsync`
+  - 回傳 `TeacherExportResult`（含 `CategoryHeaders[]` 6 欄標題）
+- `BuildExportWorkbook(result)`（Teachers.razor 私有 `static byte[]` 方法）：NPOI 建立 .xlsx，含梯次名稱列、欄位標題列、資料列
 - `JS.InvokeVoidAsync("downloadByteArray", base64, fileName, mimeType)` 觸發瀏覽器下載
-- 欄位順序（Type Id）：一般(1) / 閱讀題組(5) / 長文(4) / 短文題組(3) / 聽力(6) / 聽力題組(7) / 採用數 / 不採用數
-- TypeId=2（精選單選）被排除（`QuestionTypeId <> 2`）
-- Models 新增 `TeacherExportRow` / `TeacherExportResult` 兩個匯出類別
+- TypeId=2（精選單選）被排除
+- Models 含 `TeacherExportRow`（CategoryCells[6] + AdoptedCell + RejectedCell）/ `TeacherExportResult`（含 ProjectType + ExamLevelLabel + CategoryHeaders[6]）
+- TeacherService 底部有大量 private sealed class 供 Dapper 對應（`CwtBucketRow`、`CwtReviewRow`、`LctQuotaRow`、`LctSingleRow`、`LctGroupRow`、`LctReviewSingleRow`、`LctReviewGroupRow`、`ExportMemberRow`、`ExportMemberInfo`、`AdoptionRow` 等）
 
 ---
 
@@ -183,20 +190,19 @@ UI 狀態：`composePage`、`reviewPage`（int）、`isLoadingCompose`、`isLoad
 - `MT_Teachers` 本身**無** ProjectType 欄位——教師是跨類型的人才庫，同一位教師可參與 CWT 也可參與 LCT 梯次
 - `MT_ProjectTargets.Level TINYINT NULL`：LCT 難度等級 1~5；CWT 一律 null
 
-### TeacherService 現況與缺口
-- `GetTeacherProjectsAsync` SELECT 未含 `p.ProjectType` + `p.ExamLevel`，`TeacherProjectItem` 無這兩個屬性
-- `GetTeacherComposeHistoryAsync` 與 `GetTeacherReviewHistoryAsync` 的 SQL 未帶 `p.ProjectType`，`TeacherComposeItem` / `TeacherReviewItem` 無 `ProjectType` 屬性
-- **後果**：「參與專案 Tab」無法顯示每個梯次是 CWT 或 LCT 的 badge；命題/審題歷程清單無法標示題目屬於哪個類型的專案
-- **匯出名單**：`ExportProjectTeachersAsync` 目前未區分 CWT/LCT，若 LCT 梯次命題配額按難度分（`Level` 欄位），匯出的欄位設計（Type1~7 的題型計數）對 LCT 梯次可能不適用
+### TeacherService 現況（2026-05-22 複核）
+- `GetTeacherProjectsAsync` SELECT 已加 `p.ProjectType`，`TeacherProjectItem` 已有 `ProjectType byte` 屬性
+- `GetTeacherComposeHistoryAsync` / `GetTeacherReviewHistoryAsync` SQL 已加 `p.ProjectType`，`TeacherComposeItem` / `TeacherReviewItem` 已有 `ProjectType byte` 屬性
+- `LevelText`：LCT 梯次走 `QuestionConstants.ListenLevelLabels`（難度一~五），CWT 保留原本 switch（初級/中級/中高級/高級/優級）
+- **匯出名單**：`ExportProjectTeachersAsync` 已完整實作 CWT/LCT 雙模式（Phase 4 完成，已落地）
 
-### 評估結論
-- **無迫切 bug**：目前若系統內無 LCT 梯次資料，功能正常運作
-- **待改項目（建議列為 TM-12）**：`TeacherProjectItem` 加 `ProjectType` 屬性，並在「參與專案 Tab」的梯次卡片顯示 CWT/LCT badge
-- **待改項目（建議列為 TM-13）**：歷程列表（命題/審題）是否需標注 `ProjectType`，待使用者確認業務需求後再規劃計畫書
+### 評估結論（2026-05-22 更新）
+- TM-12 已解除（2026-05-21）：「參與專案 Tab」梯次卡片已顯示 CWT（莫蘭迪灰藍）/ LCT（鼠尾草綠）badge
+- TM-13 已解除（2026-05-21）：命題/審題歷程列表各題目右側已顯示 CWT/LCT badge，並依 ProjectType 切換 LevelText 邏輯
 
 ---
 
-## 已知技術債（2026-05-21 更新）
+## 已知技術債（2026-05-22 更新）
 
 - **TM-01**：EditForm 缺 DataAnnotationsValidator，驗證改用手動 SweetAlert（`HandleSaveTeacher` 開頭 3 個 if）。`TeacherFormModel` 無任何 DataAnnotation Attribute。
 - **TM-02**：`ProjectDropdownItem` 定義於 AnnouncementModels.cs（跨模型依賴）。
@@ -205,13 +211,14 @@ UI 狀態：`composePage`、`reviewPage`（int）、`isLoadingCompose`、`isLoad
 - **TM-05**：`ToggleTeacherStatusAsync` 查詢+更新未包在 Transaction（低風險競態條件）。
 - **TM-08**：帳號狀態 Radio 使用原生 `input type="radio"` 而非 Blazor `InputRadio`。
 - **TM-10**：`composeFilterProjectId` / `reviewFilterProjectId` 為 string 型別，`int.Parse()` 轉換（非數字字串仍可能例外）。
-- **TM-11（新）**：`AssignToProjectAsync` 中角色逐一 INSERT（N 次），未改成批次 INSERT（第三波 #18 類似問題已在 RoleService 修，但 TeacherService 這裡未跟進）。
-- **TM-12（2026-05-21 新）**：`TeacherProjectItem` 缺 `ProjectType` 屬性，「參與專案 Tab」梯次卡片無法顯示 CWT/LCT badge。`GetTeacherProjectsAsync` SQL 需加 `p.ProjectType`。
-- **TM-13（2026-05-21 新）**：命題/審題歷程列表（`TeacherComposeItem` / `TeacherReviewItem`）無 `ProjectType` 欄位，無法依 CWT/LCT 顯示不同標籤。需業務確認是否必要後再規劃計畫書。
+- **TM-11**：`AssignToProjectAsync` 中角色逐一 INSERT（foreach N 次），未改成批次 INSERT（第三波 #18 已在 RoleService 修，TeacherService 這裡確認仍未跟進，2026-05-22 程式碼行 581 確認）。
+- **TM-14（2026-05-22 已處理）**：刪除 6 個死代碼方法（LoadCwtComposeStatsAsync / LoadCwtReviewStatsAsync / AssembleCwtStats / LoadLctComposeStatsAsync / LoadLctReviewStatsAsync / AssembleLctStats）及 3 個廢棄 sealed class（ExportBucketRow / ExportLctGroupRow / ExportUserStats），共 306 行，TeacherService.cs 從 2,422 降至 2,116 行。
 
 **已解除技術債**：
 - TM-06（2026-05-08 修正）：預設角色查詢改為 `N'預設教師'`。
 - TM-07（2026-05-13 複核）：狀態碼不一致疑慮已確認無誤。
+- TM-12（2026-05-21 解除）：`TeacherProjectItem` + SQL 加 `ProjectType`，參與專案卡片顯示 CWT/LCT badge。
+- TM-13（2026-05-21 解除）：`TeacherComposeItem` / `TeacherReviewItem` 加 `ProjectType`，歷程列表顯示 CWT/LCT badge，LevelText 依 ProjectType 切換邏輯。
 
 **Why:** 提供完整評估記錄，追蹤技術債進度，避免未來重複評估或誤判完成度。
 **How to apply:** 若使用者提議修改 Teachers 頁面，先比對此清單；若詢問驗證問題，這是已知技術債 TM-01，可在計畫書中提出改進。

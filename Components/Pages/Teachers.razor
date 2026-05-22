@@ -342,6 +342,14 @@
                                                 <span class="text-sm font-mono text-morandi font-bold">@item.QuestionCode</span>
                                                 <span class="text-sm text-gray-700 font-bold">@item.TypeName</span>
                                                 <span class="text-xs text-gray-400">@item.LevelText</span>
+                                                @if (item.ProjectType == 1)
+                                                {
+                                                    <span class="px-1.5 py-0.5 text-xs font-bold rounded border bg-sage/10 text-sage border-sage/20">LCT</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="px-1.5 py-0.5 text-xs font-bold rounded border bg-morandi/10 text-morandi border-morandi/20">CWT</span>
+                                                }
                                             </div>
                                             <div class="flex items-center gap-3">
                                                 <span class="text-xs text-gray-500">@item.ProjectName</span>
@@ -410,6 +418,14 @@
                                                 <span class="text-sm font-mono text-morandi font-bold">@item.QuestionCode</span>
                                                 <span class="text-sm text-gray-700 font-bold">@item.TypeName</span>
                                                 <span class="text-xs text-gray-400">@item.LevelText</span>
+                                                @if (item.ProjectType == 1)
+                                                {
+                                                    <span class="px-1.5 py-0.5 text-xs font-bold rounded border bg-sage/10 text-sage border-sage/20">LCT</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="px-1.5 py-0.5 text-xs font-bold rounded border bg-morandi/10 text-morandi border-morandi/20">CWT</span>
+                                                }
                                             </div>
                                             <div class="flex items-center gap-3">
                                                 <span class="text-xs text-gray-500">@item.ProjectName</span>
@@ -464,10 +480,18 @@
                                             _ => "準備中"
                                         };
                                         <div class="bg-white rounded-lg border border-gray-200 p-5 hover:shadow-md transition-shadow">
-                                            <!-- 頂部列：狀態標籤 + 專案編號 + 移除按鈕 -->
+                                            <!-- 頂部列：狀態標籤 + CWT/LCT badge + 專案編號 + 移除按鈕 -->
                                             <div class="flex items-center justify-between mb-2">
                                                 <div class="flex items-center gap-2">
                                                     <span class="px-2.5 py-1 text-xs font-bold rounded @statusBadgeClass">@statusLabel</span>
+                                                    @if (project.ProjectType == 1)
+                                                    {
+                                                        <span class="px-2 py-0.5 text-xs font-bold rounded border bg-sage/10 text-sage border-sage/20">LCT</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="px-2 py-0.5 text-xs font-bold rounded border bg-morandi/10 text-morandi border-morandi/20">CWT</span>
+                                                    }
                                                     <span class="text-xs text-gray-400 font-mono">@project.ProjectCode</span>
                                                 </div>
                                                 @if (project.EffectiveStatus != ProjectLifecycleStatus.Closed)
@@ -1698,7 +1722,7 @@
         titleStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Center;
         titleStyle.VerticalAlignment = NPOI.SS.UserModel.VerticalAlignment.Center;
 
-        // ── 第 1 列：梯次名稱（水平置中、高度 20pt）──
+        // ── 第 1 列：梯次名稱（B1+C1 合併、水平置中、高度 20pt）──
         var metaRow = sheet.CreateRow(0);
         metaRow.HeightInPoints = 20;
         var metaCellLabel = metaRow.CreateCell(0);
@@ -1707,10 +1731,38 @@
         var metaCellValue = metaRow.CreateCell(1);
         metaCellValue.SetCellValue(result.ProjectName);
         metaCellValue.CellStyle = titleStyle;
+        // 補空 cell 並套樣式，避免合併後的非首格沒有 border / 樣式
+        var metaCellMerged = metaRow.CreateCell(2);
+        metaCellMerged.CellStyle = titleStyle;
+        sheet.AddMergedRegion(new NPOI.SS.Util.CellRangeAddress(0, 0, 1, 2));   // B1:C1
 
-        // ── 第 2 列：欄位標題 ──
-        string[] headers = ["教師姓名", "教師身分", "一般單選題數", "閱讀題組數", "長文題數", "短文題組數", "聽力測驗題數", "聽力題組題數", "採用題數", "不採用題數"];
-        var headerRow = sheet.CreateRow(1);
+        // ── 第 2 列（僅 CWT 才有）：專案等級（B2+C2 合併）──
+        // LCT 因等級下放至每題 Level，不顯示此列
+        bool hasLevelRow = result.ProjectType == 0;
+        if (hasLevelRow)
+        {
+            var levelRow = sheet.CreateRow(1);
+            levelRow.HeightInPoints = 20;
+            var levelCellLabel = levelRow.CreateCell(0);
+            levelCellLabel.SetCellValue("專案等級");
+            levelCellLabel.CellStyle = titleStyle;
+            var levelCellValue = levelRow.CreateCell(1);
+            levelCellValue.SetCellValue(result.ExamLevelLabel);
+            levelCellValue.CellStyle = titleStyle;
+            var levelCellMerged = levelRow.CreateCell(2);
+            levelCellMerged.CellStyle = titleStyle;
+            sheet.AddMergedRegion(new NPOI.SS.Util.CellRangeAddress(1, 1, 1, 2));   // B2:C2
+        }
+
+        // ── 欄位標題列（CWT row 3 / LCT row 2）──
+        int headerRowIndex = hasLevelRow ? 2 : 1;
+        string[] headers = new string[10];
+        headers[0] = "教師姓名";
+        headers[1] = "教師身分";
+        for (int idx = 0; idx < 6; idx++) headers[idx + 2] = result.CategoryHeaders[idx];
+        headers[8] = "採用題數";
+        headers[9] = "不採用題數";
+        var headerRow = sheet.CreateRow(headerRowIndex);
         headerRow.HeightInPoints = 20;
         for (int i = 0; i < headers.Length; i++)
         {
@@ -1719,55 +1771,38 @@
             cell.CellStyle = headerStyle;
         }
 
-        // ── 第 3 列起：資料（置中樣式 + 高度 20pt）──
-        // 管理身分（HasNumericStats=false）：題數欄全部以「－」渲染
-        const string Dash = "－";
+        // ── 資料列（cell 值已由 Service 端組裝成字串，原樣寫入）──
+        int dataStartRowIndex = headerRowIndex + 1;
         for (int i = 0; i < result.Rows.Count; i++)
         {
             var r   = result.Rows[i];
-            var row = sheet.CreateRow(i + 2);
+            var row = sheet.CreateRow(i + dataStartRowIndex);
             row.HeightInPoints = 20;
 
-            void AddCell(int col, Action<NPOI.SS.UserModel.ICell> setValue)
+            void AddCell(int col, string value)
             {
                 var c = row.CreateCell(col);
-                setValue(c);
+                c.SetCellValue(value);
                 c.CellStyle = dataStyle;
             }
 
-            void AddCount(int col, int value)
-            {
-                AddCell(col, c =>
-                {
-                    if (r.HasNumericStats) c.SetCellValue(value);
-                    else                   c.SetCellValue(Dash);
-                });
-            }
-
-            AddCell (0, c => c.SetCellValue(r.DisplayName));
-            AddCell (1, c => c.SetCellValue(r.RoleLabel));
-            AddCount(2, r.Type1Count);
-            AddCount(3, r.Type5Count);
-            AddCount(4, r.Type4Count);
-            AddCount(5, r.Type3Count);
-            AddCount(6, r.Type6Count);
-            AddCount(7, r.Type7Count);
-            AddCount(8, r.AdoptedCount);
-            AddCount(9, r.RejectedCount);
+            AddCell(0, r.DisplayName);
+            AddCell(1, r.RoleLabel);
+            for (int col = 0; col < 6; col++)
+                AddCell(col + 2, r.CategoryCells[col]);
+            AddCell(8, r.AdoptedCell);
+            AddCell(9, r.RejectedCell);
         }
 
         // ── 固定欄寬（NPOI 單位：256 = 1 個 ASCII 字元寬，中文字 ≈ 512 單位）──
         // 公式：中文標題字數 × 512 + 1024 緩衝，依各欄實際標題長度微調
-        sheet.SetColumnWidth(0, 3500);   // 教師姓名（4 字）
-        sheet.SetColumnWidth(1, 20 * 256);   // 教師身分（指定 20 字元寬，容納「命題教師」「總召集人」等）
-        sheet.SetColumnWidth(2, 4000);   // 一般單選題數（6 字）
-        sheet.SetColumnWidth(3, 3500);   // 閱讀題組數（5 字）
-        sheet.SetColumnWidth(4, 3000);   // 長文題數（4 字）
-        sheet.SetColumnWidth(5, 3500);   // 短文題組數（5 字）
-        sheet.SetColumnWidth(6, 4000);   // 聽力測驗題數（6 字）
-        sheet.SetColumnWidth(7, 4000);   // 聽力題組題數（6 字）
-        sheet.SetColumnWidth(8, 3000);   // 採用題數（4 字）
-        sheet.SetColumnWidth(9, 3500);   // 不採用題數（5 字）
+        // CWT「閱讀題組母題數 / 短文題組母題數」7 字最寬 → 6 個類型欄統一 5000
+        sheet.SetColumnWidth(0, 3500);          // 教師姓名（4 字）
+        sheet.SetColumnWidth(1, 20 * 256);      // 教師身分（指定 20 字元寬）
+        for (int col = 2; col < 8; col++)
+            sheet.SetColumnWidth(col, 5000);    // 6 個類型/難度欄（標題最長 7 字）
+        sheet.SetColumnWidth(8, 3500);          // 採用題數（4 字）
+        sheet.SetColumnWidth(9, 4000);          // 不採用題數（5 字）
 
         using var ms = new System.IO.MemoryStream();
         workbook.Write(ms, leaveOpen: true);

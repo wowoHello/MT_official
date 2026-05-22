@@ -270,6 +270,7 @@ public class TeacherService : ITeacherService
                 q.Level,
                 q.ProjectId,
                 p.Name AS ProjectName,
+                p.ProjectType,
                 q.Status,
                 q.UpdatedAt
             FROM dbo.MT_Questions q
@@ -366,6 +367,7 @@ public class TeacherService : ITeacherService
                 q.Level,
                 ra.ProjectId,
                 p.Name AS ProjectName,
+                p.ProjectType,
                 ra.ReviewStage,
                 ra.Decision,
                 ra.DecidedAt,
@@ -426,7 +428,8 @@ public class TeacherService : ITeacherService
                 p.Year AS ProjectYear,
                 ISNULL(pp.StartDate, SYSDATETIME()) AS StartDate,
                 p.EndDate,
-                p.ClosedAt
+                p.ClosedAt,
+                p.ProjectType
             FROM dbo.MT_ProjectMembers pm
             INNER JOIN dbo.MT_Projects p ON p.Id = pm.ProjectId
             LEFT JOIN (
@@ -1243,16 +1246,27 @@ public class TeacherService : ITeacherService
     // ==================================================================
 
     /// <summary>
-    /// 查詢指定梯次的命題教師與審題委員，依身分各產生一列，彙整各題型計數與採用/不採用計數。
-    /// 命題身分：CreatorId 在此梯次且非草稿非軟刪除的題目集合。
-    /// 審題身分：ReviewerId 在此梯次 ReviewAssignments 對應題目的 DISTINCT 集合。
+    /// 查詢指定梯次的成員（命題教師 / 審題類 / 管理身分），依身分各產生一列。
+    /// 依 MT_Projects.ProjectType 分流 CWT (0) / LCT (1) 計數規則。
+    /// 題型欄渲染為「X / Y」（X=匯出當下命/審題數、Y=被分配任務數）；分母為 0 時顯示「－」。
+    /// 採用 / 不採用以 Status=12 / Status=11 計（結案後的最終狀態）。
     /// </summary>
     public async Task<TeacherExportResult> ExportProjectTeachersAsync(int projectId, string projectName)
     {
         using var conn = _db.CreateConnection();
+        var param = new { ProjectId = projectId };
 
-        // ── 查詢 1：成員身分（權威來源）──
-        // 此梯次每位 ProjectMember 對應的 RoleName 集合（一個 UserId 可有多筆 RoleName）
+        // ── 0. 查 Project meta（ProjectType + ExamLevel）──
+        var projectMeta = await conn.QuerySingleAsync<ExportProjectMeta>(
+            "SELECT ProjectType, ExamLevel FROM dbo.MT_Projects WHERE Id = @ProjectId;", param);
+
+        // 等級字串（CWT 用 GeneralLevelLabels；LCT 為「－」）
+        var examLevelLabel = projectMeta.ProjectType == 0 && projectMeta.ExamLevel.HasValue
+            && QuestionConstants.GeneralLevelLabels.TryGetValue(projectMeta.ExamLevel.Value, out var lv)
+            ? lv
+            : "－";
+
+        // ── 1. 撈成員身分（兩種報表共用）──
         const string memberSql = """
             SELECT
                 u.Id           AS UserId,
@@ -1264,65 +1278,35 @@ public class TeacherService : ITeacherService
             INNER JOIN dbo.MT_Roles r ON r.Id = pmr.RoleId
             WHERE pm.ProjectId = @ProjectId;
             """;
+        var memberRows = (await conn.QueryAsync<ExportMemberRow>(memberSql, param)).AsList();
 
-        // ── 查詢 2：命題活動統計（依 CreatorId × TypeId）──
-        // Status <> 0 排草稿，IsDeleted = 0 排軟刪除，不含 TypeId=2（精選單選將廢除）
-        const string composeSql = """
-            SELECT
-                q.CreatorId      AS UserId,
-                q.QuestionTypeId AS TypeId,
-                SUM(CASE WHEN q.Status IN (9, 12) THEN 1 ELSE 0 END) AS AdoptedCount,
-                SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END) AS RejectedCount,
-                COUNT(*)         AS TypeCount
-            FROM dbo.MT_Questions q
-            WHERE q.ProjectId      = @ProjectId
-              AND q.IsDeleted      = 0
-              AND q.Status         <> 0
-              AND q.QuestionTypeId <> 2
-            GROUP BY q.CreatorId, q.QuestionTypeId;
-            """;
+        // ── 2. 依 ProjectType 計算各人 cells（含 X/Y 字串與採用/不採用）──
+        Dictionary<int, ExportUserCells> composeCells;
+        Dictionary<int, ExportUserCells> reviewCells;
+        string[] categoryHeaders;
 
-        // ── 查詢 3：審題活動統計（依 ReviewerId × TypeId，DISTINCT QuestionId）──
-        // 跨三審全算（ReviewStage 不限），同題不重複計
-        const string reviewSql = """
-            SELECT
-                distinct_q.ReviewerId     AS UserId,
-                distinct_q.QuestionTypeId AS TypeId,
-                SUM(CASE WHEN distinct_q.Status IN (9, 12) THEN 1 ELSE 0 END) AS AdoptedCount,
-                SUM(CASE WHEN distinct_q.Status IN (10, 11) THEN 1 ELSE 0 END) AS RejectedCount,
-                COUNT(*) AS TypeCount
-            FROM (
-                SELECT DISTINCT ra.ReviewerId, q.QuestionTypeId, q.Id AS QuestionId, q.Status
-                FROM dbo.MT_ReviewAssignments ra
-                INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
-                WHERE q.ProjectId      = @ProjectId
-                  AND q.IsDeleted      = 0
-                  AND q.QuestionTypeId <> 2
-            ) AS distinct_q
-            GROUP BY distinct_q.ReviewerId, distinct_q.QuestionTypeId;
-            """;
+        if (projectMeta.ProjectType == 0)
+        {
+            composeCells    = await BuildCwtComposeCellsAsync(conn, projectId);
+            reviewCells     = await BuildCwtReviewCellsAsync(conn, projectId);
+            categoryHeaders = new[]
+            {
+                "一般單選題數", "閱讀題組母題數", "閱讀題組子題數",
+                "長文題目數",   "短文題組母題數", "短文題組子題數"
+            };
+        }
+        else
+        {
+            composeCells    = await BuildLctComposeCellsAsync(conn, projectId);
+            reviewCells     = await BuildLctReviewCellsAsync(conn, projectId);
+            categoryHeaders = new[]
+            {
+                "難度一題數", "難度二題數", "難度三題數",
+                "難度四題數", "難度五題數", "聽力題組題數"
+            };
+        }
 
-        var param = new { ProjectId = projectId };
-
-        // ── 撈三組資料（共用同一連線，依序執行）──
-        var memberRows  = (await conn.QueryAsync<ExportMemberRow>(memberSql,  param)).AsList();
-        var composeRows = (await conn.QueryAsync<ExportTypeRow >(composeSql, param)).AsList();
-        var reviewRows  = (await conn.QueryAsync<ExportTypeRow >(reviewSql,  param)).AsList();
-
-        // ── 統計資料以 UserId 索引（避免重名衝突）──
-        var composeByUser = composeRows
-            .GroupBy(r => r.UserId)
-            .ToDictionary(g => g.Key, g => g.ToList());
-        var reviewByUser  = reviewRows
-            .GroupBy(r => r.UserId)
-            .ToDictionary(g => g.Key, g => g.ToList());
-
-        // ── 身分歸屬（權威來源：MT_ProjectMemberRoles + MT_Roles.Name）──
-        // 命題教師：精確匹配 Role.Name = N'命題教師'
-        // 審題類（套用 review stats）：LIKE N'審題%' OR == '總召集人'
-        //   原因：總召集人在 MT_ReviewAssignments 內也是 ReviewerId（負責總審階段）
-        // 純管理身分（題數全「－」）：計畫主持人、系統管理員 等
-        // 所有 RoleLabel 直接帶 MT_Roles.Name 原值
+        // ── 3. 身分歸屬 ──
         static bool IsReviewerRole(string name) =>
             name == "總召集人" ||
             name.StartsWith("審題", StringComparison.Ordinal);
@@ -1333,52 +1317,40 @@ public class TeacherService : ITeacherService
                 g => g.Key,
                 g => new ExportMemberInfo
                 {
-                    DisplayName      = g.First().DisplayName,
-                    ProposerRoleName = g.FirstOrDefault(r => r.RoleName == "命題教師")?.RoleName,
-                    ReviewerRoleNames = g
-                        .Where(r => IsReviewerRole(r.RoleName))
-                        .Select(r => r.RoleName)
-                        .Distinct()
-                        .OrderBy(n => n, StringComparer.Ordinal)
-                        .ToList(),
-                    AdminRoles = g
-                        .Where(r => r.RoleName != "命題教師" && !IsReviewerRole(r.RoleName))
-                        .Select(r => r.RoleName)
-                        .Distinct()
-                        .OrderBy(n => n, StringComparer.Ordinal)
-                        .ToList(),
+                    DisplayName       = g.First().DisplayName,
+                    ProposerRoleName  = g.FirstOrDefault(r => r.RoleName == "命題教師")?.RoleName,
+                    ReviewerRoleNames = g.Where(r => IsReviewerRole(r.RoleName))
+                                         .Select(r => r.RoleName)
+                                         .Distinct()
+                                         .OrderBy(n => n, StringComparer.Ordinal)
+                                         .ToList(),
+                    AdminRoles        = g.Where(r => r.RoleName != "命題教師" && !IsReviewerRole(r.RoleName))
+                                         .Select(r => r.RoleName)
+                                         .Distinct()
+                                         .OrderBy(n => n, StringComparer.Ordinal)
+                                         .ToList(),
                 });
 
         var exportRows = new List<TeacherExportRow>();
 
-        // ── 命題教師列（有命題身分的成員，依 DisplayName 排序；題數 0 也照出）──
+        // ── 4. 命題教師列 ──
         foreach (var kv in memberInfo
                      .Where(kv => kv.Value.ProposerRoleName != null)
                      .OrderBy(kv => kv.Value.DisplayName, StringComparer.Ordinal))
         {
-            var stats = composeByUser.TryGetValue(kv.Key, out var rows)
-                ? rows
-                : new List<ExportTypeRow>();
-
+            var cells = composeCells.TryGetValue(kv.Key, out var c) ? c : ExportUserCells.AllDashes;
             exportRows.Add(new TeacherExportRow
             {
-                DisplayName     = kv.Value.DisplayName,
-                RoleLabel       = kv.Value.ProposerRoleName!,    // 「命題教師」(MT_Roles.Name)
-                HasNumericStats = true,
-                Type1Count      = SumByType(stats, 1),
-                Type3Count      = SumByType(stats, 3),
-                Type4Count      = SumByType(stats, 4),
-                Type5Count      = SumByType(stats, 5),
-                Type6Count      = SumByType(stats, 6),
-                Type7Count      = SumByType(stats, 7),
-                AdoptedCount    = stats.Sum(r => r.AdoptedCount),
-                RejectedCount   = stats.Sum(r => r.RejectedCount),
+                DisplayName    = kv.Value.DisplayName,
+                RoleLabel      = kv.Value.ProposerRoleName!,
+                CategoryCells  = cells.CategoryCells,
+                AdoptedCell    = cells.AdoptedCell,
+                RejectedCell   = cells.RejectedCell,
             });
         }
 
-        // ── 審題類列（審題委員 / 總召集人 等；各自列出一行，套用 review stats）──
-        // 排序：先 RoleName（審題委員 < 總召集人 by Unicode）、再 DisplayName
-        var reviewerRows = memberInfo
+        // ── 5. 審題類列（審題委員 / 總召集人）──
+        var reviewerEntries = memberInfo
             .SelectMany(kv => kv.Value.ReviewerRoleNames.Select(role => (
                 UserId: kv.Key,
                 DisplayName: kv.Value.DisplayName,
@@ -1386,62 +1358,713 @@ public class TeacherService : ITeacherService
             .OrderBy(t => t.RoleName,    StringComparer.Ordinal)
             .ThenBy (t => t.DisplayName, StringComparer.Ordinal);
 
-        foreach (var (userId, displayName, roleName) in reviewerRows)
+        foreach (var (userId, displayName, roleName) in reviewerEntries)
         {
-            var stats = reviewByUser.TryGetValue(userId, out var rows)
-                ? rows
-                : new List<ExportTypeRow>();
-
+            var cells = reviewCells.TryGetValue(userId, out var c) ? c : ExportUserCells.AllDashes;
             exportRows.Add(new TeacherExportRow
             {
-                DisplayName     = displayName,
-                RoleLabel       = roleName,    // 「審題委員」/「總召集人」(MT_Roles.Name)
-                HasNumericStats = true,
-                Type1Count      = SumByType(stats, 1),
-                Type3Count      = SumByType(stats, 3),
-                Type4Count      = SumByType(stats, 4),
-                Type5Count      = SumByType(stats, 5),
-                Type6Count      = SumByType(stats, 6),
-                Type7Count      = SumByType(stats, 7),
-                AdoptedCount    = stats.Sum(r => r.AdoptedCount),
-                RejectedCount   = stats.Sum(r => r.RejectedCount),
+                DisplayName    = displayName,
+                RoleLabel      = roleName,
+                CategoryCells  = cells.CategoryCells,
+                AdoptedCell    = cells.AdoptedCell,
+                RejectedCell   = cells.RejectedCell,
             });
         }
 
-        // ── 純管理身分列（計畫主持人 / 系統管理員 等，題數欄全部「－」）──
-        var adminRoleRows = memberInfo
+        // ── 6. 管理身分列（全欄「－」）──
+        var adminEntries = memberInfo
             .SelectMany(kv => kv.Value.AdminRoles.Select(role => (
                 DisplayName: kv.Value.DisplayName,
                 RoleName: role)))
             .OrderBy(t => t.RoleName,    StringComparer.Ordinal)
             .ThenBy (t => t.DisplayName, StringComparer.Ordinal);
 
-        foreach (var (displayName, roleName) in adminRoleRows)
+        foreach (var (displayName, roleName) in adminEntries)
         {
             exportRows.Add(new TeacherExportRow
             {
-                DisplayName     = displayName,
-                RoleLabel       = roleName,
-                HasNumericStats = false,    // 觸發 BuildExportWorkbook 渲染「－」
+                DisplayName    = displayName,
+                RoleLabel      = roleName,
+                CategoryCells  = ExportUserCells.AllDashes.CategoryCells,
+                AdoptedCell    = "－",
+                RejectedCell   = "－",
             });
         }
 
         return new TeacherExportResult
         {
-            ProjectName = projectName,
-            Rows        = exportRows,
+            ProjectName     = projectName,
+            ProjectType     = projectMeta.ProjectType,
+            ExamLevelLabel  = examLevelLabel,
+            CategoryHeaders = categoryHeaders,
+            Rows            = exportRows,
         };
     }
 
-    // ── 輔助：Dapper 對應型別（供 ExportProjectTeachersAsync 內部使用）──
-
-    private sealed class ExportTypeRow
+    // ============================================================
+    //  CWT 統計載入：命題側（X = 實際命題數、Y = MT_MemberQuotas）
+    //  6 欄：[0]一般單選 [1]閱讀母題 [2]閱讀子題 [3]長文 [4]短文母題 [5]短文子題
+    //  採用/不採用：Status=12 / Status=11（母+子加總）
+    // ============================================================
+    private static async Task<Dictionary<int, ExportUserCells>> BuildCwtComposeCellsAsync(
+        IDbConnection conn, int projectId)
     {
-        public int    UserId       { get; set; }
-        public int    TypeId       { get; set; }
-        public int    AdoptedCount { get; set; }
-        public int    RejectedCount { get; set; }
-        public int    TypeCount    { get; set; }
+        var param = new { ProjectId = projectId };
+
+        // 分母：MT_MemberQuotas，依 (UserId, TypeId, Granularity) 聚合
+        const string quotaSql = """
+            SELECT pm.UserId       AS UserId,
+                   mq.QuestionTypeId AS TypeId,
+                   mq.Granularity   AS Granularity,
+                   SUM(mq.QuotaCount) AS Quota
+            FROM dbo.MT_MemberQuotas mq
+            INNER JOIN dbo.MT_ProjectMembers pm ON pm.Id = mq.ProjectMemberId
+            WHERE pm.ProjectId = @ProjectId
+              AND mq.QuestionTypeId IN (1, 3, 4, 5)
+            GROUP BY pm.UserId, mq.QuestionTypeId, mq.Granularity;
+            """;
+
+        // 分子（母題）：MT_Questions
+        const string masterSql = """
+            SELECT q.CreatorId      AS UserId,
+                   q.QuestionTypeId AS TypeId,
+                   COUNT(*)         AS Cnt,
+                   SUM(CASE WHEN q.Status = 12 THEN 1 ELSE 0 END) AS Adopted,
+                   SUM(CASE WHEN q.Status = 11 THEN 1 ELSE 0 END) AS Rejected
+            FROM dbo.MT_Questions q
+            WHERE q.ProjectId      = @ProjectId
+              AND q.IsDeleted      = 0
+              AND q.Status         <> 0
+              AND q.QuestionTypeId IN (1, 3, 4, 5)
+            GROUP BY q.CreatorId, q.QuestionTypeId;
+            """;
+
+        // 分子（子題）：MT_SubQuestions
+        const string subSql = """
+            SELECT q.CreatorId      AS UserId,
+                   q.QuestionTypeId AS TypeId,
+                   COUNT(*)         AS Cnt,
+                   SUM(CASE WHEN sq.Status = 12 THEN 1 ELSE 0 END) AS Adopted,
+                   SUM(CASE WHEN sq.Status = 11 THEN 1 ELSE 0 END) AS Rejected
+            FROM dbo.MT_SubQuestions sq
+            INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+            WHERE q.ProjectId      = @ProjectId
+              AND q.IsDeleted      = 0
+              AND q.Status         <> 0
+              AND q.QuestionTypeId IN (3, 5)
+              AND sq.IsDeleted     = 0
+            GROUP BY q.CreatorId, q.QuestionTypeId;
+            """;
+
+        var quotas    = (await conn.QueryAsync<CwtQuotaRow >(quotaSql,  param)).AsList();
+        var masters   = (await conn.QueryAsync<CwtBucketRow>(masterSql, param)).AsList();
+        var subs      = (await conn.QueryAsync<CwtBucketRow>(subSql,    param)).AsList();
+        return AssembleCwtCells(quotas, masters, subs);
+    }
+
+    private static async Task<Dictionary<int, ExportUserCells>> BuildCwtReviewCellsAsync(
+        IDbConnection conn, int projectId)
+    {
+        var param = new { ProjectId = projectId };
+
+        // 審題：依 (UserId, TypeId, Granularity=母題/子題) 聚合
+        //   完成 = ReviewStatus=2 OR (Comment IS NOT NULL AND Comment <> '')
+        //   採用/不採用：以 master Status 為準（DISTINCT QuestionId）
+        const string reviewSql = """
+            SELECT ra.ReviewerId AS UserId,
+                   q.QuestionTypeId AS TypeId,
+                   CASE WHEN ra.SubQuestionId IS NULL THEN 0 ELSE 1 END AS Granularity,
+                   COUNT(*) AS Total,
+                   SUM(CASE
+                       WHEN ra.ReviewStatus = 2
+                            OR (ra.Comment IS NOT NULL AND LTRIM(RTRIM(ra.Comment)) <> '')
+                       THEN 1 ELSE 0
+                   END) AS Completed
+            FROM dbo.MT_ReviewAssignments ra
+            INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
+            WHERE ra.ProjectId     = @ProjectId
+              AND q.IsDeleted      = 0
+              AND q.QuestionTypeId IN (1, 3, 4, 5)
+            GROUP BY ra.ReviewerId, q.QuestionTypeId, CASE WHEN ra.SubQuestionId IS NULL THEN 0 ELSE 1 END;
+            """;
+
+        // 採用/不採用：該 user 審過的母題 + 子題，依各自 Status
+        const string masterAdoptionSql = """
+            SELECT dq.ReviewerId AS UserId,
+                   SUM(CASE WHEN q.Status = 12 THEN 1 ELSE 0 END) AS Adopted,
+                   SUM(CASE WHEN q.Status = 11 THEN 1 ELSE 0 END) AS Rejected
+            FROM (
+                SELECT DISTINCT ra.ReviewerId, q.Id AS QuestionId
+                FROM dbo.MT_ReviewAssignments ra
+                INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
+                WHERE ra.ProjectId     = @ProjectId
+                  AND q.IsDeleted      = 0
+                  AND q.QuestionTypeId IN (1, 3, 4, 5)
+                  AND ra.SubQuestionId IS NULL
+            ) AS dq
+            INNER JOIN dbo.MT_Questions q ON q.Id = dq.QuestionId
+            GROUP BY dq.ReviewerId;
+            """;
+
+        const string subAdoptionSql = """
+            SELECT dq.ReviewerId AS UserId,
+                   SUM(CASE WHEN sq.Status = 12 THEN 1 ELSE 0 END) AS Adopted,
+                   SUM(CASE WHEN sq.Status = 11 THEN 1 ELSE 0 END) AS Rejected
+            FROM (
+                SELECT DISTINCT ra.ReviewerId, ra.SubQuestionId AS SubId
+                FROM dbo.MT_ReviewAssignments ra
+                INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
+                WHERE ra.ProjectId     = @ProjectId
+                  AND q.IsDeleted      = 0
+                  AND q.QuestionTypeId IN (3, 5)
+                  AND ra.SubQuestionId IS NOT NULL
+            ) AS dq
+            INNER JOIN dbo.MT_SubQuestions sq ON sq.Id = dq.SubId
+            WHERE sq.IsDeleted = 0
+            GROUP BY dq.ReviewerId;
+            """;
+
+        var reviewRows     = (await conn.QueryAsync<CwtReviewRow   >(reviewSql,         param)).AsList();
+        var masterAdoption = (await conn.QueryAsync<AdoptionRow    >(masterAdoptionSql, param)).AsList();
+        var subAdoption    = (await conn.QueryAsync<AdoptionRow    >(subAdoptionSql,    param)).AsList();
+        return AssembleCwtReviewCells(reviewRows, masterAdoption, subAdoption);
+    }
+
+    /// <summary>把 CWT 命題側資料攤平成 6 個 X/Y cell + 採用/不採用。無分母（quota=0）→「－」。</summary>
+    private static Dictionary<int, ExportUserCells> AssembleCwtCells(
+        List<CwtQuotaRow> quotas,
+        List<CwtBucketRow> masters,
+        List<CwtBucketRow> subs)
+    {
+        // 收集所有出現過的 UserId（quota / 實際命題的 superset）
+        var allUserIds = new HashSet<int>(quotas.Select(q => q.UserId)
+            .Concat(masters.Select(m => m.UserId))
+            .Concat(subs.Select(s => s.UserId)));
+
+        var result = new Dictionary<int, ExportUserCells>();
+
+        // 6 欄對應 (TypeId, Granularity)：
+        // 0: (1, 0)、1: (5, 0)、2: (5, 1)、3: (4, 0)、4: (3, 0)、5: (3, 1)
+        var colMapMaster = new Dictionary<int, int> { { 1, 0 }, { 5, 1 }, { 4, 3 }, { 3, 4 } };
+        var colMapSub    = new Dictionary<int, int> {           { 5, 2 },           { 3, 5 } };
+
+        foreach (var uid in allUserIds)
+        {
+            var quotaPerCol = new int[6];
+            foreach (var q in quotas.Where(x => x.UserId == uid))
+            {
+                int? col = q.Granularity == 0
+                    ? (colMapMaster.TryGetValue(q.TypeId, out var c) ? c : (int?)null)
+                    : (colMapSub.TryGetValue(q.TypeId, out var c2) ? c2 : (int?)null);
+                if (col.HasValue) quotaPerCol[col.Value] += q.Quota;
+            }
+
+            var actualPerCol = new int[6];
+            int adoptedTotal = 0, rejectedTotal = 0;
+            foreach (var m in masters.Where(x => x.UserId == uid))
+            {
+                if (colMapMaster.TryGetValue(m.TypeId, out var col))
+                    actualPerCol[col] += m.Cnt;
+                adoptedTotal  += m.Adopted;
+                rejectedTotal += m.Rejected;
+            }
+            foreach (var s in subs.Where(x => x.UserId == uid))
+            {
+                if (colMapSub.TryGetValue(s.TypeId, out var col))
+                    actualPerCol[col] += s.Cnt;
+                adoptedTotal  += s.Adopted;
+                rejectedTotal += s.Rejected;
+            }
+
+            var cells = new string[6];
+            bool hasAnyQuota = false;
+            for (int i = 0; i < 6; i++)
+            {
+                if (quotaPerCol[i] > 0)
+                {
+                    cells[i] = $"{actualPerCol[i]} / {quotaPerCol[i]}";
+                    hasAnyQuota = true;
+                }
+                else
+                {
+                    cells[i] = "－";
+                }
+            }
+
+            result[uid] = new ExportUserCells
+            {
+                CategoryCells = cells,
+                AdoptedCell   = hasAnyQuota ? adoptedTotal .ToString() : "－",
+                RejectedCell  = hasAnyQuota ? rejectedTotal.ToString() : "－",
+            };
+        }
+
+        return result;
+    }
+
+    /// <summary>把 CWT 審題側資料攤平成 6 個 X/Y cell + 採用/不採用。無分配 → 整列「－」。</summary>
+    private static Dictionary<int, ExportUserCells> AssembleCwtReviewCells(
+        List<CwtReviewRow> reviewRows,
+        List<AdoptionRow>  masterAdoption,
+        List<AdoptionRow>  subAdoption)
+    {
+        var allUserIds = new HashSet<int>(reviewRows.Select(r => r.UserId)
+            .Concat(masterAdoption.Select(a => a.UserId))
+            .Concat(subAdoption   .Select(a => a.UserId)));
+
+        var colMapMaster = new Dictionary<int, int> { { 1, 0 }, { 5, 1 }, { 4, 3 }, { 3, 4 } };
+        var colMapSub    = new Dictionary<int, int> {           { 5, 2 },           { 3, 5 } };
+
+        var result = new Dictionary<int, ExportUserCells>();
+
+        foreach (var uid in allUserIds)
+        {
+            var totalPerCol     = new int[6];
+            var completedPerCol = new int[6];
+            foreach (var r in reviewRows.Where(x => x.UserId == uid))
+            {
+                int? col = r.Granularity == 0
+                    ? (colMapMaster.TryGetValue(r.TypeId, out var c) ? c : (int?)null)
+                    : (colMapSub.TryGetValue(r.TypeId, out var c2) ? c2 : (int?)null);
+                if (col.HasValue)
+                {
+                    totalPerCol[col.Value]     += r.Total;
+                    completedPerCol[col.Value] += r.Completed;
+                }
+            }
+
+            var cells = new string[6];
+            bool hasAny = false;
+            for (int i = 0; i < 6; i++)
+            {
+                if (totalPerCol[i] > 0)
+                {
+                    cells[i] = $"{completedPerCol[i]} / {totalPerCol[i]}";
+                    hasAny = true;
+                }
+                else
+                {
+                    cells[i] = "－";
+                }
+            }
+
+            int adopted  = masterAdoption.Where(a => a.UserId == uid).Sum(a => a.Adopted)
+                         + subAdoption   .Where(a => a.UserId == uid).Sum(a => a.Adopted);
+            int rejected = masterAdoption.Where(a => a.UserId == uid).Sum(a => a.Rejected)
+                         + subAdoption   .Where(a => a.UserId == uid).Sum(a => a.Rejected);
+
+            result[uid] = new ExportUserCells
+            {
+                CategoryCells = cells,
+                AdoptedCell   = hasAny ? adopted .ToString() : "－",
+                RejectedCell  = hasAny ? rejected.ToString() : "－",
+            };
+        }
+
+        return result;
+    }
+
+    // ============================================================
+    //  LCT 統計載入：命題側（X = 實際命題、Y = MT_MemberQuotas）
+    //  6 欄：[0~4]難度1~5（TypeId=6 + Level=N）[5]聽力題組（TypeId=7 + Level NULL）
+    //  採用：TypeId=6 Status=12 + TypeId=7 整組採用
+    //  不採用：TypeId=6 Status=11（聽力題組不入庫不計入）
+    // ============================================================
+    private static async Task<Dictionary<int, ExportUserCells>> BuildLctComposeCellsAsync(
+        IDbConnection conn, int projectId)
+    {
+        var param = new { ProjectId = projectId };
+
+        // 分母：MT_MemberQuotas，按 (UserId, TypeId, Level, Granularity)
+        const string quotaSql = """
+            SELECT pm.UserId         AS UserId,
+                   mq.QuestionTypeId AS TypeId,
+                   mq.[Level]        AS Lvl,
+                   SUM(mq.QuotaCount) AS Quota
+            FROM dbo.MT_MemberQuotas mq
+            INNER JOIN dbo.MT_ProjectMembers pm ON pm.Id = mq.ProjectMemberId
+            WHERE pm.ProjectId = @ProjectId
+              AND mq.QuestionTypeId IN (6, 7)
+              AND mq.Granularity = 0
+            GROUP BY pm.UserId, mq.QuestionTypeId, mq.[Level];
+            """;
+
+        // 分子（單題聽力 TypeId=6 by Level）：MT_Questions
+        const string singleSql = """
+            SELECT q.CreatorId AS UserId,
+                   q.[Level]   AS Lvl,
+                   COUNT(*)    AS Cnt,
+                   SUM(CASE WHEN q.Status = 12 THEN 1 ELSE 0 END) AS Adopted,
+                   SUM(CASE WHEN q.Status = 11 THEN 1 ELSE 0 END) AS Rejected
+            FROM dbo.MT_Questions q
+            WHERE q.ProjectId      = @ProjectId
+              AND q.IsDeleted      = 0
+              AND q.Status         <> 0
+              AND q.QuestionTypeId = 6
+              AND q.[Level] IN (1, 2, 3, 4, 5)
+            GROUP BY q.CreatorId, q.[Level];
+            """;
+
+        // 分子（聽力題組 TypeId=7）：MT_Questions 母題計數
+        const string groupSql = """
+            SELECT q.CreatorId AS UserId,
+                   COUNT(*)    AS Cnt
+            FROM dbo.MT_Questions q
+            WHERE q.ProjectId      = @ProjectId
+              AND q.IsDeleted      = 0
+              AND q.Status         <> 0
+              AND q.QuestionTypeId = 7
+            GROUP BY q.CreatorId;
+            """;
+
+        // 聽力題組整組採用：母題 Status=12 AND 所有子題 Status=12
+        const string groupAdoptionSql = """
+            SELECT q.CreatorId AS UserId,
+                   COUNT(*)    AS Cnt
+            FROM dbo.MT_Questions q
+            WHERE q.ProjectId      = @ProjectId
+              AND q.IsDeleted      = 0
+              AND q.QuestionTypeId = 7
+              AND q.Status = 12
+              AND NOT EXISTS (
+                  SELECT 1 FROM dbo.MT_SubQuestions sq
+                  WHERE sq.ParentQuestionId = q.Id
+                    AND sq.IsDeleted = 0
+                    AND sq.Status <> 12
+              )
+            GROUP BY q.CreatorId;
+            """;
+
+        var quotas        = (await conn.QueryAsync<LctQuotaRow >(quotaSql,         param)).AsList();
+        var singles       = (await conn.QueryAsync<LctSingleRow>(singleSql,        param)).AsList();
+        var groups        = (await conn.QueryAsync<LctGroupRow >(groupSql,         param)).AsList();
+        var groupAdoption = (await conn.QueryAsync<LctGroupRow >(groupAdoptionSql, param)).AsList();
+
+        return AssembleLctComposeCells(quotas, singles, groups, groupAdoption);
+    }
+
+    // ============================================================
+    //  LCT 統計載入：審題側（X = 完成數、Y = 該人指派數）
+    // ============================================================
+    private static async Task<Dictionary<int, ExportUserCells>> BuildLctReviewCellsAsync(
+        IDbConnection conn, int projectId)
+    {
+        var param = new { ProjectId = projectId };
+
+        // 單題聽力（TypeId=6）by Level：依 ReviewerId × Level
+        // 完成 = ReviewStatus=2 OR Comment 非空
+        const string singleAssignSql = """
+            SELECT ra.ReviewerId AS UserId,
+                   q.[Level]     AS Lvl,
+                   COUNT(*)      AS Total,
+                   SUM(CASE
+                       WHEN ra.ReviewStatus = 2
+                            OR (ra.Comment IS NOT NULL AND LTRIM(RTRIM(ra.Comment)) <> '')
+                       THEN 1 ELSE 0
+                   END) AS Completed
+            FROM dbo.MT_ReviewAssignments ra
+            INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
+            WHERE ra.ProjectId     = @ProjectId
+              AND q.IsDeleted      = 0
+              AND q.QuestionTypeId = 6
+              AND q.[Level] IN (1, 2, 3, 4, 5)
+              AND ra.SubQuestionId IS NULL
+            GROUP BY ra.ReviewerId, q.[Level];
+            """;
+
+        // 聽力題組（TypeId=7）DISTINCT QuestionId by Reviewer（母題、子題指派合併計）
+        const string groupAssignSql = """
+            SELECT dq.ReviewerId AS UserId,
+                   COUNT(*)      AS Total,
+                   SUM(CASE WHEN dq.AnyCompleted = 1 THEN 1 ELSE 0 END) AS Completed
+            FROM (
+                SELECT ra.ReviewerId,
+                       ra.QuestionId,
+                       MAX(CASE
+                           WHEN ra.ReviewStatus = 2
+                                OR (ra.Comment IS NOT NULL AND LTRIM(RTRIM(ra.Comment)) <> '')
+                           THEN 1 ELSE 0
+                       END) AS AnyCompleted
+                FROM dbo.MT_ReviewAssignments ra
+                INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
+                WHERE ra.ProjectId     = @ProjectId
+                  AND q.IsDeleted      = 0
+                  AND q.QuestionTypeId = 7
+                GROUP BY ra.ReviewerId, ra.QuestionId
+            ) AS dq
+            GROUP BY dq.ReviewerId;
+            """;
+
+        // 採用/不採用（單題聽力）：DISTINCT master where Status=12 / Status=11
+        const string singleAdoptionSql = """
+            SELECT dq.ReviewerId AS UserId,
+                   SUM(CASE WHEN q.Status = 12 THEN 1 ELSE 0 END) AS Adopted,
+                   SUM(CASE WHEN q.Status = 11 THEN 1 ELSE 0 END) AS Rejected
+            FROM (
+                SELECT DISTINCT ra.ReviewerId, q.Id AS QuestionId
+                FROM dbo.MT_ReviewAssignments ra
+                INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
+                WHERE ra.ProjectId     = @ProjectId
+                  AND q.IsDeleted      = 0
+                  AND q.QuestionTypeId = 6
+                  AND ra.SubQuestionId IS NULL
+            ) AS dq
+            INNER JOIN dbo.MT_Questions q ON q.Id = dq.QuestionId
+            GROUP BY dq.ReviewerId;
+            """;
+
+        // 聽力題組整組採用：DISTINCT master where整組採用
+        const string groupAdoptionSql = """
+            SELECT dq.ReviewerId AS UserId,
+                   COUNT(*)      AS AdoptedGroupCount
+            FROM (
+                SELECT DISTINCT ra.ReviewerId, q.Id AS QuestionId
+                FROM dbo.MT_ReviewAssignments ra
+                INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
+                WHERE ra.ProjectId     = @ProjectId
+                  AND q.IsDeleted      = 0
+                  AND q.QuestionTypeId = 7
+            ) AS dq
+            INNER JOIN dbo.MT_Questions q ON q.Id = dq.QuestionId
+            WHERE q.Status = 12
+              AND NOT EXISTS (
+                  SELECT 1 FROM dbo.MT_SubQuestions sq
+                  WHERE sq.ParentQuestionId = q.Id
+                    AND sq.IsDeleted = 0
+                    AND sq.Status <> 12
+              )
+            GROUP BY dq.ReviewerId;
+            """;
+
+        var singles        = (await conn.QueryAsync<LctReviewSingleRow>(singleAssignSql,   param)).AsList();
+        var groups         = (await conn.QueryAsync<LctReviewGroupRow >(groupAssignSql,    param)).AsList();
+        var singleAdoption = (await conn.QueryAsync<AdoptionRow       >(singleAdoptionSql, param)).AsList();
+        var groupAdoption  = (await conn.QueryAsync<LctGroupRow       >(groupAdoptionSql,  param)).AsList();
+
+        return AssembleLctReviewCells(singles, groups, singleAdoption, groupAdoption);
+    }
+
+    /// <summary>把 LCT 命題側資料攤平成 6 cells + 採用/不採用。</summary>
+    private static Dictionary<int, ExportUserCells> AssembleLctComposeCells(
+        List<LctQuotaRow> quotas, List<LctSingleRow> singles,
+        List<LctGroupRow> groups, List<LctGroupRow> groupAdoption)
+    {
+        var allUserIds = new HashSet<int>(quotas.Select(q => q.UserId)
+            .Concat(singles.Select(s => s.UserId))
+            .Concat(groups .Select(g => g.UserId))
+            .Concat(groupAdoption.Select(g => g.UserId)));
+
+        var result = new Dictionary<int, ExportUserCells>();
+
+        foreach (var uid in allUserIds)
+        {
+            var quotaPerCol = new int[6];
+            foreach (var q in quotas.Where(x => x.UserId == uid))
+            {
+                int col = q.TypeId == 7 ? 5 :
+                    (q.Lvl is >= 1 and <= 5 ? q.Lvl.Value - 1 : -1);
+                if (col >= 0) quotaPerCol[col] += q.Quota;
+            }
+
+            var actualPerCol = new int[6];
+            int adoptedTotal = 0, rejectedTotal = 0;
+            foreach (var s in singles.Where(x => x.UserId == uid))
+            {
+                if (s.Lvl is >= 1 and <= 5)
+                {
+                    actualPerCol[s.Lvl - 1] += s.Cnt;
+                    adoptedTotal  += s.Adopted;
+                    rejectedTotal += s.Rejected;
+                }
+            }
+            foreach (var g in groups.Where(x => x.UserId == uid))
+                actualPerCol[5] += g.Cnt;
+
+            int adoptedGroups = groupAdoption.Where(x => x.UserId == uid).Sum(x => x.Cnt);
+            adoptedTotal += adoptedGroups;   // 聽力題組整組採用納入 採用總計（不採用不計入）
+
+            var cells = new string[6];
+            bool hasAnyQuota = false;
+            for (int i = 0; i < 6; i++)
+            {
+                if (quotaPerCol[i] > 0)
+                {
+                    cells[i] = $"{actualPerCol[i]} / {quotaPerCol[i]}";
+                    hasAnyQuota = true;
+                }
+                else
+                {
+                    cells[i] = "－";
+                }
+            }
+
+            result[uid] = new ExportUserCells
+            {
+                CategoryCells = cells,
+                AdoptedCell   = hasAnyQuota ? adoptedTotal .ToString() : "－",
+                RejectedCell  = hasAnyQuota ? rejectedTotal.ToString() : "－",
+            };
+        }
+
+        return result;
+    }
+
+    /// <summary>把 LCT 審題側資料攤平成 6 cells + 採用/不採用。</summary>
+    private static Dictionary<int, ExportUserCells> AssembleLctReviewCells(
+        List<LctReviewSingleRow> singles, List<LctReviewGroupRow> groups,
+        List<AdoptionRow> singleAdoption, List<LctGroupRow> groupAdoption)
+    {
+        var allUserIds = new HashSet<int>(singles.Select(s => s.UserId)
+            .Concat(groups        .Select(g => g.UserId))
+            .Concat(singleAdoption.Select(a => a.UserId))
+            .Concat(groupAdoption .Select(g => g.UserId)));
+
+        var result = new Dictionary<int, ExportUserCells>();
+
+        foreach (var uid in allUserIds)
+        {
+            var totalPerCol     = new int[6];
+            var completedPerCol = new int[6];
+            foreach (var s in singles.Where(x => x.UserId == uid))
+            {
+                if (s.Lvl is >= 1 and <= 5)
+                {
+                    totalPerCol[s.Lvl - 1]     += s.Total;
+                    completedPerCol[s.Lvl - 1] += s.Completed;
+                }
+            }
+            foreach (var g in groups.Where(x => x.UserId == uid))
+            {
+                totalPerCol[5]     += g.Total;
+                completedPerCol[5] += g.Completed;
+            }
+
+            var cells = new string[6];
+            bool hasAny = false;
+            for (int i = 0; i < 6; i++)
+            {
+                if (totalPerCol[i] > 0)
+                {
+                    cells[i] = $"{completedPerCol[i]} / {totalPerCol[i]}";
+                    hasAny = true;
+                }
+                else
+                {
+                    cells[i] = "－";
+                }
+            }
+
+            int adopted  = singleAdoption.Where(a => a.UserId == uid).Sum(a => a.Adopted)
+                         + groupAdoption .Where(g => g.UserId == uid).Sum(g => g.Cnt);
+            int rejected = singleAdoption.Where(a => a.UserId == uid).Sum(a => a.Rejected);
+            // LCT 聽力題組不入庫不計入 不採用
+
+            result[uid] = new ExportUserCells
+            {
+                CategoryCells = cells,
+                AdoptedCell   = hasAny ? adopted .ToString() : "－",
+                RejectedCell  = hasAny ? rejected.ToString() : "－",
+            };
+        }
+
+        return result;
+    }
+
+    /// <summary>單一 UserId 的渲染字串結果（新版主流，CWT 用）。</summary>
+    private sealed class ExportUserCells
+    {
+        public string[] CategoryCells { get; set; } = ["－", "－", "－", "－", "－", "－"];
+        public string   AdoptedCell   { get; set; } = "－";
+        public string   RejectedCell  { get; set; } = "－";
+
+        public static readonly ExportUserCells AllDashes = new();
+    }
+
+    /// <summary>MT_Projects 查 ProjectType + ExamLevel 的 DTO。</summary>
+    private sealed class ExportProjectMeta
+    {
+        public byte  ProjectType { get; set; }
+        public byte? ExamLevel   { get; set; }
+    }
+
+    /// <summary>CWT 命題側 quota DTO（依 UserId × TypeId × Granularity）。</summary>
+    private sealed class CwtQuotaRow
+    {
+        public int UserId      { get; set; }
+        public int TypeId      { get; set; }
+        public int Granularity { get; set; }
+        public int Quota       { get; set; }
+    }
+
+    /// <summary>CWT 命題側「實際命題數 + 採用/不採用」DTO（依 UserId × TypeId，母題或子題）。</summary>
+    private sealed class CwtBucketRow
+    {
+        public int UserId    { get; set; }
+        public int TypeId    { get; set; }
+        public int Cnt       { get; set; }
+        public int Adopted   { get; set; }
+        public int Rejected  { get; set; }
+    }
+
+    /// <summary>CWT 審題側「指派數 + 完成數」DTO。</summary>
+    private sealed class CwtReviewRow
+    {
+        public int UserId      { get; set; }
+        public int TypeId      { get; set; }
+        public int Granularity { get; set; }
+        public int Total       { get; set; }
+        public int Completed   { get; set; }
+    }
+
+    /// <summary>採用/不採用對應 DTO（兩個欄位）。</summary>
+    private sealed class AdoptionRow
+    {
+        public int UserId   { get; set; }
+        public int Adopted  { get; set; }
+        public int Rejected { get; set; }
+    }
+
+    /// <summary>LCT 命題側 quota DTO（依 UserId × TypeId × Level；Level 可為 NULL 表聽力題組）。</summary>
+    private sealed class LctQuotaRow
+    {
+        public int   UserId { get; set; }
+        public int   TypeId { get; set; }
+        public byte? Lvl    { get; set; }   // NULL = 聽力題組
+        public int   Quota  { get; set; }
+    }
+
+    /// <summary>LCT 命題側「單題聽力」依 Level 分桶（含採用/不採用）。</summary>
+    private sealed class LctSingleRow
+    {
+        public int  UserId    { get; set; }
+        public byte Lvl       { get; set; }
+        public int  Cnt       { get; set; }
+        public int  Adopted   { get; set; }
+        public int  Rejected  { get; set; }
+    }
+
+    /// <summary>LCT 聽力題組計數（per UserId 單欄，Cnt 視情境是總數或整組採用數）。</summary>
+    private sealed class LctGroupRow
+    {
+        public int UserId { get; set; }
+        public int Cnt    { get; set; }
+    }
+
+    /// <summary>LCT 審題側 單題聽力分配/完成數，依 Level 分桶。</summary>
+    private sealed class LctReviewSingleRow
+    {
+        public int  UserId    { get; set; }
+        public byte Lvl       { get; set; }
+        public int  Total     { get; set; }
+        public int  Completed { get; set; }
+    }
+
+    /// <summary>LCT 審題側 聽力題組分配/完成數（DISTINCT QuestionId）。</summary>
+    private sealed class LctReviewGroupRow
+    {
+        public int UserId    { get; set; }
+        public int Total     { get; set; }
+        public int Completed { get; set; }
     }
 
     private sealed class ExportMemberRow
@@ -1465,9 +2088,6 @@ public class TeacherService : ITeacherService
         /// <summary>純管理身分（計畫主持人、系統管理員 等），題數欄全部「－」。</summary>
         public List<string> AdminRoles       { get; set; } = new();
     }
-
-    private static int SumByType(IEnumerable<ExportTypeRow> rows, int typeId) =>
-        rows.Where(r => r.TypeId == typeId).Sum(r => r.TypeCount);
 
     private async Task WriteAuditAsync(
         IDbConnection conn,

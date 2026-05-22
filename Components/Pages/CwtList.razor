@@ -90,7 +90,7 @@
                     </span>
                 }
             </div>
-            <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+            <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 auto-rows-fr">
                 @if (isLoadingQuota)
                 {
                     @for (int i = 0; i < 7; i++)
@@ -104,9 +104,17 @@
                 }
                 else if (quotaProgress.Any())
                 {
-                    @foreach (var q in quotaProgress)
+                    @* 題組類（TypeId 3 閱讀 / 5 短文）母+子配額在表單中是同一次送出，合併為一張雙段卡呈現 *@
+                    @foreach (var (master, sub) in BuildQuotaCardEntries())
                     {
-                        @QuotaCard(q)
+                        if (sub is not null)
+                        {
+                            @QuotaCardWithSub(master, sub)
+                        }
+                        else
+                        {
+                            @QuotaCard(master)
+                        }
                     }
                 }
                 else
@@ -1129,17 +1137,22 @@
         invalidFields.Clear();
     }
 
-    private void OpenComposeModal(string? presetTypeKey = null)
+    private void OpenComposeModal(string? presetTypeKey = null, byte? presetLevel = null)
     {
         formData = new();
         if (!string.IsNullOrEmpty(presetTypeKey) && QuestionConstants.TypeKeyToId.ContainsKey(presetTypeKey))
         {
             formData.QuestionType = presetTypeKey;
         }
-        // CWT 統一等級：開新題時自動帶入專案 ExamLevel；LCT 不處理
+        // CWT 統一等級：開新題時自動帶入專案 ExamLevel；
+        // LCT：由配額卡（如「聽力測驗 - 難度三」）帶入對應 Level，避免老師手動再選
         if (CurrentProject?.ProjectType == ProjectType.Cwt && CurrentProject.ExamLevel.HasValue)
         {
             formData.Level = CurrentProject.ExamLevel.Value;
+        }
+        else if (presetLevel.HasValue)
+        {
+            formData.Level = presetLevel.Value;
         }
         currentFormStatus = QuestionStatus.Draft;
         currentFormUpdatedAt = null;
@@ -1417,13 +1430,13 @@
                                   : $"點擊新增「{displayName}」題目";
 
         <button type="button"
-            @onclick="() => OpenComposeModal(typeKey)"
+            @onclick="() => OpenComposeModal(typeKey, q.Level)"
             disabled="@locked"
             title="@tooltip"
             class="@(locked
                 ? "bg-gray-50 border border-gray-200 cursor-not-allowed opacity-70"
                 : "bg-white border border-gray-200 hover:border-morandi/60 hover:shadow-md hover:-translate-y-0.5 cursor-pointer")
-                relative text-left rounded-lg p-3 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-morandi/40 group">
+                relative text-left rounded-lg p-3 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-morandi/40 group h-full">
 
             @if (reached && !locked)
             {
@@ -1448,7 +1461,7 @@
         </button>
     };
 
-    /// <summary>配額卡片標題後綴：依 Level / Granularity / TypeId 自動產生「- 難度三 / - 母題 / - 子題」。</summary>
+    /// <summary>配額卡片標題後綴：LCT 聽力測驗按難度標示；題組類母/子若意外單獨出現才補標籤（正常會被合併卡吸收）。</summary>
     private static string GetQuotaSuffix(QuotaProgressItem q)
     {
         if (q.Level.HasValue)
@@ -1458,5 +1471,105 @@
         if (q.QuestionTypeId is 3 or 5 && q.Granularity == 0)
             return " - 母題";
         return "";
+    }
+
+    /// <summary>
+    /// 把 quotaProgress 重新組合成「呈現用配對」：
+    ///   - 題組類（TypeId 3 閱讀 / 5 短文）母+子兩列合併為一張雙段卡
+    ///   - 其他配額列維持一列一卡
+    /// 表單上母+子同一次送出，分兩張卡會讓使用者誤以為要分別動作。
+    /// </summary>
+    private IEnumerable<(QuotaProgressItem Master, QuotaProgressItem? Sub)> BuildQuotaCardEntries()
+    {
+        var consumed = new HashSet<int>();
+        for (int i = 0; i < quotaProgress.Count; i++)
+        {
+            if (consumed.Contains(i)) continue;
+            var q = quotaProgress[i];
+
+            // 題組類母題：找對應子題合併
+            if (q.QuestionTypeId is 3 or 5 && q.Granularity == 0)
+            {
+                var subIdx = quotaProgress.FindIndex(s =>
+                    s.QuestionTypeId == q.QuestionTypeId && s.Granularity == 1);
+                if (subIdx > i)
+                {
+                    consumed.Add(subIdx);
+                    yield return (q, quotaProgress[subIdx]);
+                    continue;
+                }
+            }
+            yield return (q, null);
+        }
+    }
+
+    /// <summary>題組類雙段配額卡：上下兩段進度條（母題 / 子題），達標 badge 需兩段皆達成。</summary>
+    private RenderFragment QuotaCardWithSub(QuotaProgressItem master, QuotaProgressItem sub) => __builder =>
+    {
+        var typeKey = QuestionConstants.TypeIdToKey.GetValueOrDefault(master.QuestionTypeId, "single");
+        var locked  = IsCompositionPhaseClosed;
+        var masterReached = master.Target > 0 && master.Completed >= master.Target;
+        var subReached    = sub.Target > 0 && sub.Completed >= sub.Target;
+        var bothReached   = masterReached && subReached;
+        var tooltip = locked
+            ? "命題階段已結束，無法新增題目"
+            : bothReached
+                ? $"已達標（母 {master.Completed}/{master.Target}、子 {sub.Completed}/{sub.Target}）"
+                : $"點擊新增「{master.TypeName}」題目";
+
+        <button type="button"
+            @onclick="() => OpenComposeModal(typeKey)"
+            disabled="@locked"
+            title="@tooltip"
+            class="@(locked
+                ? "bg-gray-50 border border-gray-200 cursor-not-allowed opacity-70"
+                : "bg-white border border-gray-200 hover:border-morandi/60 hover:shadow-md hover:-translate-y-0.5 cursor-pointer")
+                relative text-left rounded-lg p-3 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-morandi/40 group h-full">
+
+            @if (bothReached && !locked)
+            {
+                <span class="absolute top-1.5 right-1.5 inline-flex items-center gap-0.5 text-xs font-bold text-sage bg-sage/10 px-1.5 py-0.5 rounded-full border border-sage/20">
+                    <i class="fa-solid fa-check text-xs"></i>已達標
+                </span>
+            }
+            <div class="text-xs font-bold text-gray-600 mb-2 truncate pr-12">@master.TypeName</div>
+
+            @* 母題段 *@
+            <div class="mb-1.5">
+                <div class="flex items-baseline justify-between text-xs mb-0.5">
+                    <span class="text-gray-500 font-medium">母題</span>
+                    <span><span class="text-sm font-black text-slate-main">@master.Completed</span><span class="text-gray-400"> / @master.Target</span></span>
+                </div>
+                <div class="w-full bg-gray-100 rounded-full h-1.5">
+                    <div class="@(SegmentBarColor(master)) h-1.5 rounded-full transition-all" style="width: @(master.Percent)%"></div>
+                </div>
+            </div>
+
+            @* 子題段 *@
+            <div>
+                <div class="flex items-baseline justify-between text-xs mb-0.5">
+                    <span class="text-gray-500 font-medium">子題</span>
+                    <span><span class="text-sm font-black text-slate-main">@sub.Completed</span><span class="text-gray-400"> / @sub.Target</span></span>
+                </div>
+                <div class="w-full bg-gray-100 rounded-full h-1.5">
+                    <div class="@(SegmentBarColor(sub)) h-1.5 rounded-full transition-all" style="width: @(sub.Percent)%"></div>
+                </div>
+            </div>
+
+            @if (!locked)
+            {
+                <span class="absolute bottom-1.5 right-2 text-xs text-morandi font-bold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+                    <i class="fa-solid fa-plus text-xs"></i>新增
+                </span>
+            }
+        </button>
+    };
+
+    /// <summary>單段進度條配色：滿色 sage、進行中 morandi、空白 gray。</summary>
+    private static string SegmentBarColor(QuotaProgressItem seg)
+    {
+        if (seg.Target <= 0) return "bg-gray-200";
+        var p = seg.Completed * 100 / seg.Target;
+        return p >= 100 ? "bg-sage" : p > 0 ? "bg-morandi" : "bg-gray-200";
     }
 }

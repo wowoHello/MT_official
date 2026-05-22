@@ -10,9 +10,10 @@ type: project
 - 退回次數 → 母題與每子題各自累計（達 2 次後解鎖總召自改）
 - 索引 `IX_MT_ReviewAssignments_Question_Sub_Stage` 支援以 (QuestionId, SubQuestionId, ReviewStage) 查詢
 
-**Plan_014 本輪修題過濾**（已落實於 OverviewService SQL）：
-- `GetPendingRevisionCountAsync` 與 `BuildStatusKeyCountsAsync` 都加上 `rr.CreatedAt > ISNULL((SELECT MAX(DecidedAt)...Decision IN (2,3)), '1900-01-01')` 條件
-- PhaseCode 4/6 線性單輪 → MAX 為 NULL → fallback 1900 → 等同未過濾，行為不變
+**Plan_014 本輪修題過濾**（已落實於 OverviewService SQL，2026-05-22 確認改用 view）：
+- `GetPendingRevisionCountAsync` 與 `BuildOverviewCountsAsync`（合併版）都改寫成 `rr.CreatedAt > ISNULL((SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt WHERE QuestionId=q.Id), '1900-01-01')`
+- 用 `vw_QuestionRoundStartedAt` view 取代原 inline MAX subquery（第二波 #6 改造產物）；全站 4 個消費點：OverviewService.cs:359 / 380 / 424 / 447
+- PhaseCode 4/6 線性單輪 → view 回 NULL → fallback 1900 → 等同未過濾，行為不變
 - PhaseCode 8（總召跨多輪退回）→ 真正生效，避免舊輪 reply 被誤判為本輪已修
 
 **MT_Questions 關鍵欄位（Overview 查詢用）**：

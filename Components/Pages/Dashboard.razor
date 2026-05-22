@@ -90,7 +90,7 @@
                             {
                                 <div class="flex justify-between gap-2">
                                     <span class="text-gray-500 truncate">@t.DisplayLabel</span>
-                                    <span class="font-semibold text-[var(--color-slate-main)] tabular-nums shrink-0">@t.TargetCount</span>
+                                    <span class="font-semibold text-[var(--color-slate-main)] tabular-nums shrink-0">@t.Produced / @t.TargetCount</span>
                                 </div>
                             }
                             @if (!kpi.TargetBreakdown.Any())
@@ -646,8 +646,8 @@
 {
     <div class="fixed inset-0 z-50 flex items-center justify-center p-4"
          @onclick="CloseDetail">
-        @* Backdrop *@
-        <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm
+        @* Backdrop — 純半透明黑底，不模糊背景 *@
+        <div class="absolute inset-0 bg-slate-900/50
                     animate-[fadeIn_200ms_ease-out]"></div>
 
         @* Modal Content *@
@@ -678,7 +678,10 @@
                 @{
                     var details = selectedDetailItem.TeacherDetails ?? new();
                     var totalAssigned = details.Sum(d => d.Assigned);
-                    var totalProduced = details.Sum(d => d.Produced);
+                    // 教師層級「總配額達成」：每列 Produced 先 clamp 在 Assigned 上限再 SUM
+                    // 範例：閱讀題組（母題）2/1 (200%) 維持原樣顯示透明資訊，但總達成只算 1 不算 2
+                    // 與 Subtitle SQL 端的 clamp 邏輯保持一致
+                    var totalProduced = details.Sum(d => Math.Min(d.Produced, d.Assigned));
                     var totalAch = totalAssigned > 0 ? (decimal)totalProduced / totalAssigned : 0m;
                 }
 

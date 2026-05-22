@@ -75,7 +75,11 @@ public class DashboardService : IDashboardService
             SELECT
                 qt.Name AS TypeName,
                 ISNULL(SUM(CASE WHEN pt.Granularity = 0 THEN pt.TargetCount ELSE 0 END), 0) AS TargetCount,
-                0 AS Granularity
+                0 AS Granularity,
+                ISNULL((SELECT COUNT(*) FROM dbo.MT_Questions
+                        WHERE ProjectId = @pid AND IsDeleted = 0
+                          AND QuestionTypeId = qt.Id
+                          AND Status NOT IN (0, 10, 11)), 0) AS Produced
             FROM   dbo.MT_QuestionTypes qt
             LEFT JOIN dbo.MT_ProjectTargets pt
                    ON pt.QuestionTypeId = qt.Id AND pt.ProjectId = @pid AND pt.Granularity = 0
@@ -87,7 +91,12 @@ public class DashboardService : IDashboardService
             SELECT
                 qt.Name AS TypeName,
                 ISNULL(SUM(CASE WHEN pt.Granularity = 1 THEN pt.TargetCount ELSE 0 END), 0) AS TargetCount,
-                1 AS Granularity
+                1 AS Granularity,
+                ISNULL((SELECT COUNT(*) FROM dbo.MT_SubQuestions sq
+                        JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                        WHERE q.ProjectId = @pid AND q.IsDeleted = 0 AND sq.IsDeleted = 0
+                          AND q.QuestionTypeId = qt.Id
+                          AND sq.Status NOT IN (0, 10, 11)), 0) AS Produced
             FROM   dbo.MT_QuestionTypes qt
             LEFT JOIN dbo.MT_ProjectTargets pt
                    ON pt.QuestionTypeId = qt.Id AND pt.ProjectId = @pid AND pt.Granularity = 1
@@ -114,17 +123,27 @@ public class DashboardService : IDashboardService
                 FROM   dbo.MT_ProjectTargets
                 WHERE  ProjectId = @pid AND QuestionTypeId = 6 AND [Level] IS NOT NULL
                 GROUP BY [Level]
+            ),
+            Type6Produced AS (
+                -- 聽力測驗已產出（Status NOT IN 0/10/11），按 Level 分桶
+                SELECT [Level] AS LevelNum, COUNT(*) AS ProducedCount
+                FROM   dbo.MT_Questions
+                WHERE  ProjectId = @pid AND IsDeleted = 0 AND QuestionTypeId = 6
+                  AND  [Level] IS NOT NULL AND Status NOT IN (0, 10, 11)
+                GROUP BY [Level]
             )
-            SELECT TypeName, TargetCount, Granularity
+            SELECT TypeName, TargetCount, Granularity, Produced
             FROM (
                 -- 聽力測驗 5 個難度桶
                 SELECT
                     lb.LevelName AS TypeName,
                     ISNULL(la.TotalTarget, 0) AS TargetCount,
                     CAST(0 AS TINYINT) AS Granularity,
+                    ISNULL(p.ProducedCount, 0) AS Produced,
                     lb.LevelNum AS SortKey
                 FROM   LevelBuckets lb
-                LEFT JOIN Type6Agg la ON la.LevelNum = lb.LevelNum
+                LEFT JOIN Type6Agg      la ON la.LevelNum = lb.LevelNum
+                LEFT JOIN Type6Produced p  ON p.LevelNum  = lb.LevelNum
                 UNION ALL
                 -- 聽力題組（TypeId=7）：獨立分類，整組視為 1 計數單位
                 SELECT
@@ -132,40 +151,64 @@ public class DashboardService : IDashboardService
                     ISNULL((SELECT SUM(TargetCount) FROM dbo.MT_ProjectTargets
                             WHERE ProjectId = @pid AND QuestionTypeId = 7), 0),
                     CAST(0 AS TINYINT),
+                    ISNULL((SELECT COUNT(*) FROM dbo.MT_Questions
+                            WHERE ProjectId = @pid AND IsDeleted = 0
+                              AND QuestionTypeId = 7 AND Status NOT IN (0, 10, 11)), 0),
                     99
             ) tmp
             ORDER BY SortKey
             """;
 
         // ──────────────────────────────────────────────────────────────
-        // 2. 卡片 2：採用計數（母題 + 子題分開查，依模式過濾題型）
-        //    決策 3：分子 = 採用母題 + 採用子題（Status IN 9,12）
-        //    CWT：排除 TypeId IN (2,6,7)；LCT：排除聽力題組母題（TypeId=7 SubQuestionId IS NULL）
+        // 2. 卡片 2：採用計數（顯示真實，不 clamp — 超量視為「全部達成 + 紅利」）
+        //    決策 3：分子 = 採用母題 + 採用子題（Status IN 9,12）；不 clamp 在 Target 上限
+        //    超量命題的責任歸屬在「逾期與緊急待辦」處理（HAVING 過濾），dashboard 大數字保留真實
+        //    AdoptedSubCount 固定 0：所有計數已加總入 AdoptedCount，不再雙軌
         // ──────────────────────────────────────────────────────────────
         const string sqlStatusCountsCwt = """
             SELECT
-                SUM(CASE WHEN Status IN (9, 12) THEN 1 ELSE 0 END) AS AdoptedCount,
+                -- 母題層採用（所有 CWT 題型）
+                ISNULL((
+                    SELECT SUM(CASE WHEN Status IN (9, 12) THEN 1 ELSE 0 END)
+                    FROM   dbo.MT_Questions
+                    WHERE  ProjectId = @pid AND IsDeleted = 0 AND QuestionTypeId IN @typeIds
+                ), 0)
+                +
+                -- 子題層採用（僅閱讀題組(3)/短文題組(5)）
+                ISNULL((
+                    SELECT SUM(CASE WHEN sq.Status IN (9, 12) THEN 1 ELSE 0 END)
+                    FROM   dbo.MT_SubQuestions sq
+                    JOIN   dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                    WHERE  q.ProjectId = @pid AND q.IsDeleted = 0 AND sq.IsDeleted = 0
+                      AND  q.QuestionTypeId IN (3, 5)
+                ), 0) AS AdoptedCount,
                 0 AS AdoptedSubCount
-            FROM dbo.MT_Questions
-            WHERE ProjectId = @pid AND IsDeleted = 0
-              AND QuestionTypeId IN @typeIds
             """;
 
-        // LCT 母題採用（TypeId=6 聽力測驗；TypeId=7 聽力題組母題不計）
+        // LCT 採用計數（與 TargetBreakdown「1 整組 = 1 單位」對齊；不 clamp 顯示真實）：
+        //   - 聽力測驗（TypeId=6）：master Status IN (9,12) → 1 單位
+        //   - 聽力題組（TypeId=7）：整組採用 = 兩個 sub 都 Status IN (9,12) → 1 整組 1 單位
+        //     規格規則：1 子題採用 + 1 子題不採用 = 整組淘汰，必須兩個 sub 都採用才算入庫
+        //   AdoptedSubCount 固定 0
         const string sqlStatusCountsLct = """
             SELECT
-                SUM(CASE WHEN q.Status IN (9, 12) AND q.QuestionTypeId = 6 THEN 1 ELSE 0 END) AS AdoptedCount,
-                -- 子題採用：TypeId=6 按題目 Level 計；TypeId=7 子題自身 Status
+                -- 聽力測驗 master 採用
                 ISNULL((
-                    SELECT COUNT(*) FROM dbo.MT_SubQuestions sq
-                    JOIN dbo.MT_Questions qp ON qp.Id = sq.ParentQuestionId
-                    WHERE qp.ProjectId = @pid AND qp.IsDeleted = 0
-                      AND sq.IsDeleted = 0 AND sq.Status IN (9, 12)
-                      AND qp.QuestionTypeId IN (6, 7)
-                ), 0) AS AdoptedSubCount
-            FROM dbo.MT_Questions q
-            WHERE q.ProjectId = @pid AND q.IsDeleted = 0
-              AND q.QuestionTypeId IN (6, 7)
+                    SELECT SUM(CASE WHEN Status IN (9, 12) THEN 1 ELSE 0 END)
+                    FROM   dbo.MT_Questions
+                    WHERE  ProjectId = @pid AND IsDeleted = 0 AND QuestionTypeId = 6
+                ), 0)
+                +
+                -- 聽力題組 整組採用（兩個 sub 都採用才算）
+                ISNULL((
+                    SELECT COUNT(*) FROM dbo.MT_Questions qp
+                    WHERE  qp.ProjectId = @pid AND qp.IsDeleted = 0 AND qp.QuestionTypeId = 7
+                      AND  (SELECT COUNT(*) FROM dbo.MT_SubQuestions sq
+                            WHERE sq.ParentQuestionId = qp.Id
+                              AND sq.IsDeleted = 0
+                              AND sq.Status IN (9, 12)) = 2
+                ), 0) AS AdoptedCount,
+                0 AS AdoptedSubCount
             """;
 
         // ──────────────────────────────────────────────────────────────
@@ -1164,30 +1207,62 @@ public class DashboardService : IDashboardService
         {
             // 命題階段倒數 5 天內：任何尚未 100% 完成配額的教師皆需警示
             // 即使總達成率高（例：5/7 ≈ 71%），只要部分題型仍是 0/N，仍會被列入
-            // CWT/LCT 雙模式：只計對應題型的配額與產出
+            // CWT/LCT 雙模式：Produced 依 Granularity / Level 精準對應配額分桶
+            //   - Granularity = 0：MT_Questions 母題層計（LCT 聽力測驗加 mq.Level 過濾）
+            //   - Granularity = 1：MT_SubQuestions 子題層計（CWT 閱讀/短文題組才會用到）
+            // 修補：原 OUTER APPLY 只按 TypeId 過濾不分 Level，造成 LCT 5 個難度配額共用同一份
+            //       Produced 計數（每難度 Produced 都拿到全 TypeId=6 總數），SUM 後膨脹 N 倍，
+            //       導致老師明明還有 2 題未完成卻被 HAVING TotalProduced < TotalAssigned 排除掉
             const string sqlTeacherShortage = """
                 SELECT  pm.UserId,
                         u.DisplayName AS TeacherName,
-                        SUM(mq.QuotaCount)                   AS TotalAssigned,
-                        ISNULL(SUM(prod.Produced), 0)        AS TotalProduced
+                        SUM(mq.QuotaCount) AS TotalAssigned,
+                        -- 每列 Produced 先 clamp 在 QuotaCount 上限再 SUM —
+                        -- 教師層級「達成」只算配額內的，超量部分不灌水（例 閱讀母 2/1 只算 1）
+                        -- 專案層級的真實計數另由卡片 1/2/圖表呈現
+                        SUM(CASE WHEN ISNULL(prod.Produced, 0) > mq.QuotaCount
+                                 THEN mq.QuotaCount
+                                 ELSE ISNULL(prod.Produced, 0) END) AS TotalProduced
                 FROM    dbo.MT_ProjectMembers pm
                 JOIN    dbo.MT_MemberQuotas   mq ON mq.ProjectMemberId = pm.Id
                 JOIN    dbo.MT_Users          u  ON u.Id = pm.UserId
                 OUTER APPLY (
-                    SELECT COUNT(*) AS Produced
-                    FROM   dbo.MT_Questions
-                    WHERE  ProjectId      = pm.ProjectId
-                      AND  QuestionTypeId = mq.QuestionTypeId
-                      AND  CreatorId      = pm.UserId
-                      AND  IsDeleted      = 0
-                      AND  Status NOT IN (0, 10, 11)
+                    SELECT
+                        CASE WHEN mq.Granularity = 1 THEN
+                            -- 子題層：MT_SubQuestions 計數（按母題 TypeId）
+                            (SELECT COUNT(*) FROM dbo.MT_SubQuestions sq
+                             JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                             WHERE q.ProjectId = pm.ProjectId
+                               AND q.CreatorId = pm.UserId
+                               AND q.QuestionTypeId = mq.QuestionTypeId
+                               AND q.IsDeleted = 0 AND sq.IsDeleted = 0
+                               AND sq.Status NOT IN (0, 10, 11))
+                        ELSE
+                            -- 母題層：MT_Questions 計數，LCT 聽力測驗需加 Level 過濾避免膨脹
+                            (SELECT COUNT(*) FROM dbo.MT_Questions
+                             WHERE ProjectId = pm.ProjectId
+                               AND CreatorId = pm.UserId
+                               AND QuestionTypeId = mq.QuestionTypeId
+                               AND IsDeleted = 0
+                               AND Status NOT IN (0, 10, 11)
+                               AND (mq.Level IS NULL OR [Level] = mq.Level))
+                        END AS Produced
                 ) prod
                 WHERE   pm.ProjectId = @pid
                   AND   mq.QuestionTypeId IN @typeIds
                 GROUP BY pm.UserId, u.DisplayName
                 HAVING  SUM(mq.QuotaCount) > 0
-                  AND   ISNULL(SUM(prod.Produced), 0) < SUM(mq.QuotaCount)
-                ORDER   BY (ISNULL(SUM(prod.Produced), 0) * 1.0 / SUM(mq.QuotaCount)) ASC
+                  -- HAVING 用 clamped SUM（每桶 Produced 上限為 QuotaCount）：
+                  -- 確保「某 bucket 超量、另 bucket 未達」的老師一定上榜，不被「平均」掩蓋
+                  -- 例：A 命 master 5/1（超 4）但子題 2/4（未達），原始 SUM 7 > 5 會誤判完成
+                  -- clamped SUM 1+2=3 < 5 → 正確列入警示
+                  AND   SUM(CASE WHEN prod.Produced > mq.QuotaCount
+                                 THEN mq.QuotaCount
+                                 ELSE ISNULL(prod.Produced, 0) END) < SUM(mq.QuotaCount)
+                ORDER   BY (SUM(CASE WHEN prod.Produced > mq.QuotaCount
+                                     THEN mq.QuotaCount
+                                     ELSE ISNULL(prod.Produced, 0) END) * 1.0
+                            / SUM(mq.QuotaCount)) ASC
                 """;
 
             var teacherRows = (await conn.QueryAsync<TeacherShortageRow>(
@@ -1387,10 +1462,16 @@ public class DashboardService : IDashboardService
                 byte revisionStageCode = (byte)revisionPhase.PhaseCode;
 
                 // Plan_014：本輪過濾 — 與卡片 4／教師落後排行同口徑
-                // CWT/LCT 雙模式：只計對應題型的修題明細
+                // CWT/LCT 雙模式：修題明細加入 Granularity / Level 區分
+                //   Granularity = ra.SubQuestionId IS NULL ? 0 : 1
+                //   Level = q.Level（僅 LCT TypeId=6 帶值；其他題型 null）
                 sqlTypeDetails = """
                     WITH RevisionScope AS (
-                        SELECT ra.QuestionId, q.CreatorId, q.QuestionTypeId,
+                        SELECT ra.QuestionId,
+                               q.CreatorId,
+                               q.QuestionTypeId,
+                               CAST(CASE WHEN ra.SubQuestionId IS NULL THEN 0 ELSE 1 END AS TINYINT) AS Granularity,
+                               CAST(CASE WHEN q.QuestionTypeId = 6 THEN q.[Level] ELSE NULL END AS TINYINT) AS [Level],
                                CASE WHEN EXISTS (
                                    SELECT 1 FROM dbo.MT_RevisionReplies rr
                                    WHERE rr.QuestionId = ra.QuestionId
@@ -1411,16 +1492,19 @@ public class DashboardService : IDashboardService
                           AND  q.Status NOT IN (9, 10, 11, 12)
                           AND  q.CreatorId IN @userIds
                           AND  q.QuestionTypeId IN @typeIds
-                        GROUP BY ra.QuestionId, q.CreatorId, q.QuestionTypeId
+                        GROUP BY ra.QuestionId, q.CreatorId, q.QuestionTypeId,
+                                 CASE WHEN ra.SubQuestionId IS NULL THEN 0 ELSE 1 END,
+                                 CASE WHEN q.QuestionTypeId = 6 THEN q.[Level] ELSE NULL END
                     )
                     SELECT  rs.CreatorId AS UserId,
                             rs.QuestionTypeId,
+                            rs.Granularity,
+                            rs.[Level],
                             COUNT(*)     AS Assigned,
                             SUM(rs.IsRevised) AS Produced
                     FROM    RevisionScope rs
-                    GROUP BY rs.CreatorId, rs.QuestionTypeId
-                    ORDER BY rs.CreatorId,
-                             (1.0 * SUM(rs.IsRevised) / NULLIF(COUNT(*), 0)) ASC
+                    GROUP BY rs.CreatorId, rs.QuestionTypeId, rs.Granularity, rs.[Level]
+                    ORDER BY rs.CreatorId, rs.QuestionTypeId, rs.Granularity, rs.[Level]
                     """;
                 sqlParams = new
                 {
@@ -1438,14 +1522,16 @@ public class DashboardService : IDashboardService
                     3 => 1, 5 => 2, 7 => 3, _ => 0
                 };
 
-                // 審題階段 Modal 明細：每位委員 × 題型 → (Comment 非空 / 被指派) 數
-                // CWT/LCT 雙模式：只計對應題型的審題明細
+                // 審題階段 Modal 明細：每位委員 × 題型 × (母/子題粒度) × (LCT 聽力測驗 難度)
+                //   Granularity = ra.SubQuestionId IS NULL ? 0 : 1（master vs sub 指派）
+                //   Level = q.Level （僅 LCT TypeId=6 有意義；其他題型在 BuildDisplayLabel 端會忽略）
                 sqlTypeDetails = """
                     SELECT  ra.ReviewerId AS UserId,
                             q.QuestionTypeId,
+                            CAST(CASE WHEN ra.SubQuestionId IS NULL THEN 0 ELSE 1 END AS TINYINT) AS Granularity,
+                            CAST(CASE WHEN q.QuestionTypeId = 6 THEN q.[Level] ELSE NULL END AS TINYINT) AS Level,
                             COUNT(*)     AS Assigned,
-                            SUM(CASE WHEN ra.DecidedAt IS NOT NULL
-                                     THEN 1 ELSE 0 END) AS Produced
+                            SUM(CASE WHEN ra.DecidedAt IS NOT NULL THEN 1 ELSE 0 END) AS Produced
                     FROM    dbo.MT_ReviewAssignments ra
                     JOIN    dbo.MT_Questions      q  ON q.Id = ra.QuestionId
                     WHERE   ra.ProjectId   = @pid
@@ -1453,36 +1539,58 @@ public class DashboardService : IDashboardService
                       AND   ra.ReviewerId IN @userIds
                       AND   q.IsDeleted    = 0
                       AND   q.QuestionTypeId IN @typeIds
-                    GROUP BY ra.ReviewerId, q.QuestionTypeId
-                    ORDER BY ra.ReviewerId,
-                             (1.0 * SUM(CASE WHEN ra.DecidedAt IS NOT NULL
-                                             THEN 1 ELSE 0 END)
-                             / NULLIF(COUNT(*), 0)) ASC
+                    GROUP BY ra.ReviewerId, q.QuestionTypeId,
+                             CASE WHEN ra.SubQuestionId IS NULL THEN 0 ELSE 1 END,
+                             CASE WHEN q.QuestionTypeId = 6 THEN q.[Level] ELSE NULL END
+                    ORDER BY ra.ReviewerId, q.QuestionTypeId,
+                             CASE WHEN ra.SubQuestionId IS NULL THEN 0 ELSE 1 END,
+                             CASE WHEN q.QuestionTypeId = 6 THEN q.[Level] ELSE NULL END
                     """;
                 sqlParams = new { pid = projectId, userIds, reviewStage, typeIds = activeTypeIds };
             }
             else
             {
-                // CWT/LCT 雙模式：只計對應題型的命題配額明細
+                // CWT/LCT 雙模式：命題配額明細
+                //   每行帶 Granularity（CWT 母/子題拆分） + Level（LCT 聽力測驗 1~5 拆分）
+                //   Produced 依 Granularity 走不同統計來源：
+                //     - Granularity=0：MT_Questions 母題層計（LCT 聽力測驗加 Level 過濾）
+                //     - Granularity=1：MT_SubQuestions 子題層計（僅 CWT 閱讀/短文題組）
+                //   排序改為 QuestionTypeId → Granularity → Level（穩定的視覺順序，避免母/子混排）
                 sqlTypeDetails = """
                     SELECT  pm.UserId,
                             mq.QuestionTypeId,
+                            mq.Granularity,
+                            mq.Level,
                             mq.QuotaCount AS Assigned,
-                            ISNULL(prod.Produced, 0) AS Produced
+                            CASE WHEN mq.Granularity = 0 THEN
+                                ISNULL((
+                                    SELECT COUNT(*)
+                                    FROM   dbo.MT_Questions q
+                                    WHERE  q.ProjectId      = pm.ProjectId
+                                      AND  q.QuestionTypeId = mq.QuestionTypeId
+                                      AND  q.CreatorId      = pm.UserId
+                                      AND  q.IsDeleted      = 0
+                                      AND  q.Status NOT IN (0, 10, 11)
+                                      AND  (mq.Level IS NULL OR q.[Level] = mq.Level)
+                                ), 0)
+                            ELSE
+                                ISNULL((
+                                    SELECT COUNT(*)
+                                    FROM   dbo.MT_SubQuestions sq
+                                    JOIN   dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                                    WHERE  q.ProjectId      = pm.ProjectId
+                                      AND  q.QuestionTypeId = mq.QuestionTypeId
+                                      AND  q.CreatorId      = pm.UserId
+                                      AND  q.IsDeleted      = 0
+                                      AND  sq.IsDeleted     = 0
+                                      AND  sq.Status NOT IN (0, 10, 11)
+                                ), 0)
+                            END AS Produced
                     FROM    dbo.MT_ProjectMembers pm
                     JOIN    dbo.MT_MemberQuotas   mq ON mq.ProjectMemberId = pm.Id
-                    OUTER APPLY (
-                        SELECT COUNT(*) AS Produced
-                        FROM   dbo.MT_Questions
-                        WHERE  ProjectId      = pm.ProjectId
-                          AND  QuestionTypeId = mq.QuestionTypeId
-                          AND  CreatorId      = pm.UserId
-                          AND  IsDeleted      = 0
-                          AND  Status NOT IN (0, 10, 11)
-                    ) prod
                     WHERE   pm.ProjectId = @pid AND pm.UserId IN @userIds
                       AND   mq.QuestionTypeId IN @typeIds
-                    ORDER   BY pm.UserId, prod.Produced * 1.0 / NULLIF(mq.QuotaCount, 0) ASC
+                    ORDER   BY pm.UserId, mq.QuestionTypeId, mq.Granularity, mq.Level
                     """;
                 sqlParams = new { pid = projectId, userIds, typeIds = activeTypeIds };
             }
@@ -1503,7 +1611,13 @@ public class DashboardService : IDashboardService
                 item.TeacherDetails = rows.Select(r => new UrgentTeacherDetail
                 {
                     QuestionTypeId = r.QuestionTypeId,
-                    TypeName       = _typeCatalog.GetName(r.QuestionTypeId),
+                    Granularity    = r.Granularity,
+                    Level          = r.Level,
+                    // BuildDisplayLabel 已處理：CWT 母/子題加（母題）/（子題）後綴；
+                    // LCT 聽力測驗依 Level 顯示「難度X」；LCT 聽力題組顯示「聽力題組」
+                    TypeName       = BuildDisplayLabel(
+                                        _typeCatalog.GetName(r.QuestionTypeId),
+                                        r.Granularity, r.Level, _typeCatalog.GetName),
                     Assigned       = r.Assigned,
                     Produced       = r.Produced,
                     Achievement    = r.Assigned > 0
@@ -1795,9 +1909,13 @@ public class DashboardService : IDashboardService
     private sealed record TeacherShortageRow(
         int UserId, string TeacherName, int TotalAssigned, int TotalProduced);
 
-    /// <summary>教師×題型明細列（展開用）。TypeName 由 IQuestionTypeCatalog 在消費端補。</summary>
+    /// <summary>
+    /// 教師×題型明細列（展開用）。
+    /// Granularity（0=母題/單題, 1=子題）+ Level（LCT 聽力測驗 1~5；其他 null）
+    /// 與 TypeName 組合後由 BuildDisplayLabel 統一掛 UI 標籤。
+    /// </summary>
     private sealed record TeacherTypeDetailRow(
-        int UserId, int QuestionTypeId, int Assigned, int Produced);
+        int UserId, int QuestionTypeId, byte Granularity, byte? Level, int Assigned, int Produced);
 
     private sealed class StatusCountRow
     {

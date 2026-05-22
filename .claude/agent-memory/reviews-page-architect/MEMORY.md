@@ -6,4 +6,4 @@
 - [專審分配 Bug 修復（Plan_013）](project_expert_review_assignment_fix.md) — 池空改 graceful return / PhaseCode=3 補 Status 升級 / UI 預設過濾歷史記錄
 - [總召代修題最終裁決（Plan_021）](project_final_reviewer_edit_plan021.md) — FinalReviewerEditAndDecideAsync 單 tx；IsHistoricalFromService 取代舊 CurrentProjectStage 比對
 - [ReviewModal 內部元件 UI 細節](project_review_modal_ui_details.md) — 8 罐頭訊息/MinCommentLength=10/5種DecisionBar配置/Timeline匿名/相似題雙模式
-- [審題頁面現況快照（2026-05）](project_reviews_current_state_2026_05.md) — Status v3.0/IsHistorical對照/三波效能優化/#14 QueryMultiple/CWT-LCT影響評估(2026-05-21)
+- [審題頁面現況快照（2026-05）](project_reviews_current_state_2026_05.md) — Status v3.0/IsHistorical對照/三波效能優化/#14 QueryMultiple/CWT-LCT影響評估(2026-05-22行數校正)

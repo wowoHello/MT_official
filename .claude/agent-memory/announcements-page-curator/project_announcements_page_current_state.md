@@ -1,16 +1,16 @@
 ---
 name: Announcements 頁面當前完整狀態
-description: 2026-05-20 讀碼驗證：三檔行數、DB 欄位型別、TogglePin 樂觀更新、UI 篩選狀態、已知技術債
+description: 2026-05-22 讀碼驗證：三檔行數、DB 欄位型別、TogglePin 樂觀更新、UI 篩選狀態、已知技術債
 type: project
 ---
 
-## 三檔現況（2026-05-20 確認，行數與 2026-05-17 一致）
+## 三檔現況（2026-05-22 讀碼確認，精確行數）
 
-| 檔案 | 行數量級 | 主要職責 |
-|------|---------|---------|
-| `Components/Pages/Announcements.razor` | ~884 行 | UI 列表 + SlideOver + 檢視 Modal + @code 邏輯 |
-| `Services/AnnouncementService.cs` | ~441 行 | 9 個 Service 方法 + EnsureCanEditAsync 權限門鎖 |
-| `Models/AnnouncementModels.cs` | ~100 行 | 2 個 Enum + 5 個 DTO/Model class |
+| 檔案 | 行數 | 主要職責 |
+|------|------|---------|
+| `Components/Pages/Announcements.razor` | 884 行 | UI 列表 + SlideOver + 檢視 Modal + @code 邏輯 |
+| `Services/AnnouncementService.cs` | 441 行 | 9 個 Service 方法 + private AnnouncementDeleteSnapshot class + EnsureCanEditAsync 權限門鎖 |
+| `Models/AnnouncementModels.cs` | 99 行 | 2 個 Enum + 5 個 DTO/Model class |
 
 ## DB 欄位型別（MT_Announcements，2026-05-20 schema 確認）
 
@@ -200,16 +200,54 @@ ModuleCards?.Any(m =>
 
 **How to apply:** 若未來決定在公告表單梯次下拉中分組顯示 CWT/LCT，只需修改 `GetProjectDropdownAsync()` SQL（加入 `ProjectType` 欄位）與 `ProjectDropdownItem` DTO（加入 `ProjectType` 屬性），Razor 端改用 `<optgroup>`。
 
-## 已知技術債（2026-05-21 更新）
+## 已知技術債（2026-05-22 更新）
 
 | 優先 | 缺口 | 狀態 |
 |:---:|------|------|
-| P1 | 使用說明手冊顯示硬編碼假資料（3 筆 PDF），未接 MT_UserGuideFiles | 未解決 |
+| P1 | 使用說明手冊顯示硬編碼假資料（3 筆 PDF 名稱），未接 MT_UserGuideFiles | 未解決 |
 | P2 | InlineQuillEditor.razor 缺少 12 個中文標點符號快速插入列 UI | 未解決 |
 | P2 | 表單無「狀態下拉」欄位（無法手動設為已下架；已下架僅由日期決定） | 設計決策，可接受 |
 | P3 | GetProjectDropdownAsync 下拉未分組 CWT/LCT | 待確認業務需求 |
+| P3 | AutoUnpinExpiredAsync 的 AuditLog JSON 用字串拼接（N'{"action":"自動取消...targetDisplayName":"' + REPLACE(...)）而非 AuditLogJsonHelper.Serialize，若標題含雙引號存在 JSON 格式風險 | 低優先，實際 Title 含 " 的概率低 |
 
 **已修復缺口**（供歷史參考）：
 - P0：`HasAnnouncementPermission()` 改用 PageUrl 比對（已修復）
 - 第一波 #5：LOWER(ModuleKey) 索引失效（已修復）
 - 第二波 #7：EnsureCanEditAsync 改 IMembershipService（已完成）
+
+## Service interface 完整簽章（2026-05-22 讀碼確認）
+
+```csharp
+Task<List<AnnouncementListItem>> GetAnnouncementListAsync();
+Task<AnnouncementEditDto?> GetAnnouncementEditAsync(int id);
+Task<List<ProjectDropdownItem>> GetProjectDropdownAsync();
+Task<int> CreateAsync(AnnouncementFormModel model, int operatorId);
+Task UpdateAsync(int id, AnnouncementFormModel model, int operatorId);
+Task TogglePinAsync(int id, int operatorId);
+Task<int> AutoUnpinExpiredAsync(int operatorId);
+Task DeleteAsync(int id, int operatorId);
+Task<List<AnnouncementListItem>> GetHomeAnnouncementsAsync(int? projectId);
+```
+
+## Constructor 注入清單（AnnouncementService）
+
+```csharp
+IDatabaseService _db
+ILogger<AnnouncementService> _logger
+IHttpContextAccessor _httpContextAccessor
+IMembershipService _membership
+```
+
+## Models 類別清單（AnnouncementModels.cs，2026-05-22 確認）
+
+| 類別/Enum | 說明 |
+|---------|------|
+| `AnnouncementCategory` (enum byte) | System=1, Compose=2, Review=3, Other=4 |
+| `AnnouncementStatus` (enum byte) | Draft=0, Published=1 |
+| `AnnouncementListItem` | 列表 DTO，含 DisplayStatus computed property |
+| `AnnouncementStats` | 前端計算統計卡片（Total/Published/Draft/Archived/Pinned） |
+| `AnnouncementEditDto` | 單筆編輯載入 DTO（不含 AuthorName/ProjectName） |
+| `ProjectDropdownItem` | Id + Name 梯次下拉 |
+| `AnnouncementFormModel` | EditForm 表單模型（Category/Status/ProjectId/PublishDate/UnpublishDate/IsPinned/Title/Content） |
+
+`AnnouncementDeleteSnapshot` 是 AnnouncementService.cs 內的 private sealed class（不在 Models 檔案），僅供 DeleteAsync 的 AuditLog 快照使用。

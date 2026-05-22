@@ -110,15 +110,20 @@ public class TeacherComposeItem
     public int Status { get; set; }
     public DateTime UpdatedAt { get; set; }
 
-    public string LevelText => Level switch
-    {
-        0 => "初級",
-        1 => "中級",
-        2 => "中高級",
-        3 => "高級",
-        4 => "優級",
-        _ => "—"
-    };
+    /// <summary>0=CWT, 1=LCT，對應 MT_Projects.ProjectType。</summary>
+    public byte ProjectType { get; set; }
+
+    public string LevelText => ProjectType == 1
+        ? (Level.HasValue ? QuestionConstants.ListenLevelLabels.GetValueOrDefault((byte)Level.Value, "—") : "—")
+        : Level switch
+        {
+            0 => "初級",
+            1 => "中級",
+            2 => "中高級",
+            3 => "高級",
+            4 => "優級",
+            _ => "—"
+        };
 }
 
 // ─── 命題歷程分頁結果 ───
@@ -160,15 +165,20 @@ public class TeacherReviewItem
     /// <summary>結案後對應 MT_Questions.Status（12=採用、11=不採用）。</summary>
     public int FinalQuestionStatus { get; set; }
 
-    public string LevelText => Level switch
-    {
-        0 => "初級",
-        1 => "中級",
-        2 => "中高級",
-        3 => "高級",
-        4 => "優級",
-        _ => "—"
-    };
+    /// <summary>0=CWT, 1=LCT，對應 MT_Projects.ProjectType。</summary>
+    public byte ProjectType { get; set; }
+
+    public string LevelText => ProjectType == 1
+        ? (Level.HasValue ? QuestionConstants.ListenLevelLabels.GetValueOrDefault((byte)Level.Value, "—") : "—")
+        : Level switch
+        {
+            0 => "初級",
+            1 => "中級",
+            2 => "中高級",
+            3 => "高級",
+            4 => "優級",
+            _ => "—"
+        };
 
     /// <summary>結案後顯示「已結案」，否則顯示審題階段名稱。</summary>
     public string StageText => ProjectClosedAt != null ? "已結案" : ReviewStage switch
@@ -226,6 +236,8 @@ public class TeacherProjectItem
     public DateTime StartDate { get; set; }
     public DateTime? EndDate { get; set; }
     public DateTime? ClosedAt { get; set; }
+    /// <summary>0=CWT, 1=LCT，對應 MT_Projects.ProjectType。</summary>
+    public byte ProjectType { get; set; }
     public ProjectLifecycleStatus EffectiveStatus => ProjectStatusHelper.Resolve(StartDate, EndDate, ClosedAt);
     public List<RoleTag> Roles { get; set; } = [];
     public int QuestionCount { get; set; }
@@ -356,39 +368,36 @@ public class TeacherFormModel
 
 // ─── 匯出名單 ───
 
-/// <summary>匯出報表中的單筆資料列（一位教師 × 一種身分）。</summary>
+/// <summary>
+/// 匯出報表中的單筆資料列（一位教師 × 一種身分）。
+/// 所有 cell 一律以「渲染字串」呈現 — 可能是「X / Y」、純數字、或「－」（無分母）。
+/// 由 Service 端依規格組裝完字串後交給 Razor，Razor 只負責原樣寫入 Excel。
+/// </summary>
 public class TeacherExportRow
 {
     public string DisplayName { get; set; } = "";
     /// <summary>身分標籤，直接取自 MT_Roles.Name（「命題教師」/「審題委員」/「總召集人」/「計畫主持人」等）。</summary>
     public string RoleLabel { get; set; } = "";
     /// <summary>
-    /// 是否該列適用題數統計。
-    /// true：命題 / 審題委員身分，題數欄位顯示實際數字（含 0）。
-    /// false：管理身分（總召集人、計畫主持人等），題數欄位渲染為「－」。
+    /// 6 個類型/難度欄的渲染字串，順序對應 <see cref="TeacherExportResult.CategoryHeaders"/>。
+    /// 格式：「X / Y」（X=命/審題數，Y=分配數）；無分母時為「－」。
     /// </summary>
-    public bool HasNumericStats { get; set; } = true;
-    /// <summary>一般單選題數（TypeId=1）。</summary>
-    public int Type1Count { get; set; }
-    /// <summary>閱讀題組數（TypeId=5）。</summary>
-    public int Type5Count { get; set; }
-    /// <summary>長文題數（TypeId=4）。</summary>
-    public int Type4Count { get; set; }
-    /// <summary>短文題組數（TypeId=3）。</summary>
-    public int Type3Count { get; set; }
-    /// <summary>聽力測驗題數（TypeId=6）。</summary>
-    public int Type6Count { get; set; }
-    /// <summary>聽力題組題數（TypeId=7）。</summary>
-    public int Type7Count { get; set; }
-    /// <summary>採用題數（Status=10 已採用；或 Status IN (11,12) 結案判採用）。</summary>
-    public int AdoptedCount { get; set; }
-    /// <summary>不採用題數（Status=11 結案未採用；或 Status=12 結案不採用）。</summary>
-    public int RejectedCount { get; set; }
+    public string[] CategoryCells { get; set; } = ["－", "－", "－", "－", "－", "－"];
+    /// <summary>採用題數渲染字串（Status=12 數量；無資料來源則「－」）。</summary>
+    public string AdoptedCell  { get; set; } = "－";
+    /// <summary>不採用題數渲染字串（Status=11 數量；無資料來源則「－」）。</summary>
+    public string RejectedCell { get; set; } = "－";
 }
 
-/// <summary>匯出服務的回傳結果，包含梯次名稱與所有資料列。</summary>
+/// <summary>匯出服務的回傳結果，包含梯次名稱、等級、題型欄標題、與所有資料列。</summary>
 public class TeacherExportResult
 {
     public string ProjectName { get; set; } = "";
+    /// <summary>0=CWT, 1=LCT，對應 MT_Projects.ProjectType。</summary>
+    public byte ProjectType { get; set; }
+    /// <summary>專案等級顯示字串（CWT：「初等/中等/中高等/高等/優等」；LCT：「－」）。</summary>
+    public string ExamLevelLabel { get; set; } = "－";
+    /// <summary>6 個類型/難度欄的標題，隨 ProjectType 切換。</summary>
+    public string[] CategoryHeaders { get; set; } = new string[6];
     public List<TeacherExportRow> Rows { get; set; } = [];
 }

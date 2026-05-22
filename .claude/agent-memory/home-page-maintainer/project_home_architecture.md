@@ -4,11 +4,11 @@ description: Home.razor / HomeService.cs / HomeModel.cs 的實際結構與職責
 type: project
 ---
 
-## 檔案規模（2026-05-20 查核）
+## 檔案規模（2026-05-22 查核）
 
-- `Components/Pages/Home.razor` — 474 行（UI + @code 合計，無變化）
-- `Services/HomeService.cs` — 469 行（IHomeService 介面 + HomeService 實作 + 6 個 private sealed class）
-- `Models/HomeModel.cs` — 48 行（2 個 enum + 1 個 class，無變化）
+- `Components/Pages/Home.razor` — 474 行（UI + @code 合計）
+- `Services/HomeService.cs` — 512 行（IHomeService 介面 + HomeService 實作 + 6 個 private sealed class）
+- `Models/HomeModel.cs` — 49 行（2 個 enum + 1 個 class）
 
 ## Home.razor 架構重點
 
@@ -21,9 +21,10 @@ type: project
 
 ## HomeService.cs 架構重點
 
-- 依賴：`IDatabaseService`（Dapper）、`IAnnouncementService`（公告委派）、`ILogger<HomeService>`
+- 依賴：`IDatabaseService`（Dapper）、`IAnnouncementService`（公告委派）、`IQuestionService`（個人配額計算）、`ILogger<HomeService>`
 - **不依賴** `IMembershipService` 或 `IQuestionTypeCatalog`（第二波共用基底未整合至此）
 - 核心方法：`GetAnnouncementsAsync`（委派給 AnnouncementService）、`GetUrgentAlertsAsync`（主邏輯 — 10 結果集 QueryMultiple）
+- **額外 Service 呼叫**：`GetUrgentAlertsAsync` 在 10 結果集之外，額外呼叫 `_questionService.GetMyQuotaProgressAsync(userId, projectId)` 取得個人配額精確缺口（結果集 #3 的 SUM 算法不含子題 + 未 cap，因此改用 QuestionService 的 per-row 計算）
 - 閥值常數：`AlertThresholdDays = 5`、`CriticalThresholdDays = 2`（定義於類別頂部）
 - 角色語意常數（IsDefault=1）：`RoleProposer = "命題教師"`、`RoleExpert = "審題委員"`、`RoleConvener = "總召集人"`
 - 梯次 Category 常數：`CategoryInternal = 0`（對應 MT_Roles.Category 0=內部人員）
@@ -52,11 +53,12 @@ type: project
 **Why:** 防止無任務的使用者誤入頁面，比起在子頁面處理更能早期攔截。
 **How to apply:** 修改導航邏輯時須維持此防護。警示連結若未來改為帶 tab 參數（如 ?tab=compose），需在此處加 query string 而非在 module.PageUrl 硬編。
 
-## 已知技術債（2026-05-21 更新）
+## 已知技術債（2026-05-22 更新）
 
 1. **結果集 #4 與 #10 邏輯重複**：同一個「修題中本輪未回覆」SQL 在個人視角和管理員視角各寫一次（Plan_DB_PerfReview 已記錄）。
 2. **HomeService 未整合 IMembershipService**：結果集 #2（梯次角色）是 HomeService 自己打 DB，而非用第二波 #7 建好的 `IMembershipService` cache，是已知未整合殘餘。
-3. **使用說明手冊未串接 DB**：`MT_UserGuideFiles` 資料表存在（欄位：Id, FileName, FilePath, FileSize, UploadedBy, IsActive），`ShowManualComingSoon` 方法目前只顯示 Toast（swalInterop.fireToast），尚未串接真正下載。
+3. **使用說明手冊未串接 DB**：`MT_UserGuideFiles` 資料表存在，`ShowManualComingSoon` 方法目前只顯示 Toast（swalInterop.fireToast），尚未串接真正下載。
 4. **急件警示無直接連結**：alert 卡片點擊無跳頁行為（`warning_MODIFY.md` 規劃的 `?tab=compose/revision` 連結尚未實作到 Blazor 版本）。
 5. **SQL 評論不一致**：HomeService `const string sql` 標頭評論寫「8 個結果集」，實際有 10 個（管理員視角 9/10 未在標頭反映）。
 6. **CWT/LCT 未區分**：`GetUrgentAlertsAsync` 不讀取 `ProjectType`，LCT 梯次的配額缺口計算行為未驗證。詳見 `project_cwt_lct_distinction.md`。
+7. **個人配額計算雙重查詢**：`GetUrgentAlertsAsync` 在結果集 #3 外又呼叫 `_questionService.GetMyQuotaProgressAsync`（額外一次 DB 查詢），原因是結果集 #3 的 SUM 算法不含子題且未做 cap，屬補救性 workaround，未來應統一計算邏輯。

@@ -38,7 +38,7 @@ type: project
 ## UserAgent 取得
 
 - `Login.razor` 在 `OnAfterRenderAsync(firstRender)` 呼叫 `loginInterop.getUserAgent` JS Interop
-- `loginInterop` 定義在 `wwwroot/js/app.js`（第 77 行）；**不是獨立的 login-interop.js**（該檔案不存在）
+- `loginInterop` 定義在 `wwwroot/js/app.js`（第 223 行附近）；**不是獨立的 login-interop.js**（該檔案不存在）
 - 取得值存在 `browserUserAgent` 欄位，驗證碼失敗時就帶入 `LogLoginAttemptAsync`；密碼驗證由 `ValidateLoginAsync` 帶入
 - Pre-rendering 期間 JS Interop 會例外（無瀏覽器），用 try/catch 靜默忽略
 
