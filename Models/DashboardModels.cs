@@ -75,19 +75,14 @@ public class DashboardKpiDto
 
     // ── 卡片 2：已納入題庫（採用）──────────────────────────────
     /// <summary>STATUS = 9（採用）且 IsDeleted = 0 的總數。</summary>
+    /// <summary>
+    /// 卡片 2 大數字：本梯次採用總數（已含 CWT 母題+子題、LCT 聽力測驗 master+聽力題組整組）。
+    /// 由 SQL 端 sqlStatusCountsCwt / sqlStatusCountsLct 直接彙總（不分母子，雙軌統一單一欄位）。
+    /// </summary>
     public int AdoptedCount { get; set; }
 
-    /// <summary>
-    /// 採用的子題數（MT_SubQuestions.Status IN (9, 12)，依 ProjectType 題型範圍過濾）。
-    /// 卡片 2 大數字 = AdoptedCount（母題）+ AdoptedSubCount（子題）。
-    /// </summary>
-    public int AdoptedSubCount { get; set; }
-
-    /// <summary>
-    /// 卡片 2 顯示用：母題 + 子題採用合計。
-    /// CWT 排除聽力類（TypeId 6/7）；LCT 排除聽力題組母題（TypeId=7, SubId=NULL）。
-    /// </summary>
-    public int AdoptedTotal => AdoptedCount + AdoptedSubCount;
+    /// <summary>razor 顯示用別名（同 AdoptedCount）。歷史欄位保留以避免大量 razor 修改。</summary>
+    public int AdoptedTotal => AdoptedCount;
 
     /// <summary>採用率百分比（AdoptedTotal / TotalTarget * 100），已 clamp 0~100。</summary>
     public int AdoptedPercent => TotalTarget > 0

@@ -161,9 +161,8 @@ public class DashboardService : IDashboardService
 
         // ──────────────────────────────────────────────────────────────
         // 2. 卡片 2：採用計數（顯示真實，不 clamp — 超量視為「全部達成 + 紅利」）
-        //    決策 3：分子 = 採用母題 + 採用子題（Status IN 9,12）；不 clamp 在 Target 上限
+        //    分子 = 採用母題 + 採用子題（Status IN 9,12），整合進單一 AdoptedCount
         //    超量命題的責任歸屬在「逾期與緊急待辦」處理（HAVING 過濾），dashboard 大數字保留真實
-        //    AdoptedSubCount 固定 0：所有計數已加總入 AdoptedCount，不再雙軌
         // ──────────────────────────────────────────────────────────────
         const string sqlStatusCountsCwt = """
             SELECT
@@ -181,15 +180,13 @@ public class DashboardService : IDashboardService
                     JOIN   dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
                     WHERE  q.ProjectId = @pid AND q.IsDeleted = 0 AND sq.IsDeleted = 0
                       AND  q.QuestionTypeId IN (3, 5)
-                ), 0) AS AdoptedCount,
-                0 AS AdoptedSubCount
+                ), 0) AS AdoptedCount
             """;
 
         // LCT 採用計數（與 TargetBreakdown「1 整組 = 1 單位」對齊；不 clamp 顯示真實）：
         //   - 聽力測驗（TypeId=6）：master Status IN (9,12) → 1 單位
         //   - 聽力題組（TypeId=7）：整組採用 = 兩個 sub 都 Status IN (9,12) → 1 整組 1 單位
         //     規格規則：1 子題採用 + 1 子題不採用 = 整組淘汰，必須兩個 sub 都採用才算入庫
-        //   AdoptedSubCount 固定 0
         const string sqlStatusCountsLct = """
             SELECT
                 -- 聽力測驗 master 採用
@@ -207,8 +204,7 @@ public class DashboardService : IDashboardService
                             WHERE sq.ParentQuestionId = qp.Id
                               AND sq.IsDeleted = 0
                               AND sq.Status IN (9, 12)) = 2
-                ), 0) AS AdoptedCount,
-                0 AS AdoptedSubCount
+                ), 0) AS AdoptedCount
             """;
 
         // ──────────────────────────────────────────────────────────────
@@ -491,7 +487,6 @@ public class DashboardService : IDashboardService
             TotalTarget          = targetRows.Sum(r => r.TargetCount),
             TargetBreakdown      = targetRows,
             AdoptedCount         = counts?.AdoptedCount    ?? 0,
-            AdoptedSubCount      = counts?.AdoptedSubCount ?? 0,
             PhaseStatusType      = phaseStatusType,
             PhaseStatusText      = phaseStatusText,
             PhaseDaysRemaining   = phaseDaysRemaining,
@@ -1919,9 +1914,8 @@ public class DashboardService : IDashboardService
 
     private sealed class StatusCountRow
     {
-        public int AdoptedCount    { get; init; }
-        /// <summary>子題採用數（LCT 模式下聽力題組子題各自採用數；CWT 固定為 0）。</summary>
-        public int AdoptedSubCount { get; init; }
+        /// <summary>本梯次採用總數（CWT：master + sub；LCT：聽力測驗 master + 聽力題組整組）。SQL 端統一彙整。</summary>
+        public int AdoptedCount { get; init; }
     }
 
     /// <summary>卡片 3 審題進度查詢結果列（母題、子題各自獨立計數）。</summary>
