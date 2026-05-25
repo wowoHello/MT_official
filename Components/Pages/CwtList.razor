@@ -472,7 +472,7 @@
                                 @bind-Images="formData.Images" InvalidFields="invalidFields" />
                             break;
                         case QuestionTypeCodes.Listen:
-                            <QuestionFormListen @bind-AudioFileName="formData.AudioUrl" @bind-Stem="formData.Stem" @bind-Options="formData.Options" @bind-Answer="formData.Answer" @bind-Analysis="formData.Analysis"
+                            <QuestionFormListen @bind-AudioFileName="formData.AudioUrl" @bind-Stem="formData.Stem" @bind-ArticleContent="formData.ArticleContent" @bind-Options="formData.Options" @bind-Answer="formData.Answer" @bind-Analysis="formData.Analysis"
                                 @bind-Images="formData.Images" InvalidFields="invalidFields" />
                             break;
                         case QuestionTypeCodes.ListenGroup:
@@ -531,7 +531,8 @@
             break;
         case QuestionTypeCodes.Listen:
             <PreviewListen Level="@SelectedLevelLabel" Difficulty="@SelectedDifficultyLabel" Tags="@GetPreviewTags()"
-                AudioFileName="@formData.AudioUrl" Stem="@formData.Stem" Options="@formData.Options" Answer="@formData.Answer"
+                AudioFileName="@formData.AudioUrl" Stem="@formData.Stem" Content="@formData.ArticleContent"
+                Options="@formData.Options" Answer="@formData.Answer"
                 Images="@formData.Images"
                 HideOptionAnswerMarker="@(currentTab != "compose" || !IsEditableStatus(currentFormStatus))" />
             break;

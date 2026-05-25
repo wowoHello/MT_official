@@ -470,9 +470,9 @@ internal static class QuestionTextExtractor
     }
 
     /// <summary>
-    /// 聽力題（TypeId=6）：Stem 70% + 四選項 30%
-    /// 註：DB 端聽力題無獨立逐字稿欄位（命題端只有題幹/選項/音檔），
-    ///     比對公式因此與一般題雷同。
+    /// 聽力題（TypeId=6）：ArticleContent 70% + Stem 20% + 四選項 10%
+    /// 註：「內容」欄位（語音逐字稿/補充說明）對應 MT_Questions.ArticleContent，
+    ///     設計上與聽力題組的語音逐字稿語意一致，故權重結構同 ExtractListeningGroup。
     /// </summary>
     private static QuestionGramBundle ExtractListening(QuestionDraftSnapshot d)
     {
@@ -480,9 +480,10 @@ internal static class QuestionTextExtractor
         {
             MasterFields =
             {
-                (ToGramsNormalized(d.Stem), 70m),
+                (ToGramsNormalized(d.ArticleContent), 70m),
+                (ToGramsNormalized(d.Stem),           20m),
                 (ToGramsNormalized(JoinOptions(d.OptionA, d.OptionB,
-                                               d.OptionC, d.OptionD)), 30m)
+                                               d.OptionC, d.OptionD)), 10m)
             }
         };
     }

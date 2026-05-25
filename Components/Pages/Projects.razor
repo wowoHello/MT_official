@@ -611,26 +611,140 @@
                 <!-- 專案需求題數 / 組數 -->
                 <div class="@(IsCompositionPhaseEnded ? "bg-gray-100 p-3 rounded border border-gray-300 cursor-not-allowed" : "bg-white p-3 rounded border border-morandi/30")"
                      title="@(IsCompositionPhaseEnded ? "命題階段已結束，題數需求不可再修改" : null)">
-                    <label class="block text-sm font-bold text-gray-700 mb-2">專案需求題數 / 組數</label>
-                    @* CWT / LCT 皆 6 欄：CWT（一般/閱讀母/閱讀子/長文/短文母/短文子）、LCT（難度一~五 + 聽力題組）。 *@
-                    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 text-sm">
-                        @foreach (var qt in questionTypes)
+                    <label class="block text-sm font-bold text-gray-700 mb-3">專案需求題數 / 組數</label>
+                    @* 設計與「專案詳細 / 題型目標數量」同款：
+                       CWT — 題組類（閱讀/短文）用複合卡（母題 ↔ 子題環環相扣），單體題型用簡潔卡。
+                       LCT — 5 難度卡 + 1 聽力題組卡（題組以淡莫蘭迪邊框暗示「整組固定 2 子題」）。 *@
+                    @if (formModel.ProjectType == ProjectType.Lct)
+                    {
+                        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 items-stretch">
+                            @foreach (var qt in questionTypes)
+                            {
+                                if (!IsTypeVisibleForLevel(qt)) { continue; }
+                                var isLctGroup = qt.QuestionTypeId == 7;
+                                @if (isLctGroup)
+                                {
+                                    @* 聽力題組：呼應 CWT 複合卡的設計語言（漸層 + badge），暗示「整組 = 1 母題 + 2 固定子題」 *@
+                                    <div class="relative rounded-2xl px-2 pt-5 pb-2 border-2 border-morandi/40 bg-gradient-to-br from-morandi/15 via-white to-morandi/10 shadow-sm flex flex-col justify-between">
+                                        <div class="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-morandi text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-sm whitespace-nowrap flex items-center gap-1">
+                                            <i class="fa-solid fa-link-simple text-xs"></i> 聽力題組
+                                        </div>
+                                        <div class="relative">
+                                            <input type="number" min="0" @bind="qt.Count" placeholder="0"
+                                                disabled="@IsCompositionPhaseEnded"
+                                                class="w-full pl-1 pr-6 py-1.5 bg-white border border-gray-300 rounded text-sm text-center font-bold text-morandi focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
+                                            <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">@qt.Unit</span>
+                                        </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    @* 5 難度單卡 *@
+                                    <div class="bg-gray-50 border border-gray-200 rounded-2xl p-2 flex flex-col justify-center">
+                                        <div class="text-xs text-gray-500 text-center mb-1 truncate" title="@qt.Label">@qt.Label</div>
+                                        <div class="relative">
+                                            <input type="number" min="0" @bind="qt.Count" placeholder="0"
+                                                disabled="@IsCompositionPhaseEnded"
+                                                class="w-full pl-1 pr-6 py-1.5 bg-white border border-gray-300 rounded text-sm text-center font-bold text-slate-main focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
+                                            <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">@qt.Unit</span>
+                                        </div>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        var visibleGroups = questionTypes.Where(IsTypeVisibleForLevel)
+                            .GroupBy(t => t.QuestionTypeId)
+                            .OrderBy(g => g.Key)
+                            .Select(g => g.OrderBy(t => t.Granularity).ToList())
+                            .ToList();
+                        // 4 個 → sm 4 欄；5 個 → sm 5 欄；複合卡 col-span-2，arithmetic 剛好填滿。
+                        var cwtGridCols = VisibleTypeCount switch
                         {
-                            <div>
-                                <label class="text-xs text-gray-500 mb-0.5 block truncate" title="@qt.Label">@qt.Label</label>
-                                <div class="relative">
-                                    <input type="number" min="0" @bind="qt.Count" placeholder="0"
-                                        disabled="@IsCompositionPhaseEnded"
-                                        class="w-full pl-1 pr-7 py-1 bg-white border border-gray-300 rounded text-sm text-center focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
-                                    <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">@qt.Unit</span>
-                                </div>
-                            </div>
-                        }
-                    </div>
-                    <p class="text-xs text-gray-400 mt-2 flex items-center gap-1">
-                        <i class="fa-solid fa-circle-info text-morandi"></i>
-                        題組類以「組」為單位分配；每組實際子題數由命題老師依內容決定（聽力題組固定 2 子題）。
-                    </p>
+                            <= 4 => "grid-cols-1 sm:grid-cols-4",
+                            5    => "grid-cols-1 sm:grid-cols-5",
+                            _    => "grid-cols-1 sm:grid-cols-6",
+                        };
+                        <div class="grid @cwtGridCols gap-3 items-stretch">
+                            @foreach (var grp in visibleGroups)
+                            {
+                                var isCompound = grp.Count == 2;
+                                var typeName = GetTypeName(grp[0].QuestionTypeId);
+
+                                if (isCompound)
+                                {
+                                    var master = grp[0];
+                                    var sub = grp[1];
+                                    // 防呆：子題數應 ≥ 母題數
+                                    var invalid = (sub.Count ?? 0) < (master.Count ?? 0);
+                                    var shellBorder = invalid ? "border-terracotta/60" : "border-morandi/25";
+                                    var shellBg = invalid
+                                        ? "bg-gradient-to-r from-terracotta/10 via-white to-terracotta/10"
+                                        : "bg-gradient-to-r from-morandi/10 via-white to-morandi/10";
+                                    var badgeBg = invalid ? "bg-terracotta" : "bg-morandi";
+                                    var linkIcon = invalid ? "fa-link-slash text-terracotta/70" : "fa-link text-morandi/60";
+                                    var bubbleBorder = invalid ? "border-terracotta/40" : "border-morandi/30";
+                                    var bubbleText = invalid ? "text-terracotta" : "text-morandi";
+                                    var inputRing = invalid ? "focus:ring-terracotta" : "focus:ring-morandi";
+
+                                    @* 複合卡：外殼漸層 + 內部兩泡泡 + 中央 link icon；子題<母題時整卡改紅色警示 *@
+                                    <div class="sm:col-span-2 relative rounded-2xl px-3 pt-5 pb-3 border-2 @shellBorder @shellBg shadow-sm transition-colors">
+                                        @* 浮在左上角的題組標題 badge *@
+                                        <div class="absolute -top-2.5 left-4 @badgeBg text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1">
+                                            <i class="fa-solid fa-link-simple text-xs"></i> @typeName
+                                        </div>
+                                        <div class="flex items-center gap-2">
+                                            @* 母題泡泡 *@
+                                            <div class="flex-1 bg-white rounded-xl border @bubbleBorder px-2 pt-1.5 pb-2 text-center shadow-sm">
+                                                <div class="text-xs text-gray-500 mb-1">母題</div>
+                                                <div class="relative">
+                                                    <input type="number" min="0" @bind="master.Count" placeholder="0"
+                                                        disabled="@IsCompositionPhaseEnded"
+                                                        class="w-full pl-1 pr-6 py-1 bg-white border border-gray-300 rounded text-sm text-center font-bold @bubbleText focus:outline-none focus:ring-1 @inputRing focus:border-morandi disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
+                                                    <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">@master.Unit</span>
+                                                </div>
+                                            </div>
+                                            @* 連結圖示：環環相扣（鎖鏈）／環脫節（破鏈）依驗證狀態切換 *@
+                                            <i class="fa-solid @linkIcon shrink-0"></i>
+                                            @* 子題泡泡 *@
+                                            <div class="flex-1 bg-white rounded-xl border @bubbleBorder px-2 pt-1.5 pb-2 text-center shadow-sm">
+                                                <div class="text-xs text-gray-500 mb-1">子題</div>
+                                                <div class="relative">
+                                                    <input type="number" min="0" @bind="sub.Count" placeholder="0"
+                                                        disabled="@IsCompositionPhaseEnded"
+                                                        class="w-full pl-1 pr-6 py-1 bg-white border border-gray-300 rounded text-sm text-center font-bold @bubbleText focus:outline-none focus:ring-1 @inputRing focus:border-morandi disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
+                                                    <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">@sub.Unit</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        @if (invalid)
+                                        {
+                                            <div class="mt-2 text-xs text-terracotta font-bold flex items-center justify-center gap-1">
+                                                <i class="fa-solid fa-triangle-exclamation"></i>
+                                                子題數須 ≥ 母題數
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                else
+                                {
+                                    var single = grp[0];
+                                    @* 單體題型：簡潔卡，與複合卡視覺份量明顯區分 *@
+                                    <div class="bg-gray-50 border border-gray-200 rounded-2xl p-3 flex flex-col justify-center">
+                                        <div class="text-xs text-gray-500 text-center mb-1.5">@typeName</div>
+                                        <div class="relative">
+                                            <input type="number" min="0" @bind="single.Count" placeholder="0"
+                                                disabled="@IsCompositionPhaseEnded"
+                                                class="w-full pl-1 pr-6 py-1.5 bg-white border border-gray-300 rounded text-sm text-center font-bold text-slate-main focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed" />
+                                            <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">@single.Unit</span>
+                                        </div>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    }
                     @if (IsCompositionPhaseEnded)
                     {
                         <p class="text-xs text-terracotta mt-2 font-bold flex items-center gap-1">
@@ -798,10 +912,11 @@
                                     <div class="w-8 h-8 rounded-full bg-morandi text-white flex items-center justify-center font-bold text-xs">@(idx + 1)</div>
                                     <div class="font-bold text-sm text-slate-main truncate">@teacher.Name</div>
                                 </div>
-                                <div class="flex-grow grid grid-cols-4 sm:grid-cols-6 gap-2 w-full">
+                                <div class="flex-grow grid @CompactGridCols gap-2 w-full">
                                     @for (int j = 0; j < questionTypes.Count; j++)
                                     {
                                         var qIdx = j;
+                                        if (!IsTypeVisibleForLevel(questionTypes[qIdx])) { continue; }
                                         <div>
                                             <label class="block text-xs text-gray-500 mb-0.5 truncate" title="@questionTypes[qIdx].Label">@questionTypes[qIdx].Label</label>
                                             <div class="relative">
@@ -825,10 +940,11 @@
                         <span>分配狀態檢核：(已分配 / 需分配)</span>
                         <span>@GetValidationMessage()</span>
                     </div>
-                    <div class="grid grid-cols-4 sm:grid-cols-6 gap-1">
+                    <div class="grid @CompactGridCols gap-1">
                         @for (int i = 0; i < questionTypes.Count; i++)
                         {
                             var qt = questionTypes[i];
+                            if (!IsTypeVisibleForLevel(qt)) { continue; }
                             var target = qt.Count ?? 0;
                             var allocated = GetAllocatedSum(i);
                             var isExact = allocated == target;
@@ -1139,14 +1255,77 @@
 
     /// <summary>
     /// 命題等級下拉變更（僅 CWT 模式可達；編輯模式 disabled 不觸發）。
+    /// 變更後將不適用此等級的題型 Count + 教師 Quotas 歸零，避免隱形數字影響驗證與寫入。
     /// </summary>
     private void OnExamLevelChanged(ChangeEventArgs e)
     {
         if (byte.TryParse(e.Value?.ToString(), out var lv))
         {
             formModel.ExamLevel = lv;
+            ZeroOutHiddenTypes();
         }
     }
+
+    /// <summary>
+    /// 判斷某題型是否應在當前 ExamLevel 下顯示。
+    /// CWT 規則：
+    ///   一般單選題 (TypeId=1)：僅 初等/中等/中高等 (0/1/2) 顯示。
+    ///   短文題組母/子題 (TypeId=5)：僅 高等/優等 (3/4) 顯示。
+    /// LCT 與其他 CWT 題型（閱讀題組 3 / 長文題目 4）皆無此限制。
+    /// </summary>
+    private bool IsTypeVisibleForLevel(QuestionTypeTarget qt)
+    {
+        if (formModel.ProjectType != ProjectType.Cwt) return true;
+        var level = formModel.ExamLevel ?? 0;
+
+        return qt.QuestionTypeId switch
+        {
+            1 => level <= 2, // 一般單選題：初等/中等/中高等
+            5 => level >= 3, // 短文題組：高等/優等
+            _ => true
+        };
+    }
+
+    /// <summary>等級切換後，將不適用此等級的題型 Count + 教師 Quotas 歸零。</summary>
+    private void ZeroOutHiddenTypes()
+    {
+        for (int i = 0; i < questionTypes.Count; i++)
+        {
+            if (IsTypeVisibleForLevel(questionTypes[i])) continue;
+
+            questionTypes[i].Count = 0;
+            foreach (var teacher in allocationTeachers)
+            {
+                if (i < teacher.Quotas.Length) teacher.Quotas[i] = 0;
+            }
+        }
+    }
+
+    /// <summary>目前畫面中可見的題型數量（4=初等/中等/中高等、5=高等/優等、6=LCT 或無過濾情境）。</summary>
+    private int VisibleTypeCount => questionTypes.Count(IsTypeVisibleForLevel);
+
+    /// <summary>
+    /// 區塊 4 教師配額 + 分配狀態檢核 grid 欄位數（緊湊小框版型）：
+    /// 4 個 → sm 4 欄；5 個 → sm 5 欄；其他 → sm 6 欄；mobile 一律 2 欄。
+    /// </summary>
+    private string CompactGridCols => VisibleTypeCount switch
+    {
+        <= 4 => "grid-cols-2 sm:grid-cols-4",
+        5    => "grid-cols-2 sm:grid-cols-5",
+        _    => "grid-cols-2 sm:grid-cols-6",
+    };
+
+    /// <summary>題型 Id → 顯示名稱（與 QuestionTypeCatalog 一致；此處 hard-coded 因為列表固定 7 項）。</summary>
+    private static string GetTypeName(int questionTypeId) => questionTypeId switch
+    {
+        1 => "一般單選題",
+        3 => "閱讀題組",
+        4 => "長文題目",
+        5 => "短文題組",
+        6 => "聽力測驗",
+        7 => "聽力題組",
+        _ => "其他",
+    };
 
     /// <summary>初始化 8 階段時程（空白日期）</summary>
     private void InitStages()
@@ -1644,6 +1823,23 @@
         {
             await ShowAlertAsync("warning", "驗證未通過", "請設定產學計畫區間的起訖日期");
             return;
+        }
+
+        // 防呆：題組類（閱讀=3、短文=5）的子題數必須 ≥ 母題數，否則資料無法成組。
+        // ZeroOutHiddenTypes 已把不適用等級的題型歸零，這裡 0 ≥ 0 自然通過。
+        foreach (var groupTypeId in new[] { 3, 5 })
+        {
+            var master = questionTypes.FirstOrDefault(qt => qt.QuestionTypeId == groupTypeId && qt.Granularity == 0);
+            var sub = questionTypes.FirstOrDefault(qt => qt.QuestionTypeId == groupTypeId && qt.Granularity == 1);
+            if (master is null || sub is null) continue;
+            var masterCount = master.Count ?? 0;
+            var subCount = sub.Count ?? 0;
+            if (subCount < masterCount)
+            {
+                await ShowAlertAsync("warning", "驗證未通過",
+                    $"「{GetTypeName(groupTypeId)}」的子題數 ({subCount}) 不可少於母題數 ({masterCount})。");
+                return;
+            }
         }
 
         for (var i = 0; i < questionTypes.Count; i++)

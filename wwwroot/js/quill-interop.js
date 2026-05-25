@@ -5,14 +5,15 @@
  * 效能策略：Quill 實例常駐，首次展開才初始化，後續開關僅填入/取回內容
  */
 
-// 字體是否已註冊
-let fontRegistered = false;
+// 全域註冊狀態（字體 / 自訂格式 / 自訂 icon 只能跑一次）
+let globalsRegistered = false;
 
 // 工具列設定（明確指定 whitelist，不依賴空陣列）
+// double-underline 為自訂 ClassAttributor（見 _create 內註冊），輸出 <span class="ql-double-underline">
 const toolbarOptions = [
     [{ font: ['times-new-roman', 'dfkai-sb'] }, { size: ['small', false, 'large'] }],
     [{ color: [] }, { align: [] }],
-    ['bold', 'underline', 'strike'],
+    ['bold', 'underline', 'double-underline', 'strike'],
     [{ list: 'ordered' }, { list: 'bullet' }, { indent: '-1' }, { indent: '+1' }],
     ['clean']
 ];
@@ -33,12 +34,30 @@ window.QuillInterop = {
 
     /** 內部：建立 Quill 實例（僅首次呼叫） */
     _create(containerId, dotNetRef, toolbarMode) {
-        // 註冊自訂字體（只執行一次）
-        if (!fontRegistered) {
+        // 註冊全域：字體 whitelist、自訂 double-underline 格式、自訂 toolbar icon（只執行一次）
+        if (!globalsRegistered) {
+            // 字體 whitelist
             const Font = Quill.import('formats/font');
             Font.whitelist = ['dfkai-sb', 'times-new-roman'];
             Quill.register(Font, true);
-            fontRegistered = true;
+
+            // 自訂格式：雙底線（ClassAttributor，輸出 <span class="ql-double-underline">）
+            const Parchment = Quill.import('parchment');
+            const DoubleUnderline = new Parchment.ClassAttributor('double-underline', 'ql-double-underline', {
+                scope: Parchment.Scope.INLINE
+            });
+            Quill.register(DoubleUnderline, true);
+
+            // 自訂 toolbar icon：仿 Quill 內建 underline icon，把單條底線改為雙條
+            const icons = Quill.import('ui/icons');
+            icons['double-underline'] =
+                '<svg viewBox="0 0 18 18">' +
+                  '<path class="ql-stroke" d="M5,3V9a4.012,4.012,0,0,0,4,4H9a4.012,4.012,0,0,0,4-4V3"></path>' +
+                  '<rect class="ql-fill" height="1" rx="0.5" ry="0.5" width="12" x="3" y="14"></rect>' +
+                  '<rect class="ql-fill" height="1" rx="0.5" ry="0.5" width="12" x="3" y="16"></rect>' +
+                '</svg>';
+
+            globalsRegistered = true;
         }
 
         const isSimple = toolbarMode === 'simple';
@@ -48,31 +67,53 @@ window.QuillInterop = {
             modules: { toolbar: pickToolbar(toolbarMode) }
         });
 
-        // 圖片上傳 handler 僅在完整工具列下註冊（simple 模式無圖片按鈕）
-        if (!isSimple) quill.getModule('toolbar').addHandler('image', () => {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = 'image/png, image/jpeg, image/gif, image/webp';
-            input.onchange = async () => {
-                const file = input.files?.[0];
-                if (!file) return;
-                if (file.size > 5 * 1024 * 1024) {
-                    alert('圖片大小不可超過 5MB');
-                    return;
-                }
-                const formData = new FormData();
-                formData.append('file', file);
-                try {
-                    const res = await fetch('/api/upload', { method: 'POST', body: formData });
-                    const data = await res.json();
-                    if (!res.ok) { alert(data.error || '上傳失敗'); return; }
-                    const range = quill.getSelection(true);
-                    quill.insertEmbed(range.index, 'image', data.url);
-                    quill.setSelection(range.index + 1);
-                } catch { alert('圖片上傳失敗，請稍後再試'); }
-            };
-            input.click();
-        });
+        // 圖片上傳 + 單/雙底線互斥（僅在完整工具列下註冊；simple 模式無圖片與雙底線按鈕）
+        if (!isSimple) {
+            const toolbar = quill.getModule('toolbar');
+
+            toolbar.addHandler('image', () => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/png, image/jpeg, image/gif, image/webp';
+                input.onchange = async () => {
+                    const file = input.files?.[0];
+                    if (!file) return;
+                    if (file.size > 5 * 1024 * 1024) {
+                        alert('圖片大小不可超過 5MB');
+                        return;
+                    }
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    try {
+                        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                        const data = await res.json();
+                        if (!res.ok) { alert(data.error || '上傳失敗'); return; }
+                        const range = quill.getSelection(true);
+                        quill.insertEmbed(range.index, 'image', data.url);
+                        quill.setSelection(range.index + 1);
+                    } catch { alert('圖片上傳失敗，請稍後再試'); }
+                };
+                input.click();
+            });
+
+            // 單底線：開啟時先關閉雙底線（同段文字僅能擇一種底線樣式）
+            toolbar.addHandler('underline', function () {
+                const range = this.quill.getSelection(true);
+                if (!range) return;
+                const willEnable = !this.quill.getFormat(range)['underline'];
+                if (willEnable) this.quill.format('double-underline', false);
+                this.quill.format('underline', willEnable);
+            });
+
+            // 雙底線：開啟時先關閉單底線
+            toolbar.addHandler('double-underline', function () {
+                const range = this.quill.getSelection(true);
+                if (!range) return;
+                const willEnable = !this.quill.getFormat(range)['double-underline'];
+                if (willEnable) this.quill.format('underline', false);
+                this.quill.format('double-underline', willEnable);
+            });
+        }
 
         // 即時同步：字數 + HTML 內容（500ms 防抖）
         let debounceTimer;

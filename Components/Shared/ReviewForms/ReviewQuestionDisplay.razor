@@ -35,7 +35,8 @@
             case QuestionTypeCodes.Listen:
                 @RenderInPaperShell(@<text><PreviewListen Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
                                 Tags="@BuildTags()" AudioFileName="@(Question.AudioUrl ?? "")"
-                                Stem="@(Question.Stem ?? "")" Options="@Question.Options"
+                                Stem="@(Question.Stem ?? "")" Content="@(Question.ArticleContent ?? "")"
+                                Options="@Question.Options"
                                 Answer="@(Question.Answer ?? "")"
                                 Images="@Question.Images" HideOptionAnswerMarker="true" /></text>)
                 @RenderAnalysisSection

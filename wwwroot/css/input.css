@@ -50,6 +50,16 @@ html { font-size: 120%; }
         box-shadow: 0 10px 25px -5px rgba(107, 142, 173, 0.2);
     }
 
+    /* Quill 自訂格式：雙底線（quill-interop.js 註冊 ClassAttributor 後輸出 .ql-double-underline-true）*/
+    /* ⚠️ Parchment ClassAttributor 會自動把 format value 串到 class 後面：value=true → -true 後綴 */
+    /* 編輯器 + 預覽 / 審題 / 詳情 (MarkupString) 三方共用，故寫在全站 CSS 內 */
+    /* text-decoration-thickness + offset 讓兩條線分得更開，避免在小字下與單底線難以分辨 */
+    .ql-double-underline-true {
+        text-decoration: underline double;
+        text-decoration-thickness: 2px;
+        text-underline-offset: 3px;
+    }
+
     /* ===== 審題劃記評語 (annotation) — 由 annotation.js 動態插入 <mark> ===== */
     /* 共通樣式：底線粗體式高亮，hover 變濃；保留原文閱讀清晰度 */
     mark.annot {

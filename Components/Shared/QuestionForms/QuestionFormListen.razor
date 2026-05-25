@@ -1,7 +1,9 @@
 @* ====================================================================== *@
 @*  QuestionFormListen — 聽力測驗 命題表單                                  *@
-@*  結構：音檔上傳 + 題幹（Quill）+ 四選項（A-D 2×2）+ 解析（Quill）       *@
+@*  結構：音檔上傳 + 題目（Quill）+ 內容（Quill，語音逐字稿）              *@
+@*        + 四選項（A-D 2×2）+ 解析（Quill）                                *@
 @*  屬性側欄：核心能力（等級連動）+ 細目指標 + 語音類型 + 素材分類          *@
+@*  ※「內容」對應 MT_Questions.ArticleContent（DB 註解「文章/語音內容」）  *@
 @* ====================================================================== *@
 @using MT.Components.Shared
 
@@ -13,9 +15,14 @@
             AudioUrlChanged="v => { AudioFileName = v; AudioFileNameChanged.InvokeAsync(v); }" />
     </FormSectionCard>
 
-    <FormSectionCard Title="題幹" Icon="fa-pen" Required="true"
+    <FormSectionCard Title="題目" Icon="fa-pen" Required="true"
         DataField="Stem" ContainerClass="@InvalidRing("Stem")">
-        <QuillField Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="題幹" Placeholder="點擊此處開始編輯題幹內容..." />
+        <QuillField Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="題目" Placeholder="點擊此處開始編輯題目內容..." />
+    </FormSectionCard>
+
+    <FormSectionCard Title="內容" Icon="fa-align-left" HintText="語音逐字稿或補充說明（選填）"
+        DataField="ArticleContent" ContainerClass="@InvalidRing("ArticleContent")">
+        <QuillField Value="@ArticleContent" ValueChanged="v => { ArticleContent = v; ArticleContentChanged.InvokeAsync(v); }" FieldLabel="內容" Placeholder="點擊此處輸入語音逐字稿或補充內容..." />
     </FormSectionCard>
 
     <FormSectionCard Title="選項與答案" Icon="fa-list-ol" Required="true" HintText="請點選正確答案"
@@ -42,6 +49,10 @@
 
     [Parameter] public string Stem { get; set; } = "";
     [Parameter] public EventCallback<string> StemChanged { get; set; }
+
+    /// <summary>語音逐字稿/補充內容（對應 MT_Questions.ArticleContent）。</summary>
+    [Parameter] public string ArticleContent { get; set; } = "";
+    [Parameter] public EventCallback<string> ArticleContentChanged { get; set; }
 
     [Parameter] public string[] Options { get; set; } = ["", "", "", ""];
     [Parameter] public EventCallback<string[]> OptionsChanged { get; set; }
