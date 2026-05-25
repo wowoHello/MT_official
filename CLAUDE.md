@@ -91,11 +91,10 @@ JS interop 檔位於 `wwwroot/js/`：`login-interop.js`、`quill-interop.js`、`
 - 審題：`Shared/ReviewForms/` 下 `ReviewModal`、`ReviewActionPanel`、`ReviewDecisionBar`、`ReviewQuestionDisplay`、`ReviewHistoryTimeline`、`ReviewSimilarityBanner`。
 
 ### 資料庫連線解析（`Services/DatabaseService.cs`）
-連線字串解析順序：
-1. **環境變數 / IIS 設定**：`MT_SQL_Server`、`MT_SQL_Database`、`MT_SQL_UserId`、`MT_SQL_UserPassword`（四個都有值才會用，自動加 `TrustServerCertificate=true`）。
-2. **fallback**：`appsettings*.json` 的 `ConnectionStrings:DefaultConnection`。
+連線字串直接讀 `appsettings.json` 的 `ConnectionStrings:DefaultConnection`。Dev 環境可在 `appsettings.Development.json` 覆寫同 key。兩份 appsettings 均含明文密碼，請確保 repo 私有。
 
-> **IIS 發佈陷阱**：`dotnet publish` 會覆蓋 `web.config`，發佈完務必重新加回 `MT_SQL_*` 四個 `<environmentVariable>`，否則站台連不上 DB。
+### SMTP 設定（`Services/EmailService.cs`）
+從 `appsettings.json` 的 `Smtp` 區段讀 5 個 key：`Server`（預設 smtp.gmail.com）、`Port`（預設 587）、`User`、`Password`、`FromDisplayName`（預設 "CWT 命題工作平臺"）。User/Password 未設定時，呼叫忘記密碼功能會拋既有錯訊息「系統尚未完成 SMTP 設定...」。
 
 ### 認證流程細節
 - Razor 元件不能直接寫 Cookie（沒有 `HttpResponse`），所以：
@@ -172,7 +171,7 @@ JS interop 檔位於 `wwwroot/js/`：`login-interop.js`、`quill-interop.js`、`
 
 - **建置**：每次修改後 `dotnet build`，編譯通過才提案完成。
 - **瀏覽器**：UI 改動需用 dev-browser 工具開頁面實測，驗證 Tailwind 排版、Modal、表單流程、響應式佈局。
-- **資料庫**：本機需有 SQL Server 並設定 `MT_SQL_*` 環境變數或 `appsettings.Development.json` 的 `ConnectionStrings:DefaultConnection`。
+- **資料庫**：本機需有 SQL Server 並透過 `appsettings.json`（或覆寫於 `appsettings.Development.json`）的 `ConnectionStrings:DefaultConnection` 提供連線字串。
 > 若需要查看資料庫資料表內容，將查詢語法提供給我，由我負責查詢後提供截圖。
 - 沒有獨立測試專案；以建置 + 手動驗證為最低門檻。
 

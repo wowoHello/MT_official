@@ -122,8 +122,8 @@
             ReviewDecision.Reject  => ("不採用",     "bg-red-50 text-red-700 border-red-200"),
             // Decision null + Completed → 互審只給意見的場景
             _ => unit.Stage == ReviewStage.Mutual
-                ? ("已給意見", "bg-morandi/15 text-morandi border-morandi/30")
-                : ("已審",     "bg-gray-100 text-gray-600 border-gray-300")
+                ? ("已審閱", "bg-morandi/15 text-morandi border-morandi/30")
+                : ("已審閱", "bg-gray-100 text-gray-600 border-gray-300")
         };
     }
 
@@ -227,6 +227,9 @@
                 tags["寫作模式"] = Lab(Question.WritingMode, QuestionConstants.WritingModeLabels);
                 break;
             case QuestionTypeCodes.ReadGroup:
+                // 閱讀題組母題固定 Topic=6 / Subtopic=17（與短文題組一致）
+                tags["主類"] = "文意判讀";
+                tags["次類"] = "篇章辨析";
                 tags["文體"] = Lab(Question.Genre, QuestionConstants.GenreLabels);
                 break;
             case QuestionTypeCodes.ShortGroup:
@@ -663,7 +666,6 @@
                     <i class="fa-solid fa-lock text-sm text-morandi/80"></i>
                 </span>
                 <div class="flex flex-col leading-tight">
-                    <span class="text-xs font-medium tracking-wider text-slate-500">命題教師專屬</span>
                     <span class="text-sm font-bold text-slate-700">審題參考資訊（題旨說明與解題詮釋）</span>
                 </div>
                 <i class="fa-solid fa-chevron-down ml-auto text-sm text-slate-400 transition-transform duration-200 group-open:rotate-180"></i>

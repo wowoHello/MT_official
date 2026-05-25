@@ -596,6 +596,9 @@ public class OverviewService(
                 tags["寫作模式"] = Lab(f.WritingMode, QuestionConstants.WritingModeLabels);
                 break;
             case QuestionTypeCodes.ReadGroup:
+                // 閱讀題組母題固定 Topic=6 / Subtopic=17（與短文題組一致）
+                tags["主類"] = "文意判讀";
+                tags["次類"] = "篇章辨析";
                 tags["文體"] = Lab(f.Genre, QuestionConstants.GenreLabels);
                 break;
             case QuestionTypeCodes.ShortGroup:

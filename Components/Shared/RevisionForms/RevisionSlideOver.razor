@@ -162,6 +162,8 @@
                                         <QuestionAttributesSidebar IsCollapsed="sidebarCollapsed"
                                             LockQuestionType="true"
                                             QuestionType="@data.Question.QuestionType" QuestionTypeChanged="OnQuestionTypeChanged"
+                                            ProjectType="@(CurrentProject?.ProjectType ?? ProjectType.Cwt)"
+                                            ExamLevel="@CurrentProject?.ExamLevel"
                                             @bind-Level="data.Question.Level" @bind-Difficulty="data.Question.Difficulty"
                                             @bind-Topic="data.Question.Topic" @bind-Subtopic="data.Question.Subtopic"
                                             @bind-WritingMode="data.Question.WritingMode" @bind-Genre="data.Question.Genre"
@@ -361,6 +363,13 @@
 }
 
 @code {
+    /// <summary>
+    /// 當前梯次（由 MainLayout 透過 CascadingValue 注入）—— 提供 ProjectType / ExamLevel 給屬性側欄
+    /// 過濾題型下拉，避免 LCT 題目編輯時題型下拉因 fallback 為 Cwt 而抓不到 Listen / ListenGroup 顯示空白。
+    /// </summary>
+    [CascadingParameter(Name = "CurrentProject")]
+    private ProjectSwitcherItem? CurrentProject { get; set; }
+
     [Parameter] public bool IsVisible { get; set; }
     [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
 

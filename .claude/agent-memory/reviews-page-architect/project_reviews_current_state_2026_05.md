@@ -1,10 +1,10 @@
 ---
 name: 審題頁面現況快照（2026-05）
-description: Reviews.razor / ReviewService / ReviewModels 於 2026-05-22 的實作現況摘要，含狀態流轉、三審制度、迴避邏輯、效能優化歷史
+description: Reviews.razor / ReviewService / ReviewModels 於 2026-05-25 的實作現況摘要，含狀態流轉、三審制度、迴避邏輯、效能優化歷史
 type: project
 ---
 
-## 現況摘要（最後更新：2026-05-22）
+## 現況摘要（最後更新：2026-05-25）
 
 ### 三審制度現況實作（正確落地）
 - **互審（ReviewStage.Mutual=1）**：PhaseCode=3；分配排除命題者自身；ReviewDecisionBar 只顯示「儲存意見」/「修改意見」，無採用/退回鈕
@@ -42,11 +42,12 @@ PhaseCode → Stage 對照（在 GetMyAssignmentsAsync 中設值）：
 - BumpReturnCount 後 ReturnCount+1 >= 3 → CanEditByReviewer=1 → 解鎖「編輯題目」橘鈕
 - 母題與子題各自獨立計次（SubQuestionId NULL-safe 比對）
 
-### 三檔行數量級（2026-05-22 量測）
-- `ReviewService.cs`：1700 行（+11 行；含所有 private sealed DTO：AssignmentListRow / HistoryListRow / AssignmentDto / HistoryUnionRow / SimilarityRow / SiblingUnitRow / ReturnCountDto / AssignmentMetaDto / FinalEditAssignMeta / AssignmentMetaForSave 共 10 個）
-- `Reviews.razor`：1332 行（-1 行，細微整理）
-- `ReviewModels.cs`：327 行（與上次相同，無變動）
+### 三檔行數量級（2026-05-25 量測）
+- `ReviewService.cs`：1702 行（含 10 個 private sealed DTO：AssignmentListRow / HistoryListRow / AssignmentDto / HistoryUnionRow / SimilarityRow / SiblingUnitRow / ReturnCountDto / AssignmentMetaDto / FinalEditAssignMeta / AssignmentMetaForSave）
+- `Reviews.razor`：1344 行（+12 行；自然增長，無大型功能新增）
+- `ReviewModels.cs`：327 行（無變動）
 - `Components/Shared/ReviewForms/`：6 個元件（ReviewModal / ReviewActionPanel / ReviewDecisionBar / ReviewQuestionDisplay / ReviewHistoryTimeline / ReviewSimilarityBanner）
+- `Components/Shared/RevisionForms/`：3 個元件（RevisionReferencePanel / RevisionSlideOver / RevisionReplyEditor）
 
 ### ReviewService 關鍵方法（現況）
 - `GetMyAssignmentsAsync`：ROW_NUMBER CTE 去重同單元多筆，排除 Status IN (9,10,11,12)

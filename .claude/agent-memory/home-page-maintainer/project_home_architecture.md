@@ -4,10 +4,10 @@ description: Home.razor / HomeService.cs / HomeModel.cs 的實際結構與職責
 type: project
 ---
 
-## 檔案規模（2026-05-22 查核）
+## 檔案規模（2026-05-25 查核）
 
 - `Components/Pages/Home.razor` — 474 行（UI + @code 合計）
-- `Services/HomeService.cs` — 512 行（IHomeService 介面 + HomeService 實作 + 6 個 private sealed class）
+- `Services/HomeService.cs` — 513 行（IHomeService 介面 + HomeService 實作 + 6 個 private sealed class）
 - `Models/HomeModel.cs` — 49 行（2 個 enum + 1 個 class）
 
 ## Home.razor 架構重點
@@ -53,7 +53,7 @@ type: project
 **Why:** 防止無任務的使用者誤入頁面，比起在子頁面處理更能早期攔截。
 **How to apply:** 修改導航邏輯時須維持此防護。警示連結若未來改為帶 tab 參數（如 ?tab=compose），需在此處加 query string 而非在 module.PageUrl 硬編。
 
-## 已知技術債（2026-05-22 更新）
+## 已知技術債（2026-05-25 查核，與 2026-05-22 相同，無新增/消除）
 
 1. **結果集 #4 與 #10 邏輯重複**：同一個「修題中本輪未回覆」SQL 在個人視角和管理員視角各寫一次（Plan_DB_PerfReview 已記錄）。
 2. **HomeService 未整合 IMembershipService**：結果集 #2（梯次角色）是 HomeService 自己打 DB，而非用第二波 #7 建好的 `IMembershipService` cache，是已知未整合殘餘。

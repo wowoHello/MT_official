@@ -156,8 +156,15 @@ public static class QuestionConstants
         [4] = [13, 14],
         [5] = [15],
         [6] = [16]
-        // 短文題組固定 Topic=6 / Subtopic=17（篇章辨析）不放在級聯，前端寫死
+        // 閱讀題組 / 短文題組母題固定 Topic=6 / Subtopic=17（文意判讀 / 篇章辨析）不放在級聯，
+        // 由 QuestionFormData.NormalizeFixedAttributes() 於儲存前統一補入 DB。
     };
+
+    /// <summary>閱讀題組 / 短文題組母題固定主類：文意判讀（TopicLabels[6]）。</summary>
+    public const byte FixedGroupTopicId = 6;
+
+    /// <summary>閱讀題組 / 短文題組母題固定次類：篇章辨析（SubtopicLabels[17]）。</summary>
+    public const byte FixedGroupSubtopicId = 17;
 
     // ----- Genre / Material / WritingMode / AudioType -----
     public static readonly Dictionary<byte, string> GenreLabels       = new()
@@ -618,6 +625,22 @@ public class QuestionFormData
 
     /// <summary>題目最後編輯時間（審題 Modal 顯示用，由 GetByIdAsync 填入）</summary>
     public DateTime UpdatedAt { get; set; }
+
+    /// <summary>
+    /// 儲存前統一補上「題型固定屬性」：
+    /// 閱讀題組 / 短文題組母題的 Topic（主類）/ Subtopic（次類）一律固定為
+    /// 6（文意判讀）/ 17（篇章辨析），不論前端是否帶值，保證 DB 一致性。
+    /// 所有寫入 MT_Questions 的入口（CreateAsync / UpdateAsync / SaveRevisionAsync /
+    /// FinalReviewerEditAndDecideAsync）都應在組 SQL 參數前先呼叫此方法。
+    /// </summary>
+    public void NormalizeFixedAttributes()
+    {
+        if (QuestionType is QuestionTypeCodes.ReadGroup or QuestionTypeCodes.ShortGroup)
+        {
+            Topic    = QuestionConstants.FixedGroupTopicId;
+            Subtopic = QuestionConstants.FixedGroupSubtopicId;
+        }
+    }
 
     /// <summary>取得指定欄位的附圖（依 SortOrder 升冪排序）。</summary>
     public List<QuestionImage> GetImages(QuestionImageField fieldType, int? subQuestionIndex = null) =>

@@ -146,6 +146,17 @@
                         適用等級：初～優級
                     </span>
                 </div>
+                <!-- 固定屬性：主類 = 文意判讀(6) / 次類 = 篇章辨析(17)（與短文題組一致） -->
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">主類</label>
+                        <input type="text" value="文意判讀" disabled class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-gray-100 text-gray-400">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">次類</label>
+                        <input type="text" value="篇章辨析" disabled class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-gray-100 text-gray-400">
+                    </div>
+                </div>
                 <div data-field="Genre" class="@InvalidRing("Genre")">
                     <label class="block text-xs font-medium text-gray-600 mb-1">文體 <span class="text-red-400">*</span></label>
                     <select @bind="Genre" @bind:after="() => GenreChanged.InvokeAsync(Genre)"
@@ -160,7 +171,7 @@
                 </div>
                 <p class="text-xs text-gray-400 leading-relaxed">
                     <i class="fa-solid fa-circle-info mr-0.5"></i>
-                    母題底下有複數子題，以子題代碼區分。
+                    主類/次類為固定值（文意判讀 / 篇章辨析），母題底下有複數子題，以子題代碼區分。
                 </p>
             </div>
         }

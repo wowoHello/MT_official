@@ -295,6 +295,10 @@ public static class QuestionFormValidator
         if (IsRichTextEmpty(data.Stem))
             errors.Add(new(nameof(QuestionFormData.Stem), "請填寫題幹"));
 
+        // 內容（語音逐字稿）：文字或圖片擇一必填（與長文題目 ArticleContent 一致）
+        if (IsRichTextEmpty(data.ArticleContent) && !HasMasterImage(data.Images, QuestionImageField.ArticleContent))
+            errors.Add(new(nameof(QuestionFormData.ArticleContent), "請填寫內容（語音逐字稿）或上傳補充圖片"));
+
         // 四選項：逐項檢查「文字或圖片至少一個」；只回報第一個漏的（與 Single 邏輯一致）
         for (int i = 0; i < 4; i++)
         {

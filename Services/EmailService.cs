@@ -17,16 +17,18 @@ namespace MT.Services
         private readonly int _smtpPort;
         private readonly string? _smtpUser;
         private readonly string? _smtpPassword;
+        private readonly string _fromDisplayName;
 
         /// <summary>
-        /// 建構函式，用於初始化 SMTP 設定
+        /// 建構函式，讀取 appsettings.json 的 Smtp 區段
         /// </summary>
-        public EmailService()
+        public EmailService(IConfiguration configuration)
         {
-            _smtpServer = "smtp.gmail.com";
-            _smtpPort = 587;
-            _smtpUser = "pig22630182@gmail.com";
-            _smtpPassword = "rtrs yxnp lycm hrxu";
+            _smtpServer = configuration["Smtp:Server"] ?? "smtp.gmail.com";
+            _smtpPort = int.TryParse(configuration["Smtp:Port"], out var p) ? p : 587;
+            _smtpUser = configuration["Smtp:User"];
+            _smtpPassword = configuration["Smtp:Password"];
+            _fromDisplayName = configuration["Smtp:FromDisplayName"] ?? "CWT 命題工作平臺";
         }
 
         private void EnsureSmtpConfigured()
@@ -150,7 +152,7 @@ namespace MT.Services
 
             var mailMessage = new MailMessage
             {
-                From = new MailAddress(smtpUser, "CWT 命題工作平臺"),
+                From = new MailAddress(smtpUser, _fromDisplayName),
                 Subject = subject,
                 Body = message,
                 IsBodyHtml = true,

@@ -965,6 +965,8 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         if (req.Decision == ReviewDecision.Revise)
             throw new InvalidOperationException("代修題後只可「採用」或「不採用」，不可「改後採用」。");
 
+        // 題組類母題固定 Topic / Subtopic 統一在寫入前補上
+        req.FormData.NormalizeFixedAttributes();
         var typeId = QuestionConstants.TypeKeyToId[req.FormData.QuestionType];
 
         using var conn = _db.CreateConnection();

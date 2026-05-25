@@ -250,6 +250,8 @@ public class QuestionService(
     /// </summary>
     public async Task<int> CreateAsync(QuestionFormData formData, int creatorUserId, int projectId, byte initialStatus)
     {
+        // 題組類母題固定 Topic / Subtopic 統一在寫入前補上，避免 DB 不一致
+        formData.NormalizeFixedAttributes();
         var typeId = QuestionConstants.TypeKeyToId[formData.QuestionType];
 
         using var conn = _db.CreateConnection();
@@ -321,6 +323,8 @@ public class QuestionService(
     /// </summary>
     public async Task<bool> UpdateAsync(int questionId, QuestionFormData formData, byte newStatus, int operatorUserId)
     {
+        // 題組類母題固定 Topic / Subtopic 統一在寫入前補上
+        formData.NormalizeFixedAttributes();
         var typeId = QuestionConstants.TypeKeyToId[formData.QuestionType];
 
         using var conn = _db.CreateConnection();
@@ -855,6 +859,7 @@ public class QuestionService(
                     CASE WHEN Status = 0 THEN 0
                          WHEN Status = 1 THEN 1
                          ELSE 2 END,
+                    HasRepliedThisStage ASC,   -- 審修作業區：修題中(0) → 已修題(1)
                     Id ASC,
                     ISNULL(SubSortOrder, -1) ASC
                 OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
@@ -869,6 +874,7 @@ public class QuestionService(
                     CASE WHEN q.Status = 0 THEN 0
                          WHEN q.Status = 1 THEN 1
                          ELSE 2 END,
+                    CAST(ISNULL(mr.HasReplied, 0) AS BIT) ASC,   -- 審修作業區：修題中(0) → 已修題(1)
                     q.Id ASC
                 OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
                 """;
@@ -2389,6 +2395,8 @@ public class QuestionService(
         if (string.IsNullOrWhiteSpace(req.RevisionNote))
             throw new InvalidOperationException("修題說明為必填欄位。");
 
+        // 題組類母題固定 Topic / Subtopic 統一在寫入前補上
+        req.FormData.NormalizeFixedAttributes();
         var typeId = QuestionConstants.TypeKeyToId[req.FormData.QuestionType];
 
         using var conn = _db.CreateConnection();

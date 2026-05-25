@@ -21,10 +21,10 @@
     </div>
 </div>
 
-<!-- 內容區（語音逐字稿/補充內容；空白時不渲染避免擠版）-->
-@if (HasContent(Content))
+<!-- 內容區（語音逐字稿/補充內容；文字或圖片其一存在即渲染） -->
+@if (HasContent(Content) || ArticleImages.Count > 0)
 {
-    <PreviewPassage Content="@Content" Label="內容" FieldKey="article" />
+    <PreviewPassage Content="@Content" Label="內容" FieldKey="article" Images="ArticleImages" />
 }
 
 <!-- ABCD 選項（含每選項附圖，SubQuestionIndex=null 表母題層級） -->
@@ -47,6 +47,11 @@
 
     /// <summary>透通至 PreviewChoiceOptions：唯讀／審題／審修情境傳 true 可隱藏選項上的正解標記。</summary>
     [Parameter] public bool HideOptionAnswerMarker { get; set; } = false;
+
+    /// <summary>內容（語音逐字稿）的附圖切片（FieldType=6 ArticleContent，母題層級）。</summary>
+    private List<QuestionImage> ArticleImages =>
+        Images.Where(i => i.FieldType == (byte)QuestionImageField.ArticleContent && i.SubQuestionIndex == null)
+              .OrderBy(i => i.SortOrder).ToList();
 
     private bool HasContent(string? html)
     {

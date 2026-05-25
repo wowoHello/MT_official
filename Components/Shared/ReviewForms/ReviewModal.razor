@@ -99,7 +99,7 @@
                                 }
                                 else
                                 {
-                                    <span>已退回 2 次，下次退回將由總召直接修改並裁決</span>
+                                    <span>已退回 2 次</span>
                                 }
                             </span>
                         }
@@ -226,7 +226,7 @@
                     var lockReason = IsHistoricalAssignment
                         ? "階段已結束"
                         : (data.MyAssignment?.IsCompleted ?? false)
-                            ? "已退回，等命題老師修題"
+                            ? "審閱完成，待命題教師處理"
                             : (string?)null;
                     @* 總召代修+裁決模式（CanFinalReviewerEdit=true + Final stage）— 隱藏「我的審題意見」整段，
                        第 4 次送審到總召手裡時，總召直接編輯題目並下最終裁決，不需再寫意見 *@
@@ -240,6 +240,7 @@
                                        SimilarQuestions="@data.SimilarQuestions"
                                        Annotations="@annotations"
                                        CurrentUserId="@CurrentUserId"
+                                       QuestionType="@data.Question.QuestionType"
                                        OnAnnotationDeleted="OnAnnotationDeletedAsync" />
                 }
                 else

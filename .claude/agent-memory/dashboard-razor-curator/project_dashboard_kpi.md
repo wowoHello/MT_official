@@ -1,10 +1,10 @@
 ---
 name: Dashboard KPI 與圖表實作模式
-description: 4 張 KPI 卡片 + 2 張 ApexCharts 圖表 + 逾期待辦 + LOG 分頁的資料來源、Status 碼對應、Service 查詢結構、JS Interop 模式（2026-05-20 校正版，含子題修題粒度、PhaseDeadline 抑制邏輯細節、LOG UserId 過濾）
+description: 4 張 KPI 卡片 + 2 張 ApexCharts 圖表 + 逾期待辦 + LOG 分頁的資料來源、Status 碼對應、Service 查詢結構、JS Interop 模式（2026-05-25 盤點確認版，含第 5 個 vw 消費點 LCT 修題分支）
 type: project
 ---
 
-Dashboard 頁面完整實作現況（以 2026-05-20 程式碼為準，覆蓋舊版描述）。
+Dashboard 頁面完整實作現況（以 2026-05-25 全文盤點為準，覆蓋舊版描述）。
 
 **Why:** US-004 要求儀表板顯示當前梯次的命題進度統計，且資料需隨梯次切換動態更新。
 
@@ -171,6 +171,7 @@ DashboardService.cs 內共 5 處消費（全部已改用 View）：
 2. `GetRevisionProgressAsync` AssignedUnits 內 EXISTS 子句（行 ~526）
 3. `BuildUrgentItemsAsync` sqlRevisionShortage 修題落後（行 ~763）
 4. `BuildUrgentItemsAsync` sqlTypeDetails 修題明細分支（行 ~915）
+5. `LoadStatusByTypeRowsLctRevisionAsync` LCT 修題分支 QuestionRevisionStatus CTE（行 ~1093）
 
 ---
 

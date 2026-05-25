@@ -6,8 +6,10 @@
 @*    - 頂部漸層色條（sage → sage/40，rounded-b）                            *@
 @*    - textarea: focus 時 ring-2 + 切回白底（有對焦感）                    *@
 @*                                                                          *@
+@*  罐頭訊息：仿 ReviewActionPanel 設計（標籤橫排 + JS 插入游標位置）          *@
 @*  字體：標題 text-sm font-bold / 內容 text-sm leading-relaxed             *@
 @* ====================================================================== *@
+@inject IJSRuntime JS
 
 <div class="relative bg-white rounded-xl border-2 border-sage/30 shadow-md p-4 ring-1 ring-sage/10">
 
@@ -21,9 +23,29 @@
         <span class="text-terracotta text-sm font-bold">*</span>
     </label>
 
+    @* 罐頭訊息快速插入列（仿 ReviewActionPanel 設計） *@
+    <div class="mb-3">
+        <p class="text-xs text-gray-500 mb-2 font-medium">
+            <i class="fa-solid fa-bolt-lightning text-morandi mr-1"></i>
+            點擊插入常用訊息：
+        </p>
+        <div class="flex flex-wrap gap-1.5">
+            @foreach (var msg in CannedMessages)
+            {
+                <button type="button"
+                        disabled="@IsReadOnly"
+                        @onclick="() => InsertCannedAsync(msg.Text)"
+                        class="text-xs px-2.5 py-1 border rounded-md font-bold transition cursor-pointer focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed @msg.ColorCss">
+                    <i class="@msg.IconClass mr-1"></i>@msg.Label
+                </button>
+            }
+        </div>
+    </div>
+
     @* textarea：用 Blazor 內建 InputTextArea — 正確處理 IME composition；
        data-gramm 等屬性禁用 Grammarly / Microsoft Editor 等擴充工具的底線疊加。 *@
-    <InputTextArea Value="@Value"
+    <InputTextArea id="@textareaId"
+                   Value="@Value"
                    ValueChanged="OnValueChangedAsync"
                    ValueExpression="@(() => Value)"
                    readonly="@IsReadOnly"
@@ -67,6 +89,34 @@
     /// <summary>唯讀模式（修題期間已過）</summary>
     [Parameter] public bool IsReadOnly { get; set; }
 
+    /// <summary>給 TextareaHelper.insertAtCursor 用的唯一 DOM id。</summary>
+    private readonly string textareaId = $"revision-reply-{Guid.NewGuid():N}";
+
     private async Task OnValueChangedAsync(string newValue)
         => await ValueChanged.InvokeAsync(newValue ?? "");
+
+    /// <summary>點擊罐頭訊息：用 JS 插入到游標位置，回傳新值再同步給 Blazor。</summary>
+    private async Task InsertCannedAsync(string text)
+    {
+        if (IsReadOnly) return;
+        var nextValue = await JS.InvokeAsync<string?>("TextareaHelper.insertAtCursor", textareaId, text);
+        if (nextValue is not null)
+        {
+            await OnValueChangedAsync(nextValue);
+        }
+    }
+
+    /// <summary>
+    /// 4 個罐頭訊息（命題教師回覆審題意見用）。
+    /// 顏色語意：sage=正向（採納）/ morandi=中性（調整或保留）/ terracotta=警示（未採納）。
+    /// </summary>
+    private static readonly CannedMessage[] CannedMessages =
+    [
+        new("fa-solid fa-circle-check",   "已依建議修改", "感謝審題建議，已依所提意見完成修改，敬請再次審閱。",                            "bg-sage/10 text-sage border-sage/20 hover:bg-sage/20"),
+        new("fa-solid fa-pen-ruler",      "部分採納調整", "感謝審題建議，本次採納部分意見並做了適度調整。",        "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
+        new("fa-solid fa-comment-dots",   "保留並附說明", "審題意見已仔細參考，惟原內容基於〔請補充說明〕之考量予以保留，敬請審閱後裁示。", "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
+        new("fa-solid fa-circle-xmark",   "未採納請見覆", "審題意見已仔細評估，本次未予採納，理由如下：〔請補充說明〕。如有進一步意見，敬請賜知。", "bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
+    ];
+
+    private record CannedMessage(string IconClass, string Label, string Text, string ColorCss);
 }

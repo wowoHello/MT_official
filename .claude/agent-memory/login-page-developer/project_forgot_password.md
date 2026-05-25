@@ -38,11 +38,12 @@ type: project
 - 重發冷卻：60 秒倒數，`CancellationTokenSource` 管理，Modal 關閉時 `Cancel()` + `Dispose()` 立即取消
 - `IsResetResendDisabled = isSendingReset || resetResendCountdown > 0`
 
-## SMTP 設定（目前狀態）
+## SMTP 設定（目前狀態 — 2026-05-25 確認）
 
-- **EmailService 使用 hardcode 設定**（非 appsettings）：smtp.gmail.com:587，帳密直接寫在原始碼
-- Gmail App Password 硬編碼於 `EmailService.cs`
-- 改善計畫（未完成，第一波 #2 暫緩）：改讀 `IConfiguration["Email:SmtpPassword"]` 環境變數
+- **EmailService 已改讀 `appsettings.json` 的 `Smtp` 區段**（第一波 #2 已完成，非暫緩）
+- 設定 key：`Smtp:Server`（預設 smtp.gmail.com）、`Smtp:Port`（預設 587）、`Smtp:User`、`Smtp:Password`、`Smtp:FromDisplayName`（預設 "CWT 命題工作平臺"）
+- `EnsureSmtpConfigured()` 保護：若 User 或 Password 為空，拋出「系統尚未完成 SMTP 設定，暫時無法寄送通知信。」
+- EmailService 建構函式注入 `IConfiguration`，無任何硬編碼帳密
 
 ## ResetPassword.razor 的 Token 驗證邏輯
 

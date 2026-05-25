@@ -1,9 +1,10 @@
 @* ====================================================================== *@
 @*  QuestionFormListen — 聽力測驗 命題表單                                  *@
-@*  結構：音檔上傳 + 題目（Quill）+ 內容（Quill，語音逐字稿）              *@
+@*  結構：音檔上傳 + 題目（Quill）+ 內容（Quill + 附圖，語音逐字稿）        *@
 @*        + 四選項（A-D 2×2）+ 解析（Quill）                                *@
 @*  屬性側欄：核心能力（等級連動）+ 細目指標 + 語音類型 + 素材分類          *@
 @*  ※「內容」對應 MT_Questions.ArticleContent（DB 註解「文章/語音內容」）  *@
+@*    必填欄位（文字或圖片擇一），與長文題目的文章內容一致                  *@
 @* ====================================================================== *@
 @using MT.Components.Shared
 
@@ -20,9 +21,10 @@
         <QuillField Value="@Stem" ValueChanged="v => { Stem = v; StemChanged.InvokeAsync(v); }" FieldLabel="題目" Placeholder="點擊此處開始編輯題目內容..." />
     </FormSectionCard>
 
-    <FormSectionCard Title="內容" Icon="fa-align-left" HintText="語音逐字稿或補充說明（選填）"
+    <FormSectionCard Title="內容" Icon="fa-align-left" Required="true" HintText="語音逐字稿或補充說明"
         DataField="ArticleContent" ContainerClass="@InvalidRing("ArticleContent")">
         <QuillField Value="@ArticleContent" ValueChanged="v => { ArticleContent = v; ArticleContentChanged.InvokeAsync(v); }" FieldLabel="內容" Placeholder="點擊此處輸入語音逐字稿或補充內容..." />
+        <QuestionImagesField Images="ArticleImages" ImagesChanged="OnArticleImagesChanged" />
     </FormSectionCard>
 
     <FormSectionCard Title="選項與答案" Icon="fa-list-ol" Required="true" HintText="請點選正確答案"
@@ -63,7 +65,7 @@
     [Parameter] public string Analysis { get; set; } = "";
     [Parameter] public EventCallback<string> AnalysisChanged { get; set; }
 
-    /// <summary>題目附圖（母題層級，FieldType 2~5 = OptionA~D。題幹保持文字、解析不支援圖）。</summary>
+    /// <summary>題目附圖（母題層級，FieldType 2~5 = OptionA~D / FieldType 6 = ArticleContent。題幹/解析不支援圖）。</summary>
     [Parameter] public List<QuestionImage> Images { get; set; } = [];
     [Parameter] public EventCallback<List<QuestionImage>> ImagesChanged { get; set; }
 
@@ -108,6 +110,28 @@
             e.Updated[i].SortOrder = (byte)(i + 1);
         }
         others.AddRange(e.Updated);
+        Images = others;
+        await ImagesChanged.InvokeAsync(others);
+    }
+
+    // ------------------------------------------------------------------
+    //  內容（語音逐字稿）附圖切片：FieldType=6（ArticleContent），母題層級
+    // ------------------------------------------------------------------
+
+    private List<QuestionImage> ArticleImages =>
+        Images.Where(i => i.FieldType == (byte)QuestionImageField.ArticleContent && i.SubQuestionIndex == null)
+              .OrderBy(i => i.SortOrder).ToList();
+
+    private async Task OnArticleImagesChanged(List<QuestionImage> updated)
+    {
+        var others = Images.Where(i => !(i.FieldType == (byte)QuestionImageField.ArticleContent && i.SubQuestionIndex == null)).ToList();
+        for (int i = 0; i < updated.Count; i++)
+        {
+            updated[i].FieldType = (byte)QuestionImageField.ArticleContent;
+            updated[i].SubQuestionIndex = null;
+            updated[i].SortOrder = (byte)(i + 1);
+        }
+        others.AddRange(updated);
         Images = others;
         await ImagesChanged.InvokeAsync(others);
     }

@@ -20,13 +20,13 @@ type: project
 
 **注意**：所有 4 個 CWT/LCT 欄位均已部署（Phase 0 健檢 2026-05-21 通過，0 列異常）。`ProjectService.cs` 所有 SQL 完整帶入 `p.ExamLevel`，可正常運作。
 
-## 三檔規模（2026-05-22 更新）
+## 三檔規模（2026-05-25 更新）
 
 | 檔案 | 行數 | 主要職責 |
 |------|------|---------|
-| Components/Pages/Projects.razor | 1968 行 | UI 標記、表單狀態、配額引擎 |
-| Services/ProjectService.cs | 1248 行 | 全部 DB 操作與 SignalR 廣播 |
-| Models/ProjectModels.cs | 273 行 | DTO / Enum / Helper |
+| Components/Pages/Projects.razor | 2165 行 | UI 標記、表單狀態、配額引擎 |
+| Services/ProjectService.cs | 1255 行 | 全部 DB 操作與 SignalR 廣播 |
+| Models/ProjectModels.cs | 274 行 | DTO / Enum / Helper |
 
 ## CWT / LCT 雙模式實作（2026-05-21 確認完成）
 

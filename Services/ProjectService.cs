@@ -1150,8 +1150,15 @@ public class ProjectService : IProjectService
     private static void EnsureCompositionPhaseLockRespected(ProjectEditDto oldSnapshot, UpdateProjectRequest req)
     {
         // 1. TargetCount 比對
-        var oldTargets = oldSnapshot.Targets.ToDictionary(t => t.QuestionTypeId, t => t.TargetCount);
-        var newTargets = req.Targets.ToDictionary(t => t.QuestionTypeId, t => t.TargetCount);
+        // 用複合鍵 (QuestionTypeId, Granularity, Level) — MT_ProjectTargets 表同個 TypeId 可有多列：
+        //   CWT 閱讀/短文題組：Granularity 0/1 兩列
+        //   LCT 聽力測驗：5 個 Level
+        //   聽力題組：單一列（Granularity=0, Level=NULL）
+        // 用單一 QuestionTypeId 當 key 會撞 "Key already added" 例外。
+        var oldTargets = oldSnapshot.Targets.ToDictionary(
+            t => (t.QuestionTypeId, t.Granularity, t.Level), t => t.TargetCount);
+        var newTargets = req.Targets.ToDictionary(
+            t => (t.QuestionTypeId, t.Granularity, t.Level), t => t.TargetCount);
         var allTargetKeys = oldTargets.Keys.Union(newTargets.Keys);
         foreach (var key in allTargetKeys)
         {

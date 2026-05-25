@@ -1,14 +1,14 @@
 ---
-name: Roles 頁面當前真實結構（2026-05-22 更新）
+name: Roles 頁面當前真實結構（2026-05-25 更新）
 description: Roles.razor / RoleService.cs / RoleModels.cs 的實際結構摘要，含三個 Modal、SignalR 廣播、歷史優化紀錄、關鍵設計決策
 type: project
 ---
 
 ## 檔案清單（三檔規則合規狀況）
 
-1. `Components/Pages/Roles.razor` — UI + @code（**1316 行**，2026-05-22 驗證）
-2. `Services/RoleService.cs` — 商業邏輯 + Dapper 查詢（**1141 行**，2026-05-22 驗證）
-3. `Models/RoleModels.cs` — 主要 ViewModel/DTO（**224 行**，2026-05-22 驗證）
+1. `Components/Pages/Roles.razor` — UI + @code（**1317 行**，2026-05-25 驗證）
+2. `Services/RoleService.cs` — 商業邏輯 + Dapper 查詢（**1142 行**，2026-05-25 驗證）
+3. `Models/RoleModels.cs` — 主要 ViewModel/DTO（**225 行**，2026-05-25 驗證）
 4. `Models/ModulePermission.cs` — 獨立小檔（13 行）；**注意**：此檔被 AuthService / AnnouncementService / MembershipService / AppointmentCertEndpoints 等多個 Service 引用，**並非僅服務 Roles 頁面**，不適合強行合併入 RoleModels.cs
 5. `Models/RoleTag.cs` — 獨立 record（8 行），`record RoleTag(string Name, int Category)`；被 RoleService / ProjectService / TeacherService 引用，同樣跨頁面共用
 
@@ -131,11 +131,11 @@ type: project
 - `UserProfileDto`：個人資料 Modal 用（含 `List<RoleTag> ProjectRoles`）
 - `UserModuleCard`：首頁功能卡片用（含 IsEnabled）
 
-## 資料表對照（2026-05-21 DB Schema 確認）
+## 資料表對照（2026-05-25 再確認）
 
 | 功能 | 資料表 | 關鍵約束 |
 |------|--------|---------|
-| 角色定義 | MT_Roles（Category:0=內部/1=外部，IsDefault BIT，預設 0） | **Name 已有 UNIQUE 索引**（2026-05-21 dump 確認已建）|
+| 角色定義 | MT_Roles（Category:0=內部/1=外部，IsDefault BIT，預設 0） | **Name 索引狀況：EnsureRoleNameUniqueAsync 仍靠 SELECT COUNT 預檢（技術債），需確認 DB 是否已補 UNIQUE 索引；2026-05-22 記憶標記「已確認已建」但需實地 DB 查詢驗證**|
 | 功能模組 | MT_Modules（ModuleKey 唯一小寫，IsActive 控制顯示） | `UQ_MT_Modules_ModuleKey` |
 | 角色與模組對應 | MT_RolePermissions（IsEnabled BIT 預設 0，Permissions TINYINT 預設 1） | `UQ_MT_RolePermissions_RoleId_ModuleId` |
 | 使用者帳號 | MT_Users（Status:0=停用/1=啟用，IsFirstLogin，LockoutUntil，PasswordHash nvarchar(150) PBKDF2 格式） | `UQ_MT_Users_Username`（filtered）、`UQ_MT_Users_Email`（filtered） |

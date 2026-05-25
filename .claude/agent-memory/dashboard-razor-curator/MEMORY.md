@@ -1,2 +1,2 @@
-- [Dashboard KPI 實作模式](project_dashboard_kpi.md) — 4 KPI 卡片、2 圖表、雙波並行 SQL、逾期待辦三分支（命題/修題/審題落後）、LOG Chips、vw 消費點（2026-05-22 更新：行數/卡片4母子拆分/圖表2空狀態放寬）
+- [Dashboard KPI 實作模式](project_dashboard_kpi.md) — 4 KPI 卡片、2 圖表、雙波並行 SQL、逾期待辦三分支（命題/修題/審題落後）、LOG Chips、vw 消費點（2026-05-25 盤點：補第 5 個 vw 消費點 LCT 修題分支行 ~1093）
 - [Dashboard 參考文件路徑](reference_dashboard_doc.md) — 整合文件位於 pageFinal_doc/Dashboard.md，舊原型 html/js 已棄用

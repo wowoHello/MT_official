@@ -8,10 +8,13 @@
 <div class="flex flex-col h-full overflow-hidden">
 
     @* ===== 區塊 1：意見編輯框 + 罐頭訊息（固定，不隨歷程捲動） =====
-       HideCommentSection=true（總召代修+裁決模式）：整段隱藏，僅留下半歷程軌跡與相似題 *@
+       HideCommentSection=true（總召代修+裁決模式）：整段不渲染（無動畫需求）
+       isHistoryExpanded=true（使用者點「展開大檢視」）：max-height + opacity 平滑收合動畫
+       max-h-[640px] 大於本區實際高度（~450px）確保展開時不被截斷；隱藏時 0 → 完整收合 *@
     @if (!HideCommentSection)
     {
-    <div class="p-5 border-b border-gray-100 bg-gradient-to-b from-white to-gray-50/50 flex-shrink-0">
+    <div class="overflow-hidden flex-shrink-0 transition-all duration-300 ease-in-out @(isHistoryExpanded ? "max-h-0 opacity-0" : "max-h-[640px] opacity-100")">
+    <div class="p-5 border-b border-gray-100 bg-gradient-to-b from-white to-gray-50/50">
         <h3 class="text-sm font-bold text-slate-main mb-3 flex items-center gap-2">
             <i class="fa-solid fa-comment-dots text-morandi"></i>
             我的審題意見
@@ -30,7 +33,7 @@
                 點擊插入常用評語：
             </p>
             <div class="flex flex-wrap gap-1.5">
-                @foreach (var msg in CannedMessages)
+                @foreach (var msg in ActiveCannedMessages)
                 {
                     <button type="button"
                             disabled="@IsReadOnly"
@@ -62,6 +65,30 @@
                        data-ms-editor="false"
                        class="review-textarea no-underline w-full h-[200px] px-3 py-2 text-sm leading-relaxed text-slate-main border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-morandi focus:border-morandi resize-none read-only:bg-gray-50 read-only:cursor-not-allowed" />
     </div>
+    </div>
+    }
+
+    @* ===== Toggle bar：固定在意見區與捲動區之間，整條 bar = 單一按鈕 =====
+       點擊任意位置都觸發切換，移除冗餘的「模式指示」文字讓 UI 更乾淨
+       HideCommentSection=true（總召代修+裁決模式）時不顯示——沒有意見區可隱藏，toggle 沒意義 *@
+    @if (!HideCommentSection)
+    {
+        @* 莫蘭迪漸層底色（兩側 5% / 中央 20%）讓視線聚焦中央按鈕文字
+           Hover：漸層加深 1.75 倍 + inner shadow + icon 微放大，視覺回饋疊加多重 *@
+        <button type="button"
+                @onclick="ToggleHistoryExpanded"
+                title="@(isHistoryExpanded ? "收合，回意見編輯模式" : "展開大檢視，獲得完整歷程閱讀空間")"
+                class="group w-full px-5 py-2.5 border-y border-morandi/20 hover:border-morandi/50
+                       bg-gradient-to-r from-morandi/5 via-morandi/20 to-morandi/5
+                       hover:from-morandi/20 hover:via-morandi/40 hover:to-morandi/20
+                       focus:from-morandi/20 focus:via-morandi/40 focus:to-morandi/20
+                       hover:shadow-[inset_0_0_8px_rgba(107,142,173,0.25)]
+                       transition-all duration-200
+                       flex items-center justify-center gap-2 text-sm font-bold text-morandi
+                       cursor-pointer focus:outline-none flex-shrink-0">
+            <i class="fa-solid @(isHistoryExpanded ? "fa-compress" : "fa-expand") transition-transform duration-200 group-hover:scale-125"></i>
+            @(isHistoryExpanded ? "收合，回意見編輯模式" : "展開大檢視，閱讀歷程軌跡")
+        </button>
     }
 
     @* ===== 下半部：劃記評語 + 歷程軌跡 + 相似題比對（共用同一個內捲容器） ===== *@
@@ -157,8 +184,23 @@
     /// <summary>劃記刪除事件，由父層 (ReviewModal) 呼叫 Service 完成刪除後 reload</summary>
     [Parameter] public EventCallback<int> OnAnnotationDeleted { get; set; }
 
+    /// <summary>
+    /// 目前題目的題型代碼（QuestionTypeCodes.Listen / ListenGroup 視為 LCT 罐頭組，其他視為 CWT 罐頭組）。
+    /// 由 ReviewModal 從 ReviewModalData.Question.QuestionType 帶入。
+    /// </summary>
+    [Parameter] public string QuestionType { get; set; } = string.Empty;
+
     private readonly string textareaId = $"review-comment-{Guid.NewGuid():N}";
     private ReviewSimilarityBanner? similaritySection;
+
+    /// <summary>
+    /// 「展開大檢視」狀態：true 時暫時隱藏「我的審題意見」區，把整個 panel 高度讓給歷程軌跡閱讀。
+    /// 由 ReviewHistoryTimeline summary 上的按鈕觸發 ToggleHistoryExpanded 切換。
+    /// 切換新題目（透過 ReviewModal 重新開啟）時不主動重置——同次 modal session 內保持使用者選擇。
+    /// </summary>
+    private bool isHistoryExpanded;
+
+    private void ToggleHistoryExpanded() => isHistoryExpanded = !isHistoryExpanded;
 
     /// <summary>讓父層（ReviewModal 頂部橫幅按鈕）能呼叫展開相似題列表</summary>
     public Task ExpandSimilarityAsync() => similaritySection?.ExpandAsync() ?? Task.CompletedTask;
@@ -178,21 +220,41 @@
     }
 
     /// <summary>
-    /// 8 個罐頭訊息（依 Plan_003 Q1 確認的內容；Label 與插入文字分離以便管理）。
+    /// CWT 全民中檢罐頭訊息（6 個）：題幹/選項/語文表達 + 鑑別度面向。
     /// 顏色語意：sage=正向 / terracotta=警示 / morandi=中性建議。
-    /// 圖示採 Font Awesome 6（離線載入），不使用 emoji。
     /// </summary>
-    private static readonly CannedMessage[] CannedMessages =
+    private static readonly CannedMessage[] CwtCannedMessages =
     [
-        new("fa-solid fa-circle-check",        "題意清晰",     "題意清晰，選項設計合理。",                "bg-sage/10 text-sage border-sage/20 hover:bg-sage/20"),
-        new("fa-solid fa-triangle-exclamation","答案有爭議",   "此題答案似有爭議，建議再確認。",          "bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
-        new("fa-solid fa-ruler-combined",      "選項長度差異", "選項長度差異過大，建議調整為相近字數。",  "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
-        new("fa-solid fa-book",                "用詞不當",     "部分用詞不夠精確，建議修飾。",            "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
-        new("fa-solid fa-calculator",          "計算錯誤",     "計算過程或答案數字有誤。",                "bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
-        new("fa-solid fa-bullseye",            "鑑別度偏低",   "鑑別度偏低，可能無法有效區分學生程度。",  "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
-        new("fa-solid fa-scissors",            "文意冗長",     "題幹文意稍嫌冗長，建議精簡。",            "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
-        new("fa-solid fa-image",               "圖片不清",     "附圖品質不佳或無法清楚辨識。",            "bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
+        new("fa-solid fa-circle-check",         "選項鑑別明確", "選項鑑別度明確、設計合理，能有效區分學生程度。",        "bg-sage/10 text-sage border-sage/20 hover:bg-sage/20"),
+        new("fa-solid fa-bullseye",             "題幹情境清晰", "題幹情境陳述清晰，能引導學生掌握作答方向。",            "bg-sage/10 text-sage border-sage/20 hover:bg-sage/20"),
+        new("fa-solid fa-book",                 "文句通順無誤", "題幹與選項文句通順、用字精準，符合語文檢定標準。",      "bg-sage/10 text-sage border-sage/20 hover:bg-sage/20"),
+        new("fa-solid fa-ruler-combined",       "選項字數失衡", "各選項字數差異過大，建議調整為相近長度避免暗示。",      "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
+        new("fa-solid fa-triangle-exclamation", "題幹資訊不足", "題幹提供的資訊不足以判斷答案，建議補充必要線索或情境。","bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),        
+        new("fa-solid fa-scale-balanced",       "難度不符等級", "本題難度與專案設定等級不符，建議重新斟酌或調整。",      "bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
     ];
+
+    /// <summary>
+    /// LCT 聽力中文檢定罐頭訊息（6 個）：聽辨邏輯/語音口語/誘答鑑別度面向。
+    /// 顏色語意同 CWT 組。
+    /// </summary>
+    private static readonly CannedMessage[] LctCannedMessages =
+    [
+        new("fa-solid fa-circle-check",         "邏輯清晰合理", "題目邏輯清晰、推論合理，語境設計能正確對應正答。",      "bg-sage/10 text-sage border-sage/20 hover:bg-sage/20"),
+        new("fa-solid fa-bullseye",             "選項鑑別度佳", "誘答選項與正答的鑑別度良好，能有效區分聽力理解程度。",  "bg-sage/10 text-sage border-sage/20 hover:bg-sage/20"),
+        new("fa-solid fa-comment",              "語句通順口語", "語音逐字稿語句通順、用詞自然口語，符合實際聽力情境。",  "bg-sage/10 text-sage border-sage/20 hover:bg-sage/20"),
+        new("fa-solid fa-triangle-exclamation", "答案易生爭議", "此題答案易生爭議，建議再確認語音內容與標準答案的對應。","bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
+        new("fa-solid fa-bullseye-arrow",       "選項誘答不足", "誘答選項的迷惑性不足，建議調整以提升鑑別度與測驗效度。","bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
+        new("fa-solid fa-scissors",             "文本字數偏多", "語音文本字數偏多，建議精簡內容以配合考試時間。",        "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
+    ];
+
+    /// <summary>
+    /// 依當前題型挑選罐頭組：聽力測驗 / 聽力題組 → LCT 組；其他題型（一般單選 / 閱讀題組 / 長文 / 短文題組）→ CWT 組。
+    /// QuestionType 為空字串（初始載入瞬間）時 fallback CWT 組，避免閃爍。
+    /// </summary>
+    private CannedMessage[] ActiveCannedMessages =>
+        QuestionType is QuestionTypeCodes.Listen or QuestionTypeCodes.ListenGroup
+            ? LctCannedMessages
+            : CwtCannedMessages;
 
     private record CannedMessage(string IconClass, string Label, string Text, string ColorCss);
 

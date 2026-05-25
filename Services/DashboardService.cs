@@ -521,20 +521,13 @@ public class DashboardService : IDashboardService
     /// <param name="getTypeName">IQuestionTypeCatalog.GetName — 本方法為 static，透過委派注入。</param>
     private static string BuildDisplayLabel(string typeName, byte granularity, byte? level, Func<int, string> _)
     {
-        // 聽力題組（LCT 獨立分類）：整組視為原子單位，無 母/子 區別。
-        // 必須先於下方「題組」關鍵字檢查處理，否則會被誤掛上「（母題）」字尾。
-        if (typeName == "聽力題組")
-        {
-            return "聽力題組";
-        }
-
-        // LCT 模式：level 有值，直接對應「難度X」
+        // LCT 模式：level 有值，直接對應「難度X」（聽力測驗 5 個難度）
         if (level.HasValue)
         {
             return $"難度{level.Value switch { 1 => "一", 2 => "二", 3 => "三", 4 => "四", 5 => "五", _ => level.Value.ToString() }}";
         }
 
-        // CWT 模式：閱讀題組(含「閱讀題組」關鍵字)/短文題組(含「短文題組」關鍵字) 才需區分母/子
+        // 題組類（閱讀題組 / 短文題組 / 聽力題組）依 granularity 掛 母/子 字尾，與 CWT 一致設計
         // 用 typeName 內容判斷（比硬編碼 TypeId 更安全，保持與 DB 名稱解耦）
         bool isGroup = typeName.Contains("題組");
         if (isGroup)
@@ -792,9 +785,10 @@ public class DashboardService : IDashboardService
 
     /// <summary>
     /// LCT 模式的圖表 2：X 軸為 6 桶 — 難度一~五（聽力測驗 Level 1-5）+ 聽力題組（整組獨立桶）。
-    /// 設計鏡像 CWT 命題階段邏輯（sqlCompositionPhase）：InProgress = MAX(0, Target - Drafts - DoneStage - Adopted - Rejected)，
-    /// 確保剛建專案設定目標後立即看到「階段進行中」橙色 bar（高度=該難度目標），與 CWT 行為一致。
-    /// 目前所有階段共用此邏輯（暫不分修/審題細分），未來若 LCT 進到後續階段顯示需精修可再加 PhaseCode 分支。
+    /// 依 PhaseCode 分三套 SQL（鏡像 CWT 的 LoadStatusByTypeRowsAsync 設計）：
+    ///   - 審題階段 3/5/7 → JOIN MT_ReviewAssignments，依 DecidedAt 切 InProgress / DoneStage
+    ///   - 修題階段 4/6/8 → JOIN MT_RevisionReplies，依本輪修題回覆是否存在切 InProgress / DoneStage
+    ///   - 命題階段 2 或其他 → 純 Status 推進（保留 target-gap 計算，剛建專案沒題目仍顯示橙色目標 bar）
     ///
     /// 統計來源（聽力題組獨立計算，不再 fold-in 至難三/難四）：
     /// - TypeId=6 聽力測驗：MT_Questions.Level 直接分組（5 桶）
@@ -803,20 +797,33 @@ public class DashboardService : IDashboardService
     private static async Task<List<DashboardStatusByTypeItem>> LoadStatusByTypeRowsLctAsync(
         System.Data.IDbConnection conn, int projectId, int? currentPhaseForChart)
     {
+        // 審題階段：依 ReviewAssignments.DecidedAt 區分（與卡片 3 同口徑）
+        if (currentPhaseForChart is 3 or 5 or 7)
+        {
+            byte reviewStage = currentPhaseForChart.Value switch { 3 => 1, 5 => 2, 7 => 3, _ => (byte)0 };
+            return await LoadStatusByTypeRowsLctAuditAsync(conn, projectId, reviewStage);
+        }
+
+        // 修題階段：依 MT_RevisionReplies.Content 本輪回覆是否存在切（與 CWT 修題分支同邏輯）
+        if (currentPhaseForChart is 4 or 6 or 8)
+        {
+            byte revisionStage = (byte)currentPhaseForChart.Value;
+            return await LoadStatusByTypeRowsLctRevisionAsync(conn, projectId, revisionStage);
+        }
+
+        // 命題階段 / 閒置 / 結案：純 Status 推進（保留 target-gap 邏輯）
         const string sql = """
             WITH LevelBuckets(LevelNum, LevelName) AS (
                 SELECT LevelNum, LevelName
                 FROM (VALUES (1, N'難度一'), (2, N'難度二'), (3, N'難度三'), (4, N'難度四'), (5, N'難度五'))
                      AS v(LevelNum, LevelName)
             ),
-            -- 聽力測驗各難度目標
             Type6Targets AS (
                 SELECT [Level] AS LevelNum, SUM(TargetCount) AS TotalTarget
                 FROM   dbo.MT_ProjectTargets
                 WHERE  ProjectId = @pid AND QuestionTypeId = 6 AND [Level] IS NOT NULL
                 GROUP BY [Level]
             ),
-            -- 聽力測驗（TypeId=6）按題目自身 Level 統計
             Type6Counts AS (
                 SELECT [Level] AS LevelNum,
                        SUM(CASE WHEN Status = 0          THEN 1 ELSE 0 END) AS Drafts,
@@ -827,7 +834,7 @@ public class DashboardService : IDashboardService
                 WHERE  ProjectId = @pid AND IsDeleted = 0 AND QuestionTypeId = 6 AND [Level] IS NOT NULL
                 GROUP BY [Level]
             ),
-            -- 聽力題組（TypeId=7）按 master Status 統計（1 master = 1 整組）
+            -- 聽力題組母題（TypeId=7）按 master Status 統計（1 master = 1 整組）
             Type7Counts AS (
                 SELECT
                     SUM(CASE WHEN Status = 0          THEN 1 ELSE 0 END) AS Drafts,
@@ -838,10 +845,23 @@ public class DashboardService : IDashboardService
                             WHERE ProjectId = @pid AND QuestionTypeId = 7), 0) AS TotalTarget
                 FROM   dbo.MT_Questions
                 WHERE  ProjectId = @pid AND IsDeleted = 0 AND QuestionTypeId = 7
+            ),
+            -- 聽力題組子題：MT_SubQuestions.Status 統計（固定 2 子題/組，目標 = 母題 target × 2）
+            Type7SubCounts AS (
+                SELECT
+                    SUM(CASE WHEN sq.Status = 0          THEN 1 ELSE 0 END) AS Drafts,
+                    SUM(CASE WHEN sq.Status IN (1, 2)    THEN 1 ELSE 0 END) AS DoneStage,
+                    SUM(CASE WHEN sq.Status IN (9, 12)   THEN 1 ELSE 0 END) AS Adopted,
+                    SUM(CASE WHEN sq.Status IN (10, 11)  THEN 1 ELSE 0 END) AS Rejected,
+                    ISNULL((SELECT SUM(TargetCount) * 2 FROM dbo.MT_ProjectTargets
+                            WHERE ProjectId = @pid AND QuestionTypeId = 7), 0) AS TotalTarget
+                FROM   dbo.MT_SubQuestions sq
+                JOIN   dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                WHERE  q.ProjectId = @pid AND q.IsDeleted = 0 AND sq.IsDeleted = 0
+                  AND  q.QuestionTypeId = 7
             )
             SELECT TypeName, Granularity, Level, Drafts, InProgress, DoneStage, Adopted, Rejected
             FROM (
-                -- 聽力測驗 5 個難度桶
                 SELECT
                     lb.LevelName                 AS TypeName,
                     CAST(0 AS TINYINT)           AS Granularity,
@@ -862,9 +882,9 @@ public class DashboardService : IDashboardService
                 LEFT JOIN Type6Targets t ON t.LevelNum = lb.LevelNum
                 LEFT JOIN Type6Counts  c ON c.LevelNum = lb.LevelNum
                 UNION ALL
-                -- 聽力題組 整組獨立桶
+                -- 聽力題組母題
                 SELECT
-                    N'聽力題組',
+                    N'聽力題組',  -- Granularity=0 母題（BuildDisplayLabel 統一掛「（母題）」字尾）
                     CAST(0 AS TINYINT),
                     CAST(NULL AS TINYINT),
                     ISNULL(t7.Drafts, 0),
@@ -878,13 +898,310 @@ public class DashboardService : IDashboardService
                     ISNULL(t7.DoneStage, 0),
                     ISNULL(t7.Adopted, 0),
                     ISNULL(t7.Rejected, 0),
-                    99
+                    100
                 FROM Type7Counts t7
+                UNION ALL
+                -- 聽力題組子題（與 CWT 母/子分開設計一致）
+                SELECT
+                    N'聽力題組',  -- Granularity=1 子題（BuildDisplayLabel 統一掛「（子題）」字尾）
+                    CAST(1 AS TINYINT),
+                    CAST(NULL AS TINYINT),
+                    ISNULL(t7s.Drafts, 0),
+                    CASE WHEN ISNULL(t7s.TotalTarget, 0)
+                              - ISNULL(t7s.Drafts, 0) - ISNULL(t7s.DoneStage, 0)
+                              - ISNULL(t7s.Adopted, 0) - ISNULL(t7s.Rejected, 0) > 0
+                         THEN ISNULL(t7s.TotalTarget, 0)
+                              - ISNULL(t7s.Drafts, 0) - ISNULL(t7s.DoneStage, 0)
+                              - ISNULL(t7s.Adopted, 0) - ISNULL(t7s.Rejected, 0)
+                         ELSE 0 END,
+                    ISNULL(t7s.DoneStage, 0),
+                    ISNULL(t7s.Adopted, 0),
+                    ISNULL(t7s.Rejected, 0),
+                    101
+                FROM Type7SubCounts t7s
             ) tmp
+            -- 過濾「完全沒用到」的桶（target=0 且無資料）→ 例如沒設目標也沒命題的難度五自動隱藏
+            WHERE Drafts + InProgress + DoneStage + Adopted + Rejected > 0
             ORDER BY SortKey
             """;
 
         return (await conn.QueryAsync<DashboardStatusByTypeItem>(sql, new { pid = projectId })).ToList();
+    }
+
+    /// <summary>
+    /// LCT 審題階段（PhaseCode 3/5/7）的圖表 2 資料：
+    /// 用 MT_ReviewAssignments.DecidedAt 判斷「該題本階段是否審完」，跟 CWT 審題分支同邏輯。
+    /// 「DoneStage = Status 1-8 AND 所有母題層分配都已決策」；InProgress = 仍有待審分配 + 命題缺口。
+    /// 只取母題層分配（SubQuestionId IS NULL）——聽力題組母題會被計入；子題分配不在此圖表桶內。
+    /// </summary>
+    private static async Task<List<DashboardStatusByTypeItem>> LoadStatusByTypeRowsLctAuditAsync(
+        System.Data.IDbConnection conn, int projectId, byte reviewStage)
+    {
+        const string sql = """
+            WITH LevelBuckets(LevelNum, LevelName) AS (
+                SELECT LevelNum, LevelName
+                FROM (VALUES (1, N'難度一'), (2, N'難度二'), (3, N'難度三'), (4, N'難度四'), (5, N'難度五'))
+                     AS v(LevelNum, LevelName)
+            ),
+            Type6Targets AS (
+                SELECT [Level] AS LevelNum, SUM(TargetCount) AS TotalTarget
+                FROM   dbo.MT_ProjectTargets
+                WHERE  ProjectId = @pid AND QuestionTypeId = 6 AND [Level] IS NOT NULL
+                GROUP BY [Level]
+            ),
+            QuestionStageStatus AS (
+                SELECT  ra.QuestionId,
+                        SUM(CASE WHEN ra.DecidedAt IS NULL THEN 1 ELSE 0 END) AS PendingCount
+                FROM    dbo.MT_ReviewAssignments ra
+                WHERE   ra.ProjectId = @pid AND ra.ReviewStage = @stage AND ra.SubQuestionId IS NULL
+                GROUP BY ra.QuestionId
+            ),
+            Type6Counts AS (
+                SELECT q.[Level] AS LevelNum,
+                       COUNT(*) AS ExistingCount,
+                       SUM(CASE WHEN q.Status = 0 THEN 1 ELSE 0 END) AS Drafts,
+                       SUM(CASE WHEN q.Status BETWEEN 1 AND 8 AND (qss.PendingCount IS NULL OR qss.PendingCount > 0) THEN 1 ELSE 0 END) AS InProgressAudit,
+                       SUM(CASE WHEN q.Status BETWEEN 1 AND 8 AND qss.PendingCount = 0 THEN 1 ELSE 0 END) AS DoneStage,
+                       SUM(CASE WHEN q.Status IN (9, 12)  THEN 1 ELSE 0 END) AS Adopted,
+                       SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END) AS Rejected
+                FROM   dbo.MT_Questions q
+                LEFT JOIN QuestionStageStatus qss ON qss.QuestionId = q.Id
+                WHERE  q.ProjectId = @pid AND q.IsDeleted = 0 AND q.QuestionTypeId = 6 AND q.[Level] IS NOT NULL
+                GROUP BY q.[Level]
+            ),
+            Type7Counts AS (
+                SELECT
+                    COUNT(*) AS ExistingCount,
+                    SUM(CASE WHEN q.Status = 0 THEN 1 ELSE 0 END) AS Drafts,
+                    SUM(CASE WHEN q.Status BETWEEN 1 AND 8 AND (qss.PendingCount IS NULL OR qss.PendingCount > 0) THEN 1 ELSE 0 END) AS InProgressAudit,
+                    SUM(CASE WHEN q.Status BETWEEN 1 AND 8 AND qss.PendingCount = 0 THEN 1 ELSE 0 END) AS DoneStage,
+                    SUM(CASE WHEN q.Status IN (9, 12)  THEN 1 ELSE 0 END) AS Adopted,
+                    SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END) AS Rejected,
+                    ISNULL((SELECT SUM(TargetCount) FROM dbo.MT_ProjectTargets
+                            WHERE ProjectId = @pid AND QuestionTypeId = 7), 0) AS TotalTarget
+                FROM   dbo.MT_Questions q
+                LEFT JOIN QuestionStageStatus qss ON qss.QuestionId = q.Id
+                WHERE  q.ProjectId = @pid AND q.IsDeleted = 0 AND q.QuestionTypeId = 7
+            ),
+            -- 聽力題組子題：依 sub-assignments（SubQuestionId IS NOT NULL）的 PendingCount 切 InProgress/DoneStage
+            QuestionSubStageStatus AS (
+                SELECT  ra.SubQuestionId,
+                        SUM(CASE WHEN ra.DecidedAt IS NULL THEN 1 ELSE 0 END) AS PendingCount
+                FROM    dbo.MT_ReviewAssignments ra
+                WHERE   ra.ProjectId = @pid AND ra.ReviewStage = @stage AND ra.SubQuestionId IS NOT NULL
+                GROUP BY ra.SubQuestionId
+            ),
+            Type7SubCounts AS (
+                SELECT
+                    COUNT(*) AS ExistingCount,
+                    SUM(CASE WHEN sq.Status = 0 THEN 1 ELSE 0 END) AS Drafts,
+                    SUM(CASE WHEN sq.Status BETWEEN 1 AND 8 AND (qsub.PendingCount IS NULL OR qsub.PendingCount > 0) THEN 1 ELSE 0 END) AS InProgressAudit,
+                    SUM(CASE WHEN sq.Status BETWEEN 1 AND 8 AND qsub.PendingCount = 0 THEN 1 ELSE 0 END) AS DoneStage,
+                    SUM(CASE WHEN sq.Status IN (9, 12)  THEN 1 ELSE 0 END) AS Adopted,
+                    SUM(CASE WHEN sq.Status IN (10, 11) THEN 1 ELSE 0 END) AS Rejected,
+                    ISNULL((SELECT SUM(TargetCount) * 2 FROM dbo.MT_ProjectTargets
+                            WHERE ProjectId = @pid AND QuestionTypeId = 7), 0) AS TotalTarget
+                FROM   dbo.MT_SubQuestions sq
+                JOIN   dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                LEFT JOIN QuestionSubStageStatus qsub ON qsub.SubQuestionId = sq.Id
+                WHERE  q.ProjectId = @pid AND q.IsDeleted = 0 AND sq.IsDeleted = 0
+                  AND  q.QuestionTypeId = 7
+            )
+            SELECT TypeName, Granularity, Level, Drafts, InProgress, DoneStage, Adopted, Rejected
+            FROM (
+                SELECT
+                    lb.LevelName                 AS TypeName,
+                    CAST(0 AS TINYINT)           AS Granularity,
+                    CAST(lb.LevelNum AS TINYINT) AS Level,
+                    ISNULL(c.Drafts, 0)          AS Drafts,
+                    ISNULL(c.InProgressAudit, 0)
+                        + CASE WHEN ISNULL(t.TotalTarget, 0) - ISNULL(c.ExistingCount, 0) > 0
+                               THEN ISNULL(t.TotalTarget, 0) - ISNULL(c.ExistingCount, 0)
+                               ELSE 0 END         AS InProgress,
+                    ISNULL(c.DoneStage, 0)       AS DoneStage,
+                    ISNULL(c.Adopted, 0)         AS Adopted,
+                    ISNULL(c.Rejected, 0)        AS Rejected,
+                    lb.LevelNum                  AS SortKey
+                FROM      LevelBuckets lb
+                LEFT JOIN Type6Targets t ON t.LevelNum = lb.LevelNum
+                LEFT JOIN Type6Counts  c ON c.LevelNum = lb.LevelNum
+                UNION ALL
+                SELECT
+                    N'聽力題組',  -- Granularity=0 母題（BuildDisplayLabel 統一掛「（母題）」字尾）
+                    CAST(0 AS TINYINT),
+                    CAST(NULL AS TINYINT),
+                    ISNULL(t7.Drafts, 0),
+                    ISNULL(t7.InProgressAudit, 0)
+                        + CASE WHEN ISNULL(t7.TotalTarget, 0) - ISNULL(t7.ExistingCount, 0) > 0
+                               THEN ISNULL(t7.TotalTarget, 0) - ISNULL(t7.ExistingCount, 0)
+                               ELSE 0 END,
+                    ISNULL(t7.DoneStage, 0),
+                    ISNULL(t7.Adopted, 0),
+                    ISNULL(t7.Rejected, 0),
+                    100
+                FROM Type7Counts t7
+                UNION ALL
+                SELECT
+                    N'聽力題組',  -- Granularity=1 子題（BuildDisplayLabel 統一掛「（子題）」字尾）
+                    CAST(1 AS TINYINT),
+                    CAST(NULL AS TINYINT),
+                    ISNULL(t7s.Drafts, 0),
+                    ISNULL(t7s.InProgressAudit, 0)
+                        + CASE WHEN ISNULL(t7s.TotalTarget, 0) - ISNULL(t7s.ExistingCount, 0) > 0
+                               THEN ISNULL(t7s.TotalTarget, 0) - ISNULL(t7s.ExistingCount, 0)
+                               ELSE 0 END,
+                    ISNULL(t7s.DoneStage, 0),
+                    ISNULL(t7s.Adopted, 0),
+                    ISNULL(t7s.Rejected, 0),
+                    101
+                FROM Type7SubCounts t7s
+            ) tmp
+            WHERE Drafts + InProgress + DoneStage + Adopted + Rejected > 0
+            ORDER BY SortKey
+            """;
+
+        return (await conn.QueryAsync<DashboardStatusByTypeItem>(sql, new { pid = projectId, stage = reviewStage })).ToList();
+    }
+
+    /// <summary>
+    /// LCT 修題階段（PhaseCode 4/6/8）的圖表 2 資料：
+    /// 用 MT_RevisionReplies 是否存在本輪非空回覆判斷「該題本階段是否修完」，跟 CWT 修題分支同邏輯。
+    /// 本輪過濾透過 vw_QuestionRoundStartedAt：PC=8 跨輪退回後舊 reply 不算本輪已修；PC=4/6 線性單輪不受影響。
+    /// </summary>
+    private static async Task<List<DashboardStatusByTypeItem>> LoadStatusByTypeRowsLctRevisionAsync(
+        System.Data.IDbConnection conn, int projectId, byte revisionStage)
+    {
+        const string sql = """
+            WITH LevelBuckets(LevelNum, LevelName) AS (
+                SELECT LevelNum, LevelName
+                FROM (VALUES (1, N'難度一'), (2, N'難度二'), (3, N'難度三'), (4, N'難度四'), (5, N'難度五'))
+                     AS v(LevelNum, LevelName)
+            ),
+            Type6Targets AS (
+                SELECT [Level] AS LevelNum, SUM(TargetCount) AS TotalTarget
+                FROM   dbo.MT_ProjectTargets
+                WHERE  ProjectId = @pid AND QuestionTypeId = 6 AND [Level] IS NOT NULL
+                GROUP BY [Level]
+            ),
+            QuestionRevisionStatus AS (
+                SELECT DISTINCT rr.QuestionId
+                FROM   dbo.MT_RevisionReplies rr
+                WHERE  rr.Stage = @revisionStage
+                  AND  rr.Content IS NOT NULL
+                  AND  LEN(TRIM(rr.Content)) > 0
+                  AND  rr.CreatedAt > ISNULL(
+                      (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt WHERE QuestionId = rr.QuestionId),
+                      '1900-01-01')
+            ),
+            Type6Counts AS (
+                SELECT q.[Level] AS LevelNum,
+                       COUNT(*) AS ExistingCount,
+                       SUM(CASE WHEN q.Status = 0 THEN 1 ELSE 0 END) AS Drafts,
+                       SUM(CASE WHEN q.Status BETWEEN 1 AND 8 AND qrs.QuestionId IS NULL     THEN 1 ELSE 0 END) AS InProgressRev,
+                       SUM(CASE WHEN q.Status BETWEEN 1 AND 8 AND qrs.QuestionId IS NOT NULL THEN 1 ELSE 0 END) AS DoneStage,
+                       SUM(CASE WHEN q.Status IN (9, 12)  THEN 1 ELSE 0 END) AS Adopted,
+                       SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END) AS Rejected
+                FROM   dbo.MT_Questions q
+                LEFT JOIN QuestionRevisionStatus qrs ON qrs.QuestionId = q.Id
+                WHERE  q.ProjectId = @pid AND q.IsDeleted = 0 AND q.QuestionTypeId = 6 AND q.[Level] IS NOT NULL
+                GROUP BY q.[Level]
+            ),
+            Type7Counts AS (
+                SELECT
+                    COUNT(*) AS ExistingCount,
+                    SUM(CASE WHEN q.Status = 0 THEN 1 ELSE 0 END) AS Drafts,
+                    SUM(CASE WHEN q.Status BETWEEN 1 AND 8 AND qrs.QuestionId IS NULL     THEN 1 ELSE 0 END) AS InProgressRev,
+                    SUM(CASE WHEN q.Status BETWEEN 1 AND 8 AND qrs.QuestionId IS NOT NULL THEN 1 ELSE 0 END) AS DoneStage,
+                    SUM(CASE WHEN q.Status IN (9, 12)  THEN 1 ELSE 0 END) AS Adopted,
+                    SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END) AS Rejected,
+                    ISNULL((SELECT SUM(TargetCount) FROM dbo.MT_ProjectTargets
+                            WHERE ProjectId = @pid AND QuestionTypeId = 7), 0) AS TotalTarget
+                FROM   dbo.MT_Questions q
+                LEFT JOIN QuestionRevisionStatus qrs ON qrs.QuestionId = q.Id
+                WHERE  q.ProjectId = @pid AND q.IsDeleted = 0 AND q.QuestionTypeId = 7
+            ),
+            -- 聽力題組子題本輪修題狀態
+            SubRevisionStatus AS (
+                SELECT DISTINCT rr.SubQuestionId
+                FROM   dbo.MT_RevisionReplies rr
+                WHERE  rr.Stage = @revisionStage
+                  AND  rr.SubQuestionId IS NOT NULL
+                  AND  rr.Content IS NOT NULL
+                  AND  LEN(TRIM(rr.Content)) > 0
+                  AND  rr.CreatedAt > ISNULL(
+                      (SELECT RoundStartedAt FROM dbo.vw_QuestionRoundStartedAt WHERE QuestionId = rr.QuestionId),
+                      '1900-01-01')
+            ),
+            Type7SubCounts AS (
+                SELECT
+                    COUNT(*) AS ExistingCount,
+                    SUM(CASE WHEN sq.Status = 0 THEN 1 ELSE 0 END) AS Drafts,
+                    SUM(CASE WHEN sq.Status BETWEEN 1 AND 8 AND srs.SubQuestionId IS NULL     THEN 1 ELSE 0 END) AS InProgressRev,
+                    SUM(CASE WHEN sq.Status BETWEEN 1 AND 8 AND srs.SubQuestionId IS NOT NULL THEN 1 ELSE 0 END) AS DoneStage,
+                    SUM(CASE WHEN sq.Status IN (9, 12)  THEN 1 ELSE 0 END) AS Adopted,
+                    SUM(CASE WHEN sq.Status IN (10, 11) THEN 1 ELSE 0 END) AS Rejected,
+                    ISNULL((SELECT SUM(TargetCount) * 2 FROM dbo.MT_ProjectTargets
+                            WHERE ProjectId = @pid AND QuestionTypeId = 7), 0) AS TotalTarget
+                FROM   dbo.MT_SubQuestions sq
+                JOIN   dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                LEFT JOIN SubRevisionStatus srs ON srs.SubQuestionId = sq.Id
+                WHERE  q.ProjectId = @pid AND q.IsDeleted = 0 AND sq.IsDeleted = 0
+                  AND  q.QuestionTypeId = 7
+            )
+            SELECT TypeName, Granularity, Level, Drafts, InProgress, DoneStage, Adopted, Rejected
+            FROM (
+                SELECT
+                    lb.LevelName                 AS TypeName,
+                    CAST(0 AS TINYINT)           AS Granularity,
+                    CAST(lb.LevelNum AS TINYINT) AS Level,
+                    ISNULL(c.Drafts, 0)          AS Drafts,
+                    ISNULL(c.InProgressRev, 0)
+                        + CASE WHEN ISNULL(t.TotalTarget, 0) - ISNULL(c.ExistingCount, 0) > 0
+                               THEN ISNULL(t.TotalTarget, 0) - ISNULL(c.ExistingCount, 0)
+                               ELSE 0 END         AS InProgress,
+                    ISNULL(c.DoneStage, 0)       AS DoneStage,
+                    ISNULL(c.Adopted, 0)         AS Adopted,
+                    ISNULL(c.Rejected, 0)        AS Rejected,
+                    lb.LevelNum                  AS SortKey
+                FROM      LevelBuckets lb
+                LEFT JOIN Type6Targets t ON t.LevelNum = lb.LevelNum
+                LEFT JOIN Type6Counts  c ON c.LevelNum = lb.LevelNum
+                UNION ALL
+                SELECT
+                    N'聽力題組',  -- Granularity=0 母題（BuildDisplayLabel 統一掛「（母題）」字尾）
+                    CAST(0 AS TINYINT),
+                    CAST(NULL AS TINYINT),
+                    ISNULL(t7.Drafts, 0),
+                    ISNULL(t7.InProgressRev, 0)
+                        + CASE WHEN ISNULL(t7.TotalTarget, 0) - ISNULL(t7.ExistingCount, 0) > 0
+                               THEN ISNULL(t7.TotalTarget, 0) - ISNULL(t7.ExistingCount, 0)
+                               ELSE 0 END,
+                    ISNULL(t7.DoneStage, 0),
+                    ISNULL(t7.Adopted, 0),
+                    ISNULL(t7.Rejected, 0),
+                    100
+                FROM Type7Counts t7
+                UNION ALL
+                SELECT
+                    N'聽力題組',  -- Granularity=1 子題（BuildDisplayLabel 統一掛「（子題）」字尾）
+                    CAST(1 AS TINYINT),
+                    CAST(NULL AS TINYINT),
+                    ISNULL(t7s.Drafts, 0),
+                    ISNULL(t7s.InProgressRev, 0)
+                        + CASE WHEN ISNULL(t7s.TotalTarget, 0) - ISNULL(t7s.ExistingCount, 0) > 0
+                               THEN ISNULL(t7s.TotalTarget, 0) - ISNULL(t7s.ExistingCount, 0)
+                               ELSE 0 END,
+                    ISNULL(t7s.DoneStage, 0),
+                    ISNULL(t7s.Adopted, 0),
+                    ISNULL(t7s.Rejected, 0),
+                    101
+                FROM Type7SubCounts t7s
+            ) tmp
+            WHERE Drafts + InProgress + DoneStage + Adopted + Rejected > 0
+            ORDER BY SortKey
+            """;
+
+        return (await conn.QueryAsync<DashboardStatusByTypeItem>(sql, new { pid = projectId, revisionStage })).ToList();
     }
 
     /// <summary>
@@ -941,13 +1258,12 @@ public class DashboardService : IDashboardService
         // → 改用單元粒度（MT_Questions 母題 / MT_SubQuestions 子題各自）估算待審池總數
         if (masterTotal == 0 && subTotal == 0)
         {
-            // LCT 模式：聽力題組（TypeId=7）母題不計入審題對象，只計子題
+            // 母題與子題分開計算（聽力題組母題與子題皆計入，與 CWT 一致設計）
             const string fallbackSql = """
                 SELECT
                     (SELECT COUNT(*) FROM dbo.MT_Questions
                      WHERE ProjectId = @pid AND IsDeleted = 0 AND Status BETWEEN 2 AND 8
-                       AND QuestionTypeId IN @typeIds
-                       AND NOT (@isLct = 1 AND QuestionTypeId = 7)) AS MasterTotal,
+                       AND QuestionTypeId IN @typeIds) AS MasterTotal,
                     (SELECT COUNT(*) FROM dbo.MT_SubQuestions sq
                      JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
                      WHERE q.ProjectId = @pid AND q.IsDeleted = 0 AND sq.IsDeleted = 0
@@ -955,7 +1271,7 @@ public class DashboardService : IDashboardService
                        AND sq.Status BETWEEN 2 AND 8) AS SubTotal
                 """;
             var fb = await conn.QuerySingleOrDefaultAsync<(int MasterTotal, int SubTotal)>(
-                fallbackSql, new { pid = projectId, typeIds = activeTypeIds, isLct = isLct ? 1 : 0 });
+                fallbackSql, new { pid = projectId, typeIds = activeTypeIds });
             masterTotal = fb.MasterTotal;
             subTotal    = fb.SubTotal;
             masterReviewed = 0;
@@ -973,7 +1289,7 @@ public class DashboardService : IDashboardService
     /// 待修總數（母/子）= 該階段對應 ReviewStage 中有 DecidedAt 的 distinct (QuestionId, SubQuestionId)
     /// 已修完（母/子）= 上述單元中，已有有效 MT_RevisionReplies.Content 的數量
     ///
-    /// CWT/LCT 雙模式：activeTypeIds 限定只計算有效題型；isLct 為 true 時排除 TypeId=7 母題（不修，子題才算）。
+    /// CWT/LCT 雙模式：activeTypeIds 限定只計算有效題型；聽力題組（TypeId=7）母題與子題皆分開計入，與 CWT 一致設計。
     /// 非修題階段（PhaseCode 不在 4/6/8）→ 直接回 (None, 0, 0, 0, 0)，不下 SQL。
     /// </summary>
     private static async Task<(RevisionPhaseLabel label, int masterRevised, int masterTotal, int subRevised, int subTotal)> GetRevisionProgressAsync(
@@ -997,8 +1313,7 @@ public class DashboardService : IDashboardService
         // ─ SubQuestionId IS NULL     → 母題修題單元
         // ─ SubQuestionId IS NOT NULL → 子題修題單元
         // ─ CWT 模式：WHERE QuestionTypeId IN @typeIds 限定有效題型
-        // ─ LCT 模式：isLct=true 時排除 TypeId=7 的「母題」單元（母題不算修題對象，子題才算）
-        //   因為 LCT 聽力題組母題本身沒有修題內容，只有子題需要修改
+        // ─ LCT 模式：聽力題組（TypeId=7）母題與子題同樣分開計入（與 CWT 一致設計）
         const string sql = """
             WITH AssignedUnits AS (
                 SELECT DISTINCT ra.QuestionId, ra.SubQuestionId, q.QuestionTypeId
@@ -1015,8 +1330,6 @@ public class DashboardService : IDashboardService
                         (ra.SubQuestionId IS NULL     AND q.Status  NOT IN (9, 10, 11, 12))
                      OR (ra.SubQuestionId IS NOT NULL AND sq.Status NOT IN (9, 10, 11, 12))
                   )
-                  -- LCT 模式：排除聽力題組（TypeId=7）的母題單元（母題不計入修題，只計子題）
-                  AND NOT (@isLct = 1 AND q.QuestionTypeId = 7 AND ra.SubQuestionId IS NULL)
             ),
             RevisedCheck AS (
                 SELECT a.QuestionId, a.SubQuestionId,

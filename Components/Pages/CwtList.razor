@@ -61,7 +61,7 @@
                         </span>
                     }
                 </div>
-                <p class="text-sm text-gray-500 mt-1">我的命題作業、審修任務與審核結果歷程。</p>
+                <p class="text-sm text-gray-500 mt-1">新增與編輯試題、回應審修意見，並追蹤審核進度。</p>
             </div>
             <button @onclick="() => OpenComposeModal(null)"
                 disabled="@IsCompositionPhaseClosed"
@@ -229,7 +229,13 @@
                         <select value="@queryLevel" @onchange="OnLevelFilterChanged"
                             class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                             <option value="">所有等級</option>
-                            @foreach (var kv in QuestionConstants.GeneralLevelLabels)
+                            @{
+                                // LCT 走「難度一~五」(ListenLevelLabels 鍵 1-5)；CWT 走「初等~優等」(GeneralLevelLabels 鍵 0-4)
+                                var levelLabels = CurrentProject?.ProjectType == ProjectType.Lct
+                                    ? QuestionConstants.ListenLevelLabels
+                                    : QuestionConstants.GeneralLevelLabels;
+                            }
+                            @foreach (var kv in levelLabels)
                             {
                                 if (!listResult.LevelCounts.ContainsKey(kv.Key)) continue;
                                 <option value="@kv.Key">@kv.Value</option>
@@ -262,16 +268,19 @@
                 else
                 {
                     <div class="overflow-x-auto">
-                        <table class="w-full text-sm">
+                        @* table-fixed：給其他欄位明確寬度，摘要欄不設寬度自動吃剩下全部 → 寬螢幕不留白、窄螢幕自動 truncate *@
+                        <table class="w-full table-fixed text-sm">
                             <thead class="text-xs text-gray-500 uppercase font-bold bg-gray-50 border-b border-gray-200">
                                 <tr>
-                                    <th class="px-4 py-2 text-left whitespace-nowrap">題號</th>
-                                    <th class="px-4 py-2 text-left whitespace-nowrap">題型</th>
-                                    <th class="px-4 py-2 text-left whitespace-nowrap">等級 / 難度</th>
+                                    <th class="px-4 py-2 text-left whitespace-nowrap w-36">題號</th>
+                                    <th class="px-4 py-2 text-left whitespace-nowrap w-28">題型</th>
+                                    <th class="px-4 py-2 text-left whitespace-nowrap w-28">等級 / 難度</th>
                                     <th class="px-4 py-2 text-left">題目摘要</th>
-                                    <th class="px-4 py-2 text-center whitespace-nowrap">狀態</th>
-                                    <th class="px-4 py-2 text-left whitespace-nowrap">最後修改</th>
-                                    <th class="px-4 py-2 text-center whitespace-nowrap">操作</th>
+                                    <th class="px-4 py-2 text-center whitespace-nowrap w-28">狀態</th>
+                                    <th class="px-4 py-2 text-left whitespace-nowrap w-36">最後修改</th>
+                                    @* 操作欄：草稿列需容納「編輯 + 刪除」雙按鈕（含 gap-3），原 w-24 (96px) 不夠
+                                       導致內容撐爆欄寬、整張 table 在 CWT 模式溢位產生卷軸 *@
+                                    <th class="px-4 py-2 text-center whitespace-nowrap w-32">操作</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -308,8 +317,12 @@
                                                 <span class="text-xs text-terracotta font-bold ml-2">@QuestionConstants.DifficultyLabels.GetValueOrDefault(d, "")</span>
                                             }
                                         </td>
-                                        <td class="px-4 py-3 max-w-md">
-                                            <div class="text-gray-700 truncate flex items-center gap-2" title="@StripHtml(item.SummaryHtml)">
+                                        <td class="px-4 py-3">
+                                            @* table-fixed 已配置欄寬，這裡的內容只要 flex + min-w-0 即可正確 truncate *@
+                                            @{
+                                                var summaryText = StripHtml(item.SummaryHtml ?? "");
+                                            }
+                                            <div class="flex items-center gap-2 min-w-0" title="@summaryText">
                                                 @if (item.SubQuestionCount > 0 && !isSubRow)
                                                 {
                                                     @* 母題列才顯示「N 子題」總計徽章；子題列本身不再重複 *@
@@ -317,10 +330,7 @@
                                                         @item.SubQuestionCount 子題
                                                     </span>
                                                 }
-                                                @{
-                                                    var summaryText = StripHtml(item.SummaryHtml ?? "");
-                                                }
-                                                <span class="truncate">@(string.IsNullOrWhiteSpace(summaryText) ? "（尚未填寫內容）" : summaryText)</span>
+                                                <span class="truncate min-w-0 text-gray-700">@(string.IsNullOrWhiteSpace(summaryText) ? "（尚未填寫內容）" : summaryText)</span>
                                             </div>
                                         </td>
                                         <td class="px-4 py-3 text-center whitespace-nowrap">
@@ -684,22 +694,17 @@
         try
         {
             // 全部並行（含 LoadListAsync 內部的 ListAsync），降低空白→有內容的延遲
-            var quotaTask    = QuestionService.GetMyQuotaProgressAsync(currentUserId!.Value, CurrentProject!.Id);
-            var phaseTask    = QuestionService.GetCurrentPhaseAsync(CurrentProject!.Id);
-            var countsTask   = QuestionService.GetStatusCountsAsync(CurrentProject!.Id, currentUserId!.Value);
-            var phaseEndTask = QuestionService.GetCompositionPhaseEndAsync(CurrentProject!.Id);
-            // 「已修題」計數只服務 revision tab 統計卡片；首次進站若停留在 compose/history 不必查
-            var repliedTask  = currentTab == "revision"
-                ? QuestionService.GetMyRevisionRepliedCountAsync(CurrentProject!.Id, currentUserId!.Value)
-                : Task.FromResult(0);
-            // 子題層級統計（審修作業區母題/子題分開計數）僅 revision tab 需要
-            var subCountsTask   = currentTab == "revision"
-                ? QuestionService.GetSubQuestionStatusCountsAsync(CurrentProject!.Id, currentUserId!.Value)
-                : Task.FromResult(new Dictionary<byte, int>());
-            var subRepliedTask  = currentTab == "revision"
-                ? QuestionService.GetMySubQuestionRevisionRepliedCountAsync(CurrentProject!.Id, currentUserId!.Value)
-                : Task.FromResult(0);
-            var listTask     = LoadListAsync();
+            // 子題計數與「已修題」計數一律永遠載入：
+            //   - 子題狀態計數會餵到 [審修作業區] tab badge（母 + 子 合計），lazy 載入會讓 user 切 tab 前看到錯誤 badge
+            //   - 計數 SQL 都是輕量 COUNT GROUP BY；Task.WhenAll 並行下總時間取決於最慢的 ListAsync，不會變慢
+            var quotaTask       = QuestionService.GetMyQuotaProgressAsync(currentUserId!.Value, CurrentProject!.Id);
+            var phaseTask       = QuestionService.GetCurrentPhaseAsync(CurrentProject!.Id);
+            var countsTask      = QuestionService.GetStatusCountsAsync(CurrentProject!.Id, currentUserId!.Value);
+            var phaseEndTask    = QuestionService.GetCompositionPhaseEndAsync(CurrentProject!.Id);
+            var repliedTask     = QuestionService.GetMyRevisionRepliedCountAsync(CurrentProject!.Id, currentUserId!.Value);
+            var subCountsTask   = QuestionService.GetSubQuestionStatusCountsAsync(CurrentProject!.Id, currentUserId!.Value);
+            var subRepliedTask  = QuestionService.GetMySubQuestionRevisionRepliedCountAsync(CurrentProject!.Id, currentUserId!.Value);
+            var listTask        = LoadListAsync();
 
             await Task.WhenAll(quotaTask, phaseTask, countsTask, phaseEndTask, repliedTask, subCountsTask, subRepliedTask, listTask);
 
@@ -815,22 +820,8 @@
         activeFilter  = "all";
         currentPage   = 1;
 
-        // 切到 revision tab 才需「已修題」與子題計數（首載時若不在 revision tab 會略過，這裡補回）
-        var listTask = LoadListAsync();
-        if (tab == "revision" && currentUserId.HasValue && CurrentProject is not null)
-        {
-            var repliedTask     = QuestionService.GetMyRevisionRepliedCountAsync(CurrentProject.Id, currentUserId.Value);
-            var subCountsTask   = QuestionService.GetSubQuestionStatusCountsAsync(CurrentProject.Id, currentUserId.Value);
-            var subRepliedTask  = QuestionService.GetMySubQuestionRevisionRepliedCountAsync(CurrentProject.Id, currentUserId.Value);
-            await Task.WhenAll(listTask, repliedTask, subCountsTask, subRepliedTask);
-            revisionRepliedCount    = repliedTask.Result;
-            subStatusCounts         = subCountsTask.Result;
-            subRevisionRepliedCount = subRepliedTask.Result;
-        }
-        else
-        {
-            await listTask;
-        }
+        // 計數已在 LoadPageDataAsync 進站時全載入，切 tab 只需重抓列表（篩選條件變了）
+        await LoadListAsync();
     }
 
     private async Task OnFilterChanged(string filterKey)
@@ -1145,6 +1136,12 @@
         {
             formData.QuestionType = presetTypeKey;
         }
+        else if (CurrentProject?.ProjectType == ProjectType.Lct)
+        {
+            // LCT 專案沒給 preset 時預設為「聽力測驗」（一般單選題不在 LCT 可命題型清單內，
+            // 留住 model 預設值 Single 會讓題型下拉顯示空白且表單錯渲染為「一般單選題分類」）
+            formData.QuestionType = QuestionTypeCodes.Listen;
+        }
         // CWT 統一等級：開新題時自動帶入專案 ExamLevel；
         // LCT：由配額卡（如「聽力測驗 - 難度三」）帶入對應 Level，避免老師手動再選
         if (CurrentProject?.ProjectType == ProjectType.Cwt && CurrentProject.ExamLevel.HasValue)
@@ -1154,6 +1151,16 @@
         else if (presetLevel.HasValue)
         {
             formData.Level = presetLevel.Value;
+            // 聽力測驗：preset 等級時補跑 OnLevelChanged 等價的級聯邏輯，
+            // 把單一核心能力自動帶入（難度一~三各只有一個），否則細目指標下拉會卡在
+            // 「先選等級」disabled 狀態。
+            if (formData.QuestionType == QuestionTypeCodes.Listen
+                && QuestionConstants.ListenLevelCoreAbilityMap.TryGetValue(presetLevel.Value, out var abilities)
+                && abilities.Length == 1)
+            {
+                formData.CoreAbility = abilities[0];
+                formData.DetailIndicator = null;
+            }
         }
         currentFormStatus = QuestionStatus.Draft;
         currentFormUpdatedAt = null;
@@ -1338,6 +1345,9 @@
                 tags["寫作模式"] = Label(formData.WritingMode, QuestionConstants.WritingModeLabels, fallback);
                 break;
             case QuestionTypeCodes.ReadGroup:
+                // 閱讀題組母題固定主類=文意判讀(6) / 次類=篇章辨析(17)（與短文題組一致）
+                tags["主類"] = "文意判讀";
+                tags["次類"] = "篇章辨析";
                 tags["文體"] = Label(formData.Genre, QuestionConstants.GenreLabels, fallback);
                 break;
             case QuestionTypeCodes.ShortGroup:

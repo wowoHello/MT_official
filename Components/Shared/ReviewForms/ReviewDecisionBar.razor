@@ -49,8 +49,8 @@
         var (completedLabel, completedColor) = Assignment.Decision switch
         {
             ReviewDecision.Approve => ("採用",     "text-sage"),
-            ReviewDecision.Revise  => ("已退回，等命題老師修題", "text-terracotta"),
-            ReviewDecision.Reject  => ("已退回（不採用），等命題老師修題", "text-red-700"),
+            ReviewDecision.Revise  => ("審閱完成，待命題教師處理", "text-terracotta"),
+            ReviewDecision.Reject  => ("退回修題中，等待命題教師回覆", "text-red-700"),
             _                      => ("已完成",   "text-gray-500")
         };
         <div class="flex items-center gap-2 text-sm text-slate-main font-medium">

@@ -1,6 +1,6 @@
 ---
 name: OverviewService 依賴注入與跨 Service 委派
-description: OverviewService 主建構子注入的 5 個依賴與委派職責拆分；GetAllReviewersRespondedAsync 改 per-row DecidedAt (2026-05-19)
+description: OverviewService 主建構子注入的 5 個依賴與委派職責拆分；633 行；第三波 #13 BuildOverviewCounts 已落地（2026-05-25 確認）
 type: project
 ---
 

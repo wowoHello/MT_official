@@ -11,6 +11,7 @@ example/
 wwwroot/uploads/
 wwwroot/files/
 .dotnet-home/
+appsettings.Development.json
 # dotenv files
 .env
 

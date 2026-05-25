@@ -74,7 +74,7 @@
                         </span>
                     }
                 </div>
-                <p class="text-sm text-gray-500 mt-1">互審 / 專審 / 總召審題的決策、退回與歷史。</p>
+                <p class="text-sm text-gray-500 mt-1">互審、專審與總召審題之審查結果、修題狀態與歷程紀錄。</p>
             </div>
         </div>
     </div>
@@ -239,7 +239,13 @@
                             <select value="@queryLevel" @onchange="OnLevelFilterChanged"
                                 class="w-full md:w-auto px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer">
                                 <option value="all">所有等級</option>
-                                @foreach (var kv in QuestionConstants.GeneralLevelLabels)
+                                @{
+                                    // LCT 走「難度一~五」(ListenLevelLabels 鍵 1-5)；CWT 走「初等~優等」(GeneralLevelLabels 鍵 0-4)
+                                    var levelLabels = CurrentProject?.ProjectType == ProjectType.Lct
+                                        ? QuestionConstants.ListenLevelLabels
+                                        : QuestionConstants.GeneralLevelLabels;
+                                }
+                                @foreach (var kv in levelLabels)
                                 {
                                     if (!levelKeyCounts.ContainsKey(kv.Key)) continue;
                                     <option value="@kv.Key">@kv.Value</option>
@@ -328,17 +334,18 @@
                     else
                     {
                         <div class="overflow-x-auto">
-                            <table class="w-full text-sm">
+                            @* table-fixed：給其他欄位明確寬度，摘要欄不設寬度自動吃剩下全部 *@
+                            <table class="w-full table-fixed text-sm">
                                 <thead class="text-xs text-gray-500 uppercase font-bold bg-gray-50 border-b border-gray-200">
                                     <tr>
-                                        <th class="px-4 py-2 text-left whitespace-nowrap">題號</th>
-                                        <th class="px-4 py-2 text-left whitespace-nowrap">題型</th>
-                                        <th class="px-4 py-2 text-left whitespace-nowrap">等級</th>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap w-36">題號</th>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap w-28">題型</th>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap w-24">等級</th>
                                         <th class="px-4 py-2 text-left">題目摘要</th>
-                                        <th class="px-4 py-2 text-center whitespace-nowrap">階段</th>
-                                        <th class="px-4 py-2 text-center whitespace-nowrap">狀態</th>
-                                        <th class="px-4 py-2 text-left whitespace-nowrap">編輯時間</th>
-                                        <th class="px-4 py-2 text-center whitespace-nowrap">操作</th>
+                                        <th class="px-4 py-2 text-center whitespace-nowrap w-20">階段</th>
+                                        <th class="px-4 py-2 text-center whitespace-nowrap w-28">狀態</th>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap w-36">編輯時間</th>
+                                        <th class="px-4 py-2 text-center whitespace-nowrap w-20">操作</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -401,7 +408,8 @@
                                                     <span class="text-xs text-terracotta font-bold ml-2">@QuestionConstants.DifficultyLabels.GetValueOrDefault(d, "")</span>
                                                 }
                                             </td>
-                                            <td class="px-4 py-3 max-w-md">
+                                            <td class="px-4 py-3">
+                                                @* table-fixed 已配置欄寬，div 只要 truncate 即可（自動 ellipsis 滿欄寬時） *@
                                                 <div class="text-gray-700 truncate" title="@item.SummaryText">
                                                     @(string.IsNullOrEmpty(item.SummaryText) ? "（尚未填寫內容）" : item.SummaryText)
                                                 </div>
@@ -442,7 +450,7 @@
                                                     var (doneLabel, doneCss) = item.Stage switch
                                                     {
                                                         // 互審：只給意見，無決策
-                                                        ReviewStage.Mutual => ("已給意見", "bg-morandi/15 text-morandi border-morandi/30"),
+                                                        ReviewStage.Mutual => ("已審閱", "bg-morandi/15 text-morandi border-morandi/30"),
 
                                                         // 專審 / 總審：依 Decision 顯示
                                                         _ => item.Decision switch
@@ -527,16 +535,17 @@
                     else
                     {
                         <div class="overflow-x-auto">
-                            <table class="w-full text-sm">
+                            @* table-fixed：給其他欄位明確寬度，摘要欄不設寬度自動吃剩下全部 *@
+                            <table class="w-full table-fixed text-sm">
                                 <thead class="text-xs text-gray-500 uppercase font-bold bg-gray-50 border-b border-gray-200">
                                     <tr>
-                                        <th class="px-4 py-2 text-left whitespace-nowrap">題號</th>
-                                        <th class="px-4 py-2 text-left whitespace-nowrap">題型</th>
-                                        <th class="px-4 py-2 text-left whitespace-nowrap">等級</th>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap w-36">題號</th>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap w-28">題型</th>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap w-24">等級</th>
                                         <th class="px-4 py-2 text-left">題目摘要</th>
-                                        <th class="px-4 py-2 text-center whitespace-nowrap">最終狀態</th>
-                                        <th class="px-4 py-2 text-left whitespace-nowrap">決策時間</th>
-                                        <th class="px-4 py-2 text-center whitespace-nowrap">操作</th>
+                                        <th class="px-4 py-2 text-center whitespace-nowrap w-28">最終狀態</th>
+                                        <th class="px-4 py-2 text-left whitespace-nowrap w-36">決策時間</th>
+                                        <th class="px-4 py-2 text-center whitespace-nowrap w-20">操作</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -586,7 +595,8 @@
                                                     <span class="text-xs text-terracotta font-bold ml-2">@QuestionConstants.DifficultyLabels.GetValueOrDefault(d, "")</span>
                                                 }
                                             </td>
-                                            <td class="px-4 py-3 max-w-md">
+                                            <td class="px-4 py-3">
+                                                @* table-fixed 已配置欄寬，div 只要 truncate 即可（自動 ellipsis 滿欄寬時） *@
                                                 <div class="text-gray-700 truncate" title="@item.SummaryText">
                                                     @(string.IsNullOrEmpty(item.SummaryText) ? "（尚未填寫內容）" : item.SummaryText)
                                                 </div>
@@ -677,6 +687,8 @@
                             LockQuestionType="true"
                             QuestionType="@finalEditFormData.QuestionType"
                             QuestionTypeChanged="@((t) => { if (finalEditFormData is not null) finalEditFormData.QuestionType = t; })"
+                            ProjectType="@(CurrentProject?.ProjectType ?? ProjectType.Cwt)"
+                            ExamLevel="@CurrentProject?.ExamLevel"
                             @bind-Level="finalEditFormData.Level"
                             @bind-Difficulty="finalEditFormData.Difficulty"
                             @bind-Topic="finalEditFormData.Topic"

@@ -5,6 +5,7 @@
 - [OverviewService 依賴與委派](project_overview_service_dependencies.md) — 注入五依賴；BuildOverviewCountsAsync 合併三 dict（修補 D）；PhaseCoordinator 只在 Service 端呼叫（修補 B）
 - [Overview 相關資料庫關鍵欄位](project_db_schema_overview_relevant.md) — Stage A 子題提升為審題單元 / Plan_014 本輪過濾 / MT_QuestionImages 圖片獨立表
 - [Overview CWT/LCT 雙模式整合現況](project_overview_cwt_lct_gap.md) — 2026-05-22 確認整合已完成（題型下拉用 GetVisibleTypeIdToKeyForProject、LevelLabel 新增 projectType 參數）
+- [Overview 三檔案行數速查](project_overview_file_sizes.md) — 1216/633/167 行（2026-05-25 盤點），三檔案原則維持中
 - [DB migration 腳本位置速查](reference_db_migration_scripts.md) — sql 目錄索引、CWT/LCT 三支 migration、vw_QuestionRoundStartedAt
 - [修題階段燈號雙態呈現](feedback_revision_phase_display.md) — 已送出藍勾+綠 Badge / 未送出紅筆+橘 Badge，由 PhaseProgressStepper 統一處理
 - [七階段燈號判定條件](project_overview_phase_lamps.md) — ResolveStage 7 種 tone（新增 reviewDone）/ 4 個參數 / preDone/revisionSent/draftFailed/reviewDone 四種僅 Overview 觸發
