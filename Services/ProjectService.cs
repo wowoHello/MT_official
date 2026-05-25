@@ -990,101 +990,148 @@ public class ProjectService : IProjectService
             await conn.ExecuteAsync(deleteSql, new { ProjectId = projectId }, transaction: transaction);
         }
 
-        const string phaseSql = """
-            INSERT INTO dbo.MT_ProjectPhases (ProjectId, PhaseCode, PhaseName, StartDate, EndDate, SortOrder)
-            VALUES (@ProjectId, @PhaseCode, @Name, @StartDate, @EndDate, @PhaseCode);
-            """;
-
-        foreach (var phase in phases)
+        // 批次 INSERT Phases（典型 8 列：產學區間 + 7 階段）— 1 round-trip
+        var phaseList = phases.ToList();
+        if (phaseList.Count > 0)
         {
-            await conn.ExecuteAsync(
-                phaseSql,
-                new
-                {
-                    ProjectId = projectId,
-                    PhaseCode = phase.PhaseCode,
-                    Name = phase.Name,
-                    StartDate = phase.StartDate,
-                    EndDate = phase.EndDate
-                },
-                transaction: transaction);
+            var sb = new System.Text.StringBuilder(
+                "INSERT INTO dbo.MT_ProjectPhases (ProjectId, PhaseCode, PhaseName, StartDate, EndDate, SortOrder) VALUES ");
+            var args = new DynamicParameters();
+            args.Add("ProjectId", projectId);
+            for (var i = 0; i < phaseList.Count; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                sb.Append($"(@ProjectId, @C{i}, @N{i}, @S{i}, @E{i}, @C{i})");
+                args.Add($"C{i}", phaseList[i].PhaseCode);
+                args.Add($"N{i}", phaseList[i].Name);
+                args.Add($"S{i}", phaseList[i].StartDate);
+                args.Add($"E{i}", phaseList[i].EndDate);
+            }
+            await conn.ExecuteAsync(sb.ToString(), args, transaction: transaction);
         }
 
-        const string targetSql = """
-            INSERT INTO dbo.MT_ProjectTargets (ProjectId, QuestionTypeId, Granularity, Level, TargetCount)
-            VALUES (@ProjectId, @QuestionTypeId, @Granularity, @Level, @TargetCount);
-            """;
-
-        foreach (var target in targets.Where(target => target.TargetCount > 0))
+        // 批次 INSERT Targets（CWT ~7 列 / LCT ~6 列，過濾掉 TargetCount=0）— 1 round-trip
+        var targetList = targets.Where(t => t.TargetCount > 0).ToList();
+        if (targetList.Count > 0)
         {
-            await conn.ExecuteAsync(
-                targetSql,
-                new
-                {
-                    ProjectId = projectId,
-                    QuestionTypeId = target.QuestionTypeId,
-                    Granularity = target.Granularity,
-                    Level = target.Level,
-                    TargetCount = target.TargetCount
-                },
-                transaction: transaction);
+            var sb = new System.Text.StringBuilder(
+                "INSERT INTO dbo.MT_ProjectTargets (ProjectId, QuestionTypeId, Granularity, Level, TargetCount) VALUES ");
+            var args = new DynamicParameters();
+            args.Add("ProjectId", projectId);
+            for (var i = 0; i < targetList.Count; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                sb.Append($"(@ProjectId, @T{i}, @G{i}, @L{i}, @C{i})");
+                args.Add($"T{i}", targetList[i].QuestionTypeId);
+                args.Add($"G{i}", targetList[i].Granularity);
+                args.Add($"L{i}", targetList[i].Level);
+                args.Add($"C{i}", targetList[i].TargetCount);
+            }
+            await conn.ExecuteAsync(sb.ToString(), args, transaction: transaction);
         }
 
-        const string memberSql = """
-            INSERT INTO dbo.MT_ProjectMembers (ProjectId, UserId)
-            OUTPUT INSERTED.Id
-            VALUES (@ProjectId, @UserId);
-            """;
+        var allocList = memberAllocations.Where(a => a.UserId > 0).ToList();
+        if (allocList.Count == 0) return;
 
-        const string roleSql = """
-            INSERT INTO dbo.MT_ProjectMemberRoles (ProjectMemberId, RoleId)
-            VALUES (@ProjectMemberId, @RoleId);
-            """;
+        // 批次 INSERT Members + OUTPUT 取回 (Id, UserId) 映射 — 1 round-trip
+        // 註：SQL Server 單一指令參數上限 2100；典型梯次 ~30 教師遠低於此
+        var memberIdByUserId = await BulkInsertMembersAsync(conn, transaction, projectId, allocList);
 
-        const string quotaSql = """
-            INSERT INTO dbo.MT_MemberQuotas (ProjectMemberId, QuestionTypeId, Granularity, Level, QuotaCount)
-            VALUES (@ProjectMemberId, @QuestionTypeId, @Granularity, @Level, @QuotaCount);
-            """;
+        // 批次 INSERT 所有 Roles（跨成員合併）— 1 round-trip
+        await BulkInsertMemberRolesAsync(conn, transaction, allocList, memberIdByUserId);
 
-        foreach (var alloc in memberAllocations.Where(allocation => allocation.UserId > 0))
+        // 批次 INSERT 所有 Quotas（跨成員合併）— 1 round-trip
+        await BulkInsertMemberQuotasAsync(conn, transaction, allocList, memberIdByUserId);
+    }
+
+    /// <summary>
+    /// 批次 INSERT MT_ProjectMembers，回傳 UserId → MemberId 字典。
+    /// 用 OUTPUT INSERTED.Id, INSERTED.UserId 一次拿全部映射，後續 Roles / Quotas 用此字典配對。
+    /// </summary>
+    private static async Task<Dictionary<int, int>> BulkInsertMembersAsync(
+        IDbConnection conn,
+        IDbTransaction transaction,
+        int projectId,
+        IReadOnlyList<ProjectMemberAllocationDto> allocList)
+    {
+        var sb = new System.Text.StringBuilder(
+            "INSERT INTO dbo.MT_ProjectMembers (ProjectId, UserId) OUTPUT INSERTED.Id, INSERTED.UserId VALUES ");
+        var args = new DynamicParameters();
+        args.Add("ProjectId", projectId);
+        for (var i = 0; i < allocList.Count; i++)
         {
-            var memberId = await conn.QuerySingleAsync<int>(
-                memberSql,
-                new
-                {
-                    ProjectId = projectId,
-                    UserId = alloc.UserId
-                },
-                transaction: transaction);
+            if (i > 0) sb.Append(", ");
+            sb.Append($"(@ProjectId, @U{i})");
+            args.Add($"U{i}", allocList[i].UserId);
+        }
+        var rows = await conn.QueryAsync<MemberInsertRow>(sb.ToString(), args, transaction: transaction);
+        return rows.ToDictionary(r => r.UserId, r => r.Id);
+    }
 
+    /// <summary>
+    /// 批次 INSERT MT_ProjectMemberRoles，合併所有成員的角色為單一 INSERT。
+    /// </summary>
+    private static async Task BulkInsertMemberRolesAsync(
+        IDbConnection conn,
+        IDbTransaction transaction,
+        IReadOnlyList<ProjectMemberAllocationDto> allocList,
+        IReadOnlyDictionary<int, int> memberIdByUserId)
+    {
+        var sb = new System.Text.StringBuilder();
+        var args = new DynamicParameters();
+        var idx = 0;
+        foreach (var alloc in allocList)
+        {
+            var memberId = memberIdByUserId[alloc.UserId];
             foreach (var roleId in alloc.RoleIds.Where(id => id > 0).Distinct())
             {
-                await conn.ExecuteAsync(
-                    roleSql,
-                    new
-                    {
-                        ProjectMemberId = memberId,
-                        RoleId = roleId
-                    },
-                    transaction: transaction);
-            }
-
-            foreach (var quota in alloc.Quotas.Where(quota => quota.QuotaCount > 0))
-            {
-                await conn.ExecuteAsync(
-                    quotaSql,
-                    new
-                    {
-                        ProjectMemberId = memberId,
-                        QuestionTypeId = quota.QuestionTypeId,
-                        Granularity = quota.Granularity,
-                        Level = quota.Level,
-                        QuotaCount = quota.QuotaCount
-                    },
-                    transaction: transaction);
+                if (idx > 0) sb.Append(", ");
+                sb.Append($"(@M{idx}, @R{idx})");
+                args.Add($"M{idx}", memberId);
+                args.Add($"R{idx}", roleId);
+                idx++;
             }
         }
+        if (idx == 0) return;
+        await conn.ExecuteAsync(
+            "INSERT INTO dbo.MT_ProjectMemberRoles (ProjectMemberId, RoleId) VALUES " + sb,
+            args, transaction: transaction);
     }
+
+    /// <summary>
+    /// 批次 INSERT MT_MemberQuotas，合併所有成員的配額為單一 INSERT。
+    /// </summary>
+    private static async Task BulkInsertMemberQuotasAsync(
+        IDbConnection conn,
+        IDbTransaction transaction,
+        IReadOnlyList<ProjectMemberAllocationDto> allocList,
+        IReadOnlyDictionary<int, int> memberIdByUserId)
+    {
+        var sb = new System.Text.StringBuilder();
+        var args = new DynamicParameters();
+        var idx = 0;
+        foreach (var alloc in allocList)
+        {
+            var memberId = memberIdByUserId[alloc.UserId];
+            foreach (var quota in alloc.Quotas.Where(q => q.QuotaCount > 0))
+            {
+                if (idx > 0) sb.Append(", ");
+                sb.Append($"(@M{idx}, @T{idx}, @G{idx}, @L{idx}, @C{idx})");
+                args.Add($"M{idx}", memberId);
+                args.Add($"T{idx}", quota.QuestionTypeId);
+                args.Add($"G{idx}", quota.Granularity);
+                args.Add($"L{idx}", quota.Level);
+                args.Add($"C{idx}", quota.QuotaCount);
+                idx++;
+            }
+        }
+        if (idx == 0) return;
+        await conn.ExecuteAsync(
+            "INSERT INTO dbo.MT_MemberQuotas (ProjectMemberId, QuestionTypeId, Granularity, Level, QuotaCount) VALUES " + sb,
+            args, transaction: transaction);
+    }
+
+    private sealed record MemberInsertRow(int Id, int UserId);
 
     /// <summary>
     /// 取得指定專案的 7 個實作階段（PhaseCode 2~8：命題 / 互審 / 互修 / 專審 / 專修 / 總審 / 總修）。

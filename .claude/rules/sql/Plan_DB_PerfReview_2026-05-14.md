@@ -240,7 +240,7 @@ AND CAST(GETDATE() AS DATE) BETWEEN StartDate AND EndDate
 
 | # | 任務 | 影響範圍 |
 |---|---|---|
-| 12 | **`ProjectService.ReplaceProjectChildRecordsAsync` 改 Bulk Insert（TVP 或 `Dapper.Plus`）** | 專案編輯儲存從數秒變數百毫秒 |
+| ~~12~~ | ~~**`ProjectService.ReplaceProjectChildRecordsAsync` 改 Bulk Insert（TVP 或 `Dapper.Plus`）**~~ | ✅ 已完成（2026-05-26，兩 commit 分段，多列 VALUES 而非 TVP，附錄 I）|
 | 13 | **`OverviewService` 三條獨立 SQL 合併成單一 CTE** | Overview 頁載入快 30-50% |
 | 14 | **`ReviewService.GetModalDataAsync` 9 次 round-trip → 3-4 次** | 審題 Modal 開啟速度 |
 | 15 | **教師歷程 ORDER BY 加 OFFSET/FETCH 分頁** | TeacherService |
@@ -1018,11 +1018,97 @@ OFFSET @Offset ROWS FETCH NEXT @PageSize ROWS ONLY;
 
 ---
 
-**第三波目前狀態**（11 項中 4 項完成）：
+**第三波目前狀態**（11 項中 6 項完成）：
 - ✅ #15 教師歷程分頁（附錄 G）
 - ✅ #16 EmailService fire-and-forget（附錄 G）
-- ✅ #18 MergeRolePermissions 批次 INSERT（本附錄）
-- ✅ #14 GetModalDataAsync QueryMultiple（本附錄）
-- ⏳ #12 ProjectService Bulk Insert（最複雜，最有 ROI）
-- ⏳ #13 OverviewService 合併 CTE
-- ⏳ #17 RoleService MemoryCache（評估後可能刪除）
+- ✅ #18 MergeRolePermissions 批次 INSERT（附錄 H）
+- ✅ #14 GetModalDataAsync QueryMultiple（附錄 H）
+- ✅ #13 OverviewService 合併 CTE（附錄 H 後由 overview-page-curator 盤點確認已落地，2026-05-25）
+- ✅ #12 ProjectService Bulk Insert（附錄 I，兩 commit 分段完成 2026-05-26）
+- ⏳ #17 RoleService MemoryCache（已被第二波 #7 IMembershipService 涵蓋，建議刪除此項）
+
+---
+
+# 附錄 I：第三波 #12 施工紀錄（2026-05-26 完成）
+
+## 任務 #12 — `ReplaceProjectChildRecordsAsync` 完整批次化
+
+**設計策略**：仿 #18 `MergeRolePermissionsAsync` 同一套 pattern — `StringBuilder` 拼多列 `INSERT VALUES (),(),()` + `DynamicParameters` 帶參。**不引入 TVP**（要新增 5 個 User-Defined Table Type，schema 維運成本高）、**不引入 Dapper.Plus**（零依賴原則）。Members 用 `OUTPUT INSERTED.Id, INSERTED.UserId` 一次拿回完整映射，後續 Roles / Quotas 透過 `Dictionary<int, int>` 配對 MemberId。
+
+**分兩 commit 切刀**：先動最安全的（無 MemberId 依賴）三段，對拍 PASS 後再動最有 ROI 的 Members + Quotas 核心段。降低改壞掉風險。
+
+## Commit 1（2026-05-26）— Phases / Targets / Roles（嵌套）
+
+### 改動
+- Phases 段：`foreach 8 次 INSERT` → 1 個多列 VALUES INSERT
+- Targets 段：`foreach ~12 次 INSERT` → 1 個多列 VALUES INSERT
+- Roles 段：仍在 member loop 內，但**每位成員的 N 個 RoleId 改為 1 個多列 VALUES INSERT**（從 N round-trip 降到 1）
+
+### Round-trip 變化（典型 30 教師梯次）
+
+| 段別 | 改前 | 改後 |
+|---|---|---|
+| Phases | 8 | 1 |
+| Targets | ~12 | 1 |
+| Members | 30 | 30（保留不動） |
+| Roles | ~45 | 30（每教師 1 批） |
+| Quotas | ~225 | ~225（保留不動） |
+| **小計** | **~320** | **~287** |
+
+### 驗證
+- `dotnet build` 0 警告 0 錯誤
+- `verify_project_bulk_insert_commit1.sql` SSMS 對拍：Phases / Targets / Roles 三段差異 0 列 ✅
+
+## Commit 2（2026-05-26）— Members / Roles / Quotas 全部跨成員合併
+
+### 改動
+- 主方法 `ReplaceProjectChildRecordsAsync` 拆出 3 個 private static helper：
+  - `BulkInsertMembersAsync` — `OUTPUT INSERTED.Id, INSERTED.UserId` 回傳 `Dictionary<int, int>` (UserId → MemberId)
+  - `BulkInsertMemberRolesAsync` — 跨成員合併所有 RoleIds 為單一 INSERT
+  - `BulkInsertMemberQuotasAsync` — 跨成員合併所有 Quotas 為單一 INSERT
+- 新增 `private sealed record MemberInsertRow(int Id, int UserId)` 接 OUTPUT 結果
+
+### Round-trip 變化（典型 30 教師梯次）
+
+| 段別 | Commit 1 後 | Commit 2 後 |
+|---|---|---|
+| Phases | 1 | 1 |
+| Targets | 1 | 1 |
+| Members | 30 | **1** |
+| Roles | 30 | **1** |
+| Quotas | ~225 | **1** |
+| **合計** | **~287** | **5** |
+
+從 ~320 次降到 **5 次** round-trip，Serializable 鎖定時間從數百毫秒降到數十毫秒。
+
+### 驗證
+- `dotnet build` 0 警告 0 錯誤
+- `verify_project_bulk_insert_commit2.sql` SSMS 對拍：Phases / Targets / Members / Roles / Quotas 五段差異 0 列 ✅
+
+## 新增的檔案（2 SQL 對拍腳本）
+- `.claude/rules/sql/verify_project_bulk_insert_commit1.sql`
+- `.claude/rules/sql/verify_project_bulk_insert_commit2.sql`
+
+## 修改的檔案（1 個）
+- `Services/ProjectService.cs:993-1132` — `ReplaceProjectChildRecordsAsync` 整段重寫 + 新增 3 個 private helper + 1 個 record
+
+## 限制（已記在程式碼註解）
+SQL Server 單一指令參數上限 2100。典型梯次遠低於此（30 教師 × ~7 quotas × 5 欄 ≈ 1050 參數）；若未來真撞上限，會以清楚的 SqlException 提示，再分批處理即可（非本次處理範圍）。
+
+## 累積成果
+
+| 量化指標 | 數量 |
+|---|---|
+| 修改的 Service 檔案 | 1（ProjectService.cs） |
+| 新增的 private helper | 3 |
+| 新增的 private record | 1 |
+| 新增的 SQL 對拍腳本 | 2 |
+| Round-trip 降幅 | ~320 → 5（**降 98%**） |
+| 新增 NuGet 套件 | **0** |
+| Schema 變動 | **0** |
+| Build 結果 | 0 警告 0 錯誤 |
+| 對拍結果 | Commit 1 三段 / Commit 2 五段全部 0 列 ✅ |
+
+---
+
+**第三波目前狀態**（11 項中 6 項完成，剩 1 項評估後可刪）：所有高 ROI 任務皆已落地。剩 #17 屬於評估後可刪除（已被第二波 #7 IMembershipService 涵蓋）。**第三波實質完工**。
