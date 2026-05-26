@@ -653,10 +653,12 @@ public class QuestionService(
             ? "AND (@Keyword IS NULL OR q.Stem LIKE '%' + @Keyword + '%' OR q.QuestionCode LIKE '%' + @Keyword + '%' OR u.DisplayName LIKE '%' + @Keyword + '%')"
             : "AND (@Keyword IS NULL OR q.Stem LIKE '%' + @Keyword + '%' OR q.QuestionCode LIKE '%' + @Keyword + '%')";
 
-        // Stage B-4-2：revision tab 拆 N+1 列 — 母題列 + 每子題列各一筆，使用 UNION ALL。
-        //   其他 Tab（compose / history）仍走原本「每題一列」邏輯，UNION 子題分支不啟用。
-        //   啟用條件：filter.Tab == "revision" 或 filter.IncludeSubRows（Overview 用後者明示啟用）。
-        var includeSubRows = filter.Tab == "revision" || filter.IncludeSubRows;
+        // Stage B-4-2：revision / history tab 拆 N+1 列 — 母題列 + 每子題列各一筆，使用 UNION ALL。
+        //   compose tab 仍走「每題一列」邏輯（命題階段子題尚未獨立決策，跟著母題走即可）。
+        //   啟用條件：filter.Tab ∈ {revision, history} 或 filter.IncludeSubRows（Overview 用後者明示啟用）。
+        //   history tab 必須啟用：總審可獨立判決子題（Q-XXX-NN Status=9 採用），
+        //   母題仍在修題中 (Status=8) 時若不 UNION 子題，已採用子題會在系統隱身。
+        var includeSubRows = filter.Tab is "revision" or "history" || filter.IncludeSubRows;
 
         // Plan_DB_PerfReview 第二波 #9：原 per-row inline EXISTS 改 CTE 預聚合 + LEFT JOIN
         // 3 個 CTE 各掃一次（hash aggregate），主 SELECT 1:1 LEFT JOIN，消除 per-row subquery

@@ -263,7 +263,7 @@
                                 break;
                         }
                         @* 計算口徑 footnote：母題與子題拆成獨立單位，分別計數互不影響 *@
-                        <p class="text-xs text-gray-400 mt-2">* 題組類母題與每子題分別計算，母題、子題完成數互不影響</p>
+                        <p class="text-xs text-gray-400 mt-2">* 題組類母題與每子題分別計算數量</p>
                     }
                 </div>
             </div>
@@ -345,27 +345,22 @@
                     }
                     else
                     {
-                        @* 修題階段：主數字（合計）+ 母/子題拆解行 *@
-                        <h3 class="flex items-baseline gap-1 leading-none mb-2">
-                            <span class="text-4xl font-black text-[var(--color-terracotta)] tabular-nums">@kpi.RevisedCount</span>
-                            <span class="text-2xl text-gray-300 mx-0.5">/</span>
-                            <span class="text-2xl font-bold text-gray-400 tabular-nums">@kpi.RevisionTotalCount</span>
-                            <span class="text-sm text-gray-400 ml-1">題</span>
-                        </h3>
-                        @* 母/子題細分（與卡片 3 樣式一致；僅在有子題時顯示雙行）*@
-                        @if (kpi.RevisionMasterTotal > 0 || kpi.RevisionSubTotal > 0)
-                        {
-                            <div class="flex flex-col gap-0.5 text-xs text-gray-500">
-                                @if (kpi.RevisionMasterTotal > 0)
-                                {
-                                    <span class="tabular-nums">母題 @kpi.RevisedMasterCount / @kpi.RevisionMasterTotal</span>
-                                }
-                                @if (kpi.RevisionSubTotal > 0)
-                                {
-                                    <span class="tabular-nums">子題 @kpi.RevisedSubCount / @kpi.RevisionSubTotal</span>
-                                }
+                        @* 修題階段：母題、子題各自獨立計數（與卡片 3 審題完全對稱，雙大數字提高可讀性） *@
+                        <div class="flex items-baseline gap-3 leading-none">
+                            <div class="flex items-baseline gap-1">
+                                <span class="text-xs text-gray-400 font-medium">母題</span>
+                                <span class="text-3xl font-black text-[var(--color-terracotta)] tabular-nums">@kpi.RevisedMasterCount</span>
+                                <span class="text-base text-gray-300">/</span>
+                                <span class="text-base font-bold text-gray-400 tabular-nums">@kpi.RevisionMasterTotal</span>
                             </div>
-                        }
+                            <span class="text-gray-200 text-lg">·</span>
+                            <div class="flex items-baseline gap-1">
+                                <span class="text-xs text-gray-400 font-medium">子題</span>
+                                <span class="text-3xl font-black text-[var(--color-terracotta)] tabular-nums">@kpi.RevisedSubCount</span>
+                                <span class="text-base text-gray-300">/</span>
+                                <span class="text-base font-bold text-gray-400 tabular-nums">@kpi.RevisionSubTotal</span>
+                            </div>
+                        </div>
                     }
                 </div>
                 <!-- Footer：依 PhaseStatusType 顯示真正當前階段（與卡片 3 共用邏輯） -->
@@ -1338,7 +1333,7 @@
         if (kpi.CurrentReviewPhase is MT.Models.ReviewPhaseLabel.Peer
                                     or MT.Models.ReviewPhaseLabel.Expert
                                     or MT.Models.ReviewPhaseLabel.Final)
-            return "所有審題委員皆已給意見";
+            return "所有審題委員皆已審閱";
 
         if (kpi.CurrentRevisionPhase is MT.Models.RevisionPhaseLabel.Peer
                                       or MT.Models.RevisionPhaseLabel.Expert

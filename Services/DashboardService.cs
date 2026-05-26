@@ -71,6 +71,8 @@ public class DashboardService : IDashboardService
         //    LCT：依難度一~五展開 5 桶；TypeId=7 聽力題組固定貢獻難度三/四各 1 子題
         // ──────────────────────────────────────────────────────────────
         // CWT SQL：左 JOIN MT_ProjectTargets，TypeId 3/5 額外展開子題桶（Granularity=1）
+        // Produced 條件：Status > 0（命題草稿以外都算「老師已產出」，含 不採用 Status 10/11）
+        //   因為缺口統計的語意是「老師命了幾題」，與最後採不採用無關 — 不採用也是老師的勞動成果
         const string sqlTargetsCwt = """
             SELECT
                 qt.Name AS TypeName,
@@ -79,7 +81,7 @@ public class DashboardService : IDashboardService
                 ISNULL((SELECT COUNT(*) FROM dbo.MT_Questions
                         WHERE ProjectId = @pid AND IsDeleted = 0
                           AND QuestionTypeId = qt.Id
-                          AND Status NOT IN (0, 10, 11)), 0) AS Produced
+                          AND Status > 0), 0) AS Produced
             FROM   dbo.MT_QuestionTypes qt
             LEFT JOIN dbo.MT_ProjectTargets pt
                    ON pt.QuestionTypeId = qt.Id AND pt.ProjectId = @pid AND pt.Granularity = 0
@@ -96,7 +98,7 @@ public class DashboardService : IDashboardService
                         JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
                         WHERE q.ProjectId = @pid AND q.IsDeleted = 0 AND sq.IsDeleted = 0
                           AND q.QuestionTypeId = qt.Id
-                          AND sq.Status NOT IN (0, 10, 11)), 0) AS Produced
+                          AND sq.Status > 0), 0) AS Produced
             FROM   dbo.MT_QuestionTypes qt
             LEFT JOIN dbo.MT_ProjectTargets pt
                    ON pt.QuestionTypeId = qt.Id AND pt.ProjectId = @pid AND pt.Granularity = 1
@@ -105,9 +107,13 @@ public class DashboardService : IDashboardService
             ORDER BY Granularity, TypeName
             """;
 
-        // LCT SQL：6 桶 — 聽力測驗 5 個難度（TypeId=6 按 Level）+ 聽力題組（TypeId=7 整組）
-        // 注意：聽力題組「不再」自動拆成難三/難四 — 與 Projects 端「聽力題組獨立計算」的設計一致
-        //   1 聽力題組 = 1 整組計數單位（規格固定 1 母題 + 難三/難四 2 子題）
+        // LCT SQL：6 桶 — 聽力測驗 5 個難度（TypeId=6 按 Level）+ 聽力題組（TypeId=7 母+子綁一起）
+        // 聽力題組計數規則（與使用者拍板，2026-05-26）：
+        //   1 group = 1 母題 + 2 子題（難三/難四）= 3 個 DB 單位
+        //   Target = ProjectTargets「組數」 × 3
+        //   Produced = 母題已產出數 + 子題已產出數
+        // Produced 條件：Status > 0（命題草稿以外都算「老師已產出」，含 不採用 Status 10/11）
+        //   缺口統計的語意是「老師命了幾題」，與最後採不採用無關
         // 注意：欄位名稱是 MT_ProjectTargets.Level（不是 ExamLevel — ExamLevel 是 MT_Projects 上的 CWT 統一等級）
         // 注意：SQL Server CTE body 不能直接用 VALUES row constructor，必須包在 SELECT FROM (VALUES ...) AS v(...) 內
         // 注意：UNION ALL 的最終 ORDER BY 不能對 union 子查詢的欄位排序，需包外層 select 並引用 SortKey
@@ -125,11 +131,11 @@ public class DashboardService : IDashboardService
                 GROUP BY [Level]
             ),
             Type6Produced AS (
-                -- 聽力測驗已產出（Status NOT IN 0/10/11），按 Level 分桶
+                -- 聽力測驗已產出（Status > 0，含 不採用），按 Level 分桶
                 SELECT [Level] AS LevelNum, COUNT(*) AS ProducedCount
                 FROM   dbo.MT_Questions
                 WHERE  ProjectId = @pid AND IsDeleted = 0 AND QuestionTypeId = 6
-                  AND  [Level] IS NOT NULL AND Status NOT IN (0, 10, 11)
+                  AND  [Level] IS NOT NULL AND Status > 0
                 GROUP BY [Level]
             )
             SELECT TypeName, TargetCount, Granularity, Produced
@@ -145,7 +151,8 @@ public class DashboardService : IDashboardService
                 LEFT JOIN Type6Agg      la ON la.LevelNum = lb.LevelNum
                 LEFT JOIN Type6Produced p  ON p.LevelNum  = lb.LevelNum
                 UNION ALL
-                -- 聽力題組（TypeId=7）：獨立分類，整組視為 1 計數單位
+                -- 聽力題組（TypeId=7）：以「組」為計數單位（1 group = 1）
+                -- Target = 組數；Produced = 已產出組數（含不採用，只要 master Status > 0 就算）
                 SELECT
                     N'聽力題組',
                     ISNULL((SELECT SUM(TargetCount) FROM dbo.MT_ProjectTargets
@@ -153,7 +160,7 @@ public class DashboardService : IDashboardService
                     CAST(0 AS TINYINT),
                     ISNULL((SELECT COUNT(*) FROM dbo.MT_Questions
                             WHERE ProjectId = @pid AND IsDeleted = 0
-                              AND QuestionTypeId = 7 AND Status NOT IN (0, 10, 11)), 0),
+                              AND QuestionTypeId = 7 AND Status > 0), 0),
                     99
             ) tmp
             ORDER BY SortKey
@@ -183,10 +190,11 @@ public class DashboardService : IDashboardService
                 ), 0) AS AdoptedCount
             """;
 
-        // LCT 採用計數（與 TargetBreakdown「1 整組 = 1 單位」對齊；不 clamp 顯示真實）：
-        //   - 聽力測驗（TypeId=6）：master Status IN (9,12) → 1 單位
-        //   - 聽力題組（TypeId=7）：整組採用 = 兩個 sub 都 Status IN (9,12) → 1 整組 1 單位
-        //     規格規則：1 子題採用 + 1 子題不採用 = 整組淘汰，必須兩個 sub 都採用才算入庫
+        // LCT 採用計數（與 TargetBreakdown 對齊「組」為計數單位，2026-05-26 拍板）：
+        //   - 聽力測驗（TypeId=6）：master Status IN (9,12) → +1/題
+        //   - 聽力題組（TypeId=7）：整組採用 → +1/組（以 group 為計數單位，不展開成 3 單位）
+        //     LCT 規格 all-or-nothing：母題 IN (9,12) AND 兩個 sub 都 IN (9,12) 才算採用
+        //     任一條件不符 → 整組淘汰計 0（含 Bug fix：原 SQL 漏檢查母題）
         const string sqlStatusCountsLct = """
             SELECT
                 -- 聽力測驗 master 採用
@@ -196,10 +204,11 @@ public class DashboardService : IDashboardService
                     WHERE  ProjectId = @pid AND IsDeleted = 0 AND QuestionTypeId = 6
                 ), 0)
                 +
-                -- 聽力題組 整組採用（兩個 sub 都採用才算）
+                -- 聽力題組 整組採用（母題採用 AND 兩個子題都採用 → +1，否則 +0）
                 ISNULL((
                     SELECT COUNT(*) FROM dbo.MT_Questions qp
                     WHERE  qp.ProjectId = @pid AND qp.IsDeleted = 0 AND qp.QuestionTypeId = 7
+                      AND  qp.Status IN (9, 12)
                       AND  (SELECT COUNT(*) FROM dbo.MT_SubQuestions sq
                             WHERE sq.ParentQuestionId = qp.Id
                               AND sq.IsDeleted = 0
@@ -243,11 +252,12 @@ public class DashboardService : IDashboardService
         // 修補 F：CTE 預先聚合 + LEFT JOIN（hash join 取代 nested loop）
         // CWT：拆母+子兩列（Granularity=0/1），閱讀(TypeId=3)/短文(TypeId=5)題組有子題桶，其餘 Granularity 固定 0
         // LCT：X 軸改為難度一~五（Level 1-5）
+        // Produced 條件：Status > 0（含 不採用 Status 10/11）— 老師命過的題目都算缺口已產出
         const string sqlAchievementCwt = """
             WITH ProducedMaster AS (
                 -- 母題/單題層級：各題型直接計數
                 SELECT QuestionTypeId, 0 AS Granularity,
-                       SUM(CASE WHEN Status NOT IN (0, 10, 11) THEN 1 ELSE 0 END) AS Produced
+                       SUM(CASE WHEN Status > 0 THEN 1 ELSE 0 END) AS Produced
                 FROM   dbo.MT_Questions
                 WHERE  ProjectId = @pid AND IsDeleted = 0 AND QuestionTypeId IN @typeIds
                 GROUP BY QuestionTypeId
@@ -255,7 +265,7 @@ public class DashboardService : IDashboardService
             ProducedSub AS (
                 -- 子題層級：只有 TypeId 3(閱讀)/5(短文) 的子題需計入各自桶（Granularity=1）
                 SELECT q.QuestionTypeId, 1 AS Granularity,
-                       SUM(CASE WHEN sq.Status NOT IN (0, 10, 11) THEN 1 ELSE 0 END) AS Produced
+                       SUM(CASE WHEN sq.Status > 0 THEN 1 ELSE 0 END) AS Produced
                 FROM   dbo.MT_SubQuestions sq
                 JOIN   dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
                 WHERE  q.ProjectId = @pid AND q.IsDeleted = 0 AND sq.IsDeleted = 0
@@ -308,8 +318,9 @@ public class DashboardService : IDashboardService
             ),
             ProducedType6 AS (
                 -- 聽力測驗（TypeId=6）：依題目自身 Level 計入對應難度
+                -- Produced 條件 Status > 0（含 不採用）— 與 sqlTargetsLct 一致
                 SELECT [Level] AS LevelNum,
-                       SUM(CASE WHEN Status NOT IN (0, 10, 11) THEN 1 ELSE 0 END) AS Produced
+                       SUM(CASE WHEN Status > 0 THEN 1 ELSE 0 END) AS Produced
                 FROM   dbo.MT_Questions
                 WHERE  ProjectId = @pid AND IsDeleted = 0 AND QuestionTypeId = 6 AND [Level] IS NOT NULL
                 GROUP BY [Level]
@@ -336,10 +347,11 @@ public class DashboardService : IDashboardService
                 LEFT JOIN Type6Targets  t ON t.LevelNum = lb.LevelNum
                 UNION ALL
                 -- 聽力題組（TypeId=7）：獨立分類，以母題 Status 為準（1 master = 1 整組）
+                -- Produced 條件 Status > 0（含 不採用）— 與 sqlTargetsLct 一致
                 SELECT
                     7,
                     N'聽力題組',
-                    ISNULL((SELECT SUM(CASE WHEN Status NOT IN (0, 10, 11) THEN 1 ELSE 0 END)
+                    ISNULL((SELECT SUM(CASE WHEN Status > 0 THEN 1 ELSE 0 END)
                             FROM dbo.MT_Questions
                             WHERE ProjectId = @pid AND IsDeleted = 0 AND QuestionTypeId = 7), 0),
                     ISNULL((SELECT SUM(TargetCount) FROM dbo.MT_ProjectTargets
@@ -532,6 +544,10 @@ public class DashboardService : IDashboardService
         bool isGroup = typeName.Contains("題組");
         if (isGroup)
         {
+            // 聽力題組（LCT）已 fold 母題+子題為單一桶，不掛「（母題）」後綴以免誤導
+            // CWT 短文/閱讀題組維持 母/子 雙桶獨立計數，仍掛字尾
+            if (typeName == "聽力題組")
+                return typeName;
             return granularity == 1 ? $"{typeName}（子題）" : $"{typeName}（母題）";
         }
 

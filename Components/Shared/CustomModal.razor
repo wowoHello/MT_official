@@ -80,6 +80,13 @@
              style="@(KeepAlive ? null : "animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);")">
             <div class="flex items-center justify-between px-8 py-5 bg-white border-b border-gray-100 shadow-sm sticky top-0 z-10 shrink-0">
                 <div class="flex items-center gap-3">
+                    @* 左上關閉按鈕：與右上 × 互補，縮短年長使用者鼠標移動距離；用 ← 語意「返回」更清楚 *@
+                    <button type="button" @onclick="CloseAsync"
+                            title="關閉表單"
+                            aria-label="關閉表單"
+                            class="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-slate-main hover:bg-gray-100 rounded-lg transition-colors cursor-pointer focus:outline-none shrink-0">
+                        <i class="fa-solid fa-arrow-left text-base"></i>
+                    </button>
                     <div class="w-10 h-10 rounded-xl bg-sage/15 flex items-center justify-center shrink-0">
                         <i class="fa-solid fa-pen-nib text-sage text-lg"></i>
                     </div>

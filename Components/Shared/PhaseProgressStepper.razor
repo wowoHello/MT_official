@@ -80,7 +80,7 @@
     [Parameter] public bool HasRepliedThisStage { get; set; } = false;
 
     /// <summary>
-    /// 全體審題者是否皆已給意見（DecidedAt IS NOT NULL）。僅 Overview 使用，由 OverviewService 預先計算傳入。
+    /// 全體審題者是否皆已審閱（DecidedAt IS NOT NULL）。僅 Overview 使用，由 OverviewService 預先計算傳入。
     /// true 時搭配「題目仍卡在審題鎖定狀態（2/3/5/7）且梯次 PhaseCode 對應 3/5/7」條件成立 →
     ///   對應審題球（2/4/6）由 blue（morandi ✏）改為 awaitNext（morandi ✓），語意：「該審題已全部給完意見，等階段時程推進」。
     /// 預設 false —— 不傳此參數時完全沿用舊行為（藍色筆「進行中」），其他頁面零影響。
@@ -98,7 +98,7 @@
     ///   "preDone"      → 該審完成、梯次未推進；倒數第 1 顆（stage-1）顯示莫蘭迪藍 ✓，更早顯示 sage 綠 ✓
     ///   "revisionSent" → 修題已送出（Status == PhaseCode == 修題階段 + HasRepliedThisStage = true）；
     ///                    當前修題球（stage 本身）顯示莫蘭迪藍 ✓，之前階段 sage 綠 ✓，之後灰
-    ///   "reviewDone"   → 審題鎖定中、全體審題者已給意見（DecidedAt 已寫）；
+    ///   "reviewDone"   → 審題鎖定中、全體審題者已審閱（DecidedAt 已寫）；
     ///                    當前審題球（stage 本身，2/4/6）顯示莫蘭迪藍 ✓，之前階段 sage 綠 ✓，之後灰
     /// </summary>
     private static (int Stage, string Tone) ResolveStage(byte status, byte? currentPhaseCode, bool hasRepliedThisStage, bool allReviewersResponded)
@@ -129,7 +129,7 @@
             return (7, "revisionSent");
 
         // 規則 A.6：審題鎖定中且全體審題者已給完意見（DecidedAt 已寫）→ 該審題球本身轉為 awaitNext（莫蘭迪藍 ✓）
-        //          語意：「審題者已全部給完意見，等階段時程推進」。與 Overview 右側狀態 Badge「已給意見」語意一致
+        //          語意：「審題者已全部給完意見，等階段時程推進」。與 Overview 右側狀態 Badge「已審閱」語意一致
         //          互審(2) / 專審(4) / 總審(6) 三階段邏輯一致
         //          僅 Overview 會傳 allReviewersResponded；其他頁面不傳 → 此規則不觸發
         if (allReviewersResponded)
@@ -186,7 +186,7 @@
         }
         if (tone == "reviewDone")
         {
-            // 審題完成等待推進：當前審題球本身（i == stage，2/4/6）轉為 awaitNext（莫蘭迪藍 ✓），語意「全體已給意見，等階段時程推進」
+            // 審題完成等待推進：當前審題球本身（i == stage，2/4/6）轉為 awaitNext（莫蘭迪藍 ✓），語意「全體已審閱，等階段時程推進」
             // 行為與 revisionSent 一致；分開命名僅為語意清晰、未來除錯易追蹤
             if (i == stage) return "awaitNext";
             if (i < stage)  return "green";

@@ -112,10 +112,11 @@
     /// </summary>
     private static readonly CannedMessage[] CannedMessages =
     [
-        new("fa-solid fa-circle-check",   "已依建議修改", "感謝審題建議，已依所提意見完成修改，敬請再次審閱。",                            "bg-sage/10 text-sage border-sage/20 hover:bg-sage/20"),
-        new("fa-solid fa-pen-ruler",      "部分採納調整", "感謝審題建議，本次採納部分意見並做了適度調整。",        "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
-        new("fa-solid fa-comment-dots",   "保留並附說明", "審題意見已仔細參考，惟原內容基於〔請補充說明〕之考量予以保留，敬請審閱後裁示。", "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
-        new("fa-solid fa-circle-xmark",   "未採納請見覆", "審題意見已仔細評估，本次未予採納，理由如下：〔請補充說明〕。如有進一步意見，敬請賜知。", "bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
+        new("fa-solid fa-thumbs-up", "肯定無須修改", "感謝審題予以肯定，本題依原內容維持，未做修改，敬請審閱。", "bg-sage/10 text-sage border-sage/20 hover:bg-sage/20"),
+        new("fa-solid fa-circle-check", "已依建議修改", "感謝審題建議，已依所提意見完成修改，敬請再次審閱。", "bg-sage/10 text-sage border-sage/20 hover:bg-sage/20"),
+        new("fa-solid fa-pen-ruler", "部分採納調整", "感謝審題建議，本次採納部分意見並做了適度調整。", "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
+        new("fa-solid fa-comment-dots", "保留並附說明", "審題意見已仔細參考，惟原內容基於〔請補充說明〕之考量予以保留，敬請審閱後裁示。", "bg-morandi/10 text-morandi border-morandi/20 hover:bg-morandi/20"),
+        new("fa-solid fa-circle-xmark", "未採納請見覆", "審題意見已仔細評估，本次未予採納，理由如下：〔請補充說明〕。如有進一步意見，敬請賜知。", "bg-terracotta/10 text-terracotta border-terracotta/20 hover:bg-terracotta/20"),
     ];
 
     private record CannedMessage(string IconClass, string Label, string Text, string ColorCss);

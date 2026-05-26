@@ -80,7 +80,7 @@ public static class OverviewStatusKey
 
     // 審題
     public const string AwaitingReview      = "awaiting-review";      // 待審（R2 warning）
-    public const string Reviewed            = "reviewed";             // 已給意見（R2 success）
+    public const string Reviewed            = "reviewed";             // 已審閱（R2 success）
 
     // 修題
     public const string InRevision          = "in-revision";          // 修題中（C 沿用 Labels）
@@ -98,7 +98,7 @@ public static class OverviewStatusKey
     public static readonly (string GroupLabel, (string Key, string Label)[] Options)[] Groups =
     [
         ("命題", [(Draft, "命題草稿"), (Completed, "命題完成"), (FailedComposition, "未完成命題")]),
-        ("審題", [(AwaitingReview, "待審"), (Reviewed, "已給意見")]),
+        ("審題", [(AwaitingReview, "待審"), (Reviewed, "已審閱")]),
         ("修題", [(InRevision, "修題中"), (RevisionSubmitted, "修題已送出"), (AwaitingNext, "OO 完成（待下一階段）")]),
         ("結果", [(Adopted, "採用"), (NotAdopted, "不採用")]),
         ("其他", [(Deleted, "命題刪除")])
@@ -141,10 +141,10 @@ public class OverviewListResult
     public byte? CurrentPhaseCode { get; set; }
 
     /// <summary>
-    /// 每個審題單元（母題或子題各自獨立）是否已給意見（DecidedAt 非 NULL）。
+    /// 每個審題單元（母題或子題各自獨立）是否已審閱（DecidedAt 非 NULL）。
     /// Key = (QuestionId, SubQuestionId)：母題單元 key = (Id, null)；子題單元 key = (Id, subId)。
     /// 僅 PhaseCode ∈ {3,5,7} 有意義；其他階段為空 dict。
-    /// 用途：列表「當前狀態」Badge 在「待審」與「已給意見」之間切換；母題/子題完全獨立計算，互不影響。
+    /// 用途：列表「當前狀態」Badge 在「待審」與「已審閱」之間切換；母題/子題完全獨立計算，互不影響。
     /// </summary>
     public Dictionary<(int QuestionId, int? SubQuestionId), bool> AllReviewersResponded { get; set; } = new();
 

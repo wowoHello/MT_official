@@ -93,14 +93,10 @@
             <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 auto-rows-fr">
                 @if (isLoadingQuota)
                 {
-                    @for (int i = 0; i < 7; i++)
-                    {
-                        <div class="bg-white rounded-lg border border-gray-200 p-3 shadow-sm animate-pulse">
-                            <div class="h-3 bg-gray-200 rounded w-3/4 mb-2"></div>
-                            <div class="h-6 bg-gray-200 rounded w-1/2 mb-2"></div>
-                            <div class="h-1.5 bg-gray-200 rounded-full"></div>
-                        </div>
-                    }
+                    @* 不寫死 N 張假卡（CWT/LCT 數量不同會出現落單卡）。改用單行 spinner，與下方列表 loading 樣式一致。 *@
+                    <div class="col-span-full py-4 text-center text-sm text-gray-400">
+                        <i class="fa-solid fa-spinner fa-spin mr-2"></i>載入命題配額中…
+                    </div>
                 }
                 else if (quotaProgress.Any())
                 {
@@ -146,7 +142,8 @@
                     <button @onclick='() => SwitchTab("history")'
                         class="@(currentTab == "history" ? "text-morandi border-b-morandi font-bold" : "text-gray-500 border-transparent") px-5 py-3 text-sm border-b-2 transition-colors hover:text-morandi cursor-pointer focus:outline-none whitespace-nowrap">
                         <i class="fa-solid fa-box-archive mr-1.5 text-morandi"></i>審核結果與歷史
-                        <span class="ml-2 text-xs bg-morandi/15 text-morandi px-2 py-0.5 rounded-full font-bold">@SumCounts(QuestionStatus.HistoryTabStatuses)</span>
+                        @* badge 加總母題 + 子題，與下方統計卡及列表「共 N 題」一致（總審可獨立判決子題） *@
+                        <span class="ml-2 text-xs bg-morandi/15 text-morandi px-2 py-0.5 rounded-full font-bold">@(SumCounts(QuestionStatus.HistoryTabStatuses) + SubSumCounts(QuestionStatus.HistoryTabStatuses))</span>
                     </button>
                 </div>
 
@@ -196,9 +193,20 @@
                         }
                         else
                         {
-                            @StatCard("全部題目", SumCounts(QuestionStatus.HistoryTabStatuses), "fa-layer-group", "text-morandi", "text-slate-main", "all", "顯示全部題目")
-                            @StatCard("已採用", SumCounts([QuestionStatus.Adopted, QuestionStatus.Archived]), "fa-circle-check", "text-sage", "text-sage", "adopted", "點一下套用篩選")
-                            @StatCard("不採用", CountOf(QuestionStatus.Rejected) + CountOf(QuestionStatus.ClosedNotAdopted), "fa-circle-xmark", "text-gray-400", "text-gray-400", "rejected", "點一下套用篩選")
+                            @* 審核結果與歷史：ListAsync 已將母題與子題拆成獨立列（總審可獨立判決子題），
+                               統計卡片同步顯示「母題 / 子題」雙值，跟 [審修作業區] 統計風格一致 *@
+                            @RevisionStatCard("全部題目",
+                                SumCounts(QuestionStatus.HistoryTabStatuses),
+                                SubSumCounts(QuestionStatus.HistoryTabStatuses),
+                                "fa-layer-group", "text-morandi", "text-slate-main", "all", "顯示全部題目")
+                            @RevisionStatCard("已採用",
+                                SumCounts([QuestionStatus.Adopted, QuestionStatus.Archived]),
+                                SubSumCounts([QuestionStatus.Adopted, QuestionStatus.Archived]),
+                                "fa-circle-check", "text-sage", "text-sage", "adopted", "點一下套用篩選")
+                            @RevisionStatCard("不採用",
+                                CountOf(QuestionStatus.Rejected) + CountOf(QuestionStatus.ClosedNotAdopted),
+                                subStatusCounts.GetValueOrDefault(QuestionStatus.Rejected, 0) + subStatusCounts.GetValueOrDefault(QuestionStatus.ClosedNotAdopted, 0),
+                                "fa-circle-xmark", "text-gray-400", "text-gray-400", "rejected", "點一下套用篩選")
                         }
                     </div>
                 </div>
@@ -674,11 +682,12 @@
         {
             await PhaseCoordinator.EnsureAsync(projectId);
 
-            // 跑完後刷新（用 InvokeAsync 切回 UI thread）
+            // 跑完後靜默刷新（用 InvokeAsync 切回 UI thread）
+            // silent=true：使用者已看到首次載入結果，背景補資料時不再觸發 spinner 閃爍
             await InvokeAsync(async () =>
             {
                 if (CurrentProject?.Id != projectId) return;  // 已切到別的專案 → 不污染當前畫面
-                await LoadPageDataAsync();
+                await LoadPageDataAsync(silent: true);
                 StateHasChanged();
             });
         }
@@ -688,9 +697,11 @@
         }
     }
 
-    private async Task LoadPageDataAsync()
+    private async Task LoadPageDataAsync(bool silent = false)
     {
-        isLoadingQuota = true;
+        // silent=true：背景刷新（如 PhaseCoordinator 跑完）— 不切 isLoadingQuota，
+        // 避免使用者已看到的卡片被 spinner 取代造成二次閃爍。
+        if (!silent) isLoadingQuota = true;
         try
         {
             // 全部並行（含 LoadListAsync 內部的 ListAsync），降低空白→有內容的延遲
@@ -704,7 +715,7 @@
             var repliedTask     = QuestionService.GetMyRevisionRepliedCountAsync(CurrentProject!.Id, currentUserId!.Value);
             var subCountsTask   = QuestionService.GetSubQuestionStatusCountsAsync(CurrentProject!.Id, currentUserId!.Value);
             var subRepliedTask  = QuestionService.GetMySubQuestionRevisionRepliedCountAsync(CurrentProject!.Id, currentUserId!.Value);
-            var listTask        = LoadListAsync();
+            var listTask        = LoadListAsync(silent: silent);
 
             await Task.WhenAll(quotaTask, phaseTask, countsTask, phaseEndTask, repliedTask, subCountsTask, subRepliedTask, listTask);
 
@@ -718,7 +729,7 @@
         }
         finally
         {
-            isLoadingQuota = false;
+            if (!silent) isLoadingQuota = false;
         }
 
         // 後備防線：硬打 URL 進來但沒命題配額 → 設旗標等 firstRender 後才 Swal+redirect
@@ -742,11 +753,13 @@
         Navigation.NavigateTo("/");
     }
 
-    private async Task LoadListAsync()
+    private async Task LoadListAsync(bool silent = false)
     {
         if (CurrentProject is null || currentUserId is null) return;
 
-        isLoadingList = true;
+        // silent=true：背景刷新（如 PhaseCoordinator 跑完）— 不切 isLoadingList，
+        // 避免使用者已看到的列表被 spinner 取代造成閃爍。
+        if (!silent) isLoadingList = true;
         try
         {
             var filter = new QuestionListFilter
@@ -767,7 +780,7 @@
         }
         finally
         {
-            isLoadingList = false;
+            if (!silent) isLoadingList = false;
             StateHasChanged();
         }
     }

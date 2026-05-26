@@ -48,7 +48,7 @@
             @StatCard("命題進行中", SumCounts([QuestionStatus.Draft, QuestionStatus.Completed]), "fa-pen", "text-sage", "text-slate-main")
             @StatCard("已採用", SumCounts([QuestionStatus.Adopted, QuestionStatus.Archived]), "fa-circle-check", "text-sage", "text-sage")
             @StatCard("待修編", result.PendingRevisionCount, "fa-rotate-left", "text-terracotta", "text-terracotta")
-            @* 各審查環節：依當前梯次 PhaseCode 動態計算對應審題階段「待審 + 已給意見」總和。
+                @* 各審查環節：依當前梯次 PhaseCode 動態計算對應審題階段「待審 + 已審閱」總和。
                後端事實 — 互審期間題目實際停在 Status=2 (Submitted) 不會升到 PeerReviewing(3)；
                專審/總審涵蓋 EnsurePhaseTransitionAsync 各 case 的所有 fromStatuses（避免邊界殘留漏算）。
                非當前階段的格子灰掉並顯示 0，提示使用者「現在不在這個審題階段」。 *@
@@ -100,7 +100,7 @@
                         }
                     </select>
                     @* 狀態篩選：選項與列表「當前狀態」Badge 文字 100% 對齊（見 OverviewStatusKey + ResolveDisplayStatus）。
-                       不直接拿 QuestionStatus.Labels：原 13 個 byte label 多數會被 ResolveDisplayStatus 重寫成「待審 / 已給意見 / OO 完成 / 修題已送出 / 未完成命題」等 Overview 專用 Badge，
+                       不直接拿 QuestionStatus.Labels：原 13 個 byte label 多數會被 ResolveDisplayStatus 重寫成「待審 / 已審閱 / OO 完成 / 修題已送出 / 未完成命題」等 Overview 專用 Badge，
                        直接列出來會出現「使用者選了某 label 但列表沒有對應 Badge」的對不齊。
                        動態渲染：只列梯次實際存在的 key（result.StatusKeyCounts 由 OverviewService 忽略所有 filter 後計算），
                        整個 optgroup 內全空時整組省略，避免使用者選了卻篩到 0 筆。 *@
@@ -243,7 +243,7 @@
                                 }
                                 else
                                 {
-                                    @* 當前狀態 Badge：依「題目 Status × 梯次 PhaseCode × 本人是否送出修題 × 全體審題者是否已給意見」四維度判定。
+                                            @* 當前狀態 Badge：依「題目 Status × 梯次 PhaseCode × 本人是否送出修題 × 全體審題者是否已審閱」四維度判定。
                                        母題結案淘汰例外：父母題 Status=11（結案不採用）時，子題列強制 fallback 為「結案不採用」
                                        allResponded 已於 foreach 頂端算好，與 stepper 共用 *@
                                     byte? parentStatusForFallback = isSubRow && parentStatusById.TryGetValue(item.Id, out var ps) ? ps : null;
@@ -773,7 +773,7 @@
     ///   3 互審：Submitted(2) + PeerReviewing(3) — 後端實際事實是題目仍停在 2，不會升到 3
     ///   5 專審：Submitted(2) + PeerReviewing(3) + PeerEditing(4) + ExpertReviewing(5)
     ///   7 總審：上述 + ExpertEditing(6) + FinalReviewing(7)
-    /// 與 ResolveDisplayStatus R2 規則的「待審 / 已給意見」範圍一致，避免列表與卡片數字不對盤。
+    /// 與 ResolveDisplayStatus R2 規則的「待審 / 已審閱」範圍一致，避免列表與卡片數字不對盤。
     /// </summary>
     private int ReviewBucket(byte targetPhase)
     {
@@ -797,14 +797,15 @@
     }
 
     /// <summary>
-    /// 解析「當前狀態」Badge 的顯示內容：依「題目 Status × 梯次 PhaseCode × 本人是否送出修題 × 全體審題者是否已給意見」四維度判定。
+    /// 解析「當前狀態」Badge 的顯示內容：依「題目 Status × 梯次 PhaseCode × 本人是否送出修題 × 全體審題者是否已審閱」四維度判定。
     /// 規則優先順序（命中即回）：
     ///  R1. 草稿落隊：題目 Status=Draft 且梯次已進入交互審題（PhaseCode ≥ 3） → 「未完成命題」（danger 紅）。
     ///  A.  題目 Status ∈ {4,6,8} 但梯次 PhaseCode 尚未推進到對應修題階段 → 「OO 完成」（莫蘭迪藍）。
     ///  B.  梯次已到修題階段，且本人已於本階段送出修題說明 → 「修題已送出」（綠）。
     ///  R2. 審題階段語意修正：梯次 PhaseCode ∈ {3,5,7} 且 Status ∈ {2,3,5,7}（待審/審題鎖定中），
-    ///        依「全體審題者是否皆已給意見」切換成「已給意見」（success 綠）或「待審」（warning 橘）。
+    ///        依「全體審題者是否皆已審閱」切換成「已審閱」（info 莫蘭迪藍）或「待審」（warning 橘）。
     ///        取代命題視角的「已送審」「互審中」「專審中」「總審中」label，避免管理員誤讀。
+    ///        ※「已審閱」用 info 藍避免與「採用」(success 綠) 撞色 — 兩者語意不同：審題完成 ≠ 最終採用。
     ///  C.  其他狀態（含修題進行中尚未送出）→ 沿用 QuestionStatus.Labels 對應文字。
     /// </summary>
     private static (string Text, string BadgeType, bool IsAwaitingNext) ResolveDisplayStatus(
@@ -836,7 +837,7 @@
         if (inEditing && hasRepliedThisStage)
             return ("修題已送出", "success", false);
 
-        // 規則 R2：梯次處於審題階段（互審/專審/總審），改以「待審 / 已給意見」呈現審題進度
+        // 規則 R2：梯次處於審題階段（互審/專審/總審），改以「待審 / 已審閱」呈現審題進度
         // 不管題目 Status 是 Submitted(2)、PeerReviewing(3)、ExpertReviewing(5) 或 FinalReviewing(7)，
         // 從 Overview 視角都是「待審」（鎖定等待審題人決策），與命題端的「已送審」用詞區隔
         if (currentPhaseCode is byte pcReview && (pcReview == 3 || pcReview == 5 || pcReview == 7)
@@ -846,7 +847,7 @@
                        or QuestionStatus.FinalReviewing)
         {
             return allReviewersResponded
-                ? ("已給意見", "success", false)
+                ? ("已審閱", "info", false)   // 莫蘭迪藍：避免與「採用」(success 綠) 撞色
                 : ("待審",     "warning", false);
         }
 

@@ -108,7 +108,7 @@ public class OverviewService(
         if (deletedOnly)
             items = items.Where(i => i.IsDeleted).ToList();
 
-        // 「該題此審題階段所有被指派審題者皆已給意見」—— 只查當前頁列表，避免全表掃描
+        // 「該題此審題階段所有被指派審題者皆已審閱」—— 只查當前頁列表，避免全表掃描
         var responded = await GetAllReviewersRespondedAsync(
             projectId, phaseCode, items.Select(i => i.Id));
 
@@ -195,7 +195,7 @@ public class OverviewService(
                     MatchAwaitingReview);
 
             case OverviewStatusKey.Reviewed:
-                // 已給意見：PhaseCode∈{3,5,7} + Status∈{2,3,5,7} + 全給意見
+                // 已審閱：PhaseCode∈{3,5,7} + Status∈{2,3,5,7} + 全已審閱
                 return ([QuestionStatus.Submitted,
                          QuestionStatus.PeerReviewing,
                          QuestionStatus.ExpertReviewing,
@@ -281,7 +281,7 @@ public class OverviewService(
         IsEditing(i.Status) && !i.IsDeleted && (pc is null || pc < i.Status);
 
     /// <summary>
-    /// 計算每個審題單元（母題、子題各自獨立）是否已給意見。
+    /// 計算每個審題單元（母題、子題各自獨立）是否已審閱。
     /// 回傳 Dict key = (QuestionId, SubQuestionId)；value=true 表 done；不在 dict = 未 done。
     /// 母題與子題互不影響：母題自己 DecidedAt 非 NULL → done；子題自己 DecidedAt 非 NULL → done。
     /// PhaseCode 對應 ReviewStage：3→1（互審）/ 5→2（專審）/ 7→3（總召）。
@@ -458,7 +458,7 @@ public class OverviewService(
         var rows = (await conn.QueryAsync<StatusBucketRow>(sql, new { ProjectId = projectId })).AsList();
         if (rows.Count == 0) return (new(), new(), new());
 
-        // 全體審題者已給意見字典：只 query 仍在審題鎖定狀態且未刪的題目（其他狀態查了沒意義）
+        // 全體審題者已審閱字典：只 query 仍在審題鎖定狀態且未刪的題目（其他狀態查了沒意義）
         var responded = await GetAllReviewersRespondedAsync(
             projectId, phaseCode,
             rows.Where(r => !r.IsDeleted && IsReviewLocked(r.Status)).Select(r => r.Id));

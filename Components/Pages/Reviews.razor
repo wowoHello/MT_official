@@ -343,9 +343,11 @@
                                         <th class="px-4 py-2 text-left whitespace-nowrap w-24">等級</th>
                                         <th class="px-4 py-2 text-left">題目摘要</th>
                                         <th class="px-4 py-2 text-center whitespace-nowrap w-20">階段</th>
-                                        <th class="px-4 py-2 text-center whitespace-nowrap w-28">狀態</th>
+                                        @* 狀態欄需容納「已審：改後採用」(7 字 ≈ 145px)，w-28 撐爆會擠掉摘要寬度 *@
+                                        <th class="px-4 py-2 text-center whitespace-nowrap w-36">狀態</th>
                                         <th class="px-4 py-2 text-left whitespace-nowrap w-36">編輯時間</th>
-                                        <th class="px-4 py-2 text-center whitespace-nowrap w-20">操作</th>
+                                        @* 操作欄需容納「編輯題目」(4 字 + icon ≈ 95px)，w-20 撐爆會出現橫向卷軸 *@
+                                        <th class="px-4 py-2 text-center whitespace-nowrap w-28">操作</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -543,7 +545,8 @@
                                         <th class="px-4 py-2 text-left whitespace-nowrap w-28">題型</th>
                                         <th class="px-4 py-2 text-left whitespace-nowrap w-24">等級</th>
                                         <th class="px-4 py-2 text-left">題目摘要</th>
-                                        <th class="px-4 py-2 text-center whitespace-nowrap w-28">最終狀態</th>
+                                        @* 最終狀態欄需容納「結案不採用」(5 字 ≈ 110px)，w-28 緊巴巴 *@
+                                        <th class="px-4 py-2 text-center whitespace-nowrap w-32">最終狀態</th>
                                         <th class="px-4 py-2 text-left whitespace-nowrap w-36">決策時間</th>
                                         <th class="px-4 py-2 text-center whitespace-nowrap w-20">操作</th>
                                     </tr>
