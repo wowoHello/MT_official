@@ -1394,6 +1394,36 @@ public class TeacherService : ITeacherService
             });
         }
 
+        // ── 7. 梯次層級結算（CWT/LCT 已結案時：採用 Status IN (9,12)、不採用 Status IN (10,11)）──
+        // 注意：Status 9 = 採用（單票）、12 = 結案入庫；Status 10 = 不採用、11 = 結案未採用
+        // MT_SubQuestions 無 IsDeleted 欄位；子題隨母題 IsDeleted 而失效，過濾母題即可。
+        // LCT 聽力題組（TypeId=7）的子題亦由子題層 SQL 涵蓋，結算邏輯 CWT/LCT 共用。
+        int? closedAdopted  = null;
+        int? closedRejected = null;
+        if (isClosed)
+        {
+            // 一次 round-trip 取母題 + 子題兩組計數，C# 端加總
+            const string summaryCountSql = """
+                SELECT
+                    SUM(CASE WHEN q.Status IN (9, 12) THEN 1 ELSE 0 END) AS Adopted,
+                    SUM(CASE WHEN q.Status IN (10, 11) THEN 1 ELSE 0 END) AS Rejected
+                FROM dbo.MT_Questions q
+                WHERE q.ProjectId = @ProjectId AND q.IsDeleted = 0;
+
+                SELECT
+                    SUM(CASE WHEN sq.Status IN (9, 12) THEN 1 ELSE 0 END) AS Adopted,
+                    SUM(CASE WHEN sq.Status IN (10, 11) THEN 1 ELSE 0 END) AS Rejected
+                FROM dbo.MT_SubQuestions sq
+                INNER JOIN dbo.MT_Questions pq ON pq.Id = sq.ParentQuestionId
+                WHERE pq.ProjectId = @ProjectId AND pq.IsDeleted = 0;
+                """;
+            using var multi = await conn.QueryMultipleAsync(summaryCountSql, param);
+            var masterSummary = await multi.ReadSingleAsync<ProjectSummaryCounts>();
+            var subSummary    = await multi.ReadSingleAsync<ProjectSummaryCounts>();
+            closedAdopted  = masterSummary.Adopted  + subSummary.Adopted;
+            closedRejected = masterSummary.Rejected + subSummary.Rejected;
+        }
+
         return new TeacherExportResult
         {
             ProjectName     = projectName,
@@ -1401,6 +1431,8 @@ public class TeacherService : ITeacherService
             ExamLevelLabel  = examLevelLabel,
             CategoryHeaders = categoryHeaders,
             Rows            = exportRows,
+            ClosedAdopted   = closedAdopted,
+            ClosedRejected  = closedRejected,
         };
     }
 
@@ -1473,15 +1505,23 @@ public class TeacherService : ITeacherService
         // 審題：依 (UserId, TypeId, Granularity=母題/子題) 聚合
         //   完成 = ReviewStatus=2 OR (Comment IS NOT NULL AND Comment <> '')
         //   採用/不採用：以 master Status 為準（DISTINCT QuestionId）
+        // 修正：同一題目在 3 退規則下可產生多筆 ReviewAssignments（初次+第1退+第2退），
+        // COUNT(*) 會膨脹；改用 DISTINCT 目標 Id 計數（母題用 QuestionId、子題用 SubQuestionId）。
+        // Completed 同理：MAX(CASE) per distinct unit 再計非 0 的 distinct 數。
         const string reviewSql = """
             SELECT ra.ReviewerId AS UserId,
                    q.QuestionTypeId AS TypeId,
                    CASE WHEN ra.SubQuestionId IS NULL THEN 0 ELSE 1 END AS Granularity,
-                   COUNT(*) AS Total,
-                   SUM(CASE
-                       WHEN ra.ReviewStatus = 2
-                            OR (ra.Comment IS NOT NULL AND LTRIM(RTRIM(ra.Comment)) <> '')
-                       THEN 1 ELSE 0
+                   COUNT(DISTINCT CASE WHEN ra.SubQuestionId IS NULL THEN ra.QuestionId
+                                       ELSE ra.SubQuestionId END) AS Total,
+                   COUNT(DISTINCT CASE
+                       WHEN (ra.ReviewStatus = 2
+                             OR (ra.Comment IS NOT NULL AND LTRIM(RTRIM(ra.Comment)) <> ''))
+                            AND ra.SubQuestionId IS NULL  THEN ra.QuestionId
+                       WHEN (ra.ReviewStatus = 2
+                             OR (ra.Comment IS NOT NULL AND LTRIM(RTRIM(ra.Comment)) <> ''))
+                            AND ra.SubQuestionId IS NOT NULL THEN ra.SubQuestionId
+                       ELSE NULL
                    END) AS Completed
             FROM dbo.MT_ReviewAssignments ra
             INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
@@ -1760,23 +1800,31 @@ public class TeacherService : ITeacherService
 
         // 單題聽力（TypeId=6）by Level：依 ReviewerId × Level
         // 完成 = ReviewStatus=2 OR Comment 非空
+        // 先 DISTINCT QuestionId per ReviewerId+Level，避免同題多 Stage 膨脹 COUNT
         const string singleAssignSql = """
-            SELECT ra.ReviewerId AS UserId,
-                   q.[Level]     AS Lvl,
+            SELECT dq.ReviewerId AS UserId,
+                   dq.Lvl,
                    COUNT(*)      AS Total,
-                   SUM(CASE
-                       WHEN ra.ReviewStatus = 2
-                            OR (ra.Comment IS NOT NULL AND LTRIM(RTRIM(ra.Comment)) <> '')
-                       THEN 1 ELSE 0
-                   END) AS Completed
-            FROM dbo.MT_ReviewAssignments ra
-            INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
-            WHERE ra.ProjectId     = @ProjectId
-              AND q.IsDeleted      = 0
-              AND q.QuestionTypeId = 6
-              AND q.[Level] IN (1, 2, 3, 4, 5)
-              AND ra.SubQuestionId IS NULL
-            GROUP BY ra.ReviewerId, q.[Level];
+                   SUM(CASE WHEN dq.AnyCompleted = 1 THEN 1 ELSE 0 END) AS Completed
+            FROM (
+                SELECT ra.ReviewerId,
+                       q.[Level]  AS Lvl,
+                       ra.QuestionId,
+                       MAX(CASE
+                           WHEN ra.ReviewStatus = 2
+                                OR (ra.Comment IS NOT NULL AND LTRIM(RTRIM(ra.Comment)) <> '')
+                           THEN 1 ELSE 0
+                       END) AS AnyCompleted
+                FROM dbo.MT_ReviewAssignments ra
+                INNER JOIN dbo.MT_Questions q ON q.Id = ra.QuestionId
+                WHERE ra.ProjectId     = @ProjectId
+                  AND q.IsDeleted      = 0
+                  AND q.QuestionTypeId = 6
+                  AND q.[Level] IN (1, 2, 3, 4, 5)
+                  AND ra.SubQuestionId IS NULL
+                GROUP BY ra.ReviewerId, q.[Level], ra.QuestionId
+            ) AS dq
+            GROUP BY dq.ReviewerId, dq.Lvl;
             """;
 
         // 聽力題組（TypeId=7）DISTINCT QuestionId by Reviewer（母題、子題指派合併計）
@@ -2084,6 +2132,13 @@ public class TeacherService : ITeacherService
         public int    UserId      { get; set; }
         public string DisplayName { get; set; } = "";
         public string RoleName    { get; set; } = "";
+    }
+
+    /// <summary>梯次層級採用/不採用計數（供結算區塊使用）。</summary>
+    private sealed class ProjectSummaryCounts
+    {
+        public int Adopted  { get; set; }
+        public int Rejected { get; set; }
     }
 
     private sealed class ExportMemberInfo

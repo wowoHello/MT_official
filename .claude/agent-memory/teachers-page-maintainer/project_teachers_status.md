@@ -165,20 +165,27 @@ UI 狀態：`composePage`、`reviewPage`（int）、`isLoadingCompose`、`isLoad
 - Models 新增 `BatchImportRow` / `BatchImportRowStatus` / `BatchImportRowResult` 三個類別
 - 公版範本放置於 `wwwroot/temp/教師資料匯入_公版.xlsx`（需手動複製）
 
-## 匯出名單功能（2026-05-22 複核確認已落地，含 CWT/LCT 雙模式）
+## 匯出名單功能（2026-05-22 三項改造完成，LCT 對齊 2026-05-22）
 
 - Teachers.razor 右上角「匯出名單」按鈕 → `HandleExport()`
 - 需先選擇梯次（CascadingParameter `CurrentProject`），否則提示警告
 - `ExportProjectTeachersAsync(projectId, projectName)`：
-  - 先查 `ProjectType + ExamLevel`，依此分流 CWT/LCT 計算邏輯
-  - CWT（ProjectType=0）：命題側用 `LoadCwtComposeCellsAsync` / 審題側用 `LoadCwtReviewCellsAsync`
-  - LCT（ProjectType=1）：命題側用 `LoadLctComposeCellsAsync` / 審題側用 `LoadLctReviewCellsAsync`
-  - 回傳 `TeacherExportResult`（含 `CategoryHeaders[]` 6 欄標題）
-- `BuildExportWorkbook(result)`（Teachers.razor 私有 `static byte[]` 方法）：NPOI 建立 .xlsx，含梯次名稱列、欄位標題列、資料列
+  - 先查 `ProjectType + ExamLevel + ClosedAt`，依此分流 CWT/LCT 計算邏輯
+  - CWT（ProjectType=0）：命題側 `BuildCwtComposeCellsAsync` / 審題側 `BuildCwtReviewCellsAsync`
+  - LCT（ProjectType=1）：命題側 `BuildLctComposeCellsAsync` / 審題側 `BuildLctReviewCellsAsync`
+  - **已結案 CWT/LCT 均查** `ProjectSummaryCounts`（母題+子題層，採用 Status IN (9,12)、不採用 Status IN (10,11)）填入 `ClosedAdopted` / `ClosedRejected`
+  - LCT 聽力題組（TypeId=7）的 2 子題（Level=3/4）由子題層 SQL 自然涵蓋，無特殊處理
+  - 回傳 `TeacherExportResult`（含 CategoryHeaders[6] + ClosedAdopted? + ClosedRejected?）
+- `BuildExportWorkbook(result)`（Teachers.razor 私有 `static byte[]` 方法）：
+  - **現行欄位：8 欄**（教師姓名、教師身分、6 個題型欄）——無採用/不採用欄
+  - **CWT/LCT 路徑末尾均附加「梯次結算」區塊**（莫蘭迪藍底標題列 + 結案採用/結案不採用/結案入庫率三行）
+  - 未結案三行皆顯示「未結案」；已結案顯示數字/百分比（入庫率 `{rate:F1}%`，分母為 0 時顯示 `0.0%`）
 - `JS.InvokeVoidAsync("downloadByteArray", base64, fileName, mimeType)` 觸發瀏覽器下載
 - TypeId=2（精選單選）被排除
-- Models 含 `TeacherExportRow`（CategoryCells[6] + AdoptedCell + RejectedCell）/ `TeacherExportResult`（含 ProjectType + ExamLevelLabel + CategoryHeaders[6]）
-- TeacherService 底部有大量 private sealed class 供 Dapper 對應（`CwtBucketRow`、`CwtReviewRow`、`LctQuotaRow`、`LctSingleRow`、`LctGroupRow`、`LctReviewSingleRow`、`LctReviewGroupRow`、`ExportMemberRow`、`ExportMemberInfo`、`AdoptionRow` 等）
+- Models 含 `TeacherExportRow`（CategoryCells[6]；AdoptedCell / RejectedCell **欄位保留但 Excel 不輸出，僅供內部計算暫存**）/ `TeacherExportResult`（含 ProjectType + ExamLevelLabel + CategoryHeaders[6] + ClosedAdopted? + ClosedRejected?）
+- TeacherService 底部 private sealed class：`ProjectSummaryCounts`（`Adopted` / `Rejected` int）
+- **CWT 總召 bug 修復**（前次）：`BuildCwtReviewCellsAsync` 的 `reviewSql` 改用 `COUNT(DISTINCT ...)` 消除 3 退規則下同一題多筆 assignment 造成的膨脹
+- **LCT 總召 bug 修復**（本次）：`BuildLctReviewCellsAsync` 的 `singleAssignSql` 改用子查詢先 `DISTINCT QuestionId per ReviewerId+Level`，外層再 COUNT，消除同一題多 Stage assignment 膨脹；`groupAssignSql` 已早先使用 DISTINCT 模式，本次不動
 
 ---
 

@@ -1784,14 +1784,12 @@
             sheet.AddMergedRegion(new NPOI.SS.Util.CellRangeAddress(1, 1, 1, 2));   // B2:C2
         }
 
-        // ── 欄位標題列（CWT row 3 / LCT row 2）──
+        // ── 欄位標題列（CWT row 3 / LCT row 2）共 8 欄：姓名、身分、6 個題型欄──
         int headerRowIndex = hasLevelRow ? 2 : 1;
-        string[] headers = new string[10];
+        string[] headers = new string[8];
         headers[0] = "教師姓名";
         headers[1] = "教師身分";
         for (int idx = 0; idx < 6; idx++) headers[idx + 2] = result.CategoryHeaders[idx];
-        headers[8] = "採用題數";
-        headers[9] = "不採用題數";
         var headerRow = sheet.CreateRow(headerRowIndex);
         headerRow.HeightInPoints = 20;
         for (int i = 0; i < headers.Length; i++)
@@ -1801,7 +1799,7 @@
             cell.CellStyle = headerStyle;
         }
 
-        // ── 資料列（cell 值已由 Service 端組裝成字串，原樣寫入）──
+        // ── 資料列（cell 值已由 Service 端組裝成字串，原樣寫入）共 8 欄（無採用/不採用）──
         int dataStartRowIndex = headerRowIndex + 1;
         for (int i = 0; i < result.Rows.Count; i++)
         {
@@ -1820,8 +1818,6 @@
             AddCell(1, r.RoleLabel);
             for (int col = 0; col < 6; col++)
                 AddCell(col + 2, r.CategoryCells[col]);
-            AddCell(8, r.AdoptedCell);
-            AddCell(9, r.RejectedCell);
         }
 
         // ── 固定欄寬（NPOI 單位：256 = 1 個 ASCII 字元寬，中文字 ≈ 512 單位）──
@@ -1831,8 +1827,95 @@
         sheet.SetColumnWidth(1, 20 * 256);      // 教師身分（指定 20 字元寬）
         for (int col = 2; col < 8; col++)
             sheet.SetColumnWidth(col, 5000);    // 6 個類型/難度欄（標題最長 7 字）
-        sheet.SetColumnWidth(8, 3500);          // 採用題數（4 字）
-        sheet.SetColumnWidth(9, 4000);          // 不採用題數（5 字）
+
+        // ── 梯次結算區塊（CWT / LCT 共用）──
+        // 排版：空白分隔列 → 標題列（莫蘭迪藍底/白字/跨欄） → 三行數字列
+        // 未結案時三欄均顯示「未結案」（ClosedAdopted / ClosedRejected 為 null）
+        {
+            int lastDataRow = dataStartRowIndex + result.Rows.Count - 1;
+            int summaryStartRow = lastDataRow + 2;   // 空白分隔列後
+
+            // 莫蘭迪藍底 + 白字 + 粗體（標題列）
+            var morandiBlueBgFont = workbook.CreateFont();
+            morandiBlueBgFont.IsBold = true;
+            morandiBlueBgFont.Color = NPOI.HSSF.Util.HSSFColor.White.Index;
+            var morandiTitleStyle = (NPOI.XSSF.UserModel.XSSFCellStyle)workbook.CreateCellStyle();
+            morandiTitleStyle.SetFont(morandiBlueBgFont);
+            // ✅ 第二個參數傳 null，不需要 IndexedColorMap
+            var morandiColor = new NPOI.XSSF.UserModel.XSSFColor(new byte[] { 0x6B, 0x8E, 0xAD }, null);
+            morandiTitleStyle.FillForegroundXSSFColor = morandiColor;
+            morandiTitleStyle.FillPattern = NPOI.SS.UserModel.FillPattern.SolidForeground;
+            morandiTitleStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Center;
+            morandiTitleStyle.VerticalAlignment = NPOI.SS.UserModel.VerticalAlignment.Center;
+
+            // 灰底 + 粗體（label 欄）
+            var summaryLabelFont = workbook.CreateFont();
+            summaryLabelFont.IsBold = true;
+            var summaryLabelStyle = workbook.CreateCellStyle();
+            summaryLabelStyle.SetFont(summaryLabelFont);
+            summaryLabelStyle.FillForegroundColor = NPOI.HSSF.Util.HSSFColor.Grey25Percent.Index;
+            summaryLabelStyle.FillPattern = NPOI.SS.UserModel.FillPattern.SolidForeground;
+            summaryLabelStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Left;
+            summaryLabelStyle.VerticalAlignment = NPOI.SS.UserModel.VerticalAlignment.Center;
+
+            // 粗體數字（value 欄）
+            var summaryValueFont = workbook.CreateFont();
+            summaryValueFont.IsBold = true;
+            var summaryValueStyle = workbook.CreateCellStyle();
+            summaryValueStyle.SetFont(summaryValueFont);
+            summaryValueStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Left;
+            summaryValueStyle.VerticalAlignment = NPOI.SS.UserModel.VerticalAlignment.Center;
+
+            int totalCols = 8;   // 欄數（A~H）
+
+            // Row 0：「梯次結算」標題（A 欄跨至最末欄）
+            var summaryTitleRow = sheet.CreateRow(summaryStartRow);
+            summaryTitleRow.HeightInPoints = 20;
+            var summaryTitleCell = summaryTitleRow.CreateCell(0);
+            summaryTitleCell.SetCellValue("梯次結算");
+            summaryTitleCell.CellStyle = morandiTitleStyle;
+            // 補空 cell 讓合併區域有正確樣式背景
+            for (int ci = 1; ci < totalCols; ci++)
+            {
+                var fc = summaryTitleRow.CreateCell(ci);
+                fc.CellStyle = morandiTitleStyle;
+            }
+            sheet.AddMergedRegion(new NPOI.SS.Util.CellRangeAddress(
+                summaryStartRow, summaryStartRow, 0, totalCols - 1));
+
+            // 計算顯示值（未結案顯示「未結案」，已結案顯示數字）
+            string adoptedStr  = result.ClosedAdopted.HasValue  ? $"{result.ClosedAdopted.Value} 題"  : "未結案";
+            string rejectedStr = result.ClosedRejected.HasValue ? $"{result.ClosedRejected.Value} 題" : "未結案";
+            string rateStr;
+            if (result.ClosedAdopted.HasValue && result.ClosedRejected.HasValue)
+            {
+                int denom = result.ClosedAdopted.Value + result.ClosedRejected.Value;
+                double rate = denom > 0 ? result.ClosedAdopted.Value * 100.0 / denom : 0.0;
+                rateStr = $"{rate:F1}%";
+            }
+            else
+            {
+                rateStr = "未結案";
+            }
+
+            // Row 1：結案採用
+            var r1 = sheet.CreateRow(summaryStartRow + 1);
+            r1.HeightInPoints = 20;
+            var r1Label = r1.CreateCell(0); r1Label.SetCellValue("結案採用");   r1Label.CellStyle = summaryLabelStyle;
+            var r1Value = r1.CreateCell(1); r1Value.SetCellValue(adoptedStr);   r1Value.CellStyle = summaryValueStyle;
+
+            // Row 2：結案不採用
+            var r2 = sheet.CreateRow(summaryStartRow + 2);
+            r2.HeightInPoints = 20;
+            var r2Label = r2.CreateCell(0); r2Label.SetCellValue("結案不採用"); r2Label.CellStyle = summaryLabelStyle;
+            var r2Value = r2.CreateCell(1); r2Value.SetCellValue(rejectedStr);  r2Value.CellStyle = summaryValueStyle;
+
+            // Row 3：結案入庫率
+            var r3 = sheet.CreateRow(summaryStartRow + 3);
+            r3.HeightInPoints = 20;
+            var r3Label = r3.CreateCell(0); r3Label.SetCellValue("結案入庫率"); r3Label.CellStyle = summaryLabelStyle;
+            var r3Value = r3.CreateCell(1); r3Value.SetCellValue(rateStr);      r3Value.CellStyle = summaryValueStyle;
+        }
 
         using var ms = new System.IO.MemoryStream();
         workbook.Write(ms, leaveOpen: true);

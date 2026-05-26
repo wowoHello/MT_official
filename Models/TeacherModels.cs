@@ -400,4 +400,8 @@ public class TeacherExportResult
     /// <summary>6 個類型/難度欄的標題，隨 ProjectType 切換。</summary>
     public string[] CategoryHeaders { get; set; } = new string[6];
     public List<TeacherExportRow> Rows { get; set; } = [];
+    /// <summary>梯次層級結案採用題數（CWT + 已結案才填，否則為 null）。Status IN (9,12) 計。</summary>
+    public int? ClosedAdopted  { get; set; }
+    /// <summary>梯次層級結案不採用題數（CWT + 已結案才填，否則為 null）。Status IN (10,11) 計。</summary>
+    public int? ClosedRejected { get; set; }
 }
