@@ -1,0 +1,481 @@
+@* ====================================================================== *@
+@*  RevisionHistory — 審後修訂歷史頁                                         *@
+@*  路由：/revision-history                                                  *@
+@*  存取者：計畫主持人 / 總召集人 / 系統管理員（無權限自動轉首頁）              *@
+@*  資料源：MT_AuditLogs 內 TargetType=3 + Action=1 + JSON 含 revisionReason *@
+@* ====================================================================== *@
+@page "/revision-history"
+@inject IRevisionService RevisionService
+@inject NavigationManager Nav
+
+<style>
+    /* Accordion 展開 fade-in 動畫；row 切換時提供平滑視覺 */
+    @@keyframes revisionDiffFadeIn {
+        from { opacity: 0; transform: translateY(-4px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+</style>
+
+<div class="flex-grow flex flex-col w-full mx-auto">
+
+    <!-- Header -->
+    <div class="sticky top-16 z-30 px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/95 backdrop-blur-md border-b border-gray-200 shadow-sm">
+        <nav class="flex text-sm text-gray-500 mb-2 font-medium" aria-label="Breadcrumb">
+            <ol class="inline-flex items-center space-x-1">
+                <li class="inline-flex items-center">
+                    <NavLink href="" Match="NavLinkMatch.All" class="inline-flex items-center hover:text-morandi transition-colors focus:outline-none">
+                        <i class="fa-solid fa-house mr-1"></i> 首頁
+                    </NavLink>
+                </li>
+                <li>
+                    <div class="flex items-center">
+                        <i class="fa-solid fa-chevron-right text-xs mx-1"></i>
+                        <NavLink href="overview" class="hover:text-morandi transition-colors focus:outline-none">命題總覽</NavLink>
+                    </div>
+                </li>
+                <li>
+                    <div class="flex items-center">
+                        <i class="fa-solid fa-chevron-right text-xs mx-1"></i>
+                        <span class="text-slate-main">修訂歷史</span>
+                    </div>
+                </li>
+            </ol>
+        </nav>
+        <h1 tabindex="-1" class="text-2xl font-bold flex items-center gap-2 flex-wrap focus:outline-none">
+            <i class="fa-solid fa-clipboard-list text-morandi"></i>
+            <span>審後修訂歷史</span>
+            @if (CurrentProject is not null)
+            {
+                <span class="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-morandi bg-morandi/10 border border-morandi/20 rounded-full">
+                    <i class="fa-solid fa-folder-open"></i>
+                    @CurrentProject.DisplayName
+                </span>
+            }
+        </h1>
+        <p class="text-sm text-gray-500 mt-1">追蹤所有「三審結束 / 結案後」由管理員執行的修訂紀錄。每筆紀錄保留完整 Before / After 對照。</p>
+    </div>
+
+    <!-- Body -->
+    <div class="p-4 sm:p-6 lg:p-8">
+
+        @if (isAccessChecked && !hasAccess)
+        {
+            <div class="bg-white border border-red-200 rounded-xl p-8 text-center">
+                <i class="fa-solid fa-lock text-red-400 text-3xl mb-2"></i>
+                <p class="text-sm font-bold text-red-600">您沒有權限查看此頁面</p>
+                <p class="text-xs text-gray-500 mt-2">僅「計畫主持人」「總召集人」「系統管理員」可查看修訂歷史</p>
+                <NavLink href="" class="inline-block mt-4 text-sm text-morandi hover:underline">← 回到首頁</NavLink>
+            </div>
+        }
+        else if (hasAccess)
+        {
+            <!-- 篩選列（即時反應 + 起迄防呆 + 視覺分組） -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 px-4 py-3 mb-6">
+                <div class="flex flex-wrap items-center gap-x-5 gap-y-3">
+
+                    @* 題號搜尋（pill 包覆，視覺上與右側篩選同款；focus-within 觸發 morandi ring） *@
+                    <div class="bg-gray-50 border border-gray-200 rounded-lg w-full sm:w-64 lg:w-72 focus-within:ring-2 focus-within:ring-morandi/30 transition-colors">
+                        <DebouncedSearchInput Value="@(filter.Keyword ?? "")"
+                                              ValueChanged="OnKeywordChangedAsync"
+                                              Placeholder="搜尋題號，如 Q-115"
+                                              CssClass="w-full pl-9 pr-3 py-1.5 text-sm bg-transparent border-0 rounded-lg focus:outline-none" />
+                    </div>
+
+                    @* 決策變更（grouped pill — 與日期區間視覺一致） *@
+                    <div class="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1">
+                        <i class="fa-solid fa-filter text-gray-400 text-xs"></i>
+                        <label for="rh-decision" class="text-xs font-bold text-gray-500">決策</label>
+                        <select id="rh-decision" value="@decisionFilterInput" @onchange="OnDecisionFilterChangedAsync"
+                                class="px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-morandi/30 bg-white cursor-pointer">
+                            <option value="">全部</option>
+                            <option value="true">僅改決策</option>
+                            <option value="false">僅改內容</option>
+                        </select>
+                    </div>
+
+                    @* 日期區間（grouped pill — 視覺強調起迄為一組；起>迄時邊框轉紅） *@
+                    <div>
+                        <div class="flex items-center gap-1.5 bg-gray-50 border @(dateRangeError ? "border-red-300 bg-red-50" : "border-gray-200") rounded-lg px-2.5 py-1 transition-colors">
+                            <i class="fa-solid fa-calendar-days text-gray-400 text-xs"></i>
+                            <input type="date" id="rh-date-from"
+                                   value="@(filter.DateFrom?.ToString("yyyy-MM-dd") ?? "")"
+                                   max="@(filter.DateTo?.ToString("yyyy-MM-dd") ?? "")"
+                                   @onchange="OnDateFromChangedAsync"
+                                   aria-label="起日"
+                                   class="bg-transparent border-0 text-sm focus:outline-none w-36 tabular-nums" />
+                            <i class="fa-solid fa-arrow-right text-gray-300 text-xs"></i>
+                            <input type="date" id="rh-date-to"
+                                   value="@(filter.DateTo?.ToString("yyyy-MM-dd") ?? "")"
+                                   min="@(filter.DateFrom?.ToString("yyyy-MM-dd") ?? "")"
+                                   @onchange="OnDateToChangedAsync"
+                                   aria-label="迄日"
+                                   class="bg-transparent border-0 text-sm focus:outline-none w-36 tabular-nums" />
+                        </div>
+                        @* inline validation：起 > 迄 才出現，aria-live 讓螢幕閱讀器播報 *@
+                        @if (dateRangeError)
+                        {
+                            <div class="mt-1 text-xs text-red-600 flex items-center gap-1" role="alert" aria-live="polite">
+                                <i class="fa-solid fa-circle-exclamation"></i>
+                                <span>起日不可大於迄日</span>
+                            </div>
+                        }
+                    </div>
+
+                    @* 狀態 + 清除（只在有任一 filter 啟用時出現） *@
+                    <div class="flex items-center gap-3">
+                        <div class="text-sm text-gray-500 whitespace-nowrap">
+                            共 <span class="text-base font-bold text-morandi tabular-nums">@listResult.TotalCount</span> 筆
+                        </div>
+                        @if (HasAnyFilter)
+                        {
+                            <button @onclick="ClearAllFiltersAsync"
+                                    title="清除所有篩選"
+                                    aria-label="清除所有篩選條件"
+                                    class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-gray-500 hover:text-red-500 hover:bg-red-50 border border-gray-200 hover:border-red-200 rounded-full transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-red-200">
+                                <i class="fa-solid fa-xmark"></i>
+                                <span>清除篩選</span>
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- 列表 -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                @if (isLoading)
+                {
+                    <div class="p-12 text-center text-gray-400 text-sm">
+                        <i class="fa-solid fa-spinner fa-spin mr-2"></i> 載入中…
+                    </div>
+                }
+                else if (listResult.Items.Count == 0)
+                {
+                    <div class="p-12 text-center">
+                        <i class="fa-solid fa-folder-open text-gray-300 text-4xl mb-3"></i>
+                        <p class="text-sm text-gray-500">尚無修訂紀錄</p>
+                        <p class="text-xs text-gray-400 mt-1">當管理員於命題總覽執行「審後修訂」後，紀錄會出現在此</p>
+                    </div>
+                }
+                else
+                {
+                    <table class="w-full text-sm">
+                        <thead class="text-xs text-gray-500 uppercase font-bold bg-gray-50 border-b border-gray-200">
+                            <tr>
+                                <th class="px-4 py-3 text-left whitespace-nowrap w-44">時間</th>
+                                <th class="px-4 py-3 text-left whitespace-nowrap w-40">題號</th>
+                                <th class="px-4 py-3 text-left whitespace-nowrap w-32">修訂者</th>
+                                <th class="px-4 py-3 text-left whitespace-nowrap w-40">決策變化</th>
+                                <th class="px-4 py-3 text-left">修訂原因</th>
+                                <th class="px-4 py-3 text-center whitespace-nowrap w-12"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in listResult.Items)
+                            {
+                                var isExpanded = expandedAuditLogId == item.AuditLogId;
+                                @* 整列可點：hover 強調 + 點按切換展開（動畫 ease，配合下方 accordion 內 transition） *@
+                                <tr @onclick="() => ToggleExpandAsync(item.AuditLogId)"
+                                    class="border-b border-gray-100 cursor-pointer hover:bg-blue-50/40 hover:shadow-[inset_4px_0_0_var(--color-morandi)] transition-all group @(isExpanded ? "bg-morandi/5" : "")">
+                                    <td class="px-4 py-3 text-xs text-gray-500 tabular-nums whitespace-nowrap">@item.RevisedAt.ToString("yyyy/MM/dd HH:mm")</td>
+                                    <td class="px-4 py-3 font-mono font-bold text-slate-main whitespace-nowrap group-hover:text-morandi transition-colors">@item.QuestionCode</td>
+                                    <td class="px-4 py-3 text-sm text-slate-main whitespace-nowrap">@item.OperatorName</td>
+                                    <td class="px-4 py-3 whitespace-nowrap">
+                                        @if (item.DecisionChanged)
+                                        {
+                                            <span class="inline-flex items-center gap-1.5 text-xs font-bold text-terracotta">
+                                                <span>@item.OldStatusLabel</span>
+                                                <i class="fa-solid fa-arrow-right text-xs"></i>
+                                                <span>@item.NewStatusLabel</span>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="inline-flex items-center gap-1 text-xs text-gray-400">
+                                                <i class="fa-solid fa-equals text-xs"></i> 無變更
+                                            </span>
+                                        }
+                                    </td>
+                                    <td class="px-4 py-3 text-xs text-gray-600 truncate max-w-md" title="@item.RevisionReasonSummary">@item.RevisionReasonSummary</td>
+                                    <td class="px-4 py-3 text-center whitespace-nowrap">
+                                        @* 純視覺指示，整列已可點 — 圖示隨展開狀態旋轉以提示可收合 *@
+                                        <i class="fa-solid fa-chevron-down text-morandi text-xs transition-transform duration-500 ease @(isExpanded ? "rotate-180" : "")"></i>
+                                    </td>
+                                </tr>
+
+                                @* Accordion diff 內容（fade-in 動畫由內層 div 處理） *@
+                                @if (isExpanded)
+                                {
+                                    <tr class="bg-morandi/5 border-b border-gray-100">
+                                        <td colspan="6" class="px-6 py-4" @onclick:stopPropagation="true"
+                                            style="animation: revisionDiffFadeIn 0.5s ease;">
+                                            @if (currentDiff is null)
+                                            {
+                                                <div class="text-center text-gray-400 text-xs py-4">
+                                                    <i class="fa-solid fa-spinner fa-spin mr-1"></i> 載入 diff 中…
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-4">
+                                                    <div>
+                                                        <h4 class="text-xs font-bold text-gray-500 mb-2 flex items-center gap-1.5">
+                                                            <i class="fa-solid fa-arrow-left text-gray-400"></i> 修訂前
+                                                        </h4>
+                                                        <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                                                            @if (currentDiff.Fields.Count == 0)
+                                                            {
+                                                                <div class="p-4 text-xs text-gray-400 text-center">本次修訂未變更任何顯示欄位</div>
+                                                            }
+                                                            else
+                                                            {
+                                                                @foreach (var f in currentDiff.Fields)
+                                                                {
+                                                                    <div class="px-4 py-3 border-b border-gray-100 last:border-b-0">
+                                                                        <div class="text-xs font-bold @(f.IsDecisionField ? "text-terracotta" : "text-gray-500") mb-1">@f.FieldLabel</div>
+                                                                        <div class="text-sm text-gray-700 break-words whitespace-pre-wrap">@(string.IsNullOrEmpty(f.OldValue) ? "（空白）" : f.OldValue)</div>
+                                                                    </div>
+                                                                }
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <h4 class="text-xs font-bold text-gray-500 mb-2 flex items-center gap-1.5">
+                                                            <i class="fa-solid fa-arrow-right text-morandi"></i> 修訂後
+                                                        </h4>
+                                                        <div class="bg-white border border-morandi/30 rounded-lg overflow-hidden">
+                                                            @if (currentDiff.Fields.Count == 0)
+                                                            {
+                                                                <div class="p-4 text-xs text-gray-400 text-center">本次修訂未變更任何顯示欄位</div>
+                                                            }
+                                                            else
+                                                            {
+                                                                @foreach (var f in currentDiff.Fields)
+                                                                {
+                                                                    <div class="px-4 py-3 border-b border-gray-100 last:border-b-0">
+                                                                        <div class="text-xs font-bold @(f.IsDecisionField ? "text-terracotta" : "text-morandi") mb-1">@f.FieldLabel</div>
+                                                                        <div class="text-sm text-slate-main break-words whitespace-pre-wrap">@(string.IsNullOrEmpty(f.NewValue) ? "（空白）" : f.NewValue)</div>
+                                                                    </div>
+                                                                }
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                                    <div class="text-xs font-bold text-amber-700 mb-1">
+                                                        <i class="fa-solid fa-pen-clip mr-1"></i> 修訂原因
+                                                    </div>
+                                                    <div class="text-sm text-slate-main whitespace-pre-wrap">@currentDiff.RevisionReason</div>
+                                                </div>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+
+                    <Pagination CurrentPage="@filter.Page" TotalPages="@listResult.PageCount" IsLoading="@isLoading" OnPageChanged="GoToPageAsync" />
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [CascadingParameter(Name = "CurrentProject")]
+    private ProjectSwitcherItem? CurrentProject { get; set; }
+
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private RevisionListFilter filter = new() { PageSize = 20 };
+    private RevisionListResult listResult = new();
+    private RevisionDiffDetail? currentDiff;
+
+    private long? expandedAuditLogId;
+    private bool isLoading;
+    private bool hasAccess;
+    private bool isAccessChecked;
+
+    // 決策篩選下拉的綁定值（""/"true"/"false"）— filter.OnlyDecisionChanged 是 bool? 不適合直接綁 select
+    private string decisionFilterInput = "";
+
+    /// <summary>起日 > 迄日時為 true，UI 顯示紅色邊框 + inline 錯誤訊息，並阻擋 reload。</summary>
+    private bool dateRangeError;
+
+    /// <summary>追蹤已載入的梯次 Id，切換梯次時用來判斷是否需要 reload；避免「兩邊都有權限就漏 reload」的 bug。</summary>
+    private int? lastLoadedProjectId;
+
+    /// <summary>有任一 filter 啟用就顯示「清除篩選」按鈕。</summary>
+    private bool HasAnyFilter =>
+        !string.IsNullOrWhiteSpace(filter.Keyword)
+        || filter.OnlyDecisionChanged.HasValue
+        || filter.DateFrom.HasValue
+        || filter.DateTo.HasValue;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // 權限檢查：必須是計畫主持人 / 總召集人 / 系統管理員
+        var auth = await AuthState;
+        var claim = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(claim, out var uid))
+        {
+            isAccessChecked = true;
+            return;
+        }
+
+        var projectId = CurrentProject?.Id ?? 0;
+        hasAccess = projectId > 0 && await RevisionService.CanReviseAsync(uid, projectId);
+        isAccessChecked = true;
+
+        if (hasAccess)
+        {
+            lastLoadedProjectId = projectId;     // 標記已載入，避免 OnParametersSetAsync 立刻又跑一次
+            await ReloadAsync();
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!isAccessChecked) return;
+
+        var newProjectId = CurrentProject?.Id ?? 0;
+
+        // 梯次沒換 → 早退（省一次 CanReviseAsync 的 DB call）
+        if (newProjectId == lastLoadedProjectId) return;
+
+        var auth = await AuthState;
+        var claim = auth.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(claim, out var uid)) return;
+
+        hasAccess = newProjectId > 0 && await RevisionService.CanReviseAsync(uid, newProjectId);
+
+        if (hasAccess)
+        {
+            lastLoadedProjectId = newProjectId;
+            await ReloadAsync();
+        }
+        else
+        {
+            // 切到沒權限的梯次：清空畫面與已載入標記，重新有權限時才會再跑 ReloadAsync
+            lastLoadedProjectId = null;
+            listResult = new();
+            StateHasChanged();
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (!hasAccess) return;
+        isLoading = true;
+        StateHasChanged();
+        try
+        {
+            filter.ProjectId = CurrentProject?.Id;   // 預設只看當前梯次的修訂；篩選 UI 未顯示梯次選項
+            listResult = await RevisionService.ListAsync(filter);
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    // ── 即時反應的篩選 callback（各 input 變動就 reload，移除原本的「套用」/「清除」按鈕） ──
+
+    private async Task OnKeywordChangedAsync(string value)
+    {
+        filter.Keyword = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        await ReloadAfterFilterChangeAsync();
+    }
+
+    private async Task OnDecisionFilterChangedAsync(ChangeEventArgs e)
+    {
+        decisionFilterInput = e.Value?.ToString() ?? "";
+        filter.OnlyDecisionChanged = decisionFilterInput switch
+        {
+            "true"  => true,
+            "false" => false,
+            _       => null
+        };
+        await ReloadAfterFilterChangeAsync();
+    }
+
+    private async Task OnDateFromChangedAsync(ChangeEventArgs e)
+    {
+        var newDate = DateTime.TryParse(e.Value?.ToString(), out var d) ? d : (DateTime?)null;
+
+        // 防呆：起日不可大於迄日
+        if (newDate.HasValue && filter.DateTo.HasValue && newDate.Value > filter.DateTo.Value)
+        {
+            dateRangeError = true;
+            StateHasChanged();   // 強制重新渲染讓 input value 回到 filter.DateFrom 原值
+            return;
+        }
+
+        dateRangeError = false;
+        filter.DateFrom = newDate;
+        await ReloadAfterFilterChangeAsync();
+    }
+
+    private async Task OnDateToChangedAsync(ChangeEventArgs e)
+    {
+        var newDate = DateTime.TryParse(e.Value?.ToString(), out var d) ? d : (DateTime?)null;
+
+        // 防呆：迄日不可小於起日
+        if (newDate.HasValue && filter.DateFrom.HasValue && newDate.Value < filter.DateFrom.Value)
+        {
+            dateRangeError = true;
+            StateHasChanged();
+            return;
+        }
+
+        dateRangeError = false;
+        filter.DateTo = newDate;
+        await ReloadAfterFilterChangeAsync();
+    }
+
+    /// <summary>清除所有篩選並重新載入第一頁。</summary>
+    private async Task ClearAllFiltersAsync()
+    {
+        filter.Keyword = null;
+        filter.OnlyDecisionChanged = null;
+        filter.DateFrom = null;
+        filter.DateTo = null;
+        decisionFilterInput = "";
+        dateRangeError = false;
+        await ReloadAfterFilterChangeAsync();
+    }
+
+    private async Task ReloadAfterFilterChangeAsync()
+    {
+        filter.Page = 1;
+        expandedAuditLogId = null;
+        currentDiff = null;
+        await ReloadAsync();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        if (page == filter.Page) return;
+        filter.Page = page;
+        expandedAuditLogId = null;
+        currentDiff = null;
+        await ReloadAsync();
+    }
+
+    private async Task ToggleExpandAsync(long auditLogId)
+    {
+        if (expandedAuditLogId == auditLogId)
+        {
+            // 收合
+            expandedAuditLogId = null;
+            currentDiff = null;
+            return;
+        }
+        expandedAuditLogId = auditLogId;
+        currentDiff = null;          // 顯示 loading
+        StateHasChanged();
+        currentDiff = await RevisionService.GetDiffAsync(auditLogId);
+    }
+}

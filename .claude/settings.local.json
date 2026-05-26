@@ -23,7 +23,8 @@
       "Bash(git *)",
       "Bash(grep -v \"//\")",
       "Bash(powershell -Command \"Get-Content 'D:\\\\IISWebSize\\\\MT\\\\Components\\\\Pages\\\\Teachers.razor' | Measure-Object -Line; Get-Content 'D:\\\\IISWebSize\\\\MT\\\\Services\\\\TeacherService.cs' | Measure-Object -Line; Get-Content 'D:\\\\IISWebSize\\\\MT\\\\Models\\\\TeacherModels.cs' | Measure-Object -Line\")",
-      "mcp__context7__resolve-library-id"
+      "mcp__context7__resolve-library-id",
+      "Bash(xargs grep *)"
     ]
   }
 }

@@ -122,6 +122,10 @@ builder.Services.AddScoped<IAppointmentService, AppointmentService>();
 //            SimilarityAnalysis.razor 管理員批次掃描 / Dashboard KPI 卡
 builder.Services.AddScoped<ISimilarityService, SimilarityService>();
 
+// 審後修訂：管理員（計畫主持人/總召集人/系統管理員）在三審結束後再編輯題目並調整決策
+// 服務的場景：Overview.razor 詳情頁 + 列表「修訂」按鈕 / RevisionHistory.razor 列表
+builder.Services.AddScoped<IRevisionService, RevisionService>();
+
 var app = builder.Build();
 
 // 預先載入題型字典（fail-fast：DB 連不上就讓站台不啟動，避免帶空資料上線）

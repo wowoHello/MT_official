@@ -7,7 +7,9 @@
 @page "/overview"
 @inject IOverviewService OverviewService
 @inject IPhaseTransitionCoordinator PhaseCoordinator
+@inject IRevisionService RevisionService
 @inject NavigationManager Nav
+@using MT.Components.Shared.RevisionForms
 
 <div tabindex="-1" @onkeydown="HandleKeyDown" @onkeydown:stopPropagation="false" class="contents">
 <div class="flex-grow flex flex-col w-full mx-auto">
@@ -16,7 +18,7 @@
     <div class="sticky top-16 z-30 px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/95 backdrop-blur-md border-b border-gray-200 shadow-sm">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-                <nav class="flex text-sm text-gray-500 mb-1 font-medium" aria-label="Breadcrumb">
+                <nav class="flex text-sm text-gray-500 mb-2 font-medium" aria-label="Breadcrumb">
                     <ol class="inline-flex items-center space-x-1">
                         <li class="inline-flex items-center">
                             <NavLink href="" Match="NavLinkMatch.All" class="inline-flex items-center hover:text-morandi transition-colors focus:outline-none">
@@ -36,6 +38,15 @@
                 </h1>
                     <p class="text-sm text-gray-500 mt-1">全梯次試題列表、題目內容與審題全局結果檢視。</p>
             </div>
+            @* 「修訂歷史」入口：僅大權限角色可見，前往全梯次審後修訂紀錄頁 *@
+            @if (canRevise)
+            {
+                <NavLink href="revision-history"
+                         class="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-white border border-morandi/30 text-morandi hover:bg-morandi/5 rounded-lg font-bold transition-colors cursor-pointer focus:outline-none"
+                         title="檢視所有審後修訂紀錄">
+                    <i class="fa-solid fa-clipboard-list"></i> 修訂歷史
+                </NavLink>
+            }
         </div>
     </div>
 
@@ -259,6 +270,17 @@
                                     {
                                         <StatusBadge StatusText="@display.Text" BadgeType="@display.BadgeType" Compact="true" />
                                     }
+
+                                    @* 審後修訂按鈕：僅顯示在「決策完畢」狀態（9/10/11/12）且使用者具修訂權限時 *@
+                                    @if (canRevise && IsPostDecisionStatus(item.Status))
+                                    {
+                                        <button @onclick:stopPropagation="true"
+                                                @onclick="() => OpenReviseAsync(item)"
+                                                title="審後修訂（編輯內容並可調整決策）"
+                                                class="text-xs text-morandi hover:text-[#5a7c98] font-bold cursor-pointer focus:outline-none mt-1">
+                                            <i class="fa-solid fa-pen-to-square mr-0.5"></i> 修訂
+                                        </button>
+                                    }
                                 }
                             </div>
                         </div>
@@ -283,6 +305,17 @@
         }
         else
         {
+            @* 審後修訂入口：僅大權限角色且該單元決策已定（9/10/11/12）顯示 *@
+            @if (canRevise && IsPostDecisionStatus(detailItem.Status))
+            {
+                <div class="mb-4 flex justify-end">
+                    <button @onclick="() => OpenReviseAsync(detailItem)"
+                            class="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-morandi/10 border border-morandi/30 text-morandi hover:bg-morandi hover:text-white rounded-lg font-bold transition-colors cursor-pointer focus:outline-none">
+                        <i class="fa-solid fa-pen-to-square"></i> 審後修訂
+                    </button>
+                </div>
+            }
+
             <!-- 上半：題目內容（複用 QuestionPreviews 元件） -->
             <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6">
                 <div class="flex justify-between items-start border-b border-gray-100 pb-4 mb-4">
@@ -409,6 +442,15 @@
         }
     </ChildContent>
 </CustomModal>
+
+<!-- 審後修訂 Modal（管理員專用） -->
+<AdminReviseModal @bind-IsVisible="showReviseModal"
+                  QuestionId="@reviseQuestionId"
+                  SubQuestionId="@reviseSubQuestionId"
+                  DisplayCode="@reviseDisplayCode"
+                  OriginalStatus="@reviseOriginalStatus"
+                  CurrentUserId="@currentUserId"
+                  OnSaved="OnRevisionSavedAsync" />
 </div>
 
 @code {
@@ -465,11 +507,25 @@
     // 已載入的 ProjectId 守門 —— 避免父層重渲染時重跑 LoadAsync 導致列表骨架閃爍
     private int? loadedProjectId;
 
+    // ── 審後修訂相關狀態（Phase 4） ─────────────────────
+    /// <summary>當前使用者是否具修訂權限（計畫主持人 / 總召集人 / 系統管理員）</summary>
+    private bool canRevise;
+    private int currentUserId;
+    private bool showReviseModal;
+    private int reviseQuestionId;
+    private int? reviseSubQuestionId;
+    private byte reviseOriginalStatus;
+    private string reviseDisplayCode = "";
+
     protected override async Task OnParametersSetAsync()
     {
         if (CurrentProject is null) return;
         if (loadedProjectId == CurrentProject.Id) return;   // 同專案重派 → 不重載
         loadedProjectId = CurrentProject.Id;
+
+        // 解析 currentUserId + 權限（修訂按鈕顯示與否）
+        await ResolveCurrentUserAsync();
+        canRevise = currentUserId > 0 && await RevisionService.CanReviseAsync(currentUserId, CurrentProject.Id);
 
         // 修補 A：立刻把 isLoading 提升並 render 一次，避免「creator 載入 + LoadAsync」期間
         // result.Items.Count==0 觸發「目前尚無題目」空狀態閃現
@@ -748,6 +804,53 @@
             await ShowToastAsync("error", "復原失敗，題目可能已不在刪除狀態");
         }
     }
+
+    // ====================================================================
+    //  Phase 4：審後修訂入口（管理員專用）
+    // ====================================================================
+
+    /// <summary>從 AuthState 解析當前 userId（OnParametersSetAsync 與 RestoreAsync 共用結果）。</summary>
+    private async Task ResolveCurrentUserAsync()
+    {
+        if (currentUserId > 0) return;   // 已解析過
+        var auth = await AuthState;
+        var claim = auth.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (int.TryParse(claim, out var uid)) currentUserId = uid;
+    }
+
+    /// <summary>狀態為決策完畢（9 採用 / 10 不採用 / 11 結案未採用 / 12 結案入庫）才能開放修訂。</summary>
+    private static bool IsPostDecisionStatus(byte status) =>
+        status is QuestionStatus.Adopted          // 9
+                or QuestionStatus.Rejected         // 10
+                or QuestionStatus.ClosedNotAdopted // 11
+                or QuestionStatus.Archived;        // 12
+
+    /// <summary>開啟修訂 Modal；接收完整 QuestionListItem 以便正確組出顯示題號（含子題 -NN 後綴）。</summary>
+    private void OpenReviseAsync(QuestionListItem item)
+    {
+        reviseQuestionId      = item.Id;
+        reviseSubQuestionId   = item.SubQuestionId;
+        reviseOriginalStatus  = item.Status;
+        reviseDisplayCode     = item.SubQuestionId.HasValue
+            ? $"{item.QuestionCode}-{(item.SubSortOrder ?? 1):00}"
+            : item.QuestionCode;
+        showReviseModal       = true;
+    }
+
+    /// <summary>修訂儲存成功後刷新列表，並重新載入詳情面板（若仍開啟）。</summary>
+    private async Task OnRevisionSavedAsync(AdminReviseResult result)
+    {
+        await LoadAsync();
+        // 若詳情面板開著該題，重抓詳情以反映新內容/新狀態
+        if (showDetailModal && detailItem is not null
+            && detailItem.Id == reviseQuestionId
+            && detailItem.SubQuestionId == reviseSubQuestionId)
+        {
+            await OpenDetailAsync(detailItem.Id, detailItem.SubQuestionId);
+        }
+    }
+
+    // ====================================================================
 
     private record SwalResult(bool IsConfirmed, bool IsDenied, bool IsDismissed);
 

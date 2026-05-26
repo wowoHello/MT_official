@@ -253,6 +253,10 @@
                                                     : selectedDetail.Phases.Count - 1;
                                             }
                                         }
+                                        // 「準時或延遲結案」：ClosedAt 在產學計畫結束日（Phase[0].EndDate）當天或之後 → 視為正常完工，不標橘色
+                                        var isClosedAfterScheduledEnd = closedAtDate.HasValue
+                                            && selectedDetail.Phases.Count > 0
+                                            && closedAtDate.Value >= selectedDetail.Phases[0].EndDate.Date;
                                     }
                                     @for (int i = 0; i < selectedDetail.Phases.Count; i++)
                                     {
@@ -267,9 +271,17 @@
                                         string textColor;
                                         string dateColor;
 
-                                        if (closedSubPhaseIndex >= 0)
+                                        if (isClosedAfterScheduledEnd)
                                         {
-                                            // 已結案視覺：產學計畫區間（i==0）+ 結案發生子階段都標 terracotta
+                                            // 準時/延遲結案：全部走「已完成」綠色樣式，不顯示橘色
+                                            nodeColor = "bg-sage";
+                                            lineColor = "border-sage";
+                                            textColor = "text-gray-500";
+                                            dateColor = "text-gray-400";
+                                        }
+                                        else if (closedSubPhaseIndex >= 0)
+                                        {
+                                            // 提早結案：產學計畫區間（i==0）+ 結案發生子階段都標 terracotta
                                             if (i == 0 || i == closedSubPhaseIndex)
                                             {
                                                 nodeColor = "bg-terracotta ring-4 ring-orange-50";

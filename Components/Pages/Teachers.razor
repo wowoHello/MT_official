@@ -288,23 +288,23 @@
                         @* ── Tab: 命題歷程 ── *@
                         else if (detailTab == "compose")
                         {
-                            <!-- 統計卡片 -->
-                            <div class="grid grid-cols-4 gap-3 mb-4">
+                            <!-- 統計卡片（載入中時整列 pulse + 數字暫顯 — 避免閃 0） -->
+                            <div class="grid grid-cols-4 gap-3 mb-4 @(isLoadingCompose ? "animate-pulse" : "")">
                                 <div class="bg-white p-3 rounded-lg border border-gray-100 text-center">
                                     <div class="text-xs text-gray-500 font-bold">累計產出</div>
-                                    <div class="text-xl font-bold text-slate-main mt-1">@composeStats.TotalCount</div>
+                                    <div class="text-xl font-bold text-slate-main mt-1">@(isLoadingCompose ? "—" : composeStats.TotalCount.ToString())</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-lg border border-gray-100 text-center">
                                     <div class="text-xs text-gray-500 font-bold">已採用</div>
-                                    <div class="text-xl font-bold text-sage mt-1">@composeStats.AdoptedCount</div>
+                                    <div class="text-xl font-bold text-sage mt-1">@(isLoadingCompose ? "—" : composeStats.AdoptedCount.ToString())</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-lg border border-gray-100 text-center">
                                     <div class="text-xs text-gray-500 font-bold">不採用</div>
-                                    <div class="text-xl font-bold text-terracotta mt-1">@composeStats.RejectedCount</div>
+                                    <div class="text-xl font-bold text-terracotta mt-1">@(isLoadingCompose ? "—" : composeStats.RejectedCount.ToString())</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-lg border border-gray-100 text-center">
                                     <div class="text-xs text-gray-500 font-bold">審查中</div>
-                                    <div class="text-xl font-bold text-morandi mt-1">@composeStats.ReviewingCount</div>
+                                    <div class="text-xl font-bold text-morandi mt-1">@(isLoadingCompose ? "—" : composeStats.ReviewingCount.ToString())</div>
                                 </div>
                             </div>
                             <!-- 篩選 + 列表 -->
@@ -326,7 +326,14 @@
                                         }
                                     </select>
                                 </div>
-                                @if (composeResult.Items.Count == 0)
+                                @if (isLoadingCompose && composeResult.Items.Count == 0)
+                                {
+                                    <div class="p-8 text-center text-gray-400">
+                                        <i class="fa-solid fa-spinner fa-spin text-2xl text-morandi"></i>
+                                        <p class="text-sm mt-2">載入中...</p>
+                                    </div>
+                                }
+                                else if (composeResult.Items.Count == 0)
                                 {
                                     <div class="p-4">
                                         <EmptyState IconClass="fa-clock-rotate-left" Message="尚無命題歷程"
@@ -368,20 +375,20 @@
                         @* ── Tab: 審題歷程 ── *@
                         else if (detailTab == "review")
                         {
-                            <!-- 統計卡片 -->
-                            <div class="grid grid-cols-3 gap-3 mb-4">
+                            <!-- 統計卡片（載入中時整列 pulse + 數字暫顯 — 避免閃 0） -->
+                            <div class="grid grid-cols-3 gap-3 mb-4 @(isLoadingReview ? "animate-pulse" : "")">
                                 <div class="bg-white p-3 rounded-lg border border-gray-100 text-center">
                                     <div class="text-xs text-gray-500 font-bold">審題總數</div>
-                                    <div class="text-xl font-bold text-slate-main mt-1">@reviewStats.TotalCount</div>
+                                    <div class="text-xl font-bold text-slate-main mt-1">@(isLoadingReview ? "—" : reviewStats.TotalCount.ToString())</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-lg border border-gray-100 text-center">
                                     <div class="text-xs text-gray-500 font-bold">待審中</div>
-                                    <div class="text-xl font-bold text-morandi mt-1">@reviewStats.PendingCount</div>
+                                    <div class="text-xl font-bold text-morandi mt-1">@(isLoadingReview ? "—" : reviewStats.PendingCount.ToString())</div>
                                 </div>
                                 <div class="bg-white p-3 rounded-lg border border-gray-100 text-center">
                                     <div class="text-xs text-gray-500 font-bold">已完成</div>
-                                    <div class="text-xl font-bold text-sage mt-1">@reviewStats.CompletedCount</div>
-                                </div>                                
+                                    <div class="text-xl font-bold text-sage mt-1">@(isLoadingReview ? "—" : reviewStats.CompletedCount.ToString())</div>
+                                </div>
                             </div>
                             <!-- 篩選 + 列表 -->
                             <div class="bg-white rounded-lg border border-gray-100">
@@ -402,7 +409,14 @@
                                         }
                                     </select>
                                 </div>
-                                @if (reviewResult.Items.Count == 0)
+                                @if (isLoadingReview && reviewResult.Items.Count == 0)
+                                {
+                                    <div class="p-8 text-center text-gray-400">
+                                        <i class="fa-solid fa-spinner fa-spin text-2xl text-morandi"></i>
+                                        <p class="text-sm mt-2">載入中...</p>
+                                    </div>
+                                }
+                                else if (reviewResult.Items.Count == 0)
                                 {
                                     <div class="p-4">
                                         <EmptyState IconClass="fa-clipboard-check" Message="尚無審題歷程"
@@ -1365,13 +1379,28 @@
             .ToList();
     }
 
+    /// <summary>
+    /// 確保歷程篩選下拉的專案清單已載入。歷程 Tab 的篩選下拉資料源自 teacherProjects，
+    /// 若使用者先進歷程 Tab 而未先點過參與專案 Tab，下拉會是空的——此 helper 補上這個缺口。
+    /// </summary>
+    private async Task EnsureProjectFilterOptionsAsync()
+    {
+        if (projectFilterOptions.Count > 0 || selectedDetail is null) return;
+        if (!projectsLoaded)
+        {
+            await LoadProjectsTabAsync();
+            projectsLoaded = true;
+        }
+    }
+
     // ──── 命題歷程載入 ────
     private async Task LoadComposeHistoryAsync()
     {
         if (selectedDetail is null) return;
-        isLoadingCompose = true;
+        isLoadingCompose = true; // 在第一個 await 之前設旗標，避免首次渲染顯示 0
         try
         {
+            await EnsureProjectFilterOptionsAsync();
             var projectId = string.IsNullOrEmpty(composeFilterProjectId) ? (int?)null : int.Parse(composeFilterProjectId);
             composeStats = await TeacherService.GetTeacherComposeStatsAsync(selectedDetail.UserId, projectId);
             composeResult = await TeacherService.GetTeacherComposeHistoryAsync(selectedDetail.UserId, projectId, composePage, HistoryPageSize);
@@ -1401,9 +1430,10 @@
     private async Task LoadReviewHistoryAsync()
     {
         if (selectedDetail is null) return;
-        isLoadingReview = true;
+        isLoadingReview = true; // 在第一個 await 之前設旗標，避免首次渲染顯示 0
         try
         {
+            await EnsureProjectFilterOptionsAsync();
             var projectId = string.IsNullOrEmpty(reviewFilterProjectId) ? (int?)null : int.Parse(reviewFilterProjectId);
             reviewStats = await TeacherService.GetTeacherReviewStatsAsync(selectedDetail.UserId, projectId);
             reviewResult = await TeacherService.GetTeacherReviewHistoryAsync(selectedDetail.UserId, projectId, reviewPage, HistoryPageSize);

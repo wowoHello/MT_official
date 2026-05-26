@@ -1,0 +1,556 @@
+@* ====================================================================== *@
+@*  AdminReviseModal — 審後修訂 Modal（管理員專用）                          *@
+@*                                                                          *@
+@*  情境：題目已完成三審決策（Status IN 9,10,11,12）後，                     *@
+@*       由「計畫主持人 / 總召集人 / 系統管理員」再編輯題目並調整決策。      *@
+@*                                                                          *@
+@*  與 RevisionSlideOver 完全不同（後者是教師於修題階段內存檔）。              *@
+@*  使用既有 CustomModal FullScreen + QuestionForm 元件，內容欄位完整重用。  *@
+@* ====================================================================== *@
+@using MT.Components.Shared.QuestionForms
+@inject IQuestionService QuestionService
+@inject IRevisionService RevisionService
+@inject IJSRuntime JS
+
+<CustomModal IsVisible="@IsVisible"
+             IsVisibleChanged="HandleVisibilityChangedAsync"
+             Type="CustomModal.ModalType.FullScreen"
+             Title="@ModalTitle"
+             CloseOnBackdropClick="false"
+             KeepAlive="false">
+    <TitleSubtitle>
+        @if (questionData is not null)
+        {
+            <span class="inline-flex items-center gap-1.5 text-xs text-terracotta font-bold">
+                <i class="fa-solid fa-shield-halved"></i>
+                審後修訂模式
+            </span>
+            <span class="mx-1 text-gray-300">•</span>
+            <span class="inline-flex items-center gap-1">
+                <i class="fa-regular fa-clock"></i>
+                最後修改：@questionData.UpdatedAt.ToString("yyyy/MM/dd HH:mm")
+            </span>
+            <span class="mx-1 text-gray-300">•</span>
+            <span>原決策：</span>
+            <StatusBadge StatusText="@OriginalStatusLabel" Compact="true" />
+        }
+    </TitleSubtitle>
+    <HeaderActions>
+        <button @onclick="CloseAsync" disabled="@isSaving"
+                class="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 font-medium transition-colors cursor-pointer disabled:opacity-50">
+            取消
+        </button>
+        <button @onclick="SaveAsync" disabled="@isSaving"
+                class="px-5 py-2 text-sm bg-morandi hover:bg-[#5a7c98] text-white rounded-lg font-bold transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5">
+            @if (isSaving)
+            {
+                <i class="fa-solid fa-spinner fa-spin"></i> <span>儲存中…</span>
+            }
+            else
+            {
+                <i class="fa-solid fa-check"></i> <span>確認儲存修訂</span>
+            }
+        </button>
+    </HeaderActions>
+    <ChildContent>
+        @if (isLoading)
+        {
+            <div class="flex-grow flex items-center justify-center text-gray-400 text-sm">
+                <i class="fa-solid fa-spinner fa-spin mr-2"></i> 載入題目中…
+            </div>
+        }
+        else if (questionData is null)
+        {
+            <div class="flex-grow flex items-center justify-center text-gray-400 text-sm">
+                <i class="fa-solid fa-circle-exclamation mr-2"></i> 載入失敗或題目已刪除
+            </div>
+        }
+        else
+        {
+            <QuillEditorHost>
+                <div class="flex-grow flex overflow-hidden min-h-0 h-full">
+                    @* 左側：決策 + 屬性側欄（屬性區為 readonly，僅供參考） *@
+                    <div class="w-72 lg:w-80 flex-shrink-0 bg-white border-r border-gray-200 overflow-y-auto custom-scroll">
+                        <div class="p-5 space-y-5">
+                            @* 最終決策（核心輸入） *@
+                            <div class="bg-terracotta/5 border border-terracotta/20 rounded-lg p-4">
+                                <label class="block text-sm font-bold text-terracotta mb-3">
+                                    <i class="fa-solid fa-circle-dot mr-1.5"></i>最終決策
+                                </label>
+                                <div class="space-y-2">
+                                    <label class="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-white border border-transparent has-checked:border-sage has-checked:bg-white transition-all">
+                                        <input type="radio" name="revise-decision"
+                                               value="Adopt"
+                                               checked="@(decision == AdminReviseDecision.Adopt)"
+                                               @onchange="() => decision = AdminReviseDecision.Adopt"
+                                               class="w-4 h-4 text-sage focus:ring-sage" />
+                                        <span class="text-sm font-bold text-sage">採用</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-white border border-transparent has-checked:border-gray-400 has-checked:bg-white transition-all">
+                                        <input type="radio" name="revise-decision"
+                                               value="Reject"
+                                               checked="@(decision == AdminReviseDecision.Reject)"
+                                               @onchange="() => decision = AdminReviseDecision.Reject"
+                                               class="w-4 h-4 text-gray-500 focus:ring-gray-400" />
+                                        <span class="text-sm font-bold text-gray-600">不採用</span>
+                                    </label>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-2 leading-relaxed">
+                                    @if (isProjectClosed)
+                                    {
+                                        <span>專案已結案，採用→入庫 (12)、不採用→結案未採用 (11)</span>
+                                    }
+                                    else
+                                    {
+                                        <span>採用→ Status 9、不採用→ Status 10</span>
+                                    }
+                                </p>
+                            </div>
+
+                            @* 屬性區（readonly 顯示，供修訂時參考） *@
+                            <div class="border border-gray-200 rounded-lg p-4">
+                                <div class="text-xs font-bold text-gray-500 mb-2">題目屬性（不可修改）</div>
+                                <dl class="text-xs text-gray-600 space-y-1.5">
+                                    <div class="flex justify-between gap-2">
+                                        <dt class="text-gray-400">題型</dt>
+                                        <dd class="font-medium text-slate-main">@QuestionConstants.TypeLabels.GetValueOrDefault(questionData.QuestionType, "")</dd>
+                                    </div>
+                                    @if (questionData.Level.HasValue)
+                                    {
+                                        <div class="flex justify-between gap-2">
+                                            <dt class="text-gray-400">等級</dt>
+                                            <dd class="font-medium text-morandi">@LevelText</dd>
+                                        </div>
+                                    }
+                                    @if (questionData.Difficulty.HasValue)
+                                    {
+                                        <div class="flex justify-between gap-2">
+                                            <dt class="text-gray-400">難度</dt>
+                                            <dd class="font-medium text-terracotta">@QuestionConstants.DifficultyLabels.GetValueOrDefault(questionData.Difficulty.Value, "")</dd>
+                                        </div>
+                                    }
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+
+                    @* 右側：題目內容編輯區
+                       Scope 規則：
+                         - 非題組類（Single/Select/LongText/Listen）：沒有子題概念，重用完整既有表單
+                         - 題組類 master mode（SubQuestionId=null）：僅顯示母題欄位，子題隱藏
+                         - 題組類 sub mode（SubQuestionId 有值）：僅顯示該子題欄位 + 母題唯讀預覽
+                       這樣使用者看到的就是會被儲存的內容，不會誤改其他單元（Bug fix 2026-05-26） *@
+                    <div class="flex-grow overflow-y-auto custom-scroll bg-oatmeal min-h-0">
+                        @* Scope 提示 banner（題組類才顯示） *@
+                        @if (IsGroupType && !string.IsNullOrEmpty(scopeBannerText))
+                        {
+                            <div class="m-6 mb-3 px-4 py-3 rounded-lg border @scopeBannerCss flex items-start gap-3">
+                                <i class="fa-solid @scopeBannerIcon text-base mt-0.5"></i>
+                                <div class="flex-1 min-w-0">
+                                    <div class="text-sm font-bold">@scopeBannerText</div>
+                                    <div class="text-xs mt-0.5 opacity-80">@scopeBannerSubtext</div>
+                                </div>
+                            </div>
+                        }
+
+                        @switch (questionData.QuestionType)
+                        {
+                            case QuestionTypeCodes.Single:
+                            case QuestionTypeCodes.Select:
+                                <QuestionFormSingle @bind-Stem="questionData.Stem"
+                                                    @bind-Options="questionData.Options"
+                                                    @bind-Answer="questionData.Answer"
+                                                    @bind-Analysis="questionData.Analysis"
+                                                    @bind-Images="questionData.Images" />
+                                break;
+                            case QuestionTypeCodes.LongText:
+                                <QuestionFormLongText @bind-Stem="questionData.Stem"
+                                                      @bind-Passage="questionData.ArticleContent"
+                                                      @bind-GradingNote="questionData.GradingNote"
+                                                      @bind-Images="questionData.Images" />
+                                break;
+                            case QuestionTypeCodes.Listen:
+                                <QuestionFormListen @bind-AudioFileName="questionData.AudioUrl"
+                                                    @bind-Stem="questionData.Stem"
+                                                    @bind-ArticleContent="questionData.ArticleContent"
+                                                    @bind-Options="questionData.Options"
+                                                    @bind-Answer="questionData.Answer"
+                                                    @bind-Analysis="questionData.Analysis"
+                                                    @bind-Images="questionData.Images" />
+                                break;
+
+                            @* ─── 題組類：master mode（只顯示母題欄位） ─── *@
+                            case QuestionTypeCodes.ReadGroup when SubQuestionId is null:
+                            case QuestionTypeCodes.ShortGroup when SubQuestionId is null:
+                                <div class="p-6 space-y-4">
+                                    <FormSectionCard Title="文章內容" Icon="fa-book-open" Required="true">
+                                        <QuillField Value="@questionData.ArticleContent"
+                                                    ValueChanged="v => questionData.ArticleContent = v"
+                                                    FieldLabel="文章內容"
+                                                    Placeholder="點擊此處編輯文章內容..." />
+                                    </FormSectionCard>
+                                </div>
+                                break;
+                            case QuestionTypeCodes.ListenGroup when SubQuestionId is null:
+                                <div class="p-6 space-y-4">
+                                    <FormSectionCard Title="聽力音檔" Icon="fa-headphones">
+                                        <AudioUploadField AudioUrl="@questionData.AudioUrl"
+                                                          AudioUrlChanged="v => questionData.AudioUrl = v" />
+                                    </FormSectionCard>
+                                    <FormSectionCard Title="語音逐字稿" Icon="fa-file-lines">
+                                        <QuillField Value="@questionData.ArticleContent"
+                                                    ValueChanged="v => questionData.ArticleContent = v"
+                                                    FieldLabel="語音逐字稿"
+                                                    Placeholder="點擊此處編輯語音逐字稿..." />
+                                    </FormSectionCard>
+                                </div>
+                                break;
+
+                            @* ─── 題組類：sub mode（只顯示該子題欄位 + 母題唯讀預覽） ─── *@
+                            case QuestionTypeCodes.ReadGroup:
+                            case QuestionTypeCodes.ShortGroup:
+                            case QuestionTypeCodes.ListenGroup:
+                                <div class="p-6 space-y-4">
+                                    @* 母題唯讀預覽（提供上下文，不可編輯） *@
+                                    <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                                        <div class="text-xs font-bold text-gray-500 mb-2 flex items-center gap-1.5">
+                                            <i class="fa-solid fa-lock text-gray-400"></i>
+                                            母題內容（唯讀；如需修訂請從母題列開啟）
+                                        </div>
+                                        @if (questionData.QuestionType == QuestionTypeCodes.ListenGroup && !string.IsNullOrEmpty(questionData.AudioUrl))
+                                        {
+                                            <div class="mb-2 text-xs text-gray-500">音檔：<span class="font-mono">@questionData.AudioUrl</span></div>
+                                        }
+                                        <div class="prose prose-sm max-w-none text-gray-700 bg-white rounded p-3 border border-gray-100 max-h-40 overflow-y-auto">
+                                            @((MarkupString)(questionData.ArticleContent ?? "<span class='text-gray-400'>（母題尚未填寫內容）</span>"))
+                                        </div>
+                                    </div>
+
+                                    @* 該子題編輯區 *@
+                                    @RenderSubEditor()
+                                </div>
+                                break;
+                        }
+
+                        @* 修訂原因（必填，置於最底部，與儲存按鈕視覺鄰近） *@
+                        <div class="px-6 pb-6">
+                            <div class="bg-white border-2 @(!string.IsNullOrEmpty(reasonError) ? "border-red-300" : "border-morandi/30") rounded-lg p-4 shadow-sm">
+                                <label class="block text-sm font-bold text-slate-main mb-2">
+                                    <i class="fa-solid fa-pen-clip text-morandi mr-1.5"></i>
+                                    修訂原因
+                                    <span class="text-red-500 ml-1">*</span>
+                                    <span class="text-xs text-gray-400 font-normal ml-2">必填，會寫入修訂日誌供日後查證</span>
+                                </label>
+                                <textarea @bind="revisionReason" @bind:event="oninput"
+                                          rows="3"
+                                          maxlength="500"
+                                          placeholder="例：原審題遺漏選項 D 對齊問題，補正後改判採用"
+                                          class="w-full px-3 py-2 text-sm border border-gray-200 rounded focus:outline-none focus:ring-2 focus:ring-morandi/30 resize-y"></textarea>
+                                <div class="flex justify-between items-center mt-2">
+                                    @if (!string.IsNullOrEmpty(reasonError))
+                                    {
+                                        <span class="text-xs text-red-600 font-bold">
+                                            <i class="fa-solid fa-circle-exclamation mr-1"></i>@reasonError
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span></span>
+                                    }
+                                    <span class="text-xs text-gray-400 tabular-nums">@revisionReason.Length / 500</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </QuillEditorHost>
+        }
+    </ChildContent>
+</CustomModal>
+
+@code {
+    [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public EventCallback<bool> IsVisibleChanged { get; set; }
+
+    /// <summary>母題 Id（必填）；SubQuestionId 非 null 時表示修訂該子題單元。</summary>
+    [Parameter] public int QuestionId { get; set; }
+
+    /// <summary>子題 Id；null = 修訂母題單元。</summary>
+    [Parameter] public int? SubQuestionId { get; set; }
+
+    /// <summary>
+    /// 顯示用題號：母題傳「Q-115-00019」、子題傳「Q-115-00019-01」（由父層 Overview 算好後傳入，
+    /// 避免 Modal 內部再次拼接時拿錯 SubQuestionId 主鍵）。
+    /// </summary>
+    [Parameter] public string DisplayCode { get; set; } = "";
+
+    /// <summary>
+    /// 由 Overview 列表傳入的原 Status（用於預設 decision radio）。
+    /// 母題：直接從 item.Status；子題：從 sub-row 的 Status。
+    /// Save 時 Service 會重新讀 DB 為準，此值僅作 UI 預填。
+    /// </summary>
+    [Parameter] public byte OriginalStatus { get; set; }
+
+    [Parameter] public int CurrentUserId { get; set; }
+
+    [Parameter] public EventCallback<AdminReviseResult> OnSaved { get; set; }
+
+    private QuestionFormData? questionData;
+    private byte originalStatus;
+    private bool isProjectClosed;
+    private AdminReviseDecision decision = AdminReviseDecision.Adopt;
+    private string revisionReason = "";
+    private string? reasonError;
+    private bool isLoading;
+    private bool isSaving;
+    private int? loadedForQuestionId;
+
+    private string ModalTitle => string.IsNullOrEmpty(DisplayCode)
+        ? "審後修訂"
+        : $"審後修訂　{DisplayCode}";
+
+    /// <summary>題組類：閱讀／短文／聽力題組（會有子題的題型）。</summary>
+    private bool IsGroupType => questionData?.QuestionType is
+        QuestionTypeCodes.ReadGroup or QuestionTypeCodes.ShortGroup or QuestionTypeCodes.ListenGroup;
+
+    private string scopeBannerText => SubQuestionId is null
+        ? "您正在修訂母題"
+        : $"您正在修訂子題 {DisplayCode}";
+
+    private string scopeBannerSubtext => SubQuestionId is null
+        ? "本表單僅儲存母題變更；如需修訂子題，請從列表點該子題列的「修訂」"
+        : "本表單僅儲存該子題的變更；母題內容以唯讀方式呈現作為上下文";
+
+    private string scopeBannerCss => SubQuestionId is null
+        ? "bg-morandi/10 text-morandi border-morandi/30"
+        : "bg-terracotta/10 text-terracotta border-terracotta/30";
+
+    private string scopeBannerIcon => SubQuestionId is null ? "fa-book-open" : "fa-puzzle-piece";
+
+    // ====================================================================
+    //  子題編輯區渲染（依題型分流；找到對應 sub 後 bind 該物件屬性）
+    // ====================================================================
+    private RenderFragment RenderSubEditor() => __builder =>
+    {
+        if (questionData is null || SubQuestionId is null) return;
+
+        switch (questionData.QuestionType)
+        {
+            case QuestionTypeCodes.ReadGroup:
+            {
+                var idx = questionData.ReadSubQuestions.FindIndex(s => s.Id == SubQuestionId.Value);
+                if (idx < 0) return;
+                var sub = questionData.ReadSubQuestions[idx];
+                <FormSectionCard Title="子題題目" Icon="fa-quote-left" Required="true">
+                    <QuillField Value="@sub.Stem" ValueChanged="v => sub.Stem = v"
+                                FieldLabel="子題題目" Placeholder="點擊此處編輯子題題目..." />
+                </FormSectionCard>
+                <FormSectionCard Title="選項與答案" Icon="fa-list-ol" Required="true">
+                    <OptionGroup Options="@sub.Options" OptionsChanged="v => sub.Options = v"
+                                 Answer="@sub.Answer" AnswerChanged="v => sub.Answer = v" />
+                </FormSectionCard>
+                <FormSectionCard Title="試題解析" Icon="fa-lightbulb">
+                    <QuillField Value="@sub.Analysis" ValueChanged="v => sub.Analysis = v"
+                                FieldLabel="試題解析" Placeholder="點擊此處編輯試題解析（選填）..." />
+                </FormSectionCard>
+                break;
+            }
+            case QuestionTypeCodes.ShortGroup:
+            {
+                var idx = questionData.ShortSubQuestions.FindIndex(s => s.Id == SubQuestionId.Value);
+                if (idx < 0) return;
+                var sub = questionData.ShortSubQuestions[idx];
+                <FormSectionCard Title="子題題目" Icon="fa-quote-left" Required="true">
+                    <QuillField Value="@sub.Stem" ValueChanged="v => sub.Stem = v"
+                                FieldLabel="子題題目" Placeholder="點擊此處編輯子題題目..." />
+                </FormSectionCard>
+                <FormSectionCard Title="試題解析" Icon="fa-lightbulb">
+                    <QuillField Value="@sub.Analysis" ValueChanged="v => sub.Analysis = v"
+                                FieldLabel="試題解析" Placeholder="點擊此處編輯試題解析（選填）..." />
+                </FormSectionCard>
+                break;
+            }
+            case QuestionTypeCodes.ListenGroup:
+            {
+                var idx = questionData.ListenGroupSubQuestions.FindIndex(s => s.Id == SubQuestionId.Value);
+                if (idx < 0) return;
+                var sub = questionData.ListenGroupSubQuestions[idx];
+                <FormSectionCard Title="子題題目" Icon="fa-quote-left" Required="true">
+                    <QuillField Value="@sub.Stem" ValueChanged="v => sub.Stem = v"
+                                FieldLabel="子題題目" Placeholder="點擊此處編輯子題題目..." />
+                </FormSectionCard>
+                <FormSectionCard Title="選項與答案" Icon="fa-list-ol" Required="true">
+                    <OptionGroup Options="@sub.Options" OptionsChanged="v => sub.Options = v"
+                                 Answer="@sub.Answer" AnswerChanged="v => sub.Answer = v" />
+                </FormSectionCard>
+                <FormSectionCard Title="試題解析" Icon="fa-lightbulb">
+                    <QuillField Value="@sub.Analysis" ValueChanged="v => sub.Analysis = v"
+                                FieldLabel="試題解析" Placeholder="點擊此處編輯試題解析（選填）..." />
+                </FormSectionCard>
+                break;
+            }
+        }
+    };
+
+    private string OriginalStatusLabel =>
+        QuestionStatus.Labels.GetValueOrDefault(originalStatus, "");
+
+    private string LevelText
+    {
+        get
+        {
+            if (questionData?.Level is null) return "";
+            // 同時兼容 CWT 與 LCT 標籤對照（看題型）
+            return questionData.QuestionType is QuestionTypeCodes.Listen or QuestionTypeCodes.ListenGroup
+                ? QuestionConstants.ListenLevelLabels.GetValueOrDefault(questionData.Level.Value, "")
+                : QuestionConstants.GeneralLevelLabels.GetValueOrDefault(questionData.Level.Value, "");
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // 只在 Modal 開啟且 QuestionId 變動時才載入，避免父層重渲染重抓
+        if (!IsVisible) { Reset(); return; }
+        if (loadedForQuestionId == QuestionId) return;
+        loadedForQuestionId = QuestionId;
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        revisionReason = "";
+        reasonError = null;
+        StateHasChanged();
+
+        try
+        {
+            questionData = await QuestionService.GetByIdAsync(QuestionId);
+            if (questionData is null) return;
+
+            // 原 Status：由父層 (Overview) 透過 OriginalStatus 傳入
+            originalStatus = OriginalStatus;
+
+            // 預設 decision = 原決策（採用 → Adopt、不採用 → Reject）
+            decision = originalStatus is QuestionStatus.Adopted or QuestionStatus.Archived
+                ? AdminReviseDecision.Adopt
+                : AdminReviseDecision.Reject;
+
+            // 結案狀態（11/12 → 已結案；9/10 → 未結案）
+            isProjectClosed = originalStatus is QuestionStatus.ClosedNotAdopted or QuestionStatus.Archived;
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        // 修訂原因驗證
+        var trimmed = (revisionReason ?? "").Trim();
+        if (trimmed.Length == 0)
+        {
+            reasonError = "修訂原因為必填";
+            StateHasChanged();
+            return;
+        }
+        reasonError = null;
+
+        if (questionData is null) return;
+
+        isSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            var req = new AdminReviseRequest
+            {
+                QuestionId        = QuestionId,
+                SubQuestionId     = SubQuestionId,
+                ExpectedUpdatedAt = questionData.UpdatedAt,
+                FormData          = questionData,
+                NewDecision       = decision,
+                RevisionReason    = trimmed
+            };
+
+            var result = await RevisionService.SaveAsync(req, CurrentUserId);
+            if (!result.Success)
+            {
+                await JS.InvokeVoidAsync("Swal.fire", new
+                {
+                    icon  = "error",
+                    title = "儲存失敗",
+                    text  = result.ErrorMessage ?? "未知錯誤",
+                    confirmButtonColor = "#6B8EAD"
+                });
+                return;
+            }
+
+            // 成功 toast
+            await JS.InvokeVoidAsync("Swal.fire", new
+            {
+                icon  = "success",
+                title = "修訂已儲存",
+                text  = "修訂紀錄已寫入，相關統計畫面已自動更新。",
+                showConfirmButton = false,
+                timer = 1800,
+                position = "top-end",
+                toast = true
+            });
+
+            // 通知父層 reload
+            if (OnSaved.HasDelegate) await OnSaved.InvokeAsync(result);
+
+            // 關閉 Modal
+            await CloseAsync();
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", new
+            {
+                icon  = "error",
+                title = "儲存發生錯誤",
+                text  = ex.Message,
+                confirmButtonColor = "#6B8EAD"
+            });
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CloseAsync()
+    {
+        // 由 [取消] 按鈕呼叫；統一走 HandleVisibilityChangedAsync 以保證 reset 與 propagate 都跑到
+        await HandleVisibilityChangedAsync(false);
+    }
+
+    /// <summary>
+    /// 統一處理 CustomModal 的 IsVisible 變動（X 按鈕 / 取消按鈕 / backdrop 點擊都走這裡）。
+    /// 修補：原本用 @bind-IsVisible 雙向綁定，但 CustomModal 的 X 按鈕觸發後僅改本元件 IsVisible
+    /// 參數，沒有把訊號傳回 Overview 父層 → 父層 showReviseModal 殘留 true，
+    /// 同題第二次點按時 OnParametersSetAsync 不會察覺 IsVisible 重新變 true。
+    /// 改成顯式 callback 後，所有關閉路徑都會把 false 傳給父層 IsVisibleChanged。
+    /// </summary>
+    private async Task HandleVisibilityChangedAsync(bool value)
+    {
+        IsVisible = value;
+        if (!value) Reset();
+        if (IsVisibleChanged.HasDelegate) await IsVisibleChanged.InvokeAsync(value);
+    }
+
+    private void Reset()
+    {
+        loadedForQuestionId = null;
+        questionData = null;
+        revisionReason = "";
+        reasonError = null;
+        isSaving = false;
+        isLoading = false;
+    }
+}
