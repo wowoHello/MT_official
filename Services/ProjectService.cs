@@ -73,6 +73,12 @@ public interface IProjectService
     /// 取得指定專案目前進行中的階段（依今日落在 StartDate ~ EndDate 區間判定）。
     /// </summary>
     Task<ProjectPhaseInfo?> GetCurrentPhaseAsync(int projectId);
+
+    /// <summary>
+    /// 取得「下載結案資料」EXCEL 所需資料；僅已結案梯次 (ClosedAt IS NOT NULL) 才有資料，
+    /// 否則回傳 Rows 為空。題目過濾條件：Status IN (9,10,11,12) 即已有最終結局者。
+    /// </summary>
+    Task<ClosedProjectExportData?> GetClosedProjectExportDataAsync(int projectId);
 }
 
 /// <summary>
@@ -1189,6 +1195,513 @@ public class ProjectService : IProjectService
 
         using var conn = _db.CreateConnection();
         return await conn.QueryFirstOrDefaultAsync<ProjectPhaseInfo>(sql, new { ProjectId = projectId });
+    }
+
+    /// <summary>
+    /// 取得「下載結案資料」EXCEL 所需資料；僅已結案梯次返回實際資料列。
+    /// SQL 結構：QueryMultiple 兩段——
+    ///   1) 梯次資訊 (Name, ExamLevel)
+    ///   2) 母題 + 子題各一份結果集（UNION ALL，並各自 OUTER APPLY 3 個 stage 取最後一筆 ReviewAssignment）
+    /// </summary>
+    public async Task<ClosedProjectExportData?> GetClosedProjectExportDataAsync(int projectId)
+    {
+        // 兩段在同一 QueryMultiple 內，第 2 段同時涵蓋母題 + 子題並一起排序。
+        // 排序鍵：QuestionTypeId 升序 (同題型相鄰) → MasterQuestionId 升序 (題目順序) → SubOrder 升序 (子題接在母題後)。
+        const string sql = """
+            -- Sect 1: 梯次資訊（含 ProjectType 給 mapping/UI 切版用）
+            SELECT TOP 1
+                p.Name AS ProjectName,
+                p.ExamLevel,
+                ISNULL(p.ProjectType, 0) AS ProjectType
+            FROM dbo.MT_Projects p
+            WHERE p.Id = @ProjectId AND p.ClosedAt IS NOT NULL;
+
+            -- Sect 2: 母題 + 子題（已決策題目，Status IN 9,10,11,12）
+            -- Difficulty 來源：
+            --   CWT 全部走 q.Difficulty（0/1/2 → 易/中/難）
+            --   LCT 聽力測驗單題 (TypeId=6) 走 q.Level（1-5 → 難度一~五）
+            --   LCT 聽力題組母題 (TypeId=7) 為 NULL → C# 端會顯示「－」
+            WITH RowSet AS (
+                -- 母題層
+                SELECT
+                    q.QuestionCode,
+                    NULL            AS SubSortOrder,
+                    q.QuestionTypeId,
+                    CAST(0 AS BIT) AS IsSubQuestion,
+                    CASE
+                        WHEN ISNULL(pj.ProjectType, 0) = 1 AND q.QuestionTypeId = 6 THEN q.Level
+                        WHEN ISNULL(pj.ProjectType, 0) = 1 AND q.QuestionTypeId = 7 THEN NULL
+                        ELSE q.Difficulty
+                    END             AS Difficulty,
+                    q.Stem          AS Stem,
+                    q.ArticleContent AS ArticleContent,
+                    q.UpdatedAt     AS UpdatedAt,
+                    creator.DisplayName AS CreatorName,
+                    peer.Reviewer   AS PeerReviewerName,
+                    peer.CreatedAt  AS PeerReviewedAt,
+                    expert.Reviewer AS ExpertReviewerName,
+                    expert.CreatedAt AS ExpertReviewedAt,
+                    expert.Decision AS ExpertDecision,
+                    finalReview.Reviewer AS FinalReviewerName,
+                    finalReview.DecidedAt AS FinalDecidedAt,
+                    finalReview.Decision  AS FinalDecision,
+                    q.Id            AS SortMasterId,
+                    0               AS SortSubOrder
+                FROM dbo.MT_Questions q
+                INNER JOIN dbo.MT_Projects pj ON pj.Id = q.ProjectId
+                INNER JOIN dbo.MT_Users creator ON creator.Id = q.CreatorId
+                OUTER APPLY (
+                    SELECT TOP 1 u.DisplayName AS Reviewer, ra.CreatedAt
+                    FROM dbo.MT_ReviewAssignments ra
+                    INNER JOIN dbo.MT_Users u ON u.Id = ra.ReviewerId
+                    WHERE ra.QuestionId = q.Id AND ra.SubQuestionId IS NULL AND ra.ReviewStage = 1
+                    ORDER BY ra.CreatedAt DESC
+                ) peer
+                OUTER APPLY (
+                    SELECT TOP 1 u.DisplayName AS Reviewer, ra.CreatedAt, ra.Decision
+                    FROM dbo.MT_ReviewAssignments ra
+                    INNER JOIN dbo.MT_Users u ON u.Id = ra.ReviewerId
+                    WHERE ra.QuestionId = q.Id AND ra.SubQuestionId IS NULL AND ra.ReviewStage = 2
+                    ORDER BY ra.CreatedAt DESC
+                ) expert
+                OUTER APPLY (
+                    SELECT TOP 1 u.DisplayName AS Reviewer, ra.DecidedAt, ra.Decision
+                    FROM dbo.MT_ReviewAssignments ra
+                    INNER JOIN dbo.MT_Users u ON u.Id = ra.ReviewerId
+                    WHERE ra.QuestionId = q.Id AND ra.SubQuestionId IS NULL AND ra.ReviewStage = 3
+                      AND ra.Decision IS NOT NULL
+                    ORDER BY ra.DecidedAt DESC
+                ) finalReview
+                WHERE q.ProjectId = @ProjectId
+                  AND q.IsDeleted = 0
+                  AND q.Status IN (9, 10, 11, 12)
+
+                UNION ALL
+
+                -- 子題層（母題對應同一位命師；難度用 sq.FixedDifficulty；
+                -- 子題無獨立 UpdatedAt 欄位，沿用母題 q.UpdatedAt 當「最後修題」）
+                SELECT
+                    q.QuestionCode,
+                    sq.SortOrder,
+                    q.QuestionTypeId,
+                    CAST(1 AS BIT),
+                    sq.FixedDifficulty,
+                    sq.Stem,
+                    NULL,
+                    q.UpdatedAt,
+                    creator.DisplayName,
+                    peer.Reviewer, peer.CreatedAt,
+                    expert.Reviewer, expert.CreatedAt, expert.Decision,
+                    finalReview.Reviewer, finalReview.DecidedAt, finalReview.Decision,
+                    q.Id,
+                    sq.SortOrder
+                FROM dbo.MT_SubQuestions sq
+                INNER JOIN dbo.MT_Questions q ON q.Id = sq.ParentQuestionId
+                INNER JOIN dbo.MT_Users creator ON creator.Id = q.CreatorId
+                OUTER APPLY (
+                    SELECT TOP 1 u.DisplayName AS Reviewer, ra.CreatedAt
+                    FROM dbo.MT_ReviewAssignments ra
+                    INNER JOIN dbo.MT_Users u ON u.Id = ra.ReviewerId
+                    WHERE ra.SubQuestionId = sq.Id AND ra.ReviewStage = 1
+                    ORDER BY ra.CreatedAt DESC
+                ) peer
+                OUTER APPLY (
+                    SELECT TOP 1 u.DisplayName AS Reviewer, ra.CreatedAt, ra.Decision
+                    FROM dbo.MT_ReviewAssignments ra
+                    INNER JOIN dbo.MT_Users u ON u.Id = ra.ReviewerId
+                    WHERE ra.SubQuestionId = sq.Id AND ra.ReviewStage = 2
+                    ORDER BY ra.CreatedAt DESC
+                ) expert
+                OUTER APPLY (
+                    SELECT TOP 1 u.DisplayName AS Reviewer, ra.DecidedAt, ra.Decision
+                    FROM dbo.MT_ReviewAssignments ra
+                    INNER JOIN dbo.MT_Users u ON u.Id = ra.ReviewerId
+                    WHERE ra.SubQuestionId = sq.Id AND ra.ReviewStage = 3
+                      AND ra.Decision IS NOT NULL
+                    ORDER BY ra.DecidedAt DESC
+                ) finalReview
+                WHERE q.ProjectId = @ProjectId
+                  AND q.IsDeleted = 0
+                  AND sq.Status IN (9, 10, 11, 12)
+            )
+            SELECT
+                QuestionCode, SubSortOrder,
+                QuestionTypeId, IsSubQuestion, Difficulty, Stem, ArticleContent, UpdatedAt,
+                CreatorName,
+                PeerReviewerName, PeerReviewedAt,
+                ExpertReviewerName, ExpertReviewedAt, ExpertDecision,
+                FinalReviewerName, FinalDecidedAt, FinalDecision
+            FROM RowSet
+            ORDER BY QuestionTypeId, SortMasterId, SortSubOrder;
+
+            -- Sect 3: 命題進度（每位命題教師 × 題型 × 粒度 × Level），給第 2 sheet「職務任務統計」用
+            -- Status IN (9,10,11,12) = 已送到三審有結局的題（throughput 語意，含採用/不採用/結案）
+            -- SUM(QuotaCount) 防 MT_MemberQuotas 萬一有重複列（無 UNIQUE 索引）
+            -- Level 維度：CWT 模式恆為 NULL；LCT TypeId=6 為 1~5（難度一~五）、TypeId=7 為 NULL
+            -- UNION ALL 末段：LCT 聽力題組子題虛擬列（MT_MemberQuotas 無 Granularity=1 列，
+            --   從 TypeId=7 母題 QuotaCount × 2 推算子題 Y，每組固定 2 子題）
+            ;WITH MasterAdopt AS (
+                SELECT q.CreatorId, q.QuestionTypeId, q.Level, COUNT(*) AS Cnt
+                FROM dbo.MT_Questions q
+                WHERE q.ProjectId = @ProjectId
+                  AND q.IsDeleted = 0
+                  AND q.Status IN (9, 10, 11, 12)
+                GROUP BY q.CreatorId, q.QuestionTypeId, q.Level
+            ),
+            SubAdopt AS (
+                SELECT qp.CreatorId, qp.QuestionTypeId, COUNT(*) AS Cnt
+                FROM dbo.MT_SubQuestions sq
+                INNER JOIN dbo.MT_Questions qp ON qp.Id = sq.ParentQuestionId
+                WHERE qp.ProjectId = @ProjectId
+                  AND qp.IsDeleted = 0
+                  AND sq.IsDeleted = 0
+                  AND sq.Status IN (9, 10, 11, 12)
+                GROUP BY qp.CreatorId, qp.QuestionTypeId
+            )
+            SELECT
+                pm.UserId,
+                ISNULL(u.DisplayName, N'未知') AS DisplayName,
+                r.Name AS RoleName,
+                mq.QuestionTypeId,
+                mq.Granularity,
+                mq.Level,
+                SUM(mq.QuotaCount) AS QuotaY,
+                CASE WHEN mq.Granularity = 0
+                     THEN ISNULL(MAX(ma.Cnt), 0)
+                     ELSE ISNULL(MAX(sa.Cnt), 0) END AS DoneX
+            FROM dbo.MT_ProjectMembers pm
+            INNER JOIN dbo.MT_Users u                ON u.Id = pm.UserId
+            INNER JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
+            INNER JOIN dbo.MT_Roles r                ON r.Id = pmr.RoleId
+            INNER JOIN dbo.MT_MemberQuotas mq        ON mq.ProjectMemberId = pm.Id
+            LEFT JOIN  MasterAdopt ma                ON ma.CreatorId = pm.UserId
+                                                    AND ma.QuestionTypeId = mq.QuestionTypeId
+                                                    AND ISNULL(ma.Level, 0) = ISNULL(mq.Level, 0)
+            LEFT JOIN  SubAdopt sa                   ON sa.CreatorId = pm.UserId
+                                                    AND sa.QuestionTypeId = mq.QuestionTypeId
+            WHERE pm.ProjectId = @ProjectId
+              AND r.Name = N'命題教師'
+            GROUP BY pm.UserId, u.DisplayName, r.Name,
+                     mq.QuestionTypeId, mq.Granularity, mq.Level
+
+            UNION ALL
+
+            -- LCT 聽力題組子題虛擬列：QuotaY = TypeId=7 母題 Quota × 2、DoneX 取 SubAdopt
+            -- CWT 模式無 TypeId=7 quota，此 UNION 自然不會產生 row
+            SELECT
+                pm.UserId,
+                ISNULL(u.DisplayName, N'未知') AS DisplayName,
+                r.Name AS RoleName,
+                CAST(7 AS INT) AS QuestionTypeId,
+                CAST(1 AS TINYINT) AS Granularity,
+                CAST(NULL AS TINYINT) AS Level,
+                SUM(mq.QuotaCount * 2) AS QuotaY,
+                ISNULL(MAX(sa.Cnt), 0) AS DoneX
+            FROM dbo.MT_ProjectMembers pm
+            INNER JOIN dbo.MT_Users u                ON u.Id = pm.UserId
+            INNER JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
+            INNER JOIN dbo.MT_Roles r                ON r.Id = pmr.RoleId
+            INNER JOIN dbo.MT_MemberQuotas mq        ON mq.ProjectMemberId = pm.Id
+            LEFT JOIN  SubAdopt sa                   ON sa.CreatorId = pm.UserId AND sa.QuestionTypeId = 7
+            WHERE pm.ProjectId = @ProjectId
+              AND r.Name = N'命題教師'
+              AND mq.QuestionTypeId = 7
+              AND mq.Granularity = 0
+            GROUP BY pm.UserId, u.DisplayName, r.Name;
+            -- ORDER BY 不需要：C# 端 BuildJobStats 會做最終排序
+
+            -- Sect 4: 審題進度（每位審題類人員 × Stage，不分題型）
+            -- 審題委員只算 Stage=2（專審）；總召集人只算 Stage=3（總審）
+            -- 互審 Stage=1 是命題教師之間的工作，本表不列（已於計畫拍板）
+            -- 母題 + 子題層 assignment 一起算（題組類 1 母 + N 子 = N+1 個審題單位）
+            -- 用 (QuestionId, ISNULL(SubQuestionId, 0)) 複合鍵 DISTINCT 去重：
+            --   總召退回重新分配同單元會留多筆紀錄，避免雙計
+            SELECT
+                ra.ReviewerId,
+                ISNULL(u.DisplayName, N'未知') AS DisplayName,
+                r.Name AS RoleName,
+                ra.ReviewStage,
+                COUNT(DISTINCT CONCAT(ra.QuestionId, N'-', ISNULL(ra.SubQuestionId, 0))) AS AssignedY,
+                COUNT(DISTINCT CASE
+                    WHEN ra.DecidedAt IS NOT NULL
+                    THEN CONCAT(ra.QuestionId, N'-', ISNULL(ra.SubQuestionId, 0))
+                    END) AS DoneX
+            FROM dbo.MT_ReviewAssignments ra
+            INNER JOIN dbo.MT_Users u ON u.Id = ra.ReviewerId
+            INNER JOIN dbo.MT_ProjectMembers pm
+                    ON pm.ProjectId = ra.ProjectId AND pm.UserId = ra.ReviewerId
+            INNER JOIN dbo.MT_ProjectMemberRoles pmr ON pmr.ProjectMemberId = pm.Id
+            INNER JOIN dbo.MT_Roles r ON r.Id = pmr.RoleId
+            WHERE ra.ProjectId = @ProjectId
+              AND (
+                  (r.Name LIKE N'審題%' AND ra.ReviewStage = 2) OR
+                  (r.Name = N'總召集人' AND ra.ReviewStage = 3)
+              )
+            GROUP BY ra.ReviewerId, u.DisplayName, r.Name, ra.ReviewStage
+            ORDER BY r.Name, u.DisplayName;
+            """;
+
+        using var conn = _db.CreateConnection();
+        using var multi = await conn.QueryMultipleAsync(sql, new { ProjectId = projectId });
+
+        var meta = await multi.ReadFirstOrDefaultAsync<ClosedExportMetaRow>();
+        if (meta is null) return null;
+
+        var rawRows = (await multi.ReadAsync<ClosedExportRawRow>()).AsList();
+
+        var rows = new List<ClosedExportRow>(rawRows.Count);
+        foreach (var r in rawRows)
+        {
+            var rawText = !string.IsNullOrWhiteSpace(r.Stem) ? r.Stem : r.ArticleContent;
+            var code = r.QuestionCode ?? string.Empty;
+            // 子題題碼格式：{母題QuestionCode}-{SortOrder:D2}（與審題/總覽各頁面一致）
+            var displayCode = r.IsSubQuestion && r.SubSortOrder.HasValue
+                ? $"{code}-{r.SubSortOrder.Value:D2}"
+                : code;
+            rows.Add(new ClosedExportRow(
+                DisplayCode:        displayCode,
+                QuestionTypeId:     r.QuestionTypeId,
+                IsSubQuestion:      r.IsSubQuestion,
+                DifficultyLabel:    BuildDifficultyLabel(meta.ProjectType, r.Difficulty),
+                CreatorName:        r.CreatorName ?? string.Empty,
+                Summary:            BuildSummary(rawText),
+                UpdatedAt:          r.UpdatedAt,
+                PeerReviewerName:   r.PeerReviewerName,
+                PeerReviewedAt:     r.PeerReviewedAt,
+                ExpertReviewerName: r.ExpertReviewerName,
+                ExpertReviewedAt:   r.ExpertReviewedAt,
+                ExpertDecision:     r.ExpertDecision,
+                FinalReviewerName:  r.FinalReviewerName,
+                FinalDecidedAt:     r.FinalDecidedAt,
+                FinalDecision:      r.FinalDecision
+            ));
+        }
+
+        // ── 第 2 sheet「職務任務統計」資料 pivot ──
+        var composeRaw = (await multi.ReadAsync<ClosedExportComposeStatRow>()).AsList();
+        var reviewRaw  = (await multi.ReadAsync<ClosedExportReviewStatRow>()).AsList();
+        var jobStats   = BuildJobStats(meta.ProjectType, composeRaw, reviewRaw);
+
+        return new ClosedProjectExportData(
+            ProjectType:     meta.ProjectType,
+            ProjectName:     meta.ProjectName ?? string.Empty,
+            // LCT 無 ExamLevel，回空字串；UI 端依 ProjectType 決定不渲染「專案等級」整列
+            ExamLevelLabel:  meta.ProjectType == 1 ? string.Empty : BuildExamLevelLabel(meta.ExamLevel),
+            Rows:            rows,
+            JobStats:        jobStats);
+    }
+
+    /// <summary>
+    /// 結案匯出第 2 sheet「職務任務統計」pivot：
+    ///   命題進度 raw rows → 每位命題教師一個 MemberJobStatsRow（Cells 按 ProjectType 對應表頭順序填值）
+    ///   審題進度 raw rows → 每位審題類人員一個 MemberJobStatsRow（merge cell 顯示「審題進度：X/Y」）
+    /// 最後依 RoleSortKey + TeacherName 排序。
+    /// </summary>
+    private static List<MemberJobStatsRow> BuildJobStats(
+        byte projectType,
+        IReadOnlyList<ClosedExportComposeStatRow> composeRaw,
+        IReadOnlyList<ClosedExportReviewStatRow>  reviewRaw)
+    {
+        var list = new List<MemberJobStatsRow>(composeRaw.Count + reviewRaw.Count);
+
+        // 命題教師列（按 UserId + RoleName 分組）
+        foreach (var grp in composeRaw.GroupBy(r => new { r.UserId, r.DisplayName, r.RoleName }))
+        {
+            var cells = projectType == 1 ? BuildLctCells(grp) : BuildCwtCells(grp);
+
+            list.Add(new MemberJobStatsRow(
+                TeacherName:   grp.Key.DisplayName,
+                RoleName:      grp.Key.RoleName,
+                RoleSortKey:   1,
+                IsReviewerRow: false,
+                Cells:         cells,
+                ReviewSummary: string.Empty
+            ));
+        }
+
+        // 審題類列（按 ReviewerId + RoleName 分組；同一人不同身分 = 多列）
+        foreach (var grp in reviewRaw.GroupBy(r => new { r.ReviewerId, r.DisplayName, r.RoleName }))
+        {
+            int totalY = grp.Sum(x => x.AssignedY);
+            int totalX = grp.Sum(x => x.DoneX);
+            // 總召集人排第 3、審題%排第 2
+            int sortKey = grp.Key.RoleName == "總召集人" ? 3 : 2;
+
+            list.Add(new MemberJobStatsRow(
+                TeacherName:   grp.Key.DisplayName,
+                RoleName:      grp.Key.RoleName,
+                RoleSortKey:   sortKey,
+                IsReviewerRow: true,
+                Cells:         Array.Empty<string>(),    // UI 端 AddMergedRegion 合併不會用到
+                ReviewSummary: $"審題進度：{totalX}/{totalY}"
+            ));
+        }
+
+        return list
+            .OrderBy(x => x.RoleSortKey)
+            .ThenBy(x => x.TeacherName)
+            .ToList();
+    }
+
+    /// <summary>CWT 6 欄：一般 / 閱讀母 / 閱讀子 / 長文 / 短文母 / 短文子。</summary>
+    private static IReadOnlyList<string> BuildCwtCells(IEnumerable<ClosedExportComposeStatRow> grp)
+    {
+        string Cell(int typeId, byte granularity)
+        {
+            var row = grp.FirstOrDefault(x => x.QuestionTypeId == typeId && x.Granularity == granularity);
+            return row is null || row.QuotaY == 0 ? "—" : $"{row.DoneX}/{row.QuotaY}";
+        }
+        return new[]
+        {
+            Cell(1, 0),  // 一般單選題
+            Cell(3, 0),  // 閱讀題組母題
+            Cell(3, 1),  // 閱讀題組子題
+            Cell(4, 0),  // 長文題目
+            Cell(5, 0),  // 短文題組母題
+            Cell(5, 1),  // 短文題組子題
+        };
+    }
+
+    /// <summary>LCT 7 欄：難度一 / 難度二 / 難度三 / 難度四 / 難度五 / 聽力題組母 / 聽力題組子。</summary>
+    private static IReadOnlyList<string> BuildLctCells(IEnumerable<ClosedExportComposeStatRow> grp)
+    {
+        string CellByLevel(byte level)
+        {
+            // TypeId=6 聽力測驗按 Level 分組
+            var row = grp.FirstOrDefault(x => x.QuestionTypeId == 6 && x.Level == level);
+            return row is null || row.QuotaY == 0 ? "—" : $"{row.DoneX}/{row.QuotaY}";
+        }
+        string CellListenGroup(byte granularity)
+        {
+            // TypeId=7 聽力題組母/子（子題的虛擬列由 Sect 3 SQL UNION 產出）
+            var row = grp.FirstOrDefault(x => x.QuestionTypeId == 7 && x.Granularity == granularity);
+            return row is null || row.QuotaY == 0 ? "—" : $"{row.DoneX}/{row.QuotaY}";
+        }
+        return new[]
+        {
+            CellByLevel(1),       // 難度一
+            CellByLevel(2),       // 難度二
+            CellByLevel(3),       // 難度三
+            CellByLevel(4),       // 難度四
+            CellByLevel(5),       // 難度五
+            CellListenGroup(0),   // 聽力題組母題
+            CellListenGroup(1),   // 聽力題組子題
+        };
+    }
+
+    /// <summary>結案資料 EXCEL 等級欄；ExamLevel 0-4 對應「初/中/中高/高/優」，NULL（LCT）回空白。</summary>
+    private static string BuildExamLevelLabel(byte? examLevel) => examLevel switch
+    {
+        0 => "初等",
+        1 => "中等",
+        2 => "中高等",
+        3 => "高等",
+        4 => "優等",
+        _ => string.Empty
+    };
+
+    /// <summary>
+    /// 結案資料 EXCEL 難度/等級欄。
+    /// CWT (projectType=0): 0/1/2 → 易/中/難；其餘空白。
+    /// LCT (projectType=1): 1-5 → 難度一~五；NULL → 「－」（聽力題組母題本身無等級）；其餘空白。
+    /// </summary>
+    private static string BuildDifficultyLabel(byte projectType, byte? difficulty)
+    {
+        if (projectType == 1)
+        {
+            return difficulty switch
+            {
+                null => "－",
+                1 => "難度一",
+                2 => "難度二",
+                3 => "難度三",
+                4 => "難度四",
+                5 => "難度五",
+                _ => string.Empty
+            };
+        }
+        return difficulty switch
+        {
+            0 => "易",
+            1 => "中",
+            2 => "難",
+            _ => string.Empty
+        };
+    }
+
+    /// <summary>結案資料 EXCEL 摘要欄：StripHtml 後取前 40 字，超過補「…」。</summary>
+    private static string BuildSummary(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+        var stripped = StripHtmlLite(raw);
+        if (stripped.Length <= 40) return stripped;
+        return stripped[..40] + "…";
+    }
+
+    /// <summary>極簡 HTML strip：拿掉所有 &lt;…&gt; 標籤 + decode 常見實體。Quill 輸出已是良性 HTML，不需 HtmlAgilityPack。</summary>
+    private static string StripHtmlLite(string html)
+    {
+        var sb = new System.Text.StringBuilder(html.Length);
+        var inside = false;
+        foreach (var c in html)
+        {
+            if (c == '<') { inside = true; continue; }
+            if (c == '>') { inside = false; continue; }
+            if (!inside) sb.Append(c);
+        }
+        return System.Net.WebUtility.HtmlDecode(sb.ToString()).Trim();
+    }
+
+    private sealed class ClosedExportMetaRow
+    {
+        public string? ProjectName { get; set; }
+        public byte? ExamLevel { get; set; }
+        public byte ProjectType { get; set; }
+    }
+
+    private sealed class ClosedExportRawRow
+    {
+        public string? QuestionCode { get; set; }
+        public int? SubSortOrder { get; set; }
+        public int QuestionTypeId { get; set; }
+        public bool IsSubQuestion { get; set; }
+        public byte? Difficulty { get; set; }
+        public string? Stem { get; set; }
+        public string? ArticleContent { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+        public string? CreatorName { get; set; }
+        public string? PeerReviewerName { get; set; }
+        public DateTime? PeerReviewedAt { get; set; }
+        public string? ExpertReviewerName { get; set; }
+        public DateTime? ExpertReviewedAt { get; set; }
+        public byte? ExpertDecision { get; set; }
+        public string? FinalReviewerName { get; set; }
+        public DateTime? FinalDecidedAt { get; set; }
+        public byte? FinalDecision { get; set; }
+    }
+
+    // 結案匯出第 2 sheet「職務任務統計」用 — 命題進度 raw row
+    private sealed class ClosedExportComposeStatRow
+    {
+        public int UserId { get; set; }
+        public string DisplayName { get; set; } = string.Empty;
+        public string RoleName { get; set; } = string.Empty;
+        public int QuestionTypeId { get; set; }
+        public byte Granularity { get; set; }
+        public byte? Level { get; set; }           // LCT TypeId=6 為 1~5；其他為 NULL
+        public int QuotaY { get; set; }
+        public int DoneX { get; set; }
+    }
+
+    // 結案匯出第 2 sheet「職務任務統計」用 — 審題進度 raw row
+    private sealed class ClosedExportReviewStatRow
+    {
+        public int ReviewerId { get; set; }
+        public string DisplayName { get; set; } = string.Empty;
+        public string RoleName { get; set; } = string.Empty;
+        public byte ReviewStage { get; set; }
+        public int AssignedY { get; set; }
+        public int DoneX { get; set; }
     }
 
     /// <summary>

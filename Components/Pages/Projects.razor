@@ -189,11 +189,20 @@
                             else
                             {
                                 @* 已結案的梯次不可移除，右側單顆主角按鈕：card-button 撐滿左側資訊高度 *@
-                                <button type="button" @onclick='() => ShowComingSoonAsync("下載結案資料")'
-                                    class="group cursor-pointer w-full sm:w-auto sm:self-stretch sm:min-w-[200px] px-6 py-5 bg-sage text-white rounded-xl shadow-sm hover:shadow-lg hover:bg-[#7b9c81] focus:outline-none focus-visible:ring-2 focus-visible:ring-sage/40 focus-visible:ring-offset-2 transition-all flex flex-col items-center justify-center gap-2">
-                                    <i class="fa-solid fa-file-arrow-down text-3xl group-hover:scale-110 group-hover:-translate-y-0.5 transition-transform duration-200"></i>
-                                    <span class="text-base font-bold tracking-wide">下載結案資料</span>
-                                    <span class="text-xs font-normal opacity-90">Excel 含採用題目與統計</span>
+                                <button type="button" @onclick="HandleDownloadClosedDataAsync" disabled="@isDownloadingClosedData"
+                                    class="group cursor-pointer w-full sm:w-auto sm:self-stretch sm:min-w-[200px] px-6 py-5 bg-sage text-white rounded-xl shadow-sm hover:shadow-lg hover:bg-[#7b9c81] focus:outline-none focus-visible:ring-2 focus-visible:ring-sage/40 focus-visible:ring-offset-2 transition-all flex flex-col items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-wait">
+                                    @if (isDownloadingClosedData)
+                                    {
+                                        <i class="fa-solid fa-spinner fa-spin text-3xl"></i>
+                                        <span class="text-base font-bold tracking-wide">下載中…</span>
+                                        <span class="text-xs font-normal opacity-90">Excel 含採用題目與統計</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="fa-solid fa-file-arrow-down text-3xl group-hover:scale-110 group-hover:-translate-y-0.5 transition-transform duration-200"></i>
+                                        <span class="text-base font-bold tracking-wide">下載結案資料</span>
+                                        <span class="text-xs font-normal opacity-90">Excel 含採用題目與統計</span>
+                                    }
                                 </button>
                             }
                         </div>
@@ -1723,17 +1732,362 @@
         public string? Value { get; set; }
     }
 
-    // ──── 共用：尚未上線功能的提示（下載聘書、下載結案資料等開發中按鈕共用）────
-    private async Task ShowComingSoonAsync(string featureName)
+    // ──── 下載結案資料（已結案 CWT 梯次按綠色卡片觸發；LCT 沿用同邏輯，等 demo 後再分支）────
+    private bool isDownloadingClosedData;
+
+    private static readonly char[] InvalidFileChars =
+        new[] { '/', '\\', ':', '*', '?', '"', '<', '>', '|' };
+
+    private async Task HandleDownloadClosedDataAsync()
     {
-        await JS.InvokeVoidAsync("Swal.fire", new
+        if (selectedDetail is null || selectedDetail.ClosedAt is null) return;
+        if (isDownloadingClosedData) return;
+
+        isDownloadingClosedData = true;
+        StateHasChanged();
+        try
         {
-            icon = "info",
-            title = $"「{featureName}」即將推出",
-            text = "此功能正在開發中，敬請期待。",
-            confirmButtonColor = "#6B8EAD"
-        });
+            var data = await ProjectService.GetClosedProjectExportDataAsync(selectedDetail.Id);
+            if (data is null)
+            {
+                await JS.InvokeVoidAsync("Swal.fire", new
+                {
+                    icon = "warning",
+                    title = "查無結案資料",
+                    text = "此梯次尚未結案或資料異常。",
+                    confirmButtonColor = "#6B8EAD"
+                });
+                return;
+            }
+
+            var bytes = BuildClosedExportWorkbook(data);
+            var safeName = string.Join("_", data.ProjectName.Split(InvalidFileChars, StringSplitOptions.None));
+            var fileName = $"結案資料_{safeName}_{DateTime.Now:yyyyMMdd_HHmm}.xlsx";
+
+            await JS.InvokeVoidAsync("downloadByteArray", Convert.ToBase64String(bytes), fileName,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "下載結案資料失敗 ProjectId={Id}", selectedDetail?.Id);
+            await JS.InvokeVoidAsync("Swal.fire", new
+            {
+                icon = "error",
+                title = "下載失敗",
+                text = ex.Message,
+                confirmButtonColor = "#6B8EAD"
+            });
+        }
+        finally
+        {
+            isDownloadingClosedData = false;
+            StateHasChanged();
+        }
     }
+
+    /// <summary>
+    /// 以 NPOI 組裝結案資料 .xlsx；版式：每題 2 列成對（A:A、B:B、C:C、D:D 各跨 2 列），
+    /// 副行 G:H 合併=審題時間、I:J 合併=決策時間。採用→綠粗體 / 不採用→紅粗體。
+    /// </summary>
+    private static byte[] BuildClosedExportWorkbook(ClosedProjectExportData data)
+    {
+        using var workbook = new NPOI.XSSF.UserModel.XSSFWorkbook();
+        var sheet = workbook.CreateSheet("結案資料");
+        sheet.DefaultRowHeightInPoints = 25;
+
+        // ── 字型：微軟正黑體 size 14 ──
+        const string FontName = "微軟正黑體";
+        const short FontSize = 14;
+
+        NPOI.SS.UserModel.IFont MkFont(bool bold = false, short? colorIndex = null)
+        {
+            var f = workbook.CreateFont();
+            f.FontName = FontName;
+            f.FontHeightInPoints = FontSize;
+            f.IsBold = bold;
+            if (colorIndex.HasValue) f.Color = colorIndex.Value;
+            return f;
+        }
+
+        // 採用 / 不採用 顯示用色：HSSFColor 內建索引夠用（綠/紅各取一個莫蘭迪近色）
+        var adoptFont    = MkFont(bold: true, colorIndex: NPOI.HSSF.Util.HSSFColor.Green.Index);
+        var rejectFont   = MkFont(bold: true, colorIndex: NPOI.HSSF.Util.HSSFColor.Red.Index);
+        var headerFont   = MkFont(bold: true);
+        var bodyFont     = MkFont();
+        var subBodyFont  = MkFont(colorIndex: NPOI.HSSF.Util.HSSFColor.Grey50Percent.Index);
+
+        // ── 邊框 helper：4 邊 thin ──
+        void SetThinBorder(NPOI.SS.UserModel.ICellStyle s)
+        {
+            s.BorderTop = NPOI.SS.UserModel.BorderStyle.Thin;
+            s.BorderBottom = NPOI.SS.UserModel.BorderStyle.Thin;
+            s.BorderLeft = NPOI.SS.UserModel.BorderStyle.Thin;
+            s.BorderRight = NPOI.SS.UserModel.BorderStyle.Thin;
+        }
+
+        // ── 樣式：ROW1-2 標題列（B1:C1 / B2:C2 跨欄）──
+        var labelStyle = workbook.CreateCellStyle();
+        labelStyle.SetFont(headerFont);
+        labelStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Center;
+        labelStyle.VerticalAlignment = NPOI.SS.UserModel.VerticalAlignment.Center;
+        SetThinBorder(labelStyle);
+
+        var titleValueStyle = workbook.CreateCellStyle();
+        titleValueStyle.SetFont(bodyFont);
+        titleValueStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Center;
+        titleValueStyle.VerticalAlignment = NPOI.SS.UserModel.VerticalAlignment.Center;
+        SetThinBorder(titleValueStyle);
+
+        // ── 樣式：ROW3 表頭 ──
+        var headerStyle = workbook.CreateCellStyle();
+        headerStyle.SetFont(headerFont);
+        headerStyle.FillForegroundColor = NPOI.HSSF.Util.HSSFColor.Grey25Percent.Index;
+        headerStyle.FillPattern = NPOI.SS.UserModel.FillPattern.SolidForeground;
+        headerStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Center;
+        headerStyle.VerticalAlignment = NPOI.SS.UserModel.VerticalAlignment.Center;
+        SetThinBorder(headerStyle);
+
+        // ── 樣式：主行通用（垂直置中 + 邊框）──
+        var mainCenterStyle = workbook.CreateCellStyle();
+        mainCenterStyle.SetFont(bodyFont);
+        mainCenterStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Center;
+        mainCenterStyle.VerticalAlignment = NPOI.SS.UserModel.VerticalAlignment.Center;
+        SetThinBorder(mainCenterStyle);
+
+        var mainLeftWrapStyle = workbook.CreateCellStyle();
+        mainLeftWrapStyle.SetFont(bodyFont);
+        mainLeftWrapStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Left;
+        mainLeftWrapStyle.VerticalAlignment = NPOI.SS.UserModel.VerticalAlignment.Center;
+        mainLeftWrapStyle.WrapText = true;
+        SetThinBorder(mainLeftWrapStyle);
+
+        // 採用 / 不採用 兩種粗體上色樣式（H 與 J 欄）
+        var adoptStyle = workbook.CreateCellStyle();
+        adoptStyle.SetFont(adoptFont);
+        adoptStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Center;
+        adoptStyle.VerticalAlignment = NPOI.SS.UserModel.VerticalAlignment.Center;
+        SetThinBorder(adoptStyle);
+
+        var rejectStyle = workbook.CreateCellStyle();
+        rejectStyle.SetFont(rejectFont);
+        rejectStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Center;
+        rejectStyle.VerticalAlignment = NPOI.SS.UserModel.VerticalAlignment.Center;
+        SetThinBorder(rejectStyle);
+
+        // ── 樣式：副行（淺灰字 + 邊框 + 置中）──
+        var subStyle = workbook.CreateCellStyle();
+        subStyle.SetFont(subBodyFont);
+        subStyle.Alignment = NPOI.SS.UserModel.HorizontalAlignment.Center;
+        subStyle.VerticalAlignment = NPOI.SS.UserModel.VerticalAlignment.Center;
+        SetThinBorder(subStyle);
+
+        // ── 欄寬（NPOI 256-units；CWT/LCT 統一沿用 LCT 寬度）──
+        // A 欄 24.86 字：容納「Q-115-00012-01」題碼複合碼 14 字
+        // B 欄 19.29 字：容納「聽力題組主題/子題」7 字標籤
+        bool isLct = data.ProjectType == 1;
+        sheet.SetColumnWidth(0, (int)(24.86 * 256));
+        sheet.SetColumnWidth(1, (int)(19.29 * 256));
+        sheet.SetColumnWidth(2, (int)(10.14 * 256));
+        sheet.SetColumnWidth(3, (int)(16.71 * 256));
+        sheet.SetColumnWidth(4, (int)(75.71 * 256));
+        sheet.SetColumnWidth(5, (int)(40.71 * 256));
+        sheet.SetColumnWidth(6, (int)(20.71 * 256));
+        sheet.SetColumnWidth(7, (int)(20.71 * 256));
+        sheet.SetColumnWidth(8, (int)(20.71 * 256));
+        sheet.SetColumnWidth(9, (int)(20.71 * 256));
+
+        // helper：建一個 cell 並套樣式
+        NPOI.SS.UserModel.ICell SetCell(NPOI.SS.UserModel.IRow row, int col, string? value, NPOI.SS.UserModel.ICellStyle style)
+        {
+            var c = row.CreateCell(col);
+            if (!string.IsNullOrEmpty(value)) c.SetCellValue(value);
+            c.CellStyle = style;
+            return c;
+        }
+
+        // ── ROW1：梯次名稱（B1:C1 合併）──
+        var row1 = sheet.CreateRow(0);
+        row1.HeightInPoints = 25;
+        SetCell(row1, 0, "梯次名稱", labelStyle);
+        SetCell(row1, 1, data.ProjectName, titleValueStyle);
+        SetCell(row1, 2, null, titleValueStyle);
+        sheet.AddMergedRegion(new NPOI.SS.Util.CellRangeAddress(0, 0, 1, 2));
+
+        // ── ROW2 (僅 CWT)：專案等級（LCT 跳過）──
+        int headerRowIdx;
+        if (!isLct)
+        {
+            var row2 = sheet.CreateRow(1);
+            row2.HeightInPoints = 25;
+            SetCell(row2, 0, "專案等級", labelStyle);
+            SetCell(row2, 1, data.ExamLevelLabel, titleValueStyle);
+            SetCell(row2, 2, null, titleValueStyle);
+            sheet.AddMergedRegion(new NPOI.SS.Util.CellRangeAddress(1, 1, 1, 2));
+            headerRowIdx = 2;   // 表頭在 ROW3 (0-based=2)
+        }
+        else
+        {
+            headerRowIdx = 1;   // LCT 表頭直接在 ROW2 (0-based=1)
+        }
+
+        // ── 表頭：A=題碼 B=題型 C=難易度/等級 D=命師 E=題目摘要 F=互審 G:H=專審 I:J=總審 ──
+        string col3Label = isLct ? "等級" : "難易度";
+        var headerRow = sheet.CreateRow(headerRowIdx);
+        headerRow.HeightInPoints = 25;
+        SetCell(headerRow, 0, "題碼",   headerStyle);
+        SetCell(headerRow, 1, "題型",   headerStyle);
+        SetCell(headerRow, 2, col3Label, headerStyle);
+        SetCell(headerRow, 3, "命師",   headerStyle);
+        SetCell(headerRow, 4, "題目摘要", headerStyle);
+        SetCell(headerRow, 5, "互審",   headerStyle);
+        SetCell(headerRow, 6, "專審",   headerStyle);
+        SetCell(headerRow, 7, null,     headerStyle);   // G:H 合併
+        SetCell(headerRow, 8, "總審",   headerStyle);
+        SetCell(headerRow, 9, null,     headerStyle);   // I:J 合併
+        sheet.AddMergedRegion(new NPOI.SS.Util.CellRangeAddress(headerRowIdx, headerRowIdx, 6, 7));
+        sheet.AddMergedRegion(new NPOI.SS.Util.CellRangeAddress(headerRowIdx, headerRowIdx, 8, 9));
+
+        // ── 資料區：每題 2 列成對（主行 37.5 / 副行 25）──
+        int rowIdx = headerRowIdx + 1;   // 資料區從表頭下一列開始（CWT=3 / LCT=2）
+
+        foreach (var r in data.Rows)
+        {
+            var mainRow = sheet.CreateRow(rowIdx);
+            var subRow  = sheet.CreateRow(rowIdx + 1);
+            mainRow.HeightInPoints = 37.5f;
+            subRow.HeightInPoints = 25;
+
+            // 主行：A=題碼（QuestionCode 或子題複合碼）/ B=題型 / C=難度 / D=命師（各跨 2 列）
+            SetCell(mainRow, 0, r.DisplayCode, mainCenterStyle);
+            SetCell(mainRow, 1, BuildTypeLabel(r.QuestionTypeId, r.IsSubQuestion), mainCenterStyle);
+            SetCell(mainRow, 2, r.DifficultyLabel, mainCenterStyle);
+            SetCell(mainRow, 3, r.CreatorName, mainCenterStyle);
+            SetCell(mainRow, 4, r.Summary, mainLeftWrapStyle);
+            SetCell(mainRow, 5, r.PeerReviewerName ?? string.Empty, mainCenterStyle);
+            SetCell(mainRow, 6, r.ExpertReviewerName ?? string.Empty, mainCenterStyle);
+            var expertDecisionStyle = ResolveDecisionStyle(r.ExpertDecision, adoptStyle, rejectStyle, mainCenterStyle);
+            SetCell(mainRow, 7, FormatDecision(r.ExpertDecision), expertDecisionStyle);
+            SetCell(mainRow, 8, r.FinalReviewerName ?? string.Empty, mainCenterStyle);
+            var finalDecisionStyle = ResolveDecisionStyle(r.FinalDecision, adoptStyle, rejectStyle, mainCenterStyle);
+            SetCell(mainRow, 9, FormatDecision(r.FinalDecision), finalDecisionStyle);
+
+            // 副行：A-D 已被合併（要建空 cell 套樣式以保留邊框）；E=最後修題 / F=互審時間 / G:H=專審時間 / I:J=總召決策時間
+            SetCell(subRow, 0, null, mainCenterStyle);
+            SetCell(subRow, 1, null, mainCenterStyle);
+            SetCell(subRow, 2, null, mainCenterStyle);
+            SetCell(subRow, 3, null, mainCenterStyle);
+            SetCell(subRow, 4, FormatTimeNote("最後修題", r.UpdatedAt), subStyle);
+            SetCell(subRow, 5, FormatTimeNote("審題時間", r.PeerReviewedAt), subStyle);
+            SetCell(subRow, 6, FormatTimeNote("審題時間", r.ExpertReviewedAt), subStyle);
+            SetCell(subRow, 7, null, subStyle);   // G:H 合併
+            SetCell(subRow, 8, FormatTimeNote("決策時間", r.FinalDecidedAt), subStyle);
+            SetCell(subRow, 9, null, subStyle);   // I:J 合併
+
+            // 合併：A:A / B:B / C:C / D:D 各跨 2 列
+            for (int col = 0; col < 4; col++)
+            {
+                sheet.AddMergedRegion(new NPOI.SS.Util.CellRangeAddress(rowIdx, rowIdx + 1, col, col));
+            }
+            // 副行：G:H、I:J 合併
+            sheet.AddMergedRegion(new NPOI.SS.Util.CellRangeAddress(rowIdx + 1, rowIdx + 1, 6, 7));
+            sheet.AddMergedRegion(new NPOI.SS.Util.CellRangeAddress(rowIdx + 1, rowIdx + 1, 8, 9));
+
+            rowIdx += 2;
+        }
+
+        // ── 第 2 sheet：職務任務統計 ──
+        // CWT 8 欄：教師姓名 / 身分 / 一般 / 閱讀母 / 閱讀子 / 長文 / 短文母 / 短文子
+        // LCT 9 欄：教師姓名 / 身分 / 難度一 / 難度二 / 難度三 / 難度四 / 難度五 / 聽力題組母 / 聽力題組子
+        // 命題教師列：題型欄各填 X/Y 或「—」
+        // 審題類列：C 到最後一欄 AddMergedRegion 成單一 cell 顯示「審題進度：X/Y」
+        var sheet2 = workbook.CreateSheet("職務任務統計");
+        sheet2.DefaultRowHeightInPoints = 25;
+
+        // 依 ProjectType 決定表頭與欄數
+        string[] sheet2Headers = data.ProjectType == 1
+            ? new[] { "教師姓名", "身分", "難度一", "難度二", "難度三", "難度四", "難度五", "聽力題組母題", "聽力題組子題" }
+            : new[] { "教師姓名", "身分", "一般單選題", "閱讀題組母題", "閱讀題組子題", "長文題目", "短文題組母題", "短文題組子題" };
+        int sheet2LastCol = sheet2Headers.Length - 1;   // CWT=7 / LCT=8
+
+        // 欄寬：A=18、B=14、其他全 20（NPOI 256-units）
+        sheet2.SetColumnWidth(0, 18 * 256);
+        sheet2.SetColumnWidth(1, 14 * 256);
+        for (int c = 2; c <= sheet2LastCol; c++)
+            sheet2.SetColumnWidth(c, 20 * 256);
+
+        // 表頭 ROW1（重用 sheet 1 的 headerStyle）
+        var sheet2Header = sheet2.CreateRow(0);
+        for (int c = 0; c < sheet2Headers.Length; c++)
+            SetCell(sheet2Header, c, sheet2Headers[c], headerStyle);
+
+        // 資料區
+        int sheet2RowIdx = 1;
+        foreach (var s in data.JobStats)
+        {
+            var dataRow = sheet2.CreateRow(sheet2RowIdx);
+            SetCell(dataRow, 0, s.TeacherName, mainCenterStyle);
+            SetCell(dataRow, 1, s.RoleName,    mainCenterStyle);
+
+            if (s.IsReviewerRow)
+            {
+                // 審題類列：C 到最後一欄合併成單一 cell 顯示「審題進度：X/Y」
+                SetCell(dataRow, 2, s.ReviewSummary, mainCenterStyle);
+                for (int c = 3; c <= sheet2LastCol; c++) SetCell(dataRow, c, string.Empty, mainCenterStyle);
+                sheet2.AddMergedRegion(new NPOI.SS.Util.CellRangeAddress(sheet2RowIdx, sheet2RowIdx, 2, sheet2LastCol));
+            }
+            else
+            {
+                // 命題教師列：Cells 按表頭順序填值（CWT 6 / LCT 7 元素）
+                for (int i = 0; i < s.Cells.Count; i++)
+                    SetCell(dataRow, 2 + i, s.Cells[i], mainCenterStyle);
+            }
+
+            sheet2RowIdx++;
+        }
+
+        using var ms = new MemoryStream();
+        workbook.Write(ms, leaveOpen: false);
+        return ms.ToArray();
+    }
+
+    /// <summary>結案資料 EXCEL B 欄題型字串；題組類子題顯示「閱讀子題 / 短文子題 / 聽力子題」。</summary>
+    private static string BuildTypeLabel(int questionTypeId, bool isSub) => (questionTypeId, isSub) switch
+    {
+        (1, _)      => "一般單選題",
+        (2, _)      => "精選單選題",
+        (3, false)  => "閱讀主題",
+        (3, true)   => "閱讀子題",
+        (4, _)      => "長文題目",
+        (5, false)  => "短文主題",
+        (5, true)   => "短文子題",
+        (6, _)      => "聽力測驗",
+        (7, false)  => "聽力主題",
+        (7, true)   => "聽力子題",
+        _           => string.Empty
+    };
+
+    /// <summary>Decision 1/2 = 採用 / 3 = 不採用 / 其他 = 空白。</summary>
+    private static string FormatDecision(byte? decision) => decision switch
+    {
+        1 => "採用",
+        2 => "採用",   // 改後採用最終結局視為採用（依 Q5 拍板）
+        3 => "不採用",
+        _ => string.Empty
+    };
+
+    private static NPOI.SS.UserModel.ICellStyle ResolveDecisionStyle(
+        byte? decision,
+        NPOI.SS.UserModel.ICellStyle adoptStyle,
+        NPOI.SS.UserModel.ICellStyle rejectStyle,
+        NPOI.SS.UserModel.ICellStyle defaultStyle) => decision switch
+    {
+        1 or 2 => adoptStyle,
+        3      => rejectStyle,
+        _      => defaultStyle
+    };
+
+    private static string FormatTimeNote(string prefix, DateTime? t)
+        => t.HasValue ? $"{prefix}：{t.Value:yyyy/MM/dd HH:mm}" : string.Empty;
 
     // ──── 內部模型類別 ────
 

@@ -54,7 +54,7 @@ public interface ITeacherService
 /// </summary>
 public class TeacherService : ITeacherService
 {
-    private const string DefaultTeacherPassword = "CSF@01024304";
+    private static string DefaultTeacherPassword => $"teacher{DateTime.Now.Year}";
 
     // 與 QuestionStatus.Adopted=9 / Rejected=10 命名區分，避免混淆
     private const int StatusClosedAdopted      = 12;   // 結案入庫
@@ -936,7 +936,7 @@ public class TeacherService : ITeacherService
     }
 
     /// <summary>
-    /// 重設教師密碼為 CSF@01024304，標記首次登入。
+    /// 重設教師密碼為 teacherYYYY(年)，標記首次登入。
     /// </summary>
     public async Task ResetTeacherPasswordAsync(int teacherId, int operatorId)
     {

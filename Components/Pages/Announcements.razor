@@ -258,13 +258,103 @@
                     </div>
                     <div>
                         <label class="block text-sm font-medium mb-1 text-gray-700">上架日期 <span class="text-red-500">*</span></label>
-                        <input type="datetime-local" @bind="formModel.PublishDate" @bind:after="OnPublishDateChanged"
-                            class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm" />
+                        <div class="flex gap-2">
+                            <input type="date" @bind="publishDatePart" @bind:after="OnPublishDateChanged"
+                                   class="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm cursor-pointer" />
+                            <div class="relative shrink-0">
+                                <button type="button" @onclick="() => showPublishTimePopover = !showPublishTimePopover"
+                                        class="w-24 px-3 py-2 border border-gray-300 rounded text-sm bg-white hover:border-morandi focus:ring-1 focus:ring-morandi focus:outline-none flex items-center justify-between gap-1 cursor-pointer transition-colors">
+                                    <span class="@(formModel.PublishDate.HasValue ? "text-gray-700 font-medium" : "text-gray-400") whitespace-nowrap tabular-nums">@PublishTimeDisplay</span>
+                                    <i class="fa-regular fa-clock text-gray-400 text-xs"></i>
+                                </button>
+                                @if (showPublishTimePopover)
+                                {
+                                    <div class="fixed inset-0 z-[60]" @onclick="() => showPublishTimePopover = false"></div>
+                                    <div class="absolute right-0 top-full mt-1 z-[70] bg-white rounded-lg shadow-xl border border-gray-200 p-3 w-64">
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <div class="text-xs font-bold text-gray-500 mb-1 text-center">時</div>
+                                                <div class="max-h-48 overflow-y-auto custom-scroll grid grid-cols-3 gap-1 pr-1">
+                                                    @foreach (var h in HourSlots)
+                                                    {
+                                                        var hour = h;
+                                                        var isSelected = formModel.PublishDate?.Hour == hour;
+                                                        <button type="button" @onclick="() => SelectPublishTimeAsync(hour, formModel.PublishDate?.Minute ?? 0)"
+                                                                class="@($"py-1.5 text-sm rounded transition-colors cursor-pointer {(isSelected ? "bg-morandi text-white font-bold" : "text-gray-700 hover:bg-morandi/10")}")">
+                                                            @hour.ToString("00")
+                                                        </button>
+                                                    }
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div class="text-xs font-bold text-gray-500 mb-1 text-center">分</div>
+                                                <div class="grid grid-cols-2 gap-1">
+                                                    @foreach (var m in MinuteSlots)
+                                                    {
+                                                        var minute = m;
+                                                        var isSelected = formModel.PublishDate?.Minute == minute;
+                                                        <button type="button" @onclick="() => SelectPublishTimeAsync(formModel.PublishDate?.Hour ?? 0, minute)"
+                                                                class="@($"py-1.5 text-sm rounded transition-colors cursor-pointer {(isSelected ? "bg-morandi text-white font-bold" : "text-gray-700 hover:bg-morandi/10")}")">
+                                                            @minute.ToString("00")
+                                                        </button>
+                                                    }
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
                     </div>
                     <div>
                         <label class="block text-sm font-medium mb-1 text-gray-700">下架日期 <span class="text-gray-400 font-normal">(選填)</span></label>
-                        <input type="datetime-local" @bind="formModel.UnpublishDate" @bind:after="OnUnpublishDateChanged"
-                            class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm" />
+                        <div class="flex gap-2">
+                            <input type="date" @bind="unpublishDatePart" @bind:after="OnUnpublishDateChanged"
+                                   class="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm cursor-pointer" />
+                            <div class="relative shrink-0">
+                                <button type="button" @onclick="() => showUnpublishTimePopover = !showUnpublishTimePopover"
+                                        class="w-24 px-3 py-2 border border-gray-300 rounded text-sm bg-white hover:border-morandi focus:ring-1 focus:ring-morandi focus:outline-none flex items-center justify-between gap-1 cursor-pointer transition-colors">
+                                    <span class="@(formModel.UnpublishDate.HasValue ? "text-gray-700 font-medium" : "text-gray-400") whitespace-nowrap tabular-nums">@UnpublishTimeDisplay</span>
+                                    <i class="fa-regular fa-clock text-gray-400 text-xs"></i>
+                                </button>
+                                @if (showUnpublishTimePopover)
+                                {
+                                    <div class="fixed inset-0 z-[60]" @onclick="() => showUnpublishTimePopover = false"></div>
+                                    <div class="absolute right-0 top-full mt-1 z-[70] bg-white rounded-lg shadow-xl border border-gray-200 p-3 w-64">
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <div class="text-xs font-bold text-gray-500 mb-1 text-center">時</div>
+                                                <div class="max-h-48 overflow-y-auto custom-scroll grid grid-cols-3 gap-1 pr-1">
+                                                    @foreach (var h in HourSlots)
+                                                    {
+                                                        var hour = h;
+                                                        var isSelected = formModel.UnpublishDate?.Hour == hour;
+                                                        <button type="button" @onclick="() => SelectUnpublishTimeAsync(hour, formModel.UnpublishDate?.Minute ?? 0)"
+                                                                class="@($"py-1.5 text-sm rounded transition-colors cursor-pointer {(isSelected ? "bg-morandi text-white font-bold" : "text-gray-700 hover:bg-morandi/10")}")">
+                                                            @hour.ToString("00")
+                                                        </button>
+                                                    }
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div class="text-xs font-bold text-gray-500 mb-1 text-center">分</div>
+                                                <div class="grid grid-cols-2 gap-1">
+                                                    @foreach (var m in MinuteSlots)
+                                                    {
+                                                        var minute = m;
+                                                        var isSelected = formModel.UnpublishDate?.Minute == minute;
+                                                        <button type="button" @onclick="() => SelectUnpublishTimeAsync(formModel.UnpublishDate?.Hour ?? 0, minute)"
+                                                                class="@($"py-1.5 text-sm rounded transition-colors cursor-pointer {(isSelected ? "bg-morandi text-white font-bold" : "text-gray-700 hover:bg-morandi/10")}")">
+                                                            @minute.ToString("00")
+                                                        </button>
+                                                    }
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
                         <p class="text-xs text-gray-400 mt-1">留空表示不自動下架。超過此日期時間後，狀態將自動變為「已下架」。</p>
                     </div>
                     <div class="col-span-2">
@@ -427,6 +517,58 @@
     private string panelTitle = "新增公告";
     private int? editingId;
     private const int SlideOverTransitionMs = 300;
+
+    // ─── 日期/時間 facade（UI 拆兩格綁定，formModel.PublishDate/UnpublishDate 保持 DateTime? 不變） ───
+    // DB MT_Announcements.PublishDate / UnpublishDate 仍是 datetime2，Service / SQL / AuditLog 0 改動
+    private DateTime? publishDatePart
+    {
+        get => formModel.PublishDate?.Date;
+        set => formModel.PublishDate = CombineDateTime(value, formModel.PublishDate?.TimeOfDay);
+    }
+    private TimeSpan? publishTimePart
+    {
+        get => formModel.PublishDate?.TimeOfDay;
+        set => formModel.PublishDate = CombineDateTime(formModel.PublishDate?.Date, value);
+    }
+    private DateTime? unpublishDatePart
+    {
+        get => formModel.UnpublishDate?.Date;
+        set => formModel.UnpublishDate = CombineDateTime(value, formModel.UnpublishDate?.TimeOfDay);
+    }
+    private TimeSpan? unpublishTimePart
+    {
+        get => formModel.UnpublishDate?.TimeOfDay;
+        set => formModel.UnpublishDate = CombineDateTime(formModel.UnpublishDate?.Date, value);
+    }
+
+    // 兩格組裝：日期空就整個 null；只選日期沒選時間預設 00:00
+    private static DateTime? CombineDateTime(DateTime? date, TimeSpan? time)
+        => date is null ? null : date.Value.Date + (time ?? TimeSpan.Zero);
+
+    // 時間 popover 顯示文字（trigger 按鈕用；未設定時用 --:-- 暗示「時:分」結構）
+    private string PublishTimeDisplay   => formModel.PublishDate?.ToString("HH:mm")   ?? "--:--";
+    private string UnpublishTimeDisplay => formModel.UnpublishDate?.ToString("HH:mm") ?? "--:--";
+
+    // 時間 popover 開關狀態
+    private bool showPublishTimePopover;
+    private bool showUnpublishTimePopover;
+
+    // 5 分刻度（12 個）+ 24 小時（24 個）
+    private static readonly int[] HourSlots   = Enumerable.Range(0, 24).ToArray();
+    private static readonly int[] MinuteSlots = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+
+    // 時間 popover：選取時/分 → 更新 facade → 觸發既有日期防呆
+    // 不主動關 popover，讓使用者可連續調整時/分；點外側 backdrop 才關
+    private async Task SelectPublishTimeAsync(int hour, int minute)
+    {
+        publishTimePart = new TimeSpan(hour, minute, 0);
+        await OnPublishDateChanged();
+    }
+    private async Task SelectUnpublishTimeAsync(int hour, int minute)
+    {
+        unpublishTimePart = new TimeSpan(hour, minute, 0);
+        await OnUnpublishDateChanged();
+    }
 
     // ─── 檢視 Modal ───
     private bool showViewModal;

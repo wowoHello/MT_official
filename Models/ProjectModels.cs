@@ -271,3 +271,48 @@ public static class ProjectStatusHelper
             : ProjectLifecycleStatus.Preparing;
     }
 }
+
+/// <summary>「下載結案資料」匯出 Excel 用整包資料；只用於已結案梯次。</summary>
+public sealed record ClosedProjectExportData(
+    byte   ProjectType,        // 0=CWT, 1=LCT；UI 端依此切版式（有無「專案等級」列、C 欄表頭文字）
+    string ProjectName,
+    string ExamLevelLabel,     // LCT 為空字串（不顯示專案等級列）
+    IReadOnlyList<ClosedExportRow>   Rows,
+    IReadOnlyList<MemberJobStatsRow> JobStats   // 第 2 sheet「職務任務統計」資料
+);
+
+/// <summary>結案匯出第 2 sheet「職務任務統計」每列資料（教師 × 身分）。</summary>
+/// <remarks>
+/// 命題教師列：Cells 按表頭順序填 X/Y 或「—」、ReviewSummary 為空字串。
+///   CWT 6 元素：一般 / 閱讀母 / 閱讀子 / 長文 / 短文母 / 短文子
+///   LCT 7 元素：難度一 / 難度二 / 難度三 / 難度四 / 難度五 / 聽力題組母 / 聽力題組子
+/// 審題類列（IsReviewerRow=true）：Cells 為空陣列（UI 端 AddMergedRegion 合併成單一 cell 顯示 ReviewSummary）。
+/// RoleSortKey：命題教師=1、審題%=2、總召集人=3、其他=99，用於表內列排序。
+/// </remarks>
+public sealed record MemberJobStatsRow(
+    string TeacherName,
+    string RoleName,
+    int    RoleSortKey,
+    bool   IsReviewerRow,
+    IReadOnlyList<string> Cells,    // 命題列按表頭順序填值（CWT 6 / LCT 7 元素）；審題類列為空
+    string ReviewSummary            // 審題類列用：「審題進度：X/Y」；命題類為空字串
+);
+
+/// <summary>結案資料 EXCEL 內每列題目（含母題與子題；每筆對應 EXCEL 2 列成對）。</summary>
+public sealed record ClosedExportRow(
+    string    DisplayCode,       // A 欄題碼：母題=QuestionCode、子題=QuestionCode-SortOrder(D2)
+    int       QuestionTypeId,    // 用於 B 欄題型字串對應（含子題分支）
+    bool      IsSubQuestion,     // true=子題 / false=母題
+    string    DifficultyLabel,   // 易/中/難 或 空白
+    string    CreatorName,
+    string    Summary,           // StripHtml 後截 40 字
+    DateTime? UpdatedAt,
+    string?   PeerReviewerName,
+    DateTime? PeerReviewedAt,
+    string?   ExpertReviewerName,
+    DateTime? ExpertReviewedAt,
+    byte?     ExpertDecision,
+    string?   FinalReviewerName,
+    DateTime? FinalDecidedAt,
+    byte?     FinalDecision
+);

@@ -630,7 +630,7 @@
                             }
                             else
                             {
-                                <p class="text-xs text-gray-400 mt-1"><i class="fa-solid fa-circle-info mr-0.5"></i> 此信箱即為登入帳號，預設密碼為 <span class="font-bold font-mono">CSF@01024304</span>，首次登入系統將強制修改密碼。</p>
+                                <p class="text-xs text-gray-400 mt-1"><i class="fa-solid fa-circle-info mr-0.5"></i> 此信箱即為登入帳號，預設密碼為 <span class="font-bold font-mono">@defaultPassword</span>，首次登入系統將強制修改密碼。</p>
                             }
                         </div>
                         <div>
@@ -709,7 +709,7 @@
                                 }
                                 else
                                 {
-                                    <span>系統將自動以教師信箱作為登入帳號，預設密碼為 <span class="font-bold font-mono">CSF@01024304</span>。教師首次登入時，系統會強制要求變更密碼。</span>
+                                    <span>系統將自動以教師信箱作為登入帳號，預設密碼為 <span class="font-bold font-mono">@defaultPassword</span>。教師首次登入時，系統會強制要求變更密碼。</span>
                                 }
                             </p>
                         </div>
@@ -1130,6 +1130,9 @@
 @*  @code                                                               *@
 @* ══════════════════════════════════════════════════════════════════════ *@
 @code {
+    string defaultPassword = $"teacher{DateTime.Now.Year}";
+    // 今年結果：teacher2026
+    // 明年自動變：teacher2027
     [CascadingParameter] private Task<AuthenticationState> AuthState { get; set; } = default!;
     [CascadingParameter(Name = "CurrentProject")] private ProjectSwitcherItem? CurrentProject { get; set; }
 
@@ -1659,7 +1662,7 @@
         var confirmed = await JS.InvokeAsync<bool>("swalConfirm", new
         {
             title = "確定要重設密碼？",
-            text = "密碼將重設為 CSF@01024304，教師下次登入需重新變更密碼。",
+            text = $"密碼將重設為 {defaultPassword}，教師下次登入需重新變更密碼。",
             icon = "warning",
             showCancelButton = true,
             confirmButtonText = "確定重設",
@@ -1674,7 +1677,7 @@
             var authState = await AuthState;
             var operatorId = int.Parse(authState.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
             await TeacherService.ResetTeacherPasswordAsync(selectedDetail.Id, operatorId);
-            await JS.InvokeVoidAsync("Swal.fire", new { icon = "success", title = "密碼已重設", text = "預設密碼為 CSF@01024304", confirmButtonColor = "#6B8EAD" });
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "success", title = "密碼已重設", text = $"預設密碼為 {defaultPassword}", confirmButtonColor = "#6B8EAD" });
         }
         catch (Exception ex)
         {

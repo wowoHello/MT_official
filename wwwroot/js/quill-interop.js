@@ -25,8 +25,19 @@ const toolbarOptionsSimple = [
     ['clean']
 ];
 
+// 含圖片工具列（公告編輯用；InlineQuillEditor 預設 ToolbarMode="full" 走這條）
+const toolbarOptionsWithImage = [
+    [{ font: ['times-new-roman', 'dfkai-sb'] }, { size: ['small', false, 'large'] }],
+    [{ color: [] }, { align: [] }],
+    ['bold', 'underline', 'double-underline', 'strike'],
+    [{ list: 'ordered' }, { list: 'bullet' }, { indent: '-1' }, { indent: '+1' }],
+    ['image', 'clean']
+];
+
 function pickToolbar(mode) {
-    return mode === 'simple' ? toolbarOptionsSimple : toolbarOptions;
+    if (mode === 'simple') return toolbarOptionsSimple;
+    if (mode === 'full')   return toolbarOptionsWithImage;
+    return toolbarOptions;
 }
 
 window.QuillInterop = {

@@ -541,13 +541,10 @@ public class DashboardService : IDashboardService
 
         // 題組類（閱讀題組 / 短文題組 / 聽力題組）依 granularity 掛 母/子 字尾，與 CWT 一致設計
         // 用 typeName 內容判斷（比硬編碼 TypeId 更安全，保持與 DB 名稱解耦）
+        // 聽力題組（LCT）SQL 也是兩列輸出（Granularity=0 母 / Granularity=1 子），同樣掛字尾
         bool isGroup = typeName.Contains("題組");
         if (isGroup)
         {
-            // 聽力題組（LCT）已 fold 母題+子題為單一桶，不掛「（母題）」後綴以免誤導
-            // CWT 短文/閱讀題組維持 母/子 雙桶獨立計數，仍掛字尾
-            if (typeName == "聽力題組")
-                return typeName;
             return granularity == 1 ? $"{typeName}（子題）" : $"{typeName}（母題）";
         }
 
