@@ -326,6 +326,17 @@
   .visible {
     visibility: visible;
   }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border-width: 0;
+  }
   .absolute {
     position: absolute;
   }
@@ -548,11 +559,17 @@
       max-width: 96rem;
     }
   }
+  .-m-6 {
+    margin: calc(var(--spacing) * -6);
+  }
   .m-0 {
     margin: calc(var(--spacing) * 0);
   }
   .m-6 {
     margin: calc(var(--spacing) * 6);
+  }
+  .-mx-3 {
+    margin-inline: calc(var(--spacing) * -3);
   }
   .-mx-5 {
     margin-inline: calc(var(--spacing) * -5);
@@ -1387,6 +1404,13 @@
       margin-block-end: calc(calc(var(--spacing) * 6) * calc(1 - var(--tw-space-y-reverse)));
     }
   }
+  .space-y-7 {
+    :where(& > :not(:last-child)) {
+      --tw-space-y-reverse: 0;
+      margin-block-start: calc(calc(var(--spacing) * 7) * var(--tw-space-y-reverse));
+      margin-block-end: calc(calc(var(--spacing) * 7) * calc(1 - var(--tw-space-y-reverse)));
+    }
+  }
   .space-y-8 {
     :where(& > :not(:last-child)) {
       --tw-space-y-reverse: 0;
@@ -2005,6 +2029,12 @@
     background-color: color-mix(in srgb, oklch(98.5% 0.002 247.839) 50%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       background-color: color-mix(in oklab, var(--color-gray-50) 50%, transparent);
+    }
+  }
+  .bg-gray-50\/60 {
+    background-color: color-mix(in srgb, oklch(98.5% 0.002 247.839) 60%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-gray-50) 60%, transparent);
     }
   }
   .bg-gray-50\/70 {
@@ -3227,6 +3257,12 @@
   .ring-morandi {
     --tw-ring-color: var(--color-morandi);
   }
+  .ring-morandi\/10 {
+    --tw-ring-color: color-mix(in srgb, #6B8EAD 10%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      --tw-ring-color: color-mix(in oklab, var(--color-morandi) 10%, transparent);
+    }
+  }
   .ring-morandi\/20 {
     --tw-ring-color: color-mix(in srgb, #6B8EAD 20%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
@@ -3476,6 +3512,17 @@
       }
     }
   }
+  .peer-checked\:translate-x-5 {
+    &:is(:where(.peer):checked ~ *) {
+      --tw-translate-x: calc(var(--spacing) * 5);
+      translate: var(--tw-translate-x) var(--tw-translate-y);
+    }
+  }
+  .peer-checked\:bg-sage {
+    &:is(:where(.peer):checked ~ *) {
+      background-color: var(--color-sage);
+    }
+  }
   .placeholder\:text-gray-400 {
     &::placeholder {
       color: var(--color-gray-400);
@@ -3554,6 +3601,13 @@
     &:hover {
       @media (hover: hover) {
         border-color: var(--color-gray-300);
+      }
+    }
+  }
+  .hover\:border-gray-400 {
+    &:hover {
+      @media (hover: hover) {
+        border-color: var(--color-gray-400);
       }
     }
   }
@@ -3824,6 +3878,13 @@
       }
     }
   }
+  .hover\:bg-gray-300 {
+    &:hover {
+      @media (hover: hover) {
+        background-color: var(--color-gray-300);
+      }
+    }
+  }
   .hover\:bg-morandi {
     &:hover {
       @media (hover: hover) {
@@ -4065,6 +4126,13 @@
     &:hover {
       @media (hover: hover) {
         color: #5a7c98;
+      }
+    }
+  }
+  .hover\:text-\[\#5b7a95\] {
+    &:hover {
+      @media (hover: hover) {
+        color: #5b7a95;
       }
     }
   }

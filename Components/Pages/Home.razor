@@ -141,8 +141,8 @@
                     }
                 </div>
 
-                <!-- 公告與通知 -->
-                <div class="flex min-h-[240px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm lg:min-h-0 lg:flex-grow">
+                <!-- 公告與通知（最多顯示 5 筆；超過則由底部「查看全部」開 Modal） -->
+                <div class="flex min-h-[240px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm flex-shrink-0">
                     <div class="bg-gray-50 px-4 py-2.5 font-bold text-gray-700 text-sm border-b border-gray-200 flex justify-between items-center flex-shrink-0">
                         <span>公告與通知</span>
                         @if (!isLoadingHomeData)
@@ -153,13 +153,13 @@
 
                     @if (isLoadingHomeData)
                     {
-                        <div class="overflow-y-auto custom-scroll flex-grow flex items-center justify-center p-6 bg-gray-50/50">
+                        <div class="flex-grow flex items-center justify-center p-6 bg-gray-50/50">
                             <i class="fa-solid fa-spinner fa-spin text-2xl text-morandi"></i>
                         </div>
                     }
                     else if (announcements.Count == 0)
                     {
-                        <div class="overflow-y-auto custom-scroll flex-grow flex flex-col items-center justify-center p-6 bg-gray-50/50">
+                        <div class="flex-grow flex flex-col items-center justify-center p-6 bg-gray-50/50">
                             <div class="mb-4">
                                 <i class="fa-regular fa-folder-open text-[4rem] text-slate-main/20"></i>
                             </div>
@@ -169,8 +169,8 @@
                     }
                     else
                     {
-                        <div class="overflow-y-auto custom-scroll flex-grow">
-                            @foreach (var item in announcements)
+                        <div>
+                            @foreach (var item in announcements.Take(5))
                             {
                                 <div class="px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
                                      @onclick="() => OpenAnnouncementModal(item)">
@@ -193,8 +193,55 @@
                                 </div>
                             }
                         </div>
+                        @if (announcements.Count > 5)
+                        {
+                            <button type="button" @onclick="OpenAllAnnouncementsModal"
+                                    class="border-t border-gray-100 bg-gray-50/60 hover:bg-morandi/5 px-4 py-2.5 flex items-center justify-center gap-2 text-xs font-bold text-morandi hover:text-[#5b7a95] transition cursor-pointer focus:outline-none flex-shrink-0">
+                                <i class="fa-solid fa-list"></i>
+                                <span>查看全部 @announcements.Count 則公告</span>
+                                <i class="fa-solid fa-arrow-right text-xs"></i>
+                            </button>
+                        }
                     }
                 </div>
+
+                <!-- 全部公告 Modal — 公告 >5 筆時由「查看全部」按鈕開啟 -->
+                <CustomModal @bind-IsVisible="showAllAnnouncementsModal" Type="CustomModal.ModalType.Center"
+                             Title="@($"全部公告與通知（{announcements.Count} 則）")">
+                    <ChildContent>
+                        @* -m-6 把列表延伸到 Modal Body 內邊距外（Body 自帶 p-6），自然形成全寬清單樣式 *@
+                        <div class="-m-6">
+                            @foreach (var item in announcements)
+                            {
+                                <div class="px-6 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
+                                     @onclick="() => OpenFromAllAnnouncementsAsync(item)">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        @if (item.IsPinned)
+                                        {
+                                            <span class="bg-red-100 text-red-600 text-xs font-bold px-1.5 py-0.5 rounded">置頂</span>
+                                        }
+                                        @if (IsNewAnnouncement(item.PublishDate))
+                                        {
+                                            <span class="bg-terracotta/15 text-terracotta border border-terracotta/30 text-xs font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-1"><i class="fa-solid fa-sparkles text-xs"></i>NEW</span>
+                                        }
+                                        <span class="@GetCategoryBadgeClass(item.Category) text-xs font-bold px-1.5 py-0.5 rounded">@GetCategoryName(item.Category)</span>
+                                        <span class="text-xs text-gray-400 ml-auto flex items-center gap-1">
+                                            <i class="fa-regular fa-calendar"></i> @FormatRelativeDate(item.PublishDate)
+                                        </span>
+                                    </div>
+                                    <h4 class="text-sm font-bold text-slate-main hover:text-morandi mb-1 line-clamp-2 transition-colors">@item.Title</h4>
+                                    <p class="text-xs text-gray-500 line-clamp-2">@StripHtml(item.Content)</p>
+                                </div>
+                            }
+                        </div>
+                    </ChildContent>
+                    <FooterContent>
+                        <button type="button" @onclick="() => showAllAnnouncementsModal = false"
+                                class="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium transition-colors cursor-pointer">
+                            關閉
+                        </button>
+                    </FooterContent>
+                </CustomModal>
 
                 <!-- 公告檢視 Modal -->
                 <CustomModal @bind-IsVisible="showAnnouncementModal" Type="CustomModal.ModalType.Center" Title="公告詳情">
@@ -209,13 +256,19 @@
                                         <span class="bg-red-100 text-red-600 text-xs font-bold px-2 py-0.5 rounded">置頂公告</span>
                                     }
                                     <span class="@GetCategoryBadgeClass(selectedAnnouncement.Category) text-xs font-bold px-2 py-0.5 rounded">@GetCategoryName(selectedAnnouncement.Category)</span>
-                                    @if (selectedAnnouncement.ProjectId is null)
+                                    @if (selectedAnnouncement.ProjectIds.Count == 0)
                                     {
                                         <span class="bg-morandi/10 text-morandi text-xs font-bold px-2 py-0.5 rounded">全站廣播</span>
                                     }
                                     else
                                     {
-                                        <span class="bg-gray-100 text-gray-600 text-xs font-bold px-2 py-0.5 rounded">專案：@selectedAnnouncement.ProjectName</span>
+                                        // 詳情頁只顯示「當前導覽列梯次」對應的 chip，
+                                        // 公告綁定的其他梯次與此使用者當前情境無關，不顯示避免雜訊
+                                        var currentName = selectedAnnouncement.GetProjectNameByCurrentId(CurrentProject?.Id);
+                                        if (currentName is not null)
+                                        {
+                                            <span class="bg-gray-100 text-gray-700 text-xs font-bold px-2 py-0.5 rounded">@currentName</span>
+                                        }
                                     }
                                 </div>
 
@@ -276,6 +329,7 @@
     private List<UrgentAlertItem> urgentAlerts = [];
     private AnnouncementListItem? selectedAnnouncement;
     private bool showAnnouncementModal;
+    private bool showAllAnnouncementsModal;
     private int? previousProjectId;
     private bool hasLoadedHomeData;
     private bool isLoadingHomeData = true;
@@ -358,6 +412,19 @@
     {
         selectedAnnouncement = item;
         showAnnouncementModal = true;
+    }
+
+    /// <summary>「查看全部 N 則公告」按鈕 — 開啟全部公告列表 Modal。</summary>
+    private void OpenAllAnnouncementsModal() => showAllAnnouncementsModal = true;
+
+    /// <summary>
+    /// 全部公告 Modal 內點擊單筆 — 先關閉列表 Modal、再開公告詳情 Modal。
+    /// 避免兩層 Modal 疊在一起讓年長使用者搞不清楚當前在哪一層。
+    /// </summary>
+    private void OpenFromAllAnnouncementsAsync(AnnouncementListItem item)
+    {
+        showAllAnnouncementsModal = false;
+        OpenAnnouncementModal(item);
     }
 
     /// <summary>使用說明手冊：PDF 尚未建置，先以提示取代。</summary>

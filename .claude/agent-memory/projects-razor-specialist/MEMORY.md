@@ -7,3 +7,4 @@
 - [Projects 頁面整體架構（三檔現況）](project_projects_page_architecture.md) — 三檔行數、主要方法、IAppointmentService 依賴、#12 技術債、結案 6 步驟（2026-05-17）
 - [Projects 8 階段時程引擎](project_projects_phase_engine.md) — PhaseCode 1-8 預設天數、連動規則、DaysLeft、倒數提醒與首頁整合（2026-05-17）
 - [Projects 人員指派與配額分配引擎](project_projects_member_assignment.md) — PersonItem/AllocationItem 結構、配額自動分配演算法、DB 寫入策略、聘書欄位（2026-05-17）
+- [Projects 結案資料 Excel 匯出（2 sheets）](project_projects_closed_export.md) — 4段 QueryMultiple SQL、DTO 結構、NPOI 樣式、Sheet1/Sheet2 組裝規則（2026-05-29）

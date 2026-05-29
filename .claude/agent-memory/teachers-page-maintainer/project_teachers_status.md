@@ -1,14 +1,14 @@
 ---
 name: Teachers.razor 完成度狀態
-description: Teachers.razor 頁面程式碼現況（2026-05-22 複核），記錄架構、各波次改動、技術債與關鍵實作細節
+description: Teachers.razor 頁面程式碼現況（2026-05-29 複核），記錄架構、各波次改動、技術債與關鍵實作細節
 type: project
 ---
 
-## 檔案規模（2026-05-25 重新審視）
+## 檔案規模（2026-05-29 複核）
 
-- `Components/Pages/Teachers.razor`：**~2,050+ 行**（UI + @code block；含批次匯入 Slide-over + 匯出名單 + 聘書相關 UI 邏輯）
-- `Services/TeacherService.cs`：**2,116 行**（2026-05-22 刪除死代碼 306 行，原 2,422 行）
-- `Models/TeacherModels.cs`：**404 行**（含 BatchImportRow / BatchImportRowStatus / BatchImportRowResult + TeacherExportRow / TeacherExportResult）
+- `Components/Pages/Teachers.razor`：**2,259 行**（UI + @code block；含批次匯入 Slide-over + 匯出名單 + 聘書相關 UI 邏輯）
+- `Services/TeacherService.cs`：**2,183 行**（含 ITeacherService 介面 + TeacherService 實作 + 10+ 個 private sealed class）
+- `Models/TeacherModels.cs`：**407 行**（含 BatchImportRow / BatchImportRowStatus / BatchImportRowResult + TeacherExportRow / TeacherExportResult）
 
 三檔案規則完全符合。TeacherService 注入 5 個依賴：`IDatabaseService`、`ILogger<TeacherService>`、`IHttpContextAccessor`、`IQuestionTypeCatalog`、`IAppointmentService`。`ITeacherService` 介面共 15 個公開方法（含 `ExportProjectTeachersAsync`）。
 
@@ -118,10 +118,10 @@ UI 狀態：`composePage`、`reviewPage`（int）、`isLoadingCompose`、`isLoad
 
 ## 關鍵業務規則與設計決策
 
-**預設密碼常數**：`DefaultTeacherPassword = "CSF@01024304"`（TeacherService 第 49 行）。
-- UI 所有提示文字顯示 `CSF@01024304`
+**預設密碼常數**：`DefaultTeacherPassword = $"teacher{DateTime.Now.Year}"` — 動態計算，2026 年為 `teacher2026`，2027 年自動變為 `teacher2027`（TeacherService 行 57；Teachers.razor 行 1133 同一運算式）。
+- UI 所有提示文字與 SweetAlert 說明均顯示 `defaultPassword` 這個字串結果（非硬碼常數）
 - 重設密碼後同時將 `IsFirstLogin = 1`、`LockoutUntil = NULL`
-- **重要**：cwt-teacher-rules.md 規格書寫 `Cwt2026!`，但程式碼實作為 `CSF@01024304`，以程式碼為準
+- **重要**：cwt-teacher-rules.md 規格書寫 `CSF@01024304`，但程式碼實作為動態年份格式 `teacherYYYY`，以程式碼為準
 
 **TeacherCode 格式**：`T` + 民國年（西元年 - 1911）+ 3 碼流水號，如 `T115001`。
 
@@ -219,7 +219,7 @@ UI 狀態：`composePage`、`reviewPage`（int）、`isLoadingCompose`、`isLoad
 - **TM-05**：`ToggleTeacherStatusAsync` 查詢+更新未包在 Transaction（低風險競態條件）。
 - **TM-08**：帳號狀態 Radio 使用原生 `input type="radio"` 而非 Blazor `InputRadio`。
 - **TM-10**：`composeFilterProjectId` / `reviewFilterProjectId` 為 string 型別，`int.Parse()` 轉換（非數字字串仍可能例外）。
-- **TM-11**：`AssignToProjectAsync` 中角色逐一 INSERT（foreach N 次），未改成批次 INSERT（第三波 #18 已在 RoleService 修，TeacherService 這裡確認仍未跟進，2026-05-22 程式碼行 581 確認）。
+- **TM-11**：`AssignToProjectAsync` 中角色逐一 INSERT（foreach N 次），未改成批次 INSERT（第三波 #18 已在 RoleService 修，TeacherService 這裡確認仍未跟進，2026-05-29 程式碼行 581-585 確認）。
 - **TM-14（2026-05-22 已處理）**：刪除 6 個死代碼方法（LoadCwtComposeStatsAsync / LoadCwtReviewStatsAsync / AssembleCwtStats / LoadLctComposeStatsAsync / LoadLctReviewStatsAsync / AssembleLctStats）及 3 個廢棄 sealed class（ExportBucketRow / ExportLctGroupRow / ExportUserStats），共 306 行，TeacherService.cs 從 2,422 降至 2,116 行。
 
 **已解除技術債**：

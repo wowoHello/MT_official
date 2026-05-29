@@ -172,15 +172,21 @@
                                 </div>
                                 <p class="text-sm text-gray-400 mt-0.5 truncate">@StripHtml(ann.Content, 60)</p>
                             </div>
-                            <!-- 綁定梯次 -->
+                            <!-- 綁定梯次（複選後顯示「首梯次 +N」；hover 看完整列表） -->
                             <div class="hidden lg:block lg:col-span-2">
-                                @if (ann.ProjectId is null)
+                                @if (ann.ProjectIds.Count == 0)
                                 {
                                     <span class="text-sm text-morandi font-bold truncate block">全站廣播</span>
                                 }
                                 else
                                 {
-                                    <span class="text-sm text-gray-500 truncate block">@ann.ProjectName</span>
+                                    <span class="text-sm text-gray-500 truncate block" title="@ann.ProjectBindingTooltip">
+                                        @ann.ProjectNames[0]
+                                        @if (ann.ProjectIds.Count > 1)
+                                        {
+                                            <span class="ml-1 text-xs text-gray-400 font-semibold">+@(ann.ProjectIds.Count - 1)</span>
+                                        }
+                                    </span>
                                 }
                             </div>
                             <!-- 狀態 -->
@@ -223,184 +229,302 @@
 <!-- ============================================== -->
 <CustomModal @bind-IsVisible="showSlideOver" Type="CustomModal.ModalType.SlideOver" Title="@panelTitle" MaxWidth="max-w-2xl" CloseOnBackdropClick="true" OnBackdropClose="HandleBackdropSaveDraft" KeepAlive="true">
     <ChildContent>
-        <EditForm Model="formModel" class="space-y-6">
+        <EditForm Model="formModel" class="space-y-7">
 
-            <!-- 區塊 1: 公告設定 -->
-            <div class="space-y-4">
-                <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
-                    <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span>
-                    公告設定
-                </h3>
-                <div class="grid grid-cols-2 gap-4">
-                    <div class="col-span-2">
-                        <label class="block text-sm font-medium mb-1 text-gray-700">分類 <span class="text-red-500">*</span></label>
+            <!-- ═══ 區塊 1：公告設定 ═══ -->
+            <section>
+                <div class="border-l-4 border-l-morandi pl-3 mb-5">
+                    <h3 class="text-base font-bold text-slate-main">公告設定</h3>
+                </div>
+
+                <div class="space-y-5">
+                    <!-- 分類 -->
+                    <div>
+                        <label class="block text-sm font-semibold mb-2 text-gray-700">公告分類</label>
                         <InputSelect @bind-Value="formModel.Category"
-                            class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm bg-white cursor-pointer">
+                            class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-morandi/30 focus:border-morandi focus:outline-none text-base bg-white cursor-pointer transition-shadow">
                             <option value="1">系統公告</option>
                             <option value="2">命題公告</option>
                             <option value="3">審題公告</option>
                             <option value="4">其它</option>
                         </InputSelect>
                     </div>
-                    <div class="col-span-2">
-                        <label class="block text-sm font-medium mb-1 text-gray-700">綁定顯示梯次</label>
-                        <select @bind="formModel.ProjectId"
-                            class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm bg-white cursor-pointer">
-                            <option value="">全站廣播 (所有梯次)</option>
-                            @foreach (var proj in projectDropdown)
+
+                    <!-- 綁定梯次（Searchable Combobox：搜尋 + 分組 + 多選 + 互斥全站） -->
+                    <div>
+                        <label class="block text-sm font-semibold mb-2 text-gray-700">綁定顯示梯次</label>
+                        <div class="relative">
+                            <button type="button" @onclick="() => showProjectComboPopover = !showProjectComboPopover"
+                                    class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-morandi/30 focus:border-morandi focus:outline-none text-base bg-white cursor-pointer text-left flex items-center justify-between gap-2 transition-shadow hover:border-morandi">
+                                <span class="flex items-center gap-2 min-w-0 flex-1">
+                                    @if (IsGlobalBroadcast)
+                                    {
+                                        <i class="fa-solid fa-star text-amber-500 text-sm shrink-0"></i>
+                                    }
+                                    <span class="truncate text-gray-700">@ProjectComboboxDisplay</span>
+                                </span>
+                                <i class="fa-solid fa-chevron-down text-gray-400 text-xs shrink-0"></i>
+                            </button>
+                            @if (showProjectComboPopover)
                             {
-                                <option value="@proj.Id">@proj.Name</option>
+                                <div class="fixed inset-0 z-[60]" @onclick="CloseProjectComboPopover"></div>
+                                <div class="absolute left-0 right-0 top-full mt-1 z-[70] bg-white rounded-lg shadow-xl border border-gray-200 max-h-96 overflow-hidden flex flex-col">
+                                    <!-- 搜尋框 -->
+                                    <div class="p-2 border-b border-gray-100">
+                                        <div class="relative">
+                                            <i class="fa-solid fa-magnifying-glass text-gray-400 text-xs absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                                            <input @bind="comboboxSearchTerm" @bind:event="oninput"
+                                                   placeholder="搜尋梯次..."
+                                                   class="w-full pl-8 pr-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi" />
+                                        </div>
+                                    </div>
+                                    <!-- 列表 -->
+                                    <div class="overflow-y-auto custom-scroll flex-1">
+                                        <!-- ★ 全站廣播（固定置頂） -->
+                                        <button type="button" @onclick="SelectGlobalBroadcast"
+                                                class="w-full px-3 py-2.5 flex items-center gap-3 hover:bg-morandi/5 transition-colors text-left border-b border-gray-100">
+                                            <i class="fa-solid fa-star text-amber-500 text-sm w-4 shrink-0"></i>
+                                            <span class="flex-1 text-sm font-semibold text-gray-700">全站廣播（所有梯次）</span>
+                                            @if (IsGlobalBroadcast)
+                                            {
+                                                <i class="fa-solid fa-check text-morandi text-sm"></i>
+                                            }
+                                        </button>
+
+                                        @{
+                                            var activeFiltered    = FilterByGroup(projectDropdown.Active).ToList();
+                                            var preparingFiltered = FilterByGroup(projectDropdown.Preparing).ToList();
+                                            var closedFiltered    = FilterByGroup(projectDropdown.Closed).ToList();
+                                        }
+
+                                        <!-- 進行中 -->
+                                        @if (activeFiltered.Count > 0)
+                                        {
+                                            <div class="px-3 py-1.5 text-xs font-bold text-gray-500 bg-gray-50">
+                                                進行中 (@activeFiltered.Count)
+                                            </div>
+                                            @foreach (var proj in activeFiltered)
+                                            {
+                                                @RenderProjectRow(proj)
+                                            }
+                                        }
+
+                                        <!-- 準備中 -->
+                                        @if (preparingFiltered.Count > 0)
+                                        {
+                                            <div class="px-3 py-1.5 text-xs font-bold text-gray-500 bg-gray-50">
+                                                準備中 (@preparingFiltered.Count)
+                                            </div>
+                                            @foreach (var proj in preparingFiltered)
+                                            {
+                                                @RenderProjectRow(proj)
+                                            }
+                                        }
+
+                                        <!-- 已結案（預設摺疊） -->
+                                        @if (closedFiltered.Count > 0)
+                                        {
+                                            <button type="button" @onclick="() => closedGroupExpanded = !closedGroupExpanded"
+                                                    class="w-full px-3 py-1.5 flex items-center gap-2 bg-gray-50 hover:bg-gray-100 transition-colors">
+                                                <i class="fa-solid @(closedGroupExpanded ? "fa-chevron-down" : "fa-chevron-right") text-gray-400 text-xs w-3"></i>
+                                                <span class="text-xs font-bold text-gray-500">已結案 (@closedFiltered.Count)</span>
+                                            </button>
+                                            @if (closedGroupExpanded)
+                                            {
+                                                @foreach (var proj in closedFiltered)
+                                                {
+                                                    @RenderProjectRow(proj)
+                                                }
+                                            }
+                                        }
+
+                                        <!-- 空結果 -->
+                                        @if (activeFiltered.Count == 0 && preparingFiltered.Count == 0 && closedFiltered.Count == 0)
+                                        {
+                                            <div class="px-3 py-6 text-center text-sm text-gray-400">
+                                                找不到符合的梯次
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
                             }
-                        </select>
-                        <p class="text-xs text-gray-400 mt-1">
-                            <i class="fa-solid fa-circle-info mr-0.5"></i> 選擇「全站廣播」則所有梯次均可看到此公告；選擇特定梯次，則僅在該梯次下顯示。
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2 flex items-start gap-1.5">
+                            <i class="fa-solid fa-circle-info mt-0.5 shrink-0"></i>
+                            <span>選擇「全站廣播」則所有梯次均可看到；選擇個別梯次則僅綁定的梯次看得到（可複選）。「全站」與「個別梯次」互斥。</span>
                         </p>
                     </div>
-                    <div>
-                        <label class="block text-sm font-medium mb-1 text-gray-700">上架日期 <span class="text-red-500">*</span></label>
-                        <div class="flex gap-2">
-                            <input type="date" @bind="publishDatePart" @bind:after="OnPublishDateChanged"
-                                   class="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm cursor-pointer" />
-                            <div class="relative shrink-0">
-                                <button type="button" @onclick="() => showPublishTimePopover = !showPublishTimePopover"
-                                        class="w-24 px-3 py-2 border border-gray-300 rounded text-sm bg-white hover:border-morandi focus:ring-1 focus:ring-morandi focus:outline-none flex items-center justify-between gap-1 cursor-pointer transition-colors">
-                                    <span class="@(formModel.PublishDate.HasValue ? "text-gray-700 font-medium" : "text-gray-400") whitespace-nowrap tabular-nums">@PublishTimeDisplay</span>
-                                    <i class="fa-regular fa-clock text-gray-400 text-xs"></i>
-                                </button>
-                                @if (showPublishTimePopover)
-                                {
-                                    <div class="fixed inset-0 z-[60]" @onclick="() => showPublishTimePopover = false"></div>
-                                    <div class="absolute right-0 top-full mt-1 z-[70] bg-white rounded-lg shadow-xl border border-gray-200 p-3 w-64">
-                                        <div class="grid grid-cols-2 gap-3">
-                                            <div>
-                                                <div class="text-xs font-bold text-gray-500 mb-1 text-center">時</div>
-                                                <div class="max-h-48 overflow-y-auto custom-scroll grid grid-cols-3 gap-1 pr-1">
-                                                    @foreach (var h in HourSlots)
-                                                    {
-                                                        var hour = h;
-                                                        var isSelected = formModel.PublishDate?.Hour == hour;
-                                                        <button type="button" @onclick="() => SelectPublishTimeAsync(hour, formModel.PublishDate?.Minute ?? 0)"
-                                                                class="@($"py-1.5 text-sm rounded transition-colors cursor-pointer {(isSelected ? "bg-morandi text-white font-bold" : "text-gray-700 hover:bg-morandi/10")}")">
-                                                            @hour.ToString("00")
-                                                        </button>
-                                                    }
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div class="text-xs font-bold text-gray-500 mb-1 text-center">分</div>
-                                                <div class="grid grid-cols-2 gap-1">
-                                                    @foreach (var m in MinuteSlots)
-                                                    {
-                                                        var minute = m;
-                                                        var isSelected = formModel.PublishDate?.Minute == minute;
-                                                        <button type="button" @onclick="() => SelectPublishTimeAsync(formModel.PublishDate?.Hour ?? 0, minute)"
-                                                                class="@($"py-1.5 text-sm rounded transition-colors cursor-pointer {(isSelected ? "bg-morandi text-white font-bold" : "text-gray-700 hover:bg-morandi/10")}")">
-                                                            @minute.ToString("00")
-                                                        </button>
-                                                    }
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium mb-1 text-gray-700">下架日期 <span class="text-gray-400 font-normal">(選填)</span></label>
-                        <div class="flex gap-2">
-                            <input type="date" @bind="unpublishDatePart" @bind:after="OnUnpublishDateChanged"
-                                   class="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm cursor-pointer" />
-                            <div class="relative shrink-0">
-                                <button type="button" @onclick="() => showUnpublishTimePopover = !showUnpublishTimePopover"
-                                        class="w-24 px-3 py-2 border border-gray-300 rounded text-sm bg-white hover:border-morandi focus:ring-1 focus:ring-morandi focus:outline-none flex items-center justify-between gap-1 cursor-pointer transition-colors">
-                                    <span class="@(formModel.UnpublishDate.HasValue ? "text-gray-700 font-medium" : "text-gray-400") whitespace-nowrap tabular-nums">@UnpublishTimeDisplay</span>
-                                    <i class="fa-regular fa-clock text-gray-400 text-xs"></i>
-                                </button>
-                                @if (showUnpublishTimePopover)
-                                {
-                                    <div class="fixed inset-0 z-[60]" @onclick="() => showUnpublishTimePopover = false"></div>
-                                    <div class="absolute right-0 top-full mt-1 z-[70] bg-white rounded-lg shadow-xl border border-gray-200 p-3 w-64">
-                                        <div class="grid grid-cols-2 gap-3">
-                                            <div>
-                                                <div class="text-xs font-bold text-gray-500 mb-1 text-center">時</div>
-                                                <div class="max-h-48 overflow-y-auto custom-scroll grid grid-cols-3 gap-1 pr-1">
-                                                    @foreach (var h in HourSlots)
-                                                    {
-                                                        var hour = h;
-                                                        var isSelected = formModel.UnpublishDate?.Hour == hour;
-                                                        <button type="button" @onclick="() => SelectUnpublishTimeAsync(hour, formModel.UnpublishDate?.Minute ?? 0)"
-                                                                class="@($"py-1.5 text-sm rounded transition-colors cursor-pointer {(isSelected ? "bg-morandi text-white font-bold" : "text-gray-700 hover:bg-morandi/10")}")">
-                                                            @hour.ToString("00")
-                                                        </button>
-                                                    }
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div class="text-xs font-bold text-gray-500 mb-1 text-center">分</div>
-                                                <div class="grid grid-cols-2 gap-1">
-                                                    @foreach (var m in MinuteSlots)
-                                                    {
-                                                        var minute = m;
-                                                        var isSelected = formModel.UnpublishDate?.Minute == minute;
-                                                        <button type="button" @onclick="() => SelectUnpublishTimeAsync(formModel.UnpublishDate?.Hour ?? 0, minute)"
-                                                                class="@($"py-1.5 text-sm rounded transition-colors cursor-pointer {(isSelected ? "bg-morandi text-white font-bold" : "text-gray-700 hover:bg-morandi/10")}")">
-                                                            @minute.ToString("00")
-                                                        </button>
-                                                    }
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                        <p class="text-xs text-gray-400 mt-1">留空表示不自動下架。超過此日期時間後，狀態將自動變為「已下架」。</p>
-                    </div>
-                    <div class="col-span-2">
-                        <label class="flex items-center gap-3 cursor-pointer bg-red-50/50 px-4 py-3 rounded-lg border border-red-100 hover:bg-red-50 transition-colors">
-                            <InputCheckbox @bind-Value="formModel.IsPinned" class="w-4 h-4 text-red-500 focus:ring-red-400 rounded" />
-                            <div>
-                                <span class="text-sm font-bold text-red-600 flex items-center gap-1">
-                                    <i class="fa-solid fa-thumbtack"></i> 置頂公告
-                                </span>
-                                <p class="text-xs text-gray-500 mt-0.5">開啟後此公告會在列表與首頁公告看板中優先顯示於最頂端。</p>
-                            </div>
-                        </label>
-                    </div>
-                </div>
-            </div>
 
-            <!-- 區塊 2: 公告內容 -->
-            <div class="space-y-4">
-                <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
-                    <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">2</span>
-                    公告內容
-                </h3>
-                <div>
-                    <label class="block text-sm font-medium mb-1 text-gray-700">公告標題 <span class="text-red-500">*</span></label>
-                    <InputText @bind-Value="formModel.Title" placeholder="請輸入公告標題"
-                        class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-1 focus:ring-morandi focus:border-morandi focus:outline-none text-sm" />
+                    <!-- 排程副卡（上下架日期合併） -->
+                    <div class="bg-morandi/5 rounded-lg p-4 ring-1 ring-morandi/10">
+                        <div class="flex items-center gap-2 mb-3">
+                            <i class="fa-regular fa-calendar text-morandi text-sm"></i>
+                            <span class="text-sm font-semibold text-gray-700">排程</span>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <!-- 上架日期 -->
+                            <div>
+                                <label class="block text-xs font-semibold mb-2 text-gray-600">上架日期 <span class="text-red-500">*</span></label>
+                                <div class="flex gap-2">
+                                    <input type="date" @bind="publishDatePart" @bind:after="OnPublishDateChanged"
+                                           class="flex-1 min-w-0 px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-morandi/30 focus:border-morandi focus:outline-none text-base bg-white cursor-pointer transition-shadow" />
+                                    <div class="relative shrink-0">
+                                        <button type="button" @onclick="() => showPublishTimePopover = !showPublishTimePopover"
+                                                class="w-24 px-3 py-2.5 border border-gray-300 rounded-lg text-base bg-white hover:border-morandi focus:ring-2 focus:ring-morandi/30 focus:outline-none flex items-center justify-between gap-1 cursor-pointer transition-all">
+                                            <span class="@(formModel.PublishDate.HasValue ? "text-gray-700 font-medium" : "text-gray-400") whitespace-nowrap tabular-nums">@PublishTimeDisplay</span>
+                                            <i class="fa-regular fa-clock text-gray-400 text-xs"></i>
+                                        </button>
+                                        @if (showPublishTimePopover)
+                                        {
+                                            <div class="fixed inset-0 z-[60]" @onclick="() => showPublishTimePopover = false"></div>
+                                            <div class="absolute right-0 top-full mt-1 z-[70] bg-white rounded-lg shadow-xl border border-gray-200 p-3 w-64">
+                                                <div class="grid grid-cols-2 gap-3">
+                                                    <div>
+                                                        <div class="text-xs font-bold text-gray-500 mb-1 text-center">時</div>
+                                                        <div class="max-h-48 overflow-y-auto custom-scroll grid grid-cols-3 gap-1 pr-1">
+                                                            @foreach (var h in HourSlots)
+                                                            {
+                                                                var hour = h;
+                                                                var isSelected = formModel.PublishDate?.Hour == hour;
+                                                                <button type="button" @onclick="() => SelectPublishTimeAsync(hour, formModel.PublishDate?.Minute ?? 0)"
+                                                                        class="@($"py-1.5 text-sm rounded transition-colors cursor-pointer {(isSelected ? "bg-morandi text-white font-bold" : "text-gray-700 hover:bg-morandi/10")}")">
+                                                                    @hour.ToString("00")
+                                                                </button>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <div class="text-xs font-bold text-gray-500 mb-1 text-center">分</div>
+                                                        <div class="grid grid-cols-2 gap-1">
+                                                            @foreach (var m in MinuteSlots)
+                                                            {
+                                                                var minute = m;
+                                                                var isSelected = formModel.PublishDate?.Minute == minute;
+                                                                <button type="button" @onclick="() => SelectPublishTimeAsync(formModel.PublishDate?.Hour ?? 0, minute)"
+                                                                        class="@($"py-1.5 text-sm rounded transition-colors cursor-pointer {(isSelected ? "bg-morandi text-white font-bold" : "text-gray-700 hover:bg-morandi/10")}")">
+                                                                    @minute.ToString("00")
+                                                                </button>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- 下架日期 -->
+                            <div>
+                                <label class="block text-xs font-semibold mb-2 text-gray-600">下架日期 <span class="text-gray-400 font-normal">(選填)</span></label>
+                                <div class="flex gap-2">
+                                    <input type="date" @bind="unpublishDatePart" @bind:after="OnUnpublishDateChanged"
+                                           class="flex-1 min-w-0 px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-morandi/30 focus:border-morandi focus:outline-none text-base bg-white cursor-pointer transition-shadow" />
+                                    <div class="relative shrink-0">
+                                        <button type="button" @onclick="() => showUnpublishTimePopover = !showUnpublishTimePopover"
+                                                class="w-24 px-3 py-2.5 border border-gray-300 rounded-lg text-base bg-white hover:border-morandi focus:ring-2 focus:ring-morandi/30 focus:outline-none flex items-center justify-between gap-1 cursor-pointer transition-all">
+                                            <span class="@(formModel.UnpublishDate.HasValue ? "text-gray-700 font-medium" : "text-gray-400") whitespace-nowrap tabular-nums">@UnpublishTimeDisplay</span>
+                                            <i class="fa-regular fa-clock text-gray-400 text-xs"></i>
+                                        </button>
+                                        @if (showUnpublishTimePopover)
+                                        {
+                                            <div class="fixed inset-0 z-[60]" @onclick="() => showUnpublishTimePopover = false"></div>
+                                            <div class="absolute right-0 top-full mt-1 z-[70] bg-white rounded-lg shadow-xl border border-gray-200 p-3 w-64">
+                                                <div class="grid grid-cols-2 gap-3">
+                                                    <div>
+                                                        <div class="text-xs font-bold text-gray-500 mb-1 text-center">時</div>
+                                                        <div class="max-h-48 overflow-y-auto custom-scroll grid grid-cols-3 gap-1 pr-1">
+                                                            @foreach (var h in HourSlots)
+                                                            {
+                                                                var hour = h;
+                                                                var isSelected = formModel.UnpublishDate?.Hour == hour;
+                                                                <button type="button" @onclick="() => SelectUnpublishTimeAsync(hour, formModel.UnpublishDate?.Minute ?? 0)"
+                                                                        class="@($"py-1.5 text-sm rounded transition-colors cursor-pointer {(isSelected ? "bg-morandi text-white font-bold" : "text-gray-700 hover:bg-morandi/10")}")">
+                                                                    @hour.ToString("00")
+                                                                </button>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <div class="text-xs font-bold text-gray-500 mb-1 text-center">分</div>
+                                                        <div class="grid grid-cols-2 gap-1">
+                                                            @foreach (var m in MinuteSlots)
+                                                            {
+                                                                var minute = m;
+                                                                var isSelected = formModel.UnpublishDate?.Minute == minute;
+                                                                <button type="button" @onclick="() => SelectUnpublishTimeAsync(formModel.UnpublishDate?.Hour ?? 0, minute)"
+                                                                        class="@($"py-1.5 text-sm rounded transition-colors cursor-pointer {(isSelected ? "bg-morandi text-white font-bold" : "text-gray-700 hover:bg-morandi/10")}")">
+                                                                    @minute.ToString("00")
+                                                                </button>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-3 flex items-start gap-1.5">
+                            <i class="fa-solid fa-circle-info mt-0.5 shrink-0"></i>
+                            <span>留空下架日期表示不自動下架。超過下架日期時間後，狀態將自動變為「已下架」。</span>
+                        </p>
+                    </div>
+
+                    <!-- 置頂 toggle -->
+                    <label class="flex items-center justify-between gap-4 cursor-pointer p-3 -mx-3 rounded-lg hover:bg-gray-50 transition-colors">
+                        <div class="flex items-center gap-3 flex-1 min-w-0">
+                            <div class="w-9 h-9 rounded-full bg-morandi/10 flex items-center justify-center shrink-0">
+                                <i class="fa-solid fa-thumbtack text-morandi text-sm"></i>
+                            </div>
+                            <div class="min-w-0">
+                                <div class="text-sm font-semibold text-gray-700">置頂公告</div>
+                                <p class="text-xs text-gray-500 mt-0.5">開啟後此公告會在首頁與列表頂端優先顯示。</p>
+                            </div>
+                        </div>
+                        <div class="relative shrink-0">
+                            <InputCheckbox @bind-Value="formModel.IsPinned" class="sr-only peer" />
+                            <div class="w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-sage transition-colors"></div>
+                            <div class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform peer-checked:translate-x-5"></div>
+                        </div>
+                    </label>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium mb-2 text-gray-700">公告內容 <span class="text-red-500">*</span></label>
-                    <InlineQuillEditor @bind-Value="formModel.Content" EditorClass="min-h-[220px]" />
+            </section>
+
+            <!-- ═══ 區塊 2：公告內容 ═══ -->
+            <section>
+                <div class="border-l-4 border-l-morandi pl-3 mb-5">
+                    <h3 class="text-base font-bold text-slate-main">公告內容</h3>
                 </div>
-            </div>
+
+                <div class="space-y-5">
+                    <!-- 標題 -->
+                    <div>
+                        <label class="block text-sm font-semibold mb-2 text-gray-700">公告標題 <span class="text-red-500">*</span></label>
+                        <InputText @bind-Value="formModel.Title" placeholder="請輸入公告標題"
+                            class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-morandi/30 focus:border-morandi focus:outline-none text-base transition-shadow" />
+                    </div>
+                    <!-- 內容 -->
+                    <div>
+                        <label class="block text-sm font-semibold mb-2 text-gray-700">公告內容 <span class="text-red-500">*</span></label>
+                        <InlineQuillEditor @bind-Value="formModel.Content" EditorClass="min-h-[240px]" />
+                    </div>
+                </div>
+            </section>
         </EditForm>
     </ChildContent>
     <FooterContent>
         <button type="button" @onclick="SaveAsDraft"
-            class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors focus:outline-none shadow-sm flex items-center gap-2">
+            class="cursor-pointer px-4 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 hover:border-gray-400 transition-colors focus:outline-none flex items-center gap-2">
             <i class="fa-solid fa-file-pen"></i> 存為草稿
         </button>
         <div class="flex-grow"></div>
         <button type="button" @onclick="() => showSlideOver = false"
-            class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors focus:outline-none shadow-sm">
+            class="cursor-pointer px-4 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors focus:outline-none">
             取消
         </button>
         <button type="button" @onclick="SaveAndPublish"
-            class="cursor-pointer px-6 py-2 bg-morandi text-white rounded-lg text-sm font-medium hover:bg-[#5b7a95] transition-colors focus:outline-none shadow-sm flex items-center gap-2">
+            class="cursor-pointer px-8 py-2.5 bg-morandi text-white rounded-lg text-sm font-semibold hover:bg-[#5b7a95] hover:shadow-md active:scale-95 transition-all focus:outline-none flex items-center gap-2">
             <i class="fa-solid fa-floppy-disk"></i> 儲存公告
         </button>
     </FooterContent>
@@ -439,9 +563,19 @@
                         <i class="fa-solid fa-eye-slash"></i> 下架：@viewingAnnouncement.UnpublishDate.Value.ToString("yyyy/MM/dd HH:mm:ss")
                     </span>
                 }
-                <span class="flex items-center gap-1">
+                <span class="flex items-center gap-1.5 flex-wrap">
                     <i class="fa-solid fa-folder-open"></i>
-                    @(viewingAnnouncement.ProjectId is null ? "全站廣播" : viewingAnnouncement.ProjectName)
+                    @if (viewingAnnouncement.ProjectIds.Count == 0)
+                    {
+                        <span class="bg-morandi/10 text-morandi text-xs font-bold px-2 py-0.5 rounded">全站廣播</span>
+                    }
+                    else
+                    {
+                        @foreach (var name in viewingAnnouncement.ProjectNames)
+                        {
+                            <span class="bg-gray-100 text-gray-700 text-xs font-bold px-2 py-0.5 rounded">@name</span>
+                        }
+                    }
                 </span>
             </div>
             <!-- 內容 -->
@@ -475,7 +609,7 @@
 
     // ─── 資料狀態 ───
     private List<AnnouncementListItem> announcements = new();
-    private List<ProjectDropdownItem> projectDropdown = new();
+    private ProjectGroupedDropdown projectDropdown = new();   // 三分組（進行中/準備中/已結案）
 
     // ─── 篩選 ───
     private string _filterKeyword = "";
@@ -569,6 +703,81 @@
         unpublishTimePart = new TimeSpan(hour, minute, 0);
         await OnUnpublishDateChanged();
     }
+
+    // ─── 梯次 Combobox 狀態與 helpers ───
+    private bool showProjectComboPopover;
+    private string comboboxSearchTerm = "";
+    private bool closedGroupExpanded;      // 已結案分組預設摺疊
+
+    /// <summary>是否為全站廣播（ProjectIds 空 list）。</summary>
+    private bool IsGlobalBroadcast => formModel.ProjectIds.Count == 0;
+
+    /// <summary>Combobox trigger button 顯示文字：「全站廣播」/ 單一梯次名稱 /「首梯次 +N」。</summary>
+    private string ProjectComboboxDisplay
+    {
+        get
+        {
+            if (IsGlobalBroadcast) return "全站廣播";
+            var firstId = formModel.ProjectIds[0];
+            var name = LookupProjectName(firstId) ?? "（未知梯次）";
+            return formModel.ProjectIds.Count == 1
+                ? name
+                : $"{name}  +{formModel.ProjectIds.Count - 1}";
+        }
+    }
+
+    /// <summary>在三個分組內找梯次名稱（dropdown 載入前回 null）。</summary>
+    private string? LookupProjectName(int id)
+        => projectDropdown.Active.FirstOrDefault(p => p.Id == id)?.Name
+        ?? projectDropdown.Preparing.FirstOrDefault(p => p.Id == id)?.Name
+        ?? projectDropdown.Closed.FirstOrDefault(p => p.Id == id)?.Name;
+
+    /// <summary>選擇全站廣播 = 清空 ProjectIds（與個別梯次互斥）。</summary>
+    private void SelectGlobalBroadcast()
+    {
+        formModel.ProjectIds.Clear();
+    }
+
+    /// <summary>切換單一梯次的勾選狀態。</summary>
+    private void ToggleProject(int projectId)
+    {
+        if (formModel.ProjectIds.Contains(projectId))
+            formModel.ProjectIds.Remove(projectId);
+        else
+            formModel.ProjectIds.Add(projectId);
+    }
+
+    /// <summary>關閉 Combobox popover + 清搜尋字串。</summary>
+    private void CloseProjectComboPopover()
+    {
+        showProjectComboPopover = false;
+        comboboxSearchTerm = "";
+    }
+
+    /// <summary>分組內依搜尋字串 filter（不分大小寫）。</summary>
+    private IEnumerable<ProjectDropdownItem> FilterByGroup(IReadOnlyList<ProjectDropdownItem> source)
+    {
+        if (string.IsNullOrWhiteSpace(comboboxSearchTerm)) return source;
+        var kw = comboboxSearchTerm.Trim();
+        return source.Where(p => p.Name.Contains(kw, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>渲染單一梯次列（checkbox + 名稱 + ProjectType 徽章 + 年度）。</summary>
+    private RenderFragment RenderProjectRow(ProjectDropdownItem proj) => __builder =>
+    {
+        var p = proj;
+        var selected = formModel.ProjectIds.Contains(p.Id);
+        var typeBadgeClass = p.ProjectType == 1 ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700";
+        var typeBadgeText  = p.ProjectType == 1 ? "LCT" : "CWT";
+
+        <label class="w-full px-3 py-2 flex items-center gap-3 hover:bg-morandi/5 cursor-pointer transition-colors">
+            <input type="checkbox" checked="@selected" @onchange="() => ToggleProject(p.Id)"
+                   class="w-4 h-4 text-morandi focus:ring-morandi rounded shrink-0" />
+            <span class="flex-1 text-sm text-gray-700 truncate">@p.Name</span>
+            <span class="text-xs font-bold px-1.5 py-0.5 rounded shrink-0 @typeBadgeClass">@typeBadgeText</span>
+            <span class="text-xs text-gray-400 tabular-nums shrink-0">@p.Year</span>
+        </label>
+    };
 
     // ─── 檢視 Modal ───
     private bool showViewModal;
@@ -718,7 +927,7 @@
             {
                 Category = dto.Category,
                 Status = dto.Status,
-                ProjectId = dto.ProjectId,
+                ProjectIds = dto.ProjectIds.ToList(),    // 從 DB 載入的複選綁定
                 PublishDate = dto.PublishDate,
                 UnpublishDate = dto.UnpublishDate,
                 IsPinned = dto.IsPinned,

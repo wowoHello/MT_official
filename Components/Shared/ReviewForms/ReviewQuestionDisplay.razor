@@ -19,26 +19,35 @@
             @* 非題組類：白卡內嵌 Preview*，下方獨立解析折疊區 *@
             case QuestionTypeCodes.Single:
             case QuestionTypeCodes.Select:
-                @RenderInPaperShell(@<text><PreviewSingle QuestionType="@TypeLabel()" Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
+                @RenderInPaperShell(@<text>
+                    <PreviewSingle QuestionType="@TypeLabel()" Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
                                 Tags="@BuildTags()" Stem="@(Question.Stem ?? "")"
                                 Options="@Question.Options" Answer="@(Question.Answer ?? "")"
-                                Images="@Question.Images" HideOptionAnswerMarker="true" /></text>)
+                                Images="@Question.Images" HideOptionAnswerMarker="true" />
+                    @RenderCreatorReferenceTags
+                </text>)
                 @RenderAnalysisSection
                 break;
             case QuestionTypeCodes.LongText:
-                @RenderInPaperShell(@<text><PreviewLongText Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
+                @RenderInPaperShell(@<text>
+                    <PreviewLongText Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
                                 Tags="@BuildTags()" Stem="@(Question.Stem ?? "")"
                                 Passage="@(Question.ArticleContent ?? "")"
-                                Images="@Question.Images" /></text>)
+                                Images="@Question.Images" />
+                    @RenderCreatorReferenceTags
+                </text>)
                 @RenderAnalysisSection
                 break;
             case QuestionTypeCodes.Listen:
-                @RenderInPaperShell(@<text><PreviewListen Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
+                @RenderInPaperShell(@<text>
+                    <PreviewListen Level="@LevelLabel()" Difficulty="@DifficultyLabel()"
                                 Tags="@BuildTags()" AudioFileName="@(Question.AudioUrl ?? "")"
                                 Stem="@(Question.Stem ?? "")" Content="@(Question.ArticleContent ?? "")"
                                 Options="@Question.Options"
                                 Answer="@(Question.Answer ?? "")"
-                                Images="@Question.Images" HideOptionAnswerMarker="true" /></text>)
+                                Images="@Question.Images" HideOptionAnswerMarker="true" />
+                    @RenderCreatorReferenceTags
+                </text>)
                 @RenderAnalysisSection
                 break;
 
@@ -281,6 +290,38 @@
             <div class="bg-gray-50 rounded-lg p-4 border border-gray-100 review-no-cwt-title">
                 @inner
             </div>
+        </div>
+    };
+
+    /// <summary>
+    /// 命題者參考標籤行 — 非題組類專用（一般/精選/長文/聽力測驗），緊接於正解或內文之後。
+    /// 統一規則：等級／難度由上方 Modal 頂部徽章顯示，本區只列 BuildTags() 的業務屬性，避免重複。
+    /// 配色循環 morandi → sage → terracotta，避開 amber（保留給試題解析）。
+    /// </summary>
+    private RenderFragment RenderCreatorReferenceTags => __builder =>
+    {
+        var tags = BuildTags();
+        if (tags.Count == 0) return;
+
+        var palettes = new (string Border, string Bg, string Text)[]
+        {
+            ("border-morandi/15",    "bg-morandi/5",    "text-morandi/80"),
+            ("border-sage/15",       "bg-sage/5",       "text-sage"),
+            ("border-terracotta/15", "bg-terracotta/5", "text-terracotta"),
+        };
+
+        <div class="mt-3 pt-2 border-t border-dashed border-gray-200 flex flex-wrap items-center gap-2 text-xs font-sans">
+            <span class="text-gray-400"><i class="fa-solid fa-key mr-1"></i>命題者參考：</span>
+            @{ var i = 0; }
+            @foreach (var kv in tags)
+            {
+                var p = palettes[i % palettes.Length];
+                var display = string.IsNullOrWhiteSpace(kv.Value) ? "未設定" : kv.Value;
+                <span class="inline-flex items-center rounded-full border @p.Border @p.Bg @p.Text px-2 py-0.5">
+                    @kv.Key：@display
+                </span>
+                i++;
+            }
         </div>
     };
 
@@ -608,7 +649,6 @@
             if (focusIdx >= 0)
             {
                 var sq = Question.ListenGroupSubQuestions[focusIdx];
-                var fixedLevel  = QuestionConstants.ListenLevelLabels.GetValueOrDefault(sq.FixedDifficulty, "");
                 var coreAbility = QuestionConstants.DecodeSubCoreAbility(sq.CoreAbility, QuestionTypeCodes.ListenGroup);
                 var indicator   = QuestionConstants.DecodeSubIndicator(sq.DetailIndicator, QuestionTypeCodes.ListenGroup);
                 var stemImages  = Question.Images.Where(im =>
@@ -628,12 +668,9 @@
                     <div class="mt-3 pt-2 border-t border-dashed border-gray-200 flex flex-wrap items-center gap-2 text-xs font-sans">
                         <span class="text-gray-400"><i class="fa-solid fa-key mr-1"></i>命題者參考：</span>
                         <span class="inline-flex items-center rounded-full border border-morandi/15 bg-morandi/5 px-2 py-0.5 text-morandi/80">
-                            難度：@(string.IsNullOrWhiteSpace(fixedLevel) ? "未設定" : fixedLevel)
-                        </span>
-                        <span class="inline-flex items-center rounded-full border border-sage/15 bg-sage/5 px-2 py-0.5 text-sage">
                             核心能力：@(string.IsNullOrWhiteSpace(coreAbility) ? "未設定" : coreAbility)
                         </span>
-                        <span class="inline-flex items-center rounded-full border border-terracotta/15 bg-terracotta/5 px-2 py-0.5 text-terracotta">
+                        <span class="inline-flex items-center rounded-full border border-sage/15 bg-sage/5 px-2 py-0.5 text-sage">
                             細目指標：@(string.IsNullOrWhiteSpace(indicator) ? "未設定" : indicator)
                         </span>
                     </div>

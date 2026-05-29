@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text;
 using Dapper;
 using Microsoft.AspNetCore.Http;
 using MT.Models;
@@ -10,7 +11,8 @@ public interface IAnnouncementService
 {
     Task<List<AnnouncementListItem>> GetAnnouncementListAsync();
     Task<AnnouncementEditDto?> GetAnnouncementEditAsync(int id);
-    Task<List<ProjectDropdownItem>> GetProjectDropdownAsync();
+    /// <summary>梯次下拉：依 LifecycleStatus 分三組（進行中 / 準備中 / 已結案）。</summary>
+    Task<ProjectGroupedDropdown> GetProjectDropdownAsync();
     Task<int> CreateAsync(AnnouncementFormModel model, int operatorId);
     Task UpdateAsync(int id, AnnouncementFormModel model, int operatorId);
     Task TogglePinAsync(int id, int operatorId);
@@ -53,18 +55,33 @@ public class AnnouncementService : IAnnouncementService
     }
 
     // ─── 列表查詢 ───
+    // STUFF + FOR XML 把 junction 表的 ProjectIds 與 Names 聚合成 CSV，C# 端 split 回 List
+    // 全站廣播（junction 0 列）→ CSV NULL → 前端 ProjectIds 取得空 list
     public async Task<List<AnnouncementListItem>> GetAnnouncementListAsync()
     {
         const string sql = """
             SELECT
-                a.Id, a.Category, a.Status, a.ProjectId,
-                ISNULL(p.Name, '') AS ProjectName,
+                a.Id, a.Category, a.Status,
                 a.PublishDate, a.UnpublishDate, a.IsPinned,
                 a.Title, a.Content, a.CreatedAt,
-                u.DisplayName AS AuthorName
+                u.DisplayName AS AuthorName,
+                STUFF((
+                    SELECT N',' + CAST(ap.ProjectId AS NVARCHAR(20))
+                    FROM dbo.MT_AnnouncementProjects ap
+                    WHERE ap.AnnouncementId = a.Id
+                    ORDER BY ap.Id
+                    FOR XML PATH(''), TYPE
+                ).value('.', 'NVARCHAR(MAX)'), 1, 1, '') AS ProjectIdsCsv,
+                STUFF((
+                    SELECT N',' + ISNULL(p.Name, N'（已刪除梯次）')
+                    FROM dbo.MT_AnnouncementProjects ap
+                    LEFT JOIN dbo.MT_Projects p ON p.Id = ap.ProjectId
+                    WHERE ap.AnnouncementId = a.Id
+                    ORDER BY ap.Id
+                    FOR XML PATH(''), TYPE
+                ).value('.', 'NVARCHAR(MAX)'), 1, 1, '') AS ProjectNamesCsv
             FROM dbo.MT_Announcements a
             INNER JOIN dbo.MT_Users u ON a.AuthorId = u.Id
-            LEFT JOIN dbo.MT_Projects p ON a.ProjectId = p.Id
             ORDER BY a.IsPinned DESC, a.PublishDate DESC;
             """;
 
@@ -74,43 +91,78 @@ public class AnnouncementService : IAnnouncementService
     }
 
     // ─── 單筆編輯載入 ───
+    // QueryMultiple 兩段：① 主檔欄位（無 ProjectId）② junction 表的 ProjectIds
     public async Task<AnnouncementEditDto?> GetAnnouncementEditAsync(int id)
     {
         const string sql = """
-            SELECT Id, Category, Status, ProjectId, PublishDate, UnpublishDate,
+            SELECT Id, Category, Status, PublishDate, UnpublishDate,
                    IsPinned, Title, Content
             FROM dbo.MT_Announcements
             WHERE Id = @Id;
+
+            SELECT ProjectId
+            FROM dbo.MT_AnnouncementProjects
+            WHERE AnnouncementId = @Id
+            ORDER BY Id;
             """;
 
         using var conn = _db.CreateConnection();
-        return await conn.QuerySingleOrDefaultAsync<AnnouncementEditDto>(sql, new { Id = id });
+        using var multi = await conn.QueryMultipleAsync(sql, new { Id = id });
+
+        var dto = await multi.ReadFirstOrDefaultAsync<AnnouncementEditDto>();
+        if (dto is null) return null;
+
+        dto.ProjectIds = (await multi.ReadAsync<int>()).ToList();
+        return dto;
     }
 
-    // ─── 梯次下拉選項 ───
-    public async Task<List<ProjectDropdownItem>> GetProjectDropdownAsync()
+    // ─── 梯次下拉選項（分組 + 元資料） ───
+    // LifecycleStatus 邏輯：
+    //   ClosedAt 非 NULL → 3 已結案
+    //   命題階段 StartDate <= 今天 → 2 進行中
+    //   否則 → 1 準備中
+    public async Task<ProjectGroupedDropdown> GetProjectDropdownAsync()
     {
         const string sql = """
-            SELECT Id, Name
-            FROM dbo.MT_Projects
-            WHERE IsDeleted = 0
-            ORDER BY Year DESC, Name;
+            SELECT
+                p.Id, p.Name,
+                ISNULL(p.ProjectType, 0) AS ProjectType,
+                p.Year,
+                CAST(CASE
+                    WHEN p.ClosedAt IS NOT NULL THEN 3
+                    WHEN ISNULL(comp.StartDate, p.StartDate) <= CAST(SYSDATETIME() AS DATE) THEN 2
+                    ELSE 1
+                END AS TINYINT) AS LifecycleStatus
+            FROM dbo.MT_Projects p
+            OUTER APPLY (
+                SELECT TOP 1 StartDate FROM dbo.MT_ProjectPhases
+                WHERE ProjectId = p.Id AND PhaseCode = 2
+            ) comp
+            WHERE p.IsDeleted = 0
+            ORDER BY LifecycleStatus, p.Year DESC, p.Name;
             """;
 
         using var conn = _db.CreateConnection();
-        var result = await conn.QueryAsync<ProjectDropdownItem>(sql);
-        return result.ToList();
+        var rows = (await conn.QueryAsync<ProjectDropdownItem>(sql)).ToList();
+
+        return new ProjectGroupedDropdown
+        {
+            Active    = rows.Where(r => r.LifecycleStatus == (byte)ProjectLifecycleGroup.Active).ToList(),
+            Preparing = rows.Where(r => r.LifecycleStatus == (byte)ProjectLifecycleGroup.Preparing).ToList(),
+            Closed    = rows.Where(r => r.LifecycleStatus == (byte)ProjectLifecycleGroup.Closed).ToList()
+        };
     }
 
     // ─── 新增公告 ───
+    // 主檔 INSERT 不帶 ProjectId（DB 欄位保留但停用，新資料一律經 junction）
     public async Task<int> CreateAsync(AnnouncementFormModel model, int operatorId)
     {
         const string insertSql = """
             INSERT INTO dbo.MT_Announcements
-                (Category, Status, ProjectId, PublishDate, UnpublishDate, IsPinned, Title, Content, AuthorId)
+                (Category, Status, PublishDate, UnpublishDate, IsPinned, Title, Content, AuthorId)
             OUTPUT INSERTED.Id
             VALUES
-                (@Category, @Status, @ProjectId, @PublishDate, @UnpublishDate, @IsPinned, @Title, @Content, @AuthorId);
+                (@Category, @Status, @PublishDate, @UnpublishDate, @IsPinned, @Title, @Content, @AuthorId);
             """;
 
         const string auditSql = """
@@ -131,7 +183,6 @@ public class AnnouncementService : IAnnouncementService
             {
                 model.Category,
                 model.Status,
-                model.ProjectId,
                 model.PublishDate,
                 model.UnpublishDate,
                 model.IsPinned,
@@ -139,6 +190,9 @@ public class AnnouncementService : IAnnouncementService
                 model.Content,
                 AuthorId = operatorId
             }, tx);
+
+            // junction 表寫入（空 list = 全站廣播，跳過 INSERT）
+            await InsertJunctionAsync(conn, tx, newId, model.ProjectIds);
 
             // NewValue 統一改為 JSON（含 targetDisplayName）：刪除後 SystemLogs 仍能 fallback 顯示
             await conn.ExecuteAsync(auditSql, new
@@ -152,7 +206,7 @@ public class AnnouncementService : IAnnouncementService
                     title = model.Title,
                     category = model.Category,
                     isPinned = model.IsPinned,
-                    projectId = model.ProjectId,           // 公告綁定的梯次（僅參考，不寫進 LOG 的 ProjectId 欄位）
+                    projectIds = model.ProjectIds,     // 空陣列 = 全站廣播
                     targetDisplayName = model.Title
                 }),
                 IpAddress = ClientIpResolver.Resolve(_httpContextAccessor)
@@ -169,15 +223,20 @@ public class AnnouncementService : IAnnouncementService
     }
 
     // ─── 更新公告 ───
+    // 主檔 UPDATE 不帶 ProjectId；junction 先全刪後重建（簡單且原子）
     public async Task UpdateAsync(int id, AnnouncementFormModel model, int operatorId)
     {
         const string updateSql = """
             UPDATE dbo.MT_Announcements
-            SET Category = @Category, Status = @Status, ProjectId = @ProjectId,
+            SET Category = @Category, Status = @Status,
                 PublishDate = @PublishDate, UnpublishDate = @UnpublishDate,
                 IsPinned = @IsPinned, Title = @Title, Content = @Content,
                 UpdatedAt = SYSDATETIME()
             WHERE Id = @Id;
+            """;
+
+        const string clearJunctionSql = """
+            DELETE FROM dbo.MT_AnnouncementProjects WHERE AnnouncementId = @Id;
             """;
 
         const string auditSql = """
@@ -199,13 +258,16 @@ public class AnnouncementService : IAnnouncementService
                 Id = id,
                 model.Category,
                 model.Status,
-                model.ProjectId,
                 model.PublishDate,
                 model.UnpublishDate,
                 model.IsPinned,
                 model.Title,
                 model.Content
             }, tx);
+
+            // junction 重建：先清再寫
+            await conn.ExecuteAsync(clearJunctionSql, new { Id = id }, tx);
+            await InsertJunctionAsync(conn, tx, id, model.ProjectIds);
 
             await conn.ExecuteAsync(auditSql, new
             {
@@ -218,7 +280,7 @@ public class AnnouncementService : IAnnouncementService
                     title = model.Title,
                     category = model.Category,
                     isPinned = model.IsPinned,
-                    projectId = model.ProjectId,
+                    projectIds = model.ProjectIds,
                     targetDisplayName = model.Title
                 }),
                 IpAddress = ClientIpResolver.Resolve(_httpContextAccessor)
@@ -233,10 +295,9 @@ public class AnnouncementService : IAnnouncementService
         }
     }
 
-    // ─── 置頂切換 ───
+    // ─── 切換置頂 ───
     public async Task TogglePinAsync(int id, int operatorId)
     {
-        // UPDATE 後用 OUTPUT 取得新的 IsPinned 與 Title，供 LOG 寫入時記錄切換後狀態
         const string toggleSql = """
             UPDATE dbo.MT_Announcements
             SET IsPinned = CASE WHEN IsPinned = 1 THEN 0 ELSE 1 END,
@@ -346,23 +407,46 @@ public class AnnouncementService : IAnnouncementService
         }
     }
 
-    // ─── 首頁公告查詢（僅已發佈且在上架期間） ───
+    // ─── 首頁公告查詢（教師可見性 = 全站廣播 OR 公告綁定包含當前梯次） ───
+    // 全站廣播判定：junction 0 列（NOT EXISTS）
+    // 指定梯次判定：junction 含 @ProjectId 列
     public async Task<List<AnnouncementListItem>> GetHomeAnnouncementsAsync(int? projectId)
     {
         const string sql = """
             SELECT
-                a.Id, a.Category, a.Status, a.ProjectId,
-                ISNULL(p.Name, '') AS ProjectName,
+                a.Id, a.Category, a.Status,
                 a.PublishDate, a.UnpublishDate, a.IsPinned,
                 a.Title, a.Content, a.CreatedAt,
-                u.DisplayName AS AuthorName
+                u.DisplayName AS AuthorName,
+                STUFF((
+                    SELECT N',' + CAST(ap.ProjectId AS NVARCHAR(20))
+                    FROM dbo.MT_AnnouncementProjects ap
+                    WHERE ap.AnnouncementId = a.Id
+                    ORDER BY ap.Id
+                    FOR XML PATH(''), TYPE
+                ).value('.', 'NVARCHAR(MAX)'), 1, 1, '') AS ProjectIdsCsv,
+                STUFF((
+                    SELECT N',' + ISNULL(p.Name, N'（已刪除梯次）')
+                    FROM dbo.MT_AnnouncementProjects ap
+                    LEFT JOIN dbo.MT_Projects p ON p.Id = ap.ProjectId
+                    WHERE ap.AnnouncementId = a.Id
+                    ORDER BY ap.Id
+                    FOR XML PATH(''), TYPE
+                ).value('.', 'NVARCHAR(MAX)'), 1, 1, '') AS ProjectNamesCsv
             FROM dbo.MT_Announcements a
             INNER JOIN dbo.MT_Users u ON a.AuthorId = u.Id
-            LEFT JOIN dbo.MT_Projects p ON a.ProjectId = p.Id
             WHERE a.Status = 1
               AND a.PublishDate <= SYSDATETIME()
               AND (a.UnpublishDate IS NULL OR a.UnpublishDate >= SYSDATETIME())
-              AND (a.ProjectId IS NULL OR a.ProjectId = @ProjectId)
+              AND (
+                  -- 全站廣播：junction 0 列
+                  NOT EXISTS (SELECT 1 FROM dbo.MT_AnnouncementProjects
+                              WHERE AnnouncementId = a.Id)
+                  OR
+                  -- 公告綁定包含當前梯次
+                  EXISTS (SELECT 1 FROM dbo.MT_AnnouncementProjects
+                          WHERE AnnouncementId = a.Id AND ProjectId = @ProjectId)
+              )
             ORDER BY a.IsPinned DESC, a.PublishDate DESC;
             """;
 
@@ -372,11 +456,20 @@ public class AnnouncementService : IAnnouncementService
     }
 
     // ─── 刪除公告 ───
+    // SELECT old projectIds 給 AuditLog OldValue 用；junction cascade 由 application 端處理
     public async Task DeleteAsync(int id, int operatorId)
     {
         const string selectSql = """
-            SELECT Id, Title, Category, IsPinned, ProjectId
+            SELECT Id, Title, Category, IsPinned
             FROM dbo.MT_Announcements WHERE Id = @Id;
+
+            SELECT ProjectId
+            FROM dbo.MT_AnnouncementProjects WHERE AnnouncementId = @Id
+            ORDER BY Id;
+            """;
+
+        const string deleteJunctionSql = """
+            DELETE FROM dbo.MT_AnnouncementProjects WHERE AnnouncementId = @Id;
             """;
 
         const string deleteSql = """
@@ -398,8 +491,10 @@ public class AnnouncementService : IAnnouncementService
 
         try
         {
-            // 先取得即將刪除的公告資料，作為 OldValue 寫入 audit
-            var snapshot = await conn.QuerySingleOrDefaultAsync<AnnouncementDeleteSnapshot>(selectSql, new { Id = id }, tx);
+            // 先取得即將刪除的公告資料與綁定梯次，作為 OldValue 寫入 audit
+            using var multi = await conn.QueryMultipleAsync(selectSql, new { Id = id }, tx);
+            var snapshot = await multi.ReadFirstOrDefaultAsync<AnnouncementDeleteSnapshot>();
+            var oldProjectIds = (await multi.ReadAsync<int>()).ToList();
 
             await conn.ExecuteAsync(auditSql, new
             {
@@ -412,12 +507,14 @@ public class AnnouncementService : IAnnouncementService
                     title = snapshot?.Title,
                     category = snapshot?.Category,
                     isPinned = snapshot?.IsPinned,
-                    projectId = snapshot?.ProjectId,
+                    projectIds = oldProjectIds,
                     targetDisplayName = snapshot?.Title
                 }),
                 IpAddress = ClientIpResolver.Resolve(_httpContextAccessor)
             }, tx);
 
+            // junction 先刪，再刪主檔（順序對非 FK schema 不重要，但邏輯清楚）
+            await conn.ExecuteAsync(deleteJunctionSql, new { Id = id }, tx);
             await conn.ExecuteAsync(deleteSql, new { Id = id }, tx);
 
             tx.Commit();
@@ -429,13 +526,36 @@ public class AnnouncementService : IAnnouncementService
         }
     }
 
-    /// <summary>刪除公告前的快照（僅給 audit OldValue 用）。</summary>
+    // ─── 批次寫入 junction：多列 VALUES INSERT（單一 round-trip） ───
+    // 仿 ProjectService.BulkInsert* / RoleService.MergeRolePermissionsAsync pattern
+    private static async Task InsertJunctionAsync(
+        IDbConnection conn, IDbTransaction tx,
+        int announcementId, IReadOnlyList<int> projectIds)
+    {
+        if (projectIds is null || projectIds.Count == 0) return;
+
+        var sb = new StringBuilder("INSERT INTO dbo.MT_AnnouncementProjects (AnnouncementId, ProjectId) VALUES ");
+        var parameters = new DynamicParameters();
+        parameters.Add("@AnnouncementId", announcementId);
+
+        for (int i = 0; i < projectIds.Count; i++)
+        {
+            if (i > 0) sb.Append(", ");
+            var pName = $"@P{i}";
+            sb.Append("(@AnnouncementId, ").Append(pName).Append(')');
+            parameters.Add(pName, projectIds[i]);
+        }
+        sb.Append(';');
+
+        await conn.ExecuteAsync(sb.ToString(), parameters, tx);
+    }
+
+    /// <summary>刪除公告前的快照（僅給 audit OldValue 主檔欄位用）。</summary>
     private sealed class AnnouncementDeleteSnapshot
     {
         public int Id { get; set; }
         public string Title { get; set; } = "";
         public byte Category { get; set; }
         public bool IsPinned { get; set; }
-        public int? ProjectId { get; set; }
     }
 }

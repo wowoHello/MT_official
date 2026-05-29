@@ -40,6 +40,40 @@ function pickToolbar(mode) {
     return toolbarOptions;
 }
 
+function tableToPlainText(table) {
+    return Array.from(table.rows)
+        .map(row => Array.from(row.cells)
+            .map(cell => cell.innerText.replace(/\s+/g, ' ').trim())
+            .join('\t')
+            .trim())
+        .filter(line => line.length > 0)
+        .join('\n');
+}
+
+function isEffectivelyEmpty(quill) {
+    if (!quill.getText().trim()) {
+        const hasEmbed = quill.getContents().ops?.some(op =>
+            op.insert && typeof op.insert === 'object');
+
+        return !hasEmbed && !quill.root.textContent.trim();
+    }
+
+    return false;
+}
+
+function getNormalizedHtml(quill) {
+    if (isEffectivelyEmpty(quill)) {
+        if (quill.root.innerHTML !== '<p><br></p>') {
+            quill.setContents([{ insert: '\n' }], 'silent');
+        }
+
+        return '';
+    }
+
+    const html = quill.root.innerHTML;
+    return html === '<p><br></p>' ? '' : html;
+}
+
 window.QuillInterop = {
     instances: {},
 
@@ -76,6 +110,12 @@ window.QuillInterop = {
             theme: 'snow',
             placeholder: '在此輸入內容...',
             modules: { toolbar: pickToolbar(toolbarMode) }
+        });
+
+        const Delta = Quill.import('delta');
+        quill.clipboard.addMatcher('TABLE', node => {
+            const text = tableToPlainText(node);
+            return text ? new Delta().insert(text + '\n') : new Delta();
         });
 
         // 圖片上傳 + 單/雙底線互斥（僅在完整工具列下註冊；simple 模式無圖片與雙底線按鈕）
@@ -136,8 +176,8 @@ window.QuillInterop = {
                 const inst = QuillInterop.instances[containerId];
                 const count = inst?.excludePunct ? text.replace(/[\p{P}\s]/gu, '').length : text.length;
                 dotNetRef.invokeMethodAsync('OnWordCountChanged', count);
-                const html = quill.root.innerHTML;
-                dotNetRef.invokeMethodAsync('OnContentChanged', html === '<p><br></p>' ? '' : html);
+                const html = getNormalizedHtml(quill);
+                dotNetRef.invokeMethodAsync('OnContentChanged', html);
             }, 500);
         });
 
@@ -174,8 +214,7 @@ window.QuillInterop = {
     getHtml(containerId) {
         const inst = this.instances[containerId];
         if (!inst) return '';
-        const html = inst.quill.root.innerHTML;
-        return html === '<p><br></p>' ? '' : html;
+        return getNormalizedHtml(inst.quill);
     },
 
     /** 設定 HTML 內容 */

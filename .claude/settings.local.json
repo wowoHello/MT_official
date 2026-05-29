@@ -23,7 +23,10 @@
       "Bash(git *)",
       "Bash(grep -v \"//\")",
       "Bash(powershell -Command \"Get-Content 'D:\\\\IISWebSize\\\\MT\\\\Components\\\\Pages\\\\Teachers.razor' | Measure-Object -Line; Get-Content 'D:\\\\IISWebSize\\\\MT\\\\Services\\\\TeacherService.cs' | Measure-Object -Line; Get-Content 'D:\\\\IISWebSize\\\\MT\\\\Models\\\\TeacherModels.cs' | Measure-Object -Line\")",
-      "mcp__context7__resolve-library-id"
+      "mcp__context7__resolve-library-id",
+      "Bash(powershell *)",
+      "PowerShell(\\(Get-Content \"D:\\\\IISWebSize\\\\MT\\\\Components\\\\Pages\\\\Roles.razor\" | Measure-Object -Line\\).Lines; \\(Get-Content \"D:\\\\IISWebSize\\\\MT\\\\Services\\\\RoleService.cs\" | Measure-Object -Line\\).Lines; \\(Get-Content \"D:\\\\IISWebSize\\\\MT\\\\Models\\\\RoleModels.cs\" | Measure-Object -Line\\).Lines)",
+      "PowerShell(\\(Get-Content \"D:\\\\IISWebSize\\\\MT\\\\Models\\\\ModulePermission.cs\" | Measure-Object -Line\\).Lines; \\(Get-Content \"D:\\\\IISWebSize\\\\MT\\\\Models\\\\RoleTag.cs\" | Measure-Object -Line\\).Lines)"
     ]
   }
 }

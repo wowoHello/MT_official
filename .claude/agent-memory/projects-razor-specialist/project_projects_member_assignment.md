@@ -1,50 +1,60 @@
 ---
-name: Projects 人員指派與配額分配引擎（2026-05-20 更新）
-description: 人才庫來源、PersonItem/AllocationItem 結構、配額引擎、鎖定防呆、DB 寫入策略、Level 欄位、AppointmentService 業務鍵設計
+name: Projects 人員指派與配額分配引擎（2026-05-29 更新）
+description: PersonItem/AllocationItem 結構、配額引擎、鎖定防呆、DB 寫入策略（Bulk Insert 已完成）、聘書業務鍵
 type: project
 ---
 
-## 人才庫（GetTalentPoolAsync）
+## 人才庫（GetTalentPoolAsync，行 340）
 
 - 來源：MT_Teachers JOIN MT_Users，篩選 Status=1（啟用中）
 - 欄位：UserId / Name（DisplayName） / Identifier（TeacherCode）
-- 教師管理系統頁面可雙向同步（加入梯次 = 寫入 MT_ProjectMembers）
 
 ## Razor 端兩個內部狀態物件
 
-### PersonItem（talentPool List）
+### PersonItem（Projects.razor 行 2505）
 ```csharp
-string Id           // 前端唯一識別，格式：UserId.ToString()
+string Id           // 前端唯一識別（UserId.ToString()）
 int UserId
 string Name
 string Identifier   // TeacherCode
-bool IsSelected     // 勾選後才會被寫入人員清單
-List<int> SelectedRoleIds  // 有序：[主要身份, 附加身份1, ...]；0 表示未選
-int CreatedQuestionCount   // 編輯模式：已命題題數，>0 禁止取消勾選
-int CheckboxKey     // 防呆還原用（勾選被阻擋時遞增）
-int RoleSlotKey     // 防呆還原用（身份移除被阻擋時遞增）
+bool IsSelected
+List<int> SelectedRoleIds   // 有序：[主要身份, 附加身份...]；0=未選
+int CreatedQuestionCount    // 編輯模式：已命題題數（>0 禁止取消勾選）
+int CheckboxKey             // 防呆還原用（勾選被阻擋時遞增）
+int RoleSlotKey             // 防呆還原用（身份移除被阻擋時遞增）
 ```
 
-### AllocationItem（allocationTeachers List）
+### AllocationItem（Projects.razor 行 2522）
 ```csharp
 string Id
 int UserId
 string Name
 string Identifier
-int[] Quotas        // 長度 = questionTypes.Count（CWT=6 欄、LCT=6 欄），index 對應 questionTypes 順序
+int[] Quotas    // 長度=questionTypes.Count（CWT=6 / LCT=6），index 對應 questionTypes 順序
 ```
 
-**RebuildAllocationTeachers()**: 每次配額區塊渲染前重建，篩選出 IsSelected=true 且有「命題教師」RoleId 的人員；保留既有 AllocationItem 的配額數值（換人名單時不清空）。
+**RebuildAllocationTeachers()**（行 2408 附近）：每次渲染配額區塊前重建，篩選 IsSelected=true 且有「命題教師」RoleId 的人員；保留既有 AllocationItem 的配額數值（換人名單時不清空舊配額）。
 
-## 身份指派規則
+## QuestionTypeTarget（Projects.razor 行 2485）
 
-- 每位人員可指派「主要身份 + 多個附加身份」（slot 可 +/- 增減）
-- 所有可選身份來自 GetProjectRoleOptionsAsync（Category=1，外部角色）
-- 「命題教師」身份的 RoleId 會特別追蹤（GetPropositionTeacherRoleId()）
+```csharp
+sealed class QuestionTypeTarget
+{
+    string Key;             // 題型識別鍵（如 "general", "readingGroup" 等）
+    string Label;           // 顯示標籤
+    int? Count;             // 目標題數
+    int QuestionTypeId;     // DB 題型 Id
+    byte Granularity;       // 0=母題/整題, 1=子題
+    byte? Level;            // LCT 1~5；CWT null
+    string Unit;            // Key 結尾 "Group" → "組"；否則 "題"
+}
+```
 
-## 配額引擎（HandleAutoDistribute）
+CWT 6 欄：一般(1,0,null)、閱讀母(3,0,null)、閱讀子(3,1,null)、長文(4,0,null)、短文母(5,0,null)、短文子(5,1,null)
+LCT 6 欄：難度一~五(6,0,1~5) + 聽力題組(7,0,null)
 
-整除 + 餘數依序補給前幾位教師：
+## 配額引擎（HandleAutoDistribute，行 1596 附近）
+
 ```csharp
 baseQuota = target / count;
 remainder = target % count;
@@ -52,9 +62,9 @@ remainder = target % count;
 allocationTeachers[t].Quotas[q] = baseQuota + (t < remainder ? 1 : 0);
 ```
 
-驗證：GetValidationMessage() 比對每種題型 Sum(Quotas) == Target（綠=正確，橘=不符）。
+驗證（GetValidationMessage，行 1619）：比對每種題型 Sum(Quotas) == Target（綠=正確，橘=不符）。
 
-## 命題階段結束後鎖定防呆（Service 端 + Razor 端雙重）
+## 命題階段結束後鎖定（雙重防呆）
 
 ### Razor 端（UI 鎖定）
 條件：`isEditMode && stages[1].End < DateTime.Today`（stages[1] = PhaseCode=2 命題階段）
@@ -62,37 +72,37 @@ allocationTeachers[t].Quotas[q] = baseQuota + (t < remainder ? 1 : 0);
 - 人員 checkbox 全 disabled、附加身份 +/- 禁用
 - 配額 input 全 disabled、平均分配按鈕 disabled
 
-### Service 端（後端防呆）
-`EnsureCompositionPhaseLockRespected`：比對 TargetCount 和 Quota 不可變更，不符拋 InvalidOperationException。
-`EnsureNoNewPropositionTeacherAsync`：不可新增「命題教師」身份，但允許移除。
+### Service 端（後端防呆，ProjectService.cs）
+`EnsureCompositionPhaseLockRespected`（行 1710）：Targets + Quotas 不可改，比對鍵 `(QuestionTypeId, Granularity, Level)` 三元組（確保 CWT 母/子題、LCT 五個難度不互蓋）。
+`EnsureNoNewPropositionTeacherAsync`（行 1756）：不可新增「命題教師」身份，但允許移除。
 
-## DB 寫入策略（ReplaceProjectChildRecordsAsync）
+## DB 寫入策略（ReplaceProjectChildRecordsAsync，行 964）
 
 **新增模式**：`shouldClearExisting=false`，直接 INSERT。
-**編輯模式**：`shouldClearExisting=true`，先 DELETE 全部子記錄（MemberQuotas → ProjectMemberRoles → ProjectMembers → ProjectTargets → ProjectPhases），再 INSERT。
+**編輯模式**：`shouldClearExisting=true`，先串聯 5 段 DELETE（MemberQuotas→ProjectMemberRoles→ProjectMembers→ProjectTargets→ProjectPhases），再批次 INSERT。
 
-**技術債（第三波 #12，仍未完成）**：
-目前用 foreach 逐筆 INSERT；成員多時（20人 × 7題型配額 = 最多 20+140 次 INSERT）在 Serializable tx 內有鎖爭用風險。建議改 TVP 或多值 VALUES 批次。
+### 批次 INSERT 結構（第三波 #12，2026-05-26 已完成）
 
-## MemberDetailDto.HasDownloadableCerts（新欄位，2026-05-17 確認）
+| 步驟 | 方法 | 特點 |
+|------|------|------|
+| Phases | 行 999，StringBuilder | 8 列單一 INSERT |
+| Targets | 行 1019，StringBuilder | TargetCount=0 自動過濾 |
+| Members | `BulkInsertMembersAsync`（行 1057） | OUTPUT INSERTED.Id, UserId 取回映射 |
+| Roles | `BulkInsertMemberRolesAsync`（行 1080） | 跨成員合併為單一 INSERT |
+| Quotas | `BulkInsertMemberQuotasAsync`（行 1110） | QuotaCount=0 過濾、跨成員合併 |
 
-GetProjectDetailAsync 取完成員清單後，批次呼叫 `_appointmentSvc.GetDownloadableUserIdsInProjectAsync(projectId)`，填入每位成員的聘書可下載標記，供右側詳情區的「下載聘書」按鈕條件渲染。
+private sealed record MemberInsertRow(int Id, int UserId)（行 1140），接 OUTPUT 結果。
 
-## DB Level 欄位（2026-05-22 更新：LCT 已完整支援）
+SQL Server 單一指令參數上限 2100，典型梯次遠低於此（行 1043 有說明）。
 
-`MT_ProjectTargets.Level TINYINT NULL` 與 `MT_MemberQuotas.Level TINYINT NULL` 已在 CWT/LCT 雙模式中完整使用：
-- `ProjectTargetDto.Level (byte?)` 與 `ProjectMemberQuotaDto.Level (byte?)` 均已有此欄位
-- LCT 模式下 `BuildLctQuestionTypes()` 產生 5 個 QuestionTypeTarget，各帶 Level=1~5
-- `ReplaceProjectChildRecordsAsync` INSERT SQL 已帶入 `Level` 欄位
-- CWT 模式 Level 一律為 null（不按等級細分）
-- `ApplyProjectEditData` 以 `(QuestionTypeId, Granularity, Level)` 三元組比對回填配額
+## IAppointmentService 業務鍵設計
 
-**How to apply**: Level 欄位已為生產功能（LCT），非未來功能。若 CWT 未來要按等級細分配額，需新增額外欄位，避免與現有 LCT Level 語意衝突。
+`SyncCertificatesAsync` 使用 **(UserId, ProjectId, RoleId)** 複合鍵，不用 `ProjectMemberId`。
 
-## IAppointmentService 業務鍵設計（2026-05-20 補充）
+Why：`ReplaceProjectChildRecordsAsync` 編輯模式每次會全刪重建 MT_ProjectMembers，ProjectMemberId 每次編輯後都換號。若 Appointment 掛 FK 到 ProjectMemberId 則聘書成孤兒記錄。改用業務複合鍵可跨越刪/建找回對應聘書。
 
-`SyncCertificatesAsync` 與整個 AppointmentService 使用 **(UserId, ProjectId, RoleId)** 作為業務鍵，刻意不使用 `MT_ProjectMembers.Id` 作為外鍵。
+How to apply：修改 ReplaceProjectChildRecords 邏輯時，不得改變 MT_ProjectMembers 的全刪重建語意，否則 AppointmentService 業務鍵查詢將出錯。
 
-**Why**: `ReplaceProjectChildRecordsAsync` 在編輯模式下會 DELETE 再 INSERT 全部子記錄，MT_ProjectMembers 的 `Id` 每次編輯都會換號，若 Appointment 掛 FK 到 ProjectMemberId 則每次編輯後聘書全部成為孤兒記錄。改用業務複合鍵可跨越 DELETE/INSERT 找回對應聘書。
+## MemberDetailDto.HasDownloadableCerts（行 319）
 
-**How to apply**: 修改 ReplaceProjectChildRecords 邏輯時，不得改變 MT_ProjectMembers 的刪除語意（全刪重插），否則 AppointmentService 的業務鍵查詢將出錯。
+GetProjectDetailAsync 取完成員清單後，批次查 `_appointmentSvc.GetDownloadableUserIdsInProjectAsync(projectId)` 填入每位成員的聘書可下載標記，供右側詳情區「下載聘書」按鈕條件渲染。

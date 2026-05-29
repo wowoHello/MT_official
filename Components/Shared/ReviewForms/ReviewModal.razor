@@ -780,14 +780,32 @@
         await PushHighlightsToJsAsync();
     }
 
-    private string LevelLabel => data?.Question switch
+    /// <summary>
+    /// 頂部「等級」徽章標籤。
+    /// 聽力題組（ListenGroup）母題 Level 固定為 NULL，子題各自帶 FixedDifficulty（題1=3、題2=4），
+    /// 因此子題視角必須改從 ListenGroupSubQuestions[currentSubId].FixedDifficulty 取等級，
+    /// 否則頂部 Header 會少一個「難度四」之類的徽章。
+    /// </summary>
+    private string LevelLabel
     {
-        null => "",
-        var q when q.Level is null => "",
-        var q => q.QuestionType is QuestionTypeCodes.Listen or QuestionTypeCodes.ListenGroup
-                    ? QuestionConstants.ListenLevelLabels.GetValueOrDefault(q.Level!.Value, "")
-                    : QuestionConstants.GeneralLevelLabels.GetValueOrDefault(q.Level!.Value, "")
-    };
+        get
+        {
+            if (data?.Question is null) return "";
+            var q = data.Question;
+
+            if (q.QuestionType == QuestionTypeCodes.ListenGroup && currentSubId is int subId)
+            {
+                var sub = q.ListenGroupSubQuestions.FirstOrDefault(s => s.Id == subId);
+                if (sub is not null)
+                    return QuestionConstants.ListenLevelLabels.GetValueOrDefault(sub.FixedDifficulty, "");
+            }
+
+            if (q.Level is null) return "";
+            return q.QuestionType is QuestionTypeCodes.Listen or QuestionTypeCodes.ListenGroup
+                ? QuestionConstants.ListenLevelLabels.GetValueOrDefault(q.Level.Value, "")
+                : QuestionConstants.GeneralLevelLabels.GetValueOrDefault(q.Level.Value, "");
+        }
+    }
 
     private string DifficultyLabel => data?.Question?.Difficulty is null
         ? ""

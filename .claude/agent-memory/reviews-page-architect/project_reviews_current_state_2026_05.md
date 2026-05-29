@@ -1,19 +1,37 @@
 ---
 name: 審題頁面現況快照（2026-05）
-description: Reviews.razor / ReviewService / ReviewModels 於 2026-05-25 的實作現況摘要，含狀態流轉、三審制度、迴避邏輯、效能優化歷史
+description: Reviews.razor / ReviewService / ReviewModels 的實作現況摘要，含狀態流轉、三審制度、迴避規則、效能優化歷史。最後對照程式碼全面校正於 2026-05-29。
 type: project
 ---
 
-## 現況摘要（最後更新：2026-05-25）
+## 現況摘要（最後更新：2026-05-29 全面校正）
 
-### 三審制度現況實作（正確落地）
-- **互審（ReviewStage.Mutual=1）**：PhaseCode=3；分配排除命題者自身；ReviewDecisionBar 只顯示「儲存意見」/「修改意見」，無採用/退回鈕
-- **專審（ReviewStage.Expert=2）**：PhaseCode=5；有 Approve / Revise，無 Reject；迴避邏輯在 QuestionService.AssignExpertReviewers
-- **總審（ReviewStage.Final=3）**：PhaseCode=7；完整三選項（採用/改後採用/不採用）；退回上限由 MT_ReviewReturnCounts 追蹤
+### 三檔行數（wc -l 實際量測）
+- `ReviewService.cs`：1702 行
+- `Reviews.razor`：1347 行
+- `ReviewModels.cs`：327 行
 
-### QuestionStatus 完整編碼（v3.0 重編後，SentBack 已廢用）
+---
+
+### 三審制度現況實作
+
+| 階段 | PhaseCode | ReviewStage enum | 可用決策 | 限制 |
+|------|-----------|-----------------|---------|------|
+| 互審 | 3 | Mutual=1 | 只能「儲存意見」（SaveCommentDraftAsync） | 無 Approve/Revise/Reject 按鈕 |
+| 專審 | 5 | Expert=2 | Approve / Revise | 無 Reject；`SubmitDecisionAsync` step 3 throw InvalidOperationException |
+| 總審 | 7/8 | Final=3 | Approve / Revise / Reject | ReturnCount ≥3 解鎖 CanFinalReviewerEdit；第 4 次送審 Reject 強制 Rejected(10) |
+
+三審迴避邏輯落地位置（ReviewService 本身不做分配）：
+- **互審迴避**：`QuestionService.EnsureCompositionPhaseClosedAsync`（排除命題者）
+- **專審迴避**：`QuestionService.AssignExpertReviewers`（stage1Pairs 排除自己互審過的題）
+- **總審迴避**：`QuestionService.AssignFinalReviewers`（排除專審已審過的題）
+
+---
+
+### QuestionStatus 完整編碼（v3.0，SentBack 已廢用）
+
 | Status | 常數名 | 說明 |
-|--------|-------|------|
+|--------|--------|------|
 | 0 | Draft | 命題草稿 |
 | 1 | Completed | 命題完成 |
 | 2 | Submitted | 命題送審 |
@@ -25,182 +43,246 @@ type: project
 | 8 | FinalEditing | 總審修題中 |
 | 9 | Adopted | 採用 |
 | 10 | Rejected | 不採用 |
-| 11 | ClosedNotAdopted | 結案未採用（原12，前移） |
-| 12 | Archived | 結案入庫（原13，前移） |
+| 11 | ClosedNotAdopted | 結案未採用（原12，前移）|
+| 12 | Archived | 結案入庫（原13，前移）|
 
-- `HistoryTabStatuses = [9, 10, 11, 12]` — 審核結果與歷史 Tab 的篩選範圍
+`HistoryTabStatuses = [9, 10, 11, 12]` — 審核結果與歷史 Tab 的篩選範圍（ReviewService.GetHistoryAsync SQL IN 條件與 FilteredHistory LINQ 皆用此）
 
-### IsHistorical 判斷方式（從 Service 端計算，UI 端直接讀取）
-PhaseCode → Stage 對照（在 GetMyAssignmentsAsync 中設值）：
-- PhaseCode=3（互審）/ 4（互修）→ Mutual 為 active；其餘 Historical
-- PhaseCode=5（專審）/ 6（專修）→ Expert 為 active
-- PhaseCode=7（總審）/ 8（總修）→ Final 為 active（PhaseCode=8 時 Final 也是 active，舊版 bug 已修）
-- 其他 PhaseCode → 全部保守顯示（false）
+---
 
-### MT_ReviewReturnCounts 退回次數邏輯
-- ReturnCount >= 2：Modal 頂部顯示「已退回 2 次」紅色預警徽章
-- BumpReturnCount 後 ReturnCount+1 >= 3 → CanEditByReviewer=1 → 解鎖「編輯題目」橘鈕
-- 母題與子題各自獨立計次（SubQuestionId NULL-safe 比對）
+### IsHistorical 計算方式（GetMyAssignmentsAsync C# 端 switch，行 234-243）
 
-### 三檔行數量級（2026-05-25 量測）
-- `ReviewService.cs`：1702 行（含 10 個 private sealed DTO：AssignmentListRow / HistoryListRow / AssignmentDto / HistoryUnionRow / SimilarityRow / SiblingUnitRow / ReturnCountDto / AssignmentMetaDto / FinalEditAssignMeta / AssignmentMetaForSave）
-- `Reviews.razor`：1344 行（+12 行；自然增長，無大型功能新增）
-- `ReviewModels.cs`：327 行（無變動）
-- `Components/Shared/ReviewForms/`：6 個元件（ReviewModal / ReviewActionPanel / ReviewDecisionBar / ReviewQuestionDisplay / ReviewHistoryTimeline / ReviewSimilarityBanner）
-- `Components/Shared/RevisionForms/`：3 個元件（RevisionReferencePanel / RevisionSlideOver / RevisionReplyEditor）
+```csharp
+phaseCode switch
+{
+    3 => stage != ReviewStage.Mutual,   // 互審 active
+    4 => stage != ReviewStage.Mutual,   // 互修：Mutual 行仍 active（老師查看意見）
+    5 => stage != ReviewStage.Expert,   // 專審 active
+    6 => stage != ReviewStage.Expert,   // 專修：Expert 行仍 active
+    7 => stage != ReviewStage.Final,    // 總審 active
+    8 => stage != ReviewStage.Final,    // 總修：Final 行仍 active（PhaseCode=8 bug 已修）
+    _ => false                          // 其他：保守全顯示
+}
+```
 
-### ReviewService 關鍵方法（現況）
-- `GetMyAssignmentsAsync`：ROW_NUMBER CTE 去重同單元多筆，排除 Status IN (9,10,11,12)
-- `GetHistoryAsync`：篩 Status IN HistoryTabStatuses，歷史 Tab 專用
-- `GetModalDataAsync`：**第三波 #14 改寫後**，原 9 round-trip → QueryMultipleAsync 7 result-sets，總計 3-5 round-trip（GetByIdAsync 自帶 2-4 + 主連線 1）
-- `GetHistoryByQuestionIdAsync`：供 OverviewService 使用，aggregateAllUnits=false 精準模式
-- `LoadHistoryAsync`（private）：供 OverviewService 彙整模式（aggregateAllUnits=true，含 UnitInfo CTE）
-- `SubmitDecisionAsync`：寫入 Assignment + 觸發 BumpReturnCount；題目 Status 流轉在本方法內（非 PhaseTransitionCoordinator）
-- `FinalReviewerEditAndDecideAsync`（Plan_021）：單 tx 內 UPDATE 題目+Status(9/10)+Assignment+2筆 AuditLog
-- `SaveCommentDraftAsync`：互審只寫 Comment + ReviewStatus=Completed；非互審只寫 Comment（Decision IS NULL guard）
+---
 
-### 重要語意修正（2026-05-19 批次改動）
+### ReviewService 公開方法清單
 
-#### `DecidedAt IS NOT NULL` 取代 `Comment IS NOT NULL` 作為「已決策」判定
-- **舊語意**：`Comment IS NOT NULL` 判斷審題者是否已給意見，但 Comment 是可重複編輯的草稿欄位，不代表已送出決策
-- **新語意**：`DecidedAt IS NOT NULL` 才是真正送出決策的時間戳，草稿狀態 DecidedAt = NULL
-- 影響位置：GetMyAssignmentsAsync（行 401）/ LoadHistoryAsync（行 1369）/ GetHistoryAsync 內多處
-- `#4 history inline SQL` 的 WHERE 條件亦已統一為 `AND ra.DecidedAt IS NOT NULL`（含精準模式與彙整模式）
+| 方法 | 說明 |
+|------|------|
+| `GetMyAssignmentsAsync(projectId, reviewerUserId)` | ROW_NUMBER CTE 去重，排除 Status IN (9,10,11,12)；2 條 SQL 順序執行（無 MARS）；回傳 ReviewAssignmentListResult(Items, CurrentStage) |
+| `GetHistoryAsync(projectId)` | UNION ALL 兩段（母題 + 子題），IN HistoryTabStatuses；子題不檢查 q.Status |
+| `GetModalDataAsync(questionId, subQuestionId, currentUserId)` | 第三波 #14：QueryMultipleAsync 7 result-sets；先調 QuestionService.GetByIdAsync（獨立連線） |
+| `GetHistoryByQuestionIdAsync(questionId, subQuestionId)` | 複用 LoadHistoryAsync(aggregateAllUnits=false)；供 OverviewService 精準模式 |
+| `SaveCommentDraftAsync(req, operatorUserId)` | 互審：設 DecidedAt + ReviewStatus=Completed + 寫 AuditLog；非互審：只更新 Comment（guard: Decision IS NULL）|
+| `SubmitDecisionAsync(req, operatorUserId)` | 8 步驟 tx：驗證→規則檢查→寫 Assignment→查 PhaseCode→MapDecisionToQuestionStatus→寫 Status→BumpReturnCount→寫 AuditLog |
+| `FinalReviewerEditAndDecideAsync(req, operatorUserId)` | Plan_021 單 tx：驗證→讀舊 Status→UPDATE 題目所有欄位→UPDATE Status(9/10)→UpsertFinalSubQuestionsAsync→UPDATE Assignment→2 筆 AuditLog |
 
-#### SummaryHtml CASE 語句加入 TypeId=4（長文題目）fallback
-全站 SummaryHtml 計算邏輯（GetMyAssignmentsAsync / GetHistoryAsync / LoadHistoryAsync / GetModalDataAsync similar）統一為：
+---
+
+### GetModalDataAsync 7 個 result-set（行 361-478，megaSql）
+
+```
+#1 lastEdit   — AuditLogs 最後真實編輯時間（UserId NOT NULL / Action IN 0,1 / 排除 SystemAutoAuditReasons）
+#2 creator    — q.CreatorId → MT_Users.DisplayName
+#3 myAssignment — TOP 1 ORDER BY ReviewStage DESC, Id DESC，NULL-safe SubQuestionId 比對
+#4 history    — ReviewAssignments UNION ALL RevisionReplies，DecidedAt IS NOT NULL，精準模式
+#5 similar    — MT_SimilarityChecks JOIN MT_Questions，ORDER BY SimilarityScore DESC
+#6 returnCount — MT_ReviewReturnCounts，TOP 1 ORDER BY Id DESC，NULL-safe SubQuestionId
+#7 siblings   — Stage 由 inner subquery 自動推導（無 Assignment 時回 0 列）
+```
+
+`question.UpdatedAt` 以 #1 結果覆寫（fallback: question.CreatedAt）
+
+---
+
+### MapDecisionToQuestionStatus（私有靜態，行 900-919）
+
+| PhaseCode | Decision | 新 Status |
+|-----------|----------|-----------|
+| 7 | Approve | 9（Adopted）|
+| 7 | Revise/Reject | null（Buffer，PhaseCode=8 開始時批次分流）|
+| 8 | Approve | 9（Adopted）|
+| 8 | Revise | 8（FinalEditing）|
+| 8 | Reject | null（Caller 依 ReturnCount 判定 8 或 10）|
+
+第 4 次送審強制決策（SubmitDecisionAsync 行 765-787）：
+PhaseCode=8 + Final + Reject + existingReturnCount >= 3 → newUnitStatus = Rejected(10)，跳過 BumpReturnCount
+
+---
+
+### BumpReturnCountAsync（私有靜態，行 933-956）
+
+MERGE HOLDLOCK，NULL-safe 比對 (QuestionId, SubQuestionId)。ReturnCount+1 >= 3 時 CanEditByReviewer=1。
+觸發條件：`!isResubmit && Stage==Final && (Revise||Reject) && newUnitStatus != Rejected`
+
+---
+
+### Stage B-4 子題獨立決策機制
+
+- `GetMyAssignmentsAsync` SQL（行 139-145）：母題列依 q.Status，子題列依 sq.Status，各自獨立判斷是否排除
+- `SubmitDecisionAsync`（行 793-823）：母題 → MT_Questions.Status；子題 → MT_SubQuestions.Status + 條件寫 DecidedAt
+- `FinalReviewerEditAndDecideAsync`（行 1099-1116）：同上路由
+- `BumpReturnCountAsync`：按單元（QuestionId + SubQuestionId）各自計次
+- 母題 Reject 不再級聯子題（已移除）；結案時依母題狀態做最終處置
+
+---
+
+### UpsertFinalSubQuestionsAsync（私有靜態，行 1222-1323）
+
+N+1 模式（SELECT existingIds + foreach UPDATE）。三種題型分支：
+- ReadGroup：更新 Stem/CorrectAnswer/OptionA-D/Analysis
+- ShortGroup：更新 Stem/Analysis（無 CorrectAnswer）
+- ListenGroup：更新 Stem/CorrectAnswer/OptionA-D/Analysis
+
+---
+
+### SystemAutoAuditReasons 排除清單（12 個，行 85-99）
+
+CompositionPhaseEnded / PeerReviewingPhaseStart / PeerEditingPhaseStart / ExpertReviewingPhaseStart / ExpertEditingPhaseStart / FinalReviewingPhaseStart / FinalEditingPhaseStart / ExpertReviewAssigned / FinalReviewAssigned / ExpertReviewerPoolEmpty / FinalReviewerPoolEmpty / FinalReviewerPoolUnderQuota
+
+保留顯示的 Reason：`Revision`（老師修題）/ `FinalEditingResubmit`（老師修題後送審）
+
+---
+
+### LoadHistoryAsync（私有靜態，行 1340-1445）
+
+兩模式：
+- `aggregateAllUnits=false`（精準）：ISNULL(-1) NULL-safe 過濾單一單元；GetHistoryByQuestionIdAsync / GetModalDataAsync #4 inline 精準 SQL 用此模式
+- `aggregateAllUnits=true`（彙整）：UnitInfo CTE，LEFT JOIN 組 UnitDisplayCode；OverviewService 管理員視角用此模式
+
+兩個資料源（Kind=1/2 UNION ALL）：MT_ReviewAssignments / MT_RevisionReplies；DecidedAt IS NOT NULL 判定已完成。
+
+---
+
+### ApplyFinalReturnSequence（私有靜態，行 1458-1478）
+
+對總審 Revise/Reject 意見依時間升冪加序號：「總審第一次退回」...「總審第三次退回」。
+idx >= 4 且 Reject → 標「總審最終不採用」。
+
+---
+
+### ReviewModels.cs 公開型別清單（327 行）
+
+**Enum（3 個）**
+- `ReviewStage`：Mutual=1 / Expert=2 / Final=3
+- `ReviewTaskStatus`：Pending=0 / Reviewing=1 / Completed=2
+- `ReviewDecision`：Approve=1 / Revise=2 / Reject=3
+- `ReviewHistoryKind`：QuestionEvent=1 / ReviewComment=2 / RevisionReply=3
+
+**DTO（9 個）**
+- `ReviewModalData`：Question / CreatorName / MyAssignment / History / SimilarQuestions / FinalReturnCount / CanFinalReviewerEdit / SiblingUnits
+- `ReviewSiblingUnit`：AssignmentId / SubQuestionId / SortOrder / Stage / Status / Decision
+- `ReviewAssignmentInfo`：Id / SubQuestionId / Stage / Status / Decision / Comment / DecidedAt / CreatedAt；`IsDecided` / `IsCompleted` computed props
+- `ReviewHistoryEntry`：Kind / At / ActorName / Label / ContentHtml / UnitDisplayCode
+- `ReviewSimilarityEntry`：ComparedQuestionId / ComparedQuestionCode / SimilarityScore / Determination / SummaryText
+- `ReviewListItem`：AssignmentId / QuestionId / QuestionCode / SubQuestionId / SubSortOrder / TypeKey / Level / Difficulty / FixedDifficulty / SummaryText / Stage / Decision / Status / UnitStatus / LastEditedAt / FinalReturnCount / CanFinalReviewerEdit / IsHistorical；`DisplayCode` / `IsCompleted` computed
+- `ReviewAssignmentListResult`：sealed record(Items, CurrentStage)
+- `ReviewHistoryItem`：QuestionId / QuestionCode / SubQuestionId / SubSortOrder / TypeKey / Level / Difficulty / FixedDifficulty / SummaryText / FinalStatus / FinalDecidedAt；`DisplayCode` computed
+- `SaveReviewCommentRequest` / `SubmitReviewDecisionRequest` / `FinalReviewerEditRequest`（3 個請求 DTO）
+
+**ReviewService 私有 DTO（8 個 sealed class，行 1584-1701）**
+FinalEditAssignMeta / AssignmentListRow / HistoryListRow / AssignmentDto / HistoryUnionRow / SimilarityRow / SiblingUnitRow / ReturnCountDto / AssignmentMetaDto（實際 9 個，含 AssignmentMetaForSave）
+
+---
+
+### Reviews.razor 頁面狀態管理（@code 行 812-1347）
+
+**CascadingParameter**
+- `CurrentProject`（ProjectSwitcherItem）— 切換 trigger
+- `AuthState`（Task<AuthenticationState>）
+
+**關鍵狀態欄位**
+- `currentTab`：review / history
+- `loadedProjectId`：guard 防 OnParametersSetAsync 重複觸發（Decision/Save 後呼叫 ReloadAsync = 直接 LoadProjectAsync）
+- `currentUserId`：第一次載入時從 AuthState 取出，後續不再重算
+- `currentPhase`（ProjectPhaseInfo）/ `phases`（List<ProjectPhaseInfo>）— LoadPhasesAsync 填入
+- `IsCompositionPhase`：`currentPhase?.PhaseCode == 2`（命題階段顯示等待畫面）
+- `CurrentReviewStage`：PhaseCode→3/5/7 各對應 Mutual/Expert/Final，其他 null
+- `assignments`（List<ReviewListItem>）/ `historyItems`（List<ReviewHistoryItem>）— LoadProjectAsync 內 Task.WhenAll 並行載入
+- `cachedAssignments` / `cachedHistory`：篩選快取（InvalidateFilter 後下次存取重算）
+
+**Plan_021 FinalEdit Modal 狀態欄位**
+- `showFinalEditModal` / `finalEditFormData`（QuestionFormData）/ `finalEditAssignmentId`
+- `finalEditSidebarCollapsed` / `isFinalEditSaving` / `finalEditPendingAction`（"approve"/"reject"）
+- `finalEditInvalidFields`（HashSet<string>）
+
+**背景 PhaseCoordinator 模式**
+`RunPhaseCoordinatorBackgroundAsync`：fire-and-forget，完成後 InvokeAsync 切回 UI thread reload 兩個列表。失敗 LogWarning 吞掉，不影響使用者。
+
+**FilteredAssignments 篩選邏輯（行 1259-1273）**
+預設 `queryStatus="all"` 時：`CurrentReviewStage is null || !a.IsHistorical`（排除歷史紀錄）。
+歷史紀錄需切「歷史紀錄」選項才顯示（Plan_013 §3.4）。
+
+---
+
+### 審題作業區列表操作按鈕邏輯（行 483-505）
+
+```
+historical      → 「檢視」灰
+!IsCompleted    → 「審題」sage 綠
+isEditUnlocked  → 「編輯題目」terracotta 橘
+else            → 「檢視」灰
+```
+
+`isEditUnlocked` 條件（行 490-493）：
+`item.CanFinalReviewerEdit && item.Stage == ReviewStage.Final && item.IsCompleted && item.UnitStatus == QuestionStatus.FinalReviewing`
+（UnitStatus=7 守門，避免總召修題中 UnitStatus=8 時再度編輯）
+
+---
+
+### 列表狀態 pill 對照（行 452-473）
+
+| 條件 | 文字 | CSS |
+|------|------|-----|
+| IsHistorical | 歷史紀錄 | gray |
+| Completed + Mutual | 已審閱 | morandi |
+| Completed + Approve | 已審：採用 | sage |
+| Completed + Revise + PhaseCode=8 | 已退回 | terracotta |
+| Completed + Reject + PhaseCode=8 | 已退回 | terracotta |
+| Completed + Revise | 已審：改後採用 | terracotta |
+| Completed + Reject | 已審：不採用 | red-700 |
+| Pending | 待審 | amber |
+
+---
+
+### Shared 元件清單
+
+`Components/Shared/ReviewForms/`（6 個）：
+- ReviewModal / ReviewActionPanel / ReviewDecisionBar / ReviewQuestionDisplay / ReviewHistoryTimeline / ReviewSimilarityBanner
+
+`Components/Shared/RevisionForms/`（3 個）：
+- RevisionReferencePanel / RevisionSlideOver / RevisionReplyEditor
+
+---
+
+### SummaryHtml CASE 語句（全站統一）
+
 ```sql
 CASE
-    WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent          -- 題組母題
-    WHEN q.QuestionTypeId = 4          THEN COALESCE(NULLIF(q.Stem, ''), q.ArticleContent)  -- 長文題：Stem 優先 fallback ArticleContent
+    WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent
+    WHEN q.QuestionTypeId = 4          THEN COALESCE(NULLIF(q.Stem, ''), q.ArticleContent)
     ELSE q.Stem
 END
 ```
-共 4 處已對齊（行 158, 269, 427, 1499）。
 
-#### 互審匿名標籤統一
-- `RevisionReferencePanel.razor`（修題端）使用 `AnnotationActorLabel.Anonymize((ReviewStage)r.Stage)`
-- 互審階段匿名顯示「命題教師」而非「審題委員」
-- 審題端（ReviewActionPanel）的劃記列表不顯示身份標籤（自己看自己，位置由左側高亮表達）
+ReviewService 4 處對齊：GetMyAssignmentsAsync / GetHistoryAsync / LoadHistoryAsync（彙整）/ GetModalDataAsync（#5 similar）
 
-#### 總召代修鎖定題型
-- `Reviews.razor`（行 655）`FinalReviewerEditAndDecideAsync` 開啟的編輯面板傳入 `LockQuestionType="true"`
-- `RevisionSlideOver.razor`（行 163）同樣傳入 `LockQuestionType="true"`
-- `QuestionAttributesSidebar` 的題型 `<select>` 在 `LockQuestionType=true` 時 `disabled`，tooltip 顯示「修題階段不可變更題型」
+---
 
-### 效能優化歷史（影響 ReviewService 的部分）
+### CWT / LCT 雙模式對 Reviews 影響
 
-#### 第二波 #6 — `vw_QuestionRoundStartedAt` View（2026-05-15）
-原本「上次總審退回時間 MAX」的 correlated subquery 在全站 13 處複製；ReviewService 本身為 1 處單元級保留（行 2062 附近，含 SubQuestionId NULL-safe 比對，view 涵蓋不到）。
-**顯著消費點在 QuestionService / DashboardService / OverviewService / HomeService**，ReviewService 的消費點保留使用原始 scalar subquery 因有子題 SubQuestionId 比對的特殊需求。
+Reviews.razor 和 ReviewService.cs **無任何 ProjectType / LCT / CWT 分支**，三審制度/迴避/ReturnCount 完全共用。
+唯一差異：等級 label 篩選下拉（行 244-253）：`CurrentProject?.ProjectType == ProjectType.Lct ? ListenLevelLabels : GeneralLevelLabels`
 
-#### 第二波 #9 — LoadHistoryAsync bug 修補（2026-05-15）
-施工 QuestionService.ListAsync CTE 重寫時，實測觸發 `SqlException: 無效的資料行名稱 'QuestionId'`。
-**根本原因**：`ReviewService.cs:1209-1210` LoadHistoryAsync 的 UnitInfo CTE 寫 `sq.QuestionId`，但 MT_SubQuestions 正確欄位名是 `ParentQuestionId`。
-**觸發路徑**：Overview 頁詳情視角（aggregateAllUnits=true），命題任務頁不會觸發。
-**修補**：2 處 `sq.QuestionId` → `sq.ParentQuestionId`。
-此 bug 與 #9 改動無關，是既有 bug 因實測暴露。
+---
 
-#### 第三波 #14 — GetModalDataAsync QueryMultipleAsync 重寫（2026-05-15）
-- 改寫前：GetByIdAsync（2-4）+ 7 個獨立 SELECT = 最多 11 round-trip
-- 改寫後：GetByIdAsync（2-4）+ 單一 QueryMultipleAsync（7 result-sets）= 3-5 round-trip
-- 7 個 result-set：#1 lastEdit / #2 creator / #3 myAssignment / #4 history（精準模式 inline SQL）/ #5 similar / #6 returnCount / #7 siblings（Stage 內嵌 subquery，無 Assignment 時自然 0 列）
-- siblings Stage 自帶 subquery：不需先讀 myAssignment 知道 Stage，內嵌 `WHERE ra.ReviewStage = (SELECT TOP 1 ReviewStage FROM ... WHERE ReviewerId = @ReviewerId)`
-- LoadHistoryAsync / LoadSimilaritiesAsync 兩個 helper **保留**，供 OverviewService 彙整模式使用
+### 效能改善歷史
 
-#### 未處理（待第四波評估）
-- `UpsertFinalSubQuestionsAsync`：N+1 模式（SELECT existingIds + foreach UPDATE），觸發頻率低（僅總召代修子題路徑）+ 子題數量通常 2-5 個，ROI 偏低暫不動
-- 罐頭訊息：目前 8 則寫死在 ReviewActionPanel.razor，第四波計畫新增 `MT_CannedComments` 資料表讓管理員可編輯
+- **第三波 #14（2026-05-15）**：GetModalDataAsync 9 round-trip → QueryMultipleAsync 7 result-sets = 3-5 round-trip
+- **第二波 #9 bug 修補（2026-05-15）**：LoadHistoryAsync UnitInfo CTE `sq.QuestionId` → `sq.ParentQuestionId`（2 處）
+- **UpsertFinalSubQuestionsAsync**：SELECT existingIds + foreach UPDATE（N+1），子題數通常 2-5 個
 
-### SystemAutoAuditReasons 排除清單（12 個）
-系統批次寫入的 Reason 字串（UserId=NULL），從 ReviewHistoryTimeline 與「最後編輯時間」計算中排除，避免污染歷程顯示。
-例：CompositionPhaseEnded / ExpertReviewAssigned / FinalReviewAssigned 等。
-
-### ReviewDecisionBar 五種配置
-1. **互審**：[儲存意見] / [修改意見]（無決策按鈕）
-2. **專審**：[儲存草稿] + [改後採用] + [採用]（無 Reject）
-3. **總審**：[儲存草稿] + [改後採用] + [不採用] + [採用]
-4. **總召第 3 次（CanFinalReviewerEdit）**：[儲存草稿] + [編輯題目] + [不採用] + [採用]
-5. **IsHistorical / 已決策**：唯讀提示列 + 關閉按鈕
-
-### 聽力題組等級/難度顯示（commit 1b815f6 新增）
-- 審題作業區列表：ListenGroup 子題用 FixedDifficulty 取 ListenLevelLabels（難度三/難度四）；母題顯示「—」
-- 歷史 Tab：一律以 QuestionId 一列呈現，ListenGroup 無等級無難度顯示 em dash
-- 規則：TypeKey != ListenGroup 才套用 Difficulty pill
-
-### Reviews.razor OnInitializedAsync 優化（commit 1b815f6）
-- 載入階段改全並行：phasesTask + assignmentsTask + historyTask + memberTask 同時 await Task.WhenAll
-- PhaseCoordinator 背景執行（可能耗時 5~10 秒），完成後 InvokeAsync 刷新列表
-
-### 兩個 Tab 現況
-- **審題作業區**：inline 摘要 bar（本區題目/待處理/已審題/歷史紀錄）；PhaseCode=2 隱藏改顯示等待提示
-- **審核結果與歷史**：3 張統計卡片（全部/採用/不採用）+ 以 QuestionId 一列顯示（不拆子題）
-
-### 三審迴避邏輯落地位置
-- **互審迴避**：QuestionService.EnsureCompositionPhaseClosedAsync（分配時排除命題者）
-- **專審迴避**：QuestionService.AssignExpertReviewers（排除自己命的題）
-- **總審迴避**：QuestionService.AssignFinalReviewers（排除專審已審過的題，給其他總召）
-- ReviewService 本身不做分配，只做列表查詢與決策寫入
-
-### SiblingUnits 兄弟單元機制
-- 題組類（TypeId IN 3,5,7）開啟 Modal 時，GetModalDataAsync 撈同題同 Stage 同 Reviewer 的所有子題
-- 用於母題列顯示「子題索引卡」狀態（完成/待審）
-- 非題組或無 Assignment 時，SiblingUnits 為空 List
-
-### Stage B-4 子題獨立決策機制（現況已落地）
-- `GetMyAssignmentsAsync` SQL：`AND (SubQuestionId IS NULL AND q.Status NOT IN (9,10,11,12) OR SubQuestionId IS NOT NULL AND sq.Status NOT IN (9,10,11,12))` — 母題與子題用各自 Status 篩除最終態
-- `GetHistoryAsync` SQL：UNION ALL 兩段（母題段 + 子題段），子題段不檢查 q.Status，母題採用後已決策子題仍獨立呈現
-- `SubmitDecisionAsync`：母題單元 → 更新 MT_Questions.Status；子題單元 → 更新 MT_SubQuestions.Status（Adopted/Rejected/Archived 同時寫 DecidedAt）
-- `ReviewListItem.UnitStatus`：Service 端計算，母題取 q.Status、子題取 sq.Status，UI 守門用（例如「編輯題目」鈕僅在 UnitStatus=7 時解鎖）
-- `BumpReturnCountAsync`：按單元（QuestionId + SubQuestionId）各自計次，MERGE + HOLDLOCK 防並發
-
-### 第 4 次送審強制最終決策邏輯（SubmitDecisionAsync 步驟 6-1）
-- PhaseCode=8 + Final Stage + Reject + existingReturnCount >= 3 → newUnitStatus 直接設 Rejected(10)，不再 Bump
-- 避免 ReturnCount 變 4 導致歷程顯示「總審第四次退回」語意錯誤
-
-### MapDecisionToQuestionStatus 狀態流轉規則（私有方法，集中維護）
-| PhaseCode | Decision | 新 Status |
-|-----------|----------|-----------|
-| 7（首輪）| Approve | 9（Adopted）|
-| 7（首輪）| Revise/Reject | null（Buffer，等 PhaseCode=8 批次分流）|
-| 8（次輪+）| Approve | 9（Adopted）|
-| 8（次輪+）| Revise | 8（FinalEditing，退回老師修）|
-| 8（次輪+）| Reject | null（Caller 依 ReturnCount 判定 8 或 10）|
-
-### FilteredAssignments 預設篩選行為（Plan_013 §3.4）
-- 預設 `queryStatus="all"` 只顯示非歷史紀錄（`!a.IsHistorical`），避免不同階段分配堆疊誤解
-- 使用者可切換「歷史紀錄」選項單獨查看 IsHistorical=true 的項目
-
-### PhaseCoordinator 背景執行模式（OnInitializedAsync 優化）
-- `RunPhaseCoordinatorBackgroundAsync`：fire-and-forget，60 秒 cache hit 即刻返回
-- 主流程不等 Coordinator（5~10 秒互審/專審/總審分配），先用 DB 現況渲染
-- Coordinator 完成後 `InvokeAsync` 切回 UI thread reload 兩個列表
-- 已切換專案的防護：`if (CurrentProject?.Id != projectId) return`
-
-### CWT / LCT 雙模式對 Reviews 頁面的影響（2026-05-21 新增）
-
-#### DB schema 確認
-- `MT_Projects.ProjectType TINYINT NOT NULL DEFAULT 0`：0=CWT（全民中檢，7 種題型）、1=LCT（聽力中心，按難度一~五）
-- `MT_Projects.ExamLevel TINYINT NULL`：CWT 統一命題等級 0~4；**LCT 模式 NULL**
-- `MT_ReviewAssignments` / `MT_ReviewReturnCounts` **無任何 ProjectType 欄位**，三審制度兩種類型共用同一資料表
-- `Granularity TINYINT`：MT_ProjectTargets / MT_MemberQuotas 有此欄位，0=母題/單題，1=子題；LCT 模式一律為 0
-
-#### Reviews.razor / ReviewService.cs 現況對 CWT/LCT 的支援
-- Reviews.razor：**完全未讀取 ProjectType**，三審制度邏輯不區分 CWT/LCT
-- ReviewService.cs（grep 驗證）：**無任何 ProjectType / LCT / CWT 分支**
-- 迴避邏輯、ReturnCount、PhaseCode 判斷：**全部 CWT/LCT 共用，無差異實作**
-
-#### 待釐清的業務問題（尚未與使用者確認）
-目前無資訊說明 LCT 的三審制度是否與 CWT 相同，以下為需待使用者決策的問題：
-1. LCT 是否也有「互審 → 專審 → 總審」三個階段？還是只有一審或兩審？
-2. LCT 迴避規則是否與 CWT 相同（自己命的不自審、總召不拿自己專審過的）？
-3. LCT 的題目等級欄位顯示方式（Level 標籤）：CWT 顯示初/中/中高/高/優，LCT 無等級 → 審題列表等級 badge 如何顯示？
-4. LCT 子題是否有 FixedDifficulty 機制（聽力題組特有）？
-
-#### 目前安全假設（僅基於 DB schema 推導，未確認）
-- DB schema 層面：三審共用同一張資料表，暗示設計上 LCT 也走三審流程
-- ExamLevel=NULL（LCT）時，ReviewListItem.Level=null，前端 badge 已有 `@if (item.Level.HasValue)` guard，不會崩潰
-- LCT 無 Granularity=1 子題 → SiblingUnits 為空 List → 母題列不顯示子題索引卡，邏輯正確
-
-**Why:** 2026-05-21 調查 CWT/LCT 雙模式對審題頁面的影響。DB schema 已有 ProjectType 欄位但 ReviewService 完全未讀取，需待使用者確認 LCT 三審規則後評估是否需要新增分支邏輯。
-**How to apply:** 後續任何涉及 Reviews 頁面 + LCT 支援的任務，先確認上方「待釐清業務問題」是否已有答案，再決定是否在 ReviewService 加 ProjectType 讀取與分支邏輯。若 LCT 三審規則與 CWT 完全相同，則 Reviews 頁面**不需要任何改動**。
+**Why:** 2026-05-29 對照三個完整檔案全面校正，確認行數/方法簽章/SQL 結構/UI 邏輯均與 code 一致。
+**How to apply:** 未來任何改動三審決策流程、退回計次、Status 流轉前，先以本記憶確認當前實作細節，再評估改動範圍。

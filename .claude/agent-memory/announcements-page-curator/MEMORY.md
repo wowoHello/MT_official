@@ -1,2 +1,2 @@
-- [Announcements 頁面當前完整狀態](project_announcements_page_current_state.md) — 2026-05-22 讀碼精確確認：行數、interface 簽章、Models 清單、AutoUnpinExpiredAsync SQL JSON 拼接技術債
+- [Announcements 頁面當前完整狀態](project_announcements_page_current_state.md) — 2026-05-29 讀碼確認：行數（Razor 1056/Service 441/Models 100）、時間 popover 設計、日期 facade 拆兩格、CRUD 流程、helper 方法清單
 - [Announcements 頁面參考素材位置](reference_announcements_prototype.md) — 原型已整合至 D:\MTrefer\pageFinal_doc\Announcements.md，舊 HTML/JS 棄用

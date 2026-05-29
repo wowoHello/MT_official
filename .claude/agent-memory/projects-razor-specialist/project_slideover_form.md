@@ -10,8 +10,15 @@ type: project
 
 ### 區塊 1：基本設定
 - 所屬年度（readonly，由產學計畫起日自動帶入民國年）
+- 專案類型（CWT / LCT 下拉；新增可選，**編輯模式 disabled** — 已有題目配額不可切換）
+- 命題等級（CWT 限定顯示：0=初等/1=中等/2=中高等/3=高等/4=優等；**編輯模式 disabled**；LCT 不顯示此欄）
 - 專案名稱（必填）
 - 合作學校（選填，留空代表自辦）
+
+CWT 等級影響題型可見性（`IsTypeVisibleForLevel`）：
+- 一般單選題 TypeId=1：只有初等/中等/中高等（level 0/1/2）顯示
+- 短文題組 TypeId=5：只有高等/優等（level 3/4）顯示
+- 等級切換後 `ZeroOutHiddenTypes` 將不適用等級的題型 Count + Quotas 歸零
 
 ### 區塊 2：時程規劃設定（8 大階段連動）
 共 8 個日期行（index 0~7），各含 Start + End 兩個 date input：
@@ -38,8 +45,11 @@ type: project
 ### 區塊 3：目標題數與人員指派
 **鎖定條件（IsCompositionPhaseEnded）：** isEditMode 且 stages[1].End < DateTime.Today
 
-- 7 種題型目標題數（一般/精選/閱讀題組/長文/短文題組/聽力/聽力題組）
-  - 題組類單位為「組」，其他為「題」
+- 題型目標題數（CWT 6 種：一般/閱讀題組母+子/長文/短文題組母+子；LCT 6 種：難度一~五聽力測驗+聽力題組）
+  - 精選單選題 TypeId=2 已軟下架（`HiddenTypeIds=[2]`），表單不顯示
+  - CWT 題組類（閱讀/短文）以複合卡呈現「母題泡泡 ↔ 子題泡泡」；單體題型用簡潔卡
+  - LCT 5 難度單卡 + 1 聽力題組複合卡
+  - 題組類單位為「組」，其他為「題」；子題數驗證不可小於母題數
 - 人員指派（來源：教師管理系統人才庫，URL: GetTalentPoolAsync）
   - DebouncedSearchInput 搜尋姓名/編號
   - 可勾選人員 + 多個身份下拉（含附加身份 slot，可 +/- 增減）
