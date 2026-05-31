@@ -1170,9 +1170,21 @@
         var newEl = TryParseJsonObject(log.NewValue);
         var oldEl = TryParseJsonObject(log.OldValue);
 
-        // === TargetType=3 (試題) ===
+        // === TargetType=3 (試題 / 子題) ===
         if (log.TargetType == 3)
         {
+            // 子題分支：JSON 內帶 SubQuestionId 即為子題級操作
+            // QuestionService 在子題 INSERT/UPDATE/軟刪時各寫一筆，TargetId 仍為母題 Id
+            var isSub = HasFieldCI(newEl, "SubQuestionId") || HasFieldCI(oldEl, "SubQuestionId");
+            if (isSub)
+            {
+                if (log.Action == 0) return "新增了 子題";
+                if (log.Action == 2) return "刪除了 子題";
+                // Action=1 (Modify)：軟刪除（缺席偵測）vs 一般編輯
+                if (GetBoolCI(newEl, "IsDeleted") == true) return "刪除了 子題";
+                return "編輯了 子題";
+            }
+
             if (log.Action == 0) return "新增了 試題";
             if (log.Action == 2) return "刪除了 試題";
 
@@ -1183,7 +1195,7 @@
             if (GetBoolCI(newEl, "IsDeleted") == false && GetBoolCI(oldEl, "IsDeleted") == true)
                 return "恢復了 試題";
 
-            // 子題軟刪除（缺席偵測）
+            // 子題軟刪除舊資料相容（早期 LOG 無 SubQuestionId 欄位、TargetId 為子題 Id）
             if (GetBoolCI(newEl, "IsDeleted") == true) return "刪除了 子題";
 
             // Status 狀態轉移（UpdateAsync 編輯）
@@ -1285,6 +1297,14 @@
                 if (v.ValueKind == System.Text.Json.JsonValueKind.False) return false;
             }
         return null;
+    }
+
+    /// <summary>純判斷欄位存在（不關心型別與值），子題 SubQuestionId 用 — 避免被 byte/int 型別限制。</summary>
+    private static bool HasFieldCI(System.Text.Json.JsonElement? el, string key)
+    {
+        if (!el.HasValue) return false;
+        return el.Value.TryGetProperty(key, out _)
+            || el.Value.TryGetProperty(ToCamel(key), out _);
     }
 
     private static string ToCamel(string s)

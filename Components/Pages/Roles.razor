@@ -475,7 +475,7 @@
                         <div class="bg-blue-50/50 p-4 rounded-lg border border-blue-100">
                             <p class="text-xs text-morandi font-medium">
                                 <i class="fa-solid fa-lightbulb mr-1"></i>
-                                預設密碼為公司統編 <span class="font-bold font-mono">01024304</span>，首次登入時系統會強制要求變更密碼。
+                                預設密碼為 <span class="font-bold font-mono">@DefaultPassword</span>，首次登入時系統會強制要求變更密碼。
                             </p>
                         </div>
                     }
@@ -764,6 +764,12 @@
     private string RoleModalTitle =>
         isRoleReadOnly ? "檢視角色" : (isRoleEditMode ? "編輯角色" : "新增角色");
 
+    /// <summary>
+    /// 內部人員預設密碼 — 顯示用，與 RoleService.DefaultInternalPassword 規則同步：「teacher{當年西元年度}」。
+    /// 用於新增 Modal 提示、重設密碼確認框與 Toast。
+    /// </summary>
+    private static string DefaultPassword => $"teacher{DateTime.Now.Year}";
+
     /// <summary>依搜尋關鍵字與狀態篩選左側清單。</summary>
     private IEnumerable<InternalAccountItem> FilteredAccounts =>
         allAccounts
@@ -901,7 +907,7 @@
 
         var confirmed = await ConfirmAsync(
             "確認重設密碼？",
-            $"將人員「{selectedAccount.DisplayName}」的密碼重設為公司統編 01024304，下次登入會強制變更。",
+            $"將人員「{selectedAccount.DisplayName}」的密碼重設為 {DefaultPassword}，下次登入會強制變更。",
             "#6B8EAD");
         if (!confirmed) return;
 
@@ -912,7 +918,7 @@
             await RoleService.ResetAccountPasswordAsync(selectedAccount.Id, operatorId);
             if (selectedAccountId is int id) selectedAccount = await RoleService.GetAccountDetailAsync(id);
 
-            await JS.InvokeVoidAsync("swalToast", "success", "密碼已重設為公司統編 01024304", 2500);
+            await JS.InvokeVoidAsync("swalToast", "success", $"密碼已重設為 {DefaultPassword}", 2500);
         }
         catch (Exception ex)
         {

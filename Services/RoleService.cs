@@ -50,7 +50,12 @@ public interface IRoleService
 /// </summary>
 public class RoleService : IRoleService
 {
-    private const string DefaultInternalPassword = "01024304";
+    /// <summary>
+    /// 內部人員預設密碼 — 格式「teacher{當年西元年度}」（例：2026 年 → teacher2026）。
+    /// 用於 CreateAccountAsync 新建初始密碼 + ResetAccountPasswordAsync 重設密碼。
+    /// 動態 property（非 const）讓跨年度後新建帳號自然跟著切換，無需重啟。
+    /// </summary>
+    private static string DefaultInternalPassword => $"teacher{DateTime.Now.Year}";
 
     private readonly IDatabaseService _db;
     private readonly ILogger<RoleService> _logger;
@@ -179,7 +184,7 @@ public class RoleService : IRoleService
     }
 
     /// <summary>
-    /// 新增內部人員帳號，預設密碼為公司統編，並標記首次登入。
+    /// 新增內部人員帳號，預設密碼為「teacher{當年年度}」，並標記首次登入。
     /// </summary>
     public async Task<int> CreateAccountAsync(CreateAccountRequest req, int operatorId)
     {
@@ -372,7 +377,7 @@ public class RoleService : IRoleService
     }
 
     /// <summary>
-    /// 將密碼重設為公司統編預設值，並標記為首次登入（下次登入強制變更）。
+    /// 將密碼重設為「teacher{當年年度}」預設值，並標記為首次登入（下次登入強制變更）。
     /// </summary>
     public async Task ResetAccountPasswordAsync(int userId, int operatorId)
     {

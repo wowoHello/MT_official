@@ -21,7 +21,10 @@
     <div class="px-5 pb-5 bg-gray-50/30 pt-3">
         @if (Entries.Count == 0)
         {
-            <p class="text-xs text-gray-400 italic text-center py-3">尚無歷程紀錄</p>
+            <EmptyState Compact="true"
+                        IconClass="fa-comment-dots"
+                        Message="尚無歷程紀錄"
+                        SubMessage="此題尚未經過任何審題階段的意見或修題記錄" />
         }
         else
         {

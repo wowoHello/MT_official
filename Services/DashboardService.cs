@@ -880,13 +880,7 @@ public class DashboardService : IDashboardService
                     CAST(0 AS TINYINT)           AS Granularity,
                     CAST(lb.LevelNum AS TINYINT) AS Level,
                     ISNULL(c.Drafts, 0)          AS Drafts,
-                    CASE WHEN ISNULL(t.TotalTarget, 0)
-                              - ISNULL(c.Drafts, 0) - ISNULL(c.DoneStage, 0)
-                              - ISNULL(c.Adopted, 0) - ISNULL(c.Rejected, 0) > 0
-                         THEN ISNULL(t.TotalTarget, 0)
-                              - ISNULL(c.Drafts, 0) - ISNULL(c.DoneStage, 0)
-                              - ISNULL(c.Adopted, 0) - ISNULL(c.Rejected, 0)
-                         ELSE 0 END              AS InProgress,
+                    0                            AS InProgress,  -- 命題階段無「審/修進行中」實態；缺額屬左卡職責，不重複呈現
                     ISNULL(c.DoneStage, 0)       AS DoneStage,
                     ISNULL(c.Adopted, 0)         AS Adopted,
                     ISNULL(c.Rejected, 0)        AS Rejected,
@@ -901,13 +895,7 @@ public class DashboardService : IDashboardService
                     CAST(0 AS TINYINT),
                     CAST(NULL AS TINYINT),
                     ISNULL(t7.Drafts, 0),
-                    CASE WHEN ISNULL(t7.TotalTarget, 0)
-                              - ISNULL(t7.Drafts, 0) - ISNULL(t7.DoneStage, 0)
-                              - ISNULL(t7.Adopted, 0) - ISNULL(t7.Rejected, 0) > 0
-                         THEN ISNULL(t7.TotalTarget, 0)
-                              - ISNULL(t7.Drafts, 0) - ISNULL(t7.DoneStage, 0)
-                              - ISNULL(t7.Adopted, 0) - ISNULL(t7.Rejected, 0)
-                         ELSE 0 END,
+                    0,  -- 命題階段無實態進行中
                     ISNULL(t7.DoneStage, 0),
                     ISNULL(t7.Adopted, 0),
                     ISNULL(t7.Rejected, 0),
@@ -920,21 +908,14 @@ public class DashboardService : IDashboardService
                     CAST(1 AS TINYINT),
                     CAST(NULL AS TINYINT),
                     ISNULL(t7s.Drafts, 0),
-                    CASE WHEN ISNULL(t7s.TotalTarget, 0)
-                              - ISNULL(t7s.Drafts, 0) - ISNULL(t7s.DoneStage, 0)
-                              - ISNULL(t7s.Adopted, 0) - ISNULL(t7s.Rejected, 0) > 0
-                         THEN ISNULL(t7s.TotalTarget, 0)
-                              - ISNULL(t7s.Drafts, 0) - ISNULL(t7s.DoneStage, 0)
-                              - ISNULL(t7s.Adopted, 0) - ISNULL(t7s.Rejected, 0)
-                         ELSE 0 END,
+                    0,  -- 命題階段無實態進行中
                     ISNULL(t7s.DoneStage, 0),
                     ISNULL(t7s.Adopted, 0),
                     ISNULL(t7s.Rejected, 0),
                     101
                 FROM Type7SubCounts t7s
             ) tmp
-            -- 過濾「完全沒用到」的桶（target=0 且無資料）→ 例如沒設目標也沒命題的難度五自動隱藏
-            WHERE Drafts + InProgress + DoneStage + Adopted + Rejected > 0
+            -- 與 CWT 一致：所有難度桶都保留，沒命題的難度 X 軸保留、Y 軸 0
             ORDER BY SortKey
             """;
 
@@ -1027,10 +1008,7 @@ public class DashboardService : IDashboardService
                     CAST(0 AS TINYINT)           AS Granularity,
                     CAST(lb.LevelNum AS TINYINT) AS Level,
                     ISNULL(c.Drafts, 0)          AS Drafts,
-                    ISNULL(c.InProgressAudit, 0)
-                        + CASE WHEN ISNULL(t.TotalTarget, 0) - ISNULL(c.ExistingCount, 0) > 0
-                               THEN ISNULL(t.TotalTarget, 0) - ISNULL(c.ExistingCount, 0)
-                               ELSE 0 END         AS InProgress,
+                    ISNULL(c.InProgressAudit, 0) AS InProgress,  -- 只算真實審題進行中；缺額屬左卡「題型缺口達成率」職責
                     ISNULL(c.DoneStage, 0)       AS DoneStage,
                     ISNULL(c.Adopted, 0)         AS Adopted,
                     ISNULL(c.Rejected, 0)        AS Rejected,
@@ -1044,10 +1022,7 @@ public class DashboardService : IDashboardService
                     CAST(0 AS TINYINT),
                     CAST(NULL AS TINYINT),
                     ISNULL(t7.Drafts, 0),
-                    ISNULL(t7.InProgressAudit, 0)
-                        + CASE WHEN ISNULL(t7.TotalTarget, 0) - ISNULL(t7.ExistingCount, 0) > 0
-                               THEN ISNULL(t7.TotalTarget, 0) - ISNULL(t7.ExistingCount, 0)
-                               ELSE 0 END,
+                    ISNULL(t7.InProgressAudit, 0),
                     ISNULL(t7.DoneStage, 0),
                     ISNULL(t7.Adopted, 0),
                     ISNULL(t7.Rejected, 0),
@@ -1059,17 +1034,14 @@ public class DashboardService : IDashboardService
                     CAST(1 AS TINYINT),
                     CAST(NULL AS TINYINT),
                     ISNULL(t7s.Drafts, 0),
-                    ISNULL(t7s.InProgressAudit, 0)
-                        + CASE WHEN ISNULL(t7s.TotalTarget, 0) - ISNULL(t7s.ExistingCount, 0) > 0
-                               THEN ISNULL(t7s.TotalTarget, 0) - ISNULL(t7s.ExistingCount, 0)
-                               ELSE 0 END,
+                    ISNULL(t7s.InProgressAudit, 0),
                     ISNULL(t7s.DoneStage, 0),
                     ISNULL(t7s.Adopted, 0),
                     ISNULL(t7s.Rejected, 0),
                     101
                 FROM Type7SubCounts t7s
             ) tmp
-            WHERE Drafts + InProgress + DoneStage + Adopted + Rejected > 0
+            -- 與 CWT 一致：保留全部難度桶，沒命題的難度 X 軸保留、Y 軸 0
             ORDER BY SortKey
             """;
 
@@ -1168,10 +1140,7 @@ public class DashboardService : IDashboardService
                     CAST(0 AS TINYINT)           AS Granularity,
                     CAST(lb.LevelNum AS TINYINT) AS Level,
                     ISNULL(c.Drafts, 0)          AS Drafts,
-                    ISNULL(c.InProgressRev, 0)
-                        + CASE WHEN ISNULL(t.TotalTarget, 0) - ISNULL(c.ExistingCount, 0) > 0
-                               THEN ISNULL(t.TotalTarget, 0) - ISNULL(c.ExistingCount, 0)
-                               ELSE 0 END         AS InProgress,
+                    ISNULL(c.InProgressRev, 0)   AS InProgress,  -- 只算真實修題進行中；缺額屬左卡職責
                     ISNULL(c.DoneStage, 0)       AS DoneStage,
                     ISNULL(c.Adopted, 0)         AS Adopted,
                     ISNULL(c.Rejected, 0)        AS Rejected,
@@ -1185,10 +1154,7 @@ public class DashboardService : IDashboardService
                     CAST(0 AS TINYINT),
                     CAST(NULL AS TINYINT),
                     ISNULL(t7.Drafts, 0),
-                    ISNULL(t7.InProgressRev, 0)
-                        + CASE WHEN ISNULL(t7.TotalTarget, 0) - ISNULL(t7.ExistingCount, 0) > 0
-                               THEN ISNULL(t7.TotalTarget, 0) - ISNULL(t7.ExistingCount, 0)
-                               ELSE 0 END,
+                    ISNULL(t7.InProgressRev, 0),
                     ISNULL(t7.DoneStage, 0),
                     ISNULL(t7.Adopted, 0),
                     ISNULL(t7.Rejected, 0),
@@ -1200,17 +1166,14 @@ public class DashboardService : IDashboardService
                     CAST(1 AS TINYINT),
                     CAST(NULL AS TINYINT),
                     ISNULL(t7s.Drafts, 0),
-                    ISNULL(t7s.InProgressRev, 0)
-                        + CASE WHEN ISNULL(t7s.TotalTarget, 0) - ISNULL(t7s.ExistingCount, 0) > 0
-                               THEN ISNULL(t7s.TotalTarget, 0) - ISNULL(t7s.ExistingCount, 0)
-                               ELSE 0 END,
+                    ISNULL(t7s.InProgressRev, 0),
                     ISNULL(t7s.DoneStage, 0),
                     ISNULL(t7s.Adopted, 0),
                     ISNULL(t7s.Rejected, 0),
                     101
                 FROM Type7SubCounts t7s
             ) tmp
-            WHERE Drafts + InProgress + DoneStage + Adopted + Rejected > 0
+            -- 與 CWT 一致：保留全部難度桶，沒命題的難度 X 軸保留、Y 軸 0
             ORDER BY SortKey
             """;
 
@@ -2076,6 +2039,15 @@ public class DashboardService : IDashboardService
         // ── 填入 TargetName ─────────────────────────────────────────────
         foreach (var log in logs)
         {
+            // 子題 LOG（TargetType=3 + JSON 內有 SubQuestionId）：JSON 內的 questionCode
+            // 已預先組成「Q-xxx-NN」完整子題碼，直接取用，跳過 nameMap（nameMap 只查到母題碼會少 -NN 後綴）
+            if (log.TargetType == 3 && IsSubQuestionLog(log))
+            {
+                var json = log.NewValue ?? log.OldValue;
+                log.TargetName = ExtractNameFromJson(log.TargetType, json) ?? "已刪除";
+                continue;
+            }
+
             if (nameMap.TryGetValue((log.TargetType, log.TargetId), out var found))
             {
                 log.TargetName = found;
@@ -2090,6 +2062,25 @@ public class DashboardService : IDashboardService
                 log.TargetName = ExtractNameFromJson(log.TargetType, json) ?? "已刪除";
             }
         }
+    }
+
+    /// <summary>判斷 AuditLog 是否為子題級紀錄（JSON 內帶 SubQuestionId / subQuestionId 欄位）。</summary>
+    private static bool IsSubQuestionLog(RecentAuditLog log)
+        => HasJsonField(log.NewValue, "SubQuestionId") || HasJsonField(log.OldValue, "SubQuestionId");
+
+    /// <summary>判斷 JSON 字串內是否存在指定欄位（同時嘗試 PascalCase 與 camelCase）。</summary>
+    private static bool HasJsonField(string? json, string field)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+            var camel = char.ToLowerInvariant(field[0]) + field[1..];
+            return doc.RootElement.TryGetProperty(field, out _)
+                || doc.RootElement.TryGetProperty(camel, out _);
+        }
+        catch (JsonException) { return false; }
     }
 
     /// <summary>

@@ -155,6 +155,8 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
                 q.Difficulty,
                 sq.FixedDifficulty    AS FixedDifficulty,    -- 聽力題組子題固定難度（母題列為 NULL）
                 CASE
+                    -- 子題列一律取子題本身的題幹（sq.Stem），不可帶母題 Stem
+                    WHEN r.SubQuestionId IS NOT NULL  THEN sq.Stem
                     WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent
                     WHEN q.QuestionTypeId = 4          THEN COALESCE(NULLIF(q.Stem, ''), q.ArticleContent)
                     ELSE q.Stem

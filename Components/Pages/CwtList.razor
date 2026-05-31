@@ -498,6 +498,12 @@
                                 ParentQuestionCode="@formData.QuestionCode"
                                 @bind-Images="formData.Images" InvalidFields="invalidFields" />
                             break;
+                        default:
+                            @* 題型未選（CWT 點「+ 新增試題」初始狀態）：用 EmptyState 引導使用者先選題型 *@
+                            <EmptyState IconClass="fa-clipboard-list"
+                                        Message="請先選擇題型"
+                                        SubMessage="從左側「題型」下拉選單選取後，將顯示對應的編輯欄位" />
+                            break;
                     }
                 </div>
                 </fieldset>
@@ -1154,6 +1160,12 @@
             // LCT 專案沒給 preset 時預設為「聽力測驗」（一般單選題不在 LCT 可命題型清單內，
             // 留住 model 預設值 Single 會讓題型下拉顯示空白且表單錯渲染為「一般單選題分類」）
             formData.QuestionType = QuestionTypeCodes.Listen;
+        }
+        else
+        {
+            // CWT 沒給 preset：清空題型讓使用者主動選擇
+            // 題型 select 渲染 placeholder option「請選擇題型」，避免 model 預設 Single 在不相容等級顯示空白
+            formData.QuestionType = string.Empty;
         }
         // CWT 統一等級：開新題時自動帶入專案 ExamLevel；
         // LCT：由配額卡（如「聽力測驗 - 難度三」）帶入對應 Level，避免老師手動再選

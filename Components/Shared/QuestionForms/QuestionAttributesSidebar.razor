@@ -20,6 +20,7 @@
             disabled="@(IsFormReadOnly || LockQuestionType)"
             title="@(LockQuestionType && !IsFormReadOnly ? "修題階段不可變更題型" : null)"
             class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed">
+            <option value="" disabled hidden>請選擇題型</option>
             @foreach (var pair in QuestionConstants.GetVisibleTypeKeyLabelsForProject(ProjectType, ExamLevel))
             {
                 <option value="@pair.Key">@pair.Value</option>
@@ -46,6 +47,17 @@
                 @foreach (var lv in allowed)
                 {
                     <option value="@lv">@LevelLabel(lv)</option>
+                }
+            }
+            else
+            {
+                // 題型未選 fallback：依 ProjectType 渲染全部等級，讓 CWT ExamLevel 鎖定值可正確顯示
+                var fallbackLabels = ProjectType == ProjectType.Lct
+                    ? QuestionConstants.ListenLevelLabels
+                    : QuestionConstants.GeneralLevelLabels;
+                foreach (var kv in fallbackLabels)
+                {
+                    <option value="@kv.Key">@kv.Value</option>
                 }
             }
         </select>

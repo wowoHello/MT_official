@@ -57,7 +57,7 @@
         </div>
     }
 
-    @if (SubQuestions.Count == 0)
+    @if (SubQuestions.Count == 0 && !HideEmptyHint)
     {
         <p class="text-gray-400 italic mt-6 text-center text-sm font-sans">尚未新增子題</p>
     }
@@ -75,6 +75,13 @@
     /// 子題在原母題中的起始 index（用於子題聚焦模式正確顯示題號 + data-annot-target 對齊）。預設 0。
     /// </summary>
     [Parameter] public int StartIndex { get; set; } = 0;
+
+    /// <summary>
+    /// true 時隱藏「尚未新增子題」空狀態佔位字。
+    /// 用於 Overview 母題模式：呼叫端故意傳空 SubQuestions 讓 Preview 只渲染文章區，
+    /// 子題清單由呼叫端自行的 RenderSubIndexCards 渲染（避免空狀態文案與索引卡並存）。
+    /// </summary>
+    [Parameter] public bool HideEmptyHint { get; set; } = false;
 
     public class SubQuestionData
     {

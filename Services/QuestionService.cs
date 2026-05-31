@@ -295,7 +295,8 @@ public class QuestionService(
 
             // 4. 子題（題組型才有；本步驟會把每個 sq.Id 從 DB 回填）
             //    Status 與母題一致，使後續階段升級（fromStatuses=[2]→3 等）能正確波及子題
-            await InsertSubQuestionsAsync(conn, tx, newId, formData, initialStatus);
+            //    每筆子題 INSERT 後寫獨立 AuditLog，TargetId 用母題 Id（讓 Dashboard nameMap 可找到母題碼）
+            await InsertSubQuestionsAsync(conn, tx, newId, formData, initialStatus, creatorUserId, projectId, code);
 
             // 5. 附圖（母題層 + 子題層；子題層需 sq.Id 已存在，故放在子題 INSERT 之後）
             await QuestionImagePersistence.UpsertMasterAsync(conn, tx, newId, formData.Images);
@@ -2657,8 +2658,9 @@ public class QuestionService(
     /// 因為母題剛 INSERT 完，子題不會有既存 Id（即使表單帶了 Id 也會被忽略）。
     /// INSERT 後把新 Id 寫回 formData，以便後續 UpdateAsync 能一致追蹤。
     /// </summary>
-    private static async Task InsertSubQuestionsAsync(IDbConnection conn, IDbTransaction tx,
-        int parentId, QuestionFormData formData, byte masterStatus)
+    private async Task InsertSubQuestionsAsync(IDbConnection conn, IDbTransaction tx,
+        int parentId, QuestionFormData formData, byte masterStatus,
+        int operatorUserId, int? projectId, string parentQuestionCode)
     {
         // Status 帶入：子題與母題同步起跑，後續階段升級才會抓到（避免子題卡在 Draft 永遠不顯示）
         const string sql = """
@@ -2682,7 +2684,10 @@ public class QuestionService(
             for (var i = 0; i < formData.ReadSubQuestions.Count; i++)
             {
                 var sq = formData.ReadSubQuestions[i];
-                sq.Id = await conn.QuerySingleAsync<int>(sql, BuildReadSubParams(parentId, i + 1, sq, masterStatus), tx);
+                var sortOrder = i + 1;
+                sq.Id = await conn.QuerySingleAsync<int>(sql, BuildReadSubParams(parentId, sortOrder, sq, masterStatus), tx);
+                await WriteSubAuditAsync(conn, tx, operatorUserId, projectId,
+                    AuditLogAction.Create, parentId, sq.Id, sortOrder, parentQuestionCode, oldValue: false);
             }
         }
         else if (formData.QuestionType == QuestionTypeCodes.ShortGroup)
@@ -2690,7 +2695,10 @@ public class QuestionService(
             for (var i = 0; i < formData.ShortSubQuestions.Count; i++)
             {
                 var sq = formData.ShortSubQuestions[i];
-                sq.Id = await conn.QuerySingleAsync<int>(sql, BuildShortSubParams(parentId, i + 1, sq, masterStatus), tx);
+                var sortOrder = i + 1;
+                sq.Id = await conn.QuerySingleAsync<int>(sql, BuildShortSubParams(parentId, sortOrder, sq, masterStatus), tx);
+                await WriteSubAuditAsync(conn, tx, operatorUserId, projectId,
+                    AuditLogAction.Create, parentId, sq.Id, sortOrder, parentQuestionCode, oldValue: false);
             }
         }
         else if (formData.QuestionType == QuestionTypeCodes.ListenGroup)
@@ -2698,7 +2706,10 @@ public class QuestionService(
             for (var i = 0; i < formData.ListenGroupSubQuestions.Count; i++)
             {
                 var sq = formData.ListenGroupSubQuestions[i];
-                sq.Id = await conn.QuerySingleAsync<int>(sql, BuildListenSubParams(parentId, i + 1, sq, masterStatus), tx);
+                var sortOrder = i + 1;
+                sq.Id = await conn.QuerySingleAsync<int>(sql, BuildListenSubParams(parentId, sortOrder, sq, masterStatus), tx);
+                await WriteSubAuditAsync(conn, tx, operatorUserId, projectId,
+                    AuditLogAction.Create, parentId, sq.Id, sortOrder, parentQuestionCode, oldValue: false);
             }
         }
         // 其他四種非題組型題目：不寫子題
@@ -2713,15 +2724,17 @@ public class QuestionService(
     private async Task UpsertSubQuestionsAsync(IDbConnection conn, IDbTransaction tx,
         int parentId, QuestionFormData formData, int operatorUserId, int projectId)
     {
-        // 1. 撈出 DB 端目前未刪的子題 Id
+        // 1. 撈出 DB 端目前未刪的子題 Id + 母題 Status + 母題碼（合併一次往返）
         var existingIds = (await conn.QueryAsync<int>(
             "SELECT Id FROM dbo.MT_SubQuestions WHERE ParentQuestionId = @Id AND IsDeleted = 0",
             new { Id = parentId }, tx)).ToHashSet();
 
-        // 1.5 撈母題當前 Status — 新插入子題用此值（這次的 UPDATE 已先於本函式跑完，已是新值）
-        var masterStatus = await conn.ExecuteScalarAsync<byte>(
-            "SELECT Status FROM dbo.MT_Questions WHERE Id = @Id;",
+        // 1.5 撈母題當前 Status + QuestionCode（QuestionCode 給子題 AuditLog 組成 Q-xxx-NN 用）
+        var masterMeta = await conn.QueryFirstAsync<(byte Status, string QuestionCode)>(
+            "SELECT Status, QuestionCode FROM dbo.MT_Questions WHERE Id = @Id;",
             new { Id = parentId }, tx);
+        var masterStatus = masterMeta.Status;
+        var parentQuestionCode = masterMeta.QuestionCode;
 
         // 2. 表單帶上來的子題（依題型）
         var formIds = new HashSet<int>();
@@ -2764,11 +2777,16 @@ public class QuestionService(
             for (var i = 0; i < formData.ReadSubQuestions.Count; i++)
             {
                 var sq = formData.ReadSubQuestions[i];
-                var p  = BuildReadSubParams(parentId, i + 1, sq, masterStatus);
-                if (sq.Id == 0)
+                var sortOrder = i + 1;
+                var p  = BuildReadSubParams(parentId, sortOrder, sq, masterStatus);
+                var isNew = sq.Id == 0;
+                if (isNew)
                     sq.Id = await conn.QuerySingleAsync<int>(insertSql, p, tx);
                 else
                     await conn.ExecuteAsync(updateSql, MergeId(p, sq.Id), tx);
+                await WriteSubAuditAsync(conn, tx, operatorUserId, projectId,
+                    isNew ? AuditLogAction.Create : AuditLogAction.Modify,
+                    parentId, sq.Id, sortOrder, parentQuestionCode, oldValue: false);
                 formIds.Add(sq.Id);
             }
         }
@@ -2777,11 +2795,16 @@ public class QuestionService(
             for (var i = 0; i < formData.ShortSubQuestions.Count; i++)
             {
                 var sq = formData.ShortSubQuestions[i];
-                var p  = BuildShortSubParams(parentId, i + 1, sq, masterStatus);
-                if (sq.Id == 0)
+                var sortOrder = i + 1;
+                var p  = BuildShortSubParams(parentId, sortOrder, sq, masterStatus);
+                var isNew = sq.Id == 0;
+                if (isNew)
                     sq.Id = await conn.QuerySingleAsync<int>(insertSql, p, tx);
                 else
                     await conn.ExecuteAsync(updateSql, MergeId(p, sq.Id), tx);
+                await WriteSubAuditAsync(conn, tx, operatorUserId, projectId,
+                    isNew ? AuditLogAction.Create : AuditLogAction.Modify,
+                    parentId, sq.Id, sortOrder, parentQuestionCode, oldValue: false);
                 formIds.Add(sq.Id);
             }
         }
@@ -2790,18 +2813,29 @@ public class QuestionService(
             for (var i = 0; i < formData.ListenGroupSubQuestions.Count; i++)
             {
                 var sq = formData.ListenGroupSubQuestions[i];
-                var p  = BuildListenSubParams(parentId, i + 1, sq, masterStatus);
-                if (sq.Id == 0)
+                var sortOrder = i + 1;
+                var p  = BuildListenSubParams(parentId, sortOrder, sq, masterStatus);
+                var isNew = sq.Id == 0;
+                if (isNew)
                     sq.Id = await conn.QuerySingleAsync<int>(insertSql, p, tx);
                 else
                     await conn.ExecuteAsync(updateSql, MergeId(p, sq.Id), tx);
+                await WriteSubAuditAsync(conn, tx, operatorUserId, projectId,
+                    isNew ? AuditLogAction.Create : AuditLogAction.Modify,
+                    parentId, sq.Id, sortOrder, parentQuestionCode, oldValue: false);
                 formIds.Add(sq.Id);
             }
         }
 
         // 3. 缺席者（DB 有但表單沒了）→ 軟刪除 + 每筆獨立 AuditLog
+        //    TargetId 用母題 Id（讓 Dashboard nameMap 查得到母題碼），JSON 帶 SubQuestionId/SortOrder/子題碼
         var orphanIds = existingIds.Except(formIds).ToList();
         if (orphanIds.Count == 0) return;
+
+        // 先查孤兒的 SortOrder 給 AuditLog 用
+        var orphanMeta = (await conn.QueryAsync<(int Id, byte SortOrder)>(
+            "SELECT Id, SortOrder FROM dbo.MT_SubQuestions WHERE Id IN @Ids;",
+            new { Ids = orphanIds }, tx)).ToList();
 
         await conn.ExecuteAsync("""
             UPDATE dbo.MT_SubQuestions
@@ -2809,13 +2843,34 @@ public class QuestionService(
             WHERE Id IN @Ids;
             """, new { Ids = orphanIds }, tx);
 
-        foreach (var subId in orphanIds)
+        foreach (var (subId, sortOrder) in orphanMeta)
         {
-            await WriteAuditLogAsync(conn, tx, operatorUserId, projectId,
-                AuditLogAction.Modify, subId,
-                oldValue: new { IsDeleted = false, ParentQuestionId = parentId },
-                newValue: new { IsDeleted = true,  ParentQuestionId = parentId });
+            await WriteSubAuditAsync(conn, tx, operatorUserId, projectId,
+                AuditLogAction.Modify, parentId, subId, sortOrder, parentQuestionCode, oldValue: true);
         }
+    }
+
+    /// <summary>
+    /// 寫子題級別 AuditLog（TargetType=3、TargetId=母題Id）。
+    /// JSON 內帶 SubQuestionId / SortOrder / 完整子題碼「Q-xxx-NN」，Dashboard 顯示「編輯了 子題 Q-xxx-NN」。
+    /// Action=Modify + oldIsDeleted=true 表示「軟刪除」（缺席偵測），Dashboard 解析為「刪除了 子題」。
+    /// </summary>
+    private Task WriteSubAuditAsync(IDbConnection conn, IDbTransaction tx,
+        int operatorUserId, int? projectId, byte action, int parentId,
+        int subQuestionId, int sortOrder, string parentQuestionCode, bool oldValue)
+    {
+        var subCode = $"{parentQuestionCode}-{sortOrder:D2}";
+        // oldValue=true → 軟刪除（缺席）：OldValue/NewValue 帶 IsDeleted 翻轉，沿用 Dashboard 既有判斷邏輯
+        // 其餘情境（INSERT / UPDATE）：OldValue=null（INSERT）或 識別物件（UPDATE），NewValue 一律帶識別
+        object? oldJson = oldValue
+            ? new { SubQuestionId = subQuestionId, SortOrder = sortOrder, QuestionCode = subCode, IsDeleted = false }
+            : action == AuditLogAction.Modify
+                ? new { SubQuestionId = subQuestionId, SortOrder = sortOrder, QuestionCode = subCode }
+                : null;
+        object newJson = oldValue
+            ? new { SubQuestionId = subQuestionId, SortOrder = sortOrder, QuestionCode = subCode, IsDeleted = true }
+            : new { SubQuestionId = subQuestionId, SortOrder = sortOrder, QuestionCode = subCode };
+        return WriteAuditLogAsync(conn, tx, operatorUserId, projectId, action, parentId, oldJson, newJson);
     }
 
     // ---- 子題 INSERT/UPDATE 共用參數組裝 ----

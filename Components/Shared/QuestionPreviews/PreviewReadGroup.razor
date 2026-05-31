@@ -60,7 +60,7 @@
         </div>
     }
 
-    @if (SubQuestions.Count == 0)
+    @if (SubQuestions.Count == 0 && !HideEmptyHint)
     {
         <p class="text-gray-400 italic mt-6 text-center text-sm font-sans">尚未新增子題</p>
     }
@@ -85,6 +85,13 @@
     /// 用於唯讀檢視場景（如 Overview、Reviews 旁觀者視角），避免綠色 marker 影響閱讀。
     /// </summary>
     [Parameter] public bool HideOptionAnswerMarker { get; set; } = false;
+
+    /// <summary>
+    /// true 時隱藏「尚未新增子題」空狀態佔位字。
+    /// 用於 Overview 母題模式：呼叫端故意傳空 SubQuestions 讓 Preview 只渲染文章區，
+    /// 子題清單由呼叫端自行的 RenderSubIndexCards 渲染（避免空狀態文案與索引卡並存）。
+    /// </summary>
+    [Parameter] public bool HideEmptyHint { get; set; } = false;
 
     public class SubQuestionData
     {

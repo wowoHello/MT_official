@@ -783,7 +783,7 @@
         {
             icon = "question",
             title = $"確定復原 {questionCode}？",
-            text = "題目將回到原本的狀態（IsDeleted = 0）",
+            text = "題目將回到原本的狀態",
             showCancelButton = true,
             confirmButtonText = "確定復原",
             cancelButtonText = "取消",
@@ -1011,11 +1011,12 @@
             case QuestionTypeCodes.ReadGroup:
                 if (detailSubQuestionId is null)
                 {
-                    @* 母題模式：傳空 SubQuestions list，PreviewReadGroup 只渲染文章不展開子題 *@
+                    @* 母題模式：傳空 SubQuestions + HideEmptyHint=true，PreviewReadGroup 只渲染文章不展開子題，
+                       子題清單交給下方 RenderSubIndexCards 處理（避免「尚未新增子題」誤導文案） *@
                     <PreviewReadGroup Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
                         Passage="@detailData.ArticleContent" Images="@detailData.Images"
                         SubQuestions="@(new List<PreviewReadGroup.SubQuestionData>())"
-                        HideOptionAnswerMarker="true" />
+                        HideOptionAnswerMarker="true" HideEmptyHint="true" />
                     @RenderSubIndexCards(detailData.ReadSubQuestions.Select(s => (s.Id, s.Stem)).ToList())
                 }
                 else
@@ -1050,9 +1051,11 @@
             case QuestionTypeCodes.ShortGroup:
                 if (detailSubQuestionId is null)
                 {
+                    @* 母題模式：傳空 SubQuestions + HideEmptyHint=true，子題清單交給下方 RenderSubIndexCards *@
                     <PreviewShortGroup Level="@levelLabel" Difficulty="@diffLabel" Tags="@tags"
                         Passage="@detailData.ArticleContent" Images="@detailData.Images"
-                        SubQuestions="@(new List<PreviewShortGroup.SubQuestionData>())" />
+                        SubQuestions="@(new List<PreviewShortGroup.SubQuestionData>())"
+                        HideEmptyHint="true" />
                     @RenderSubIndexCards(detailData.ShortSubQuestions.Select(s => (s.Id, s.Stem)).ToList())
                 }
                 else
