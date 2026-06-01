@@ -483,13 +483,13 @@ public class DashboardService : IDashboardService
         // 補填 DisplayLabel（集中在此，SQL 端不做字串拼接以降低 SQL 複雜度）
         // ──────────────────────────────────────────────────────────────
         foreach (var row in targetRows)
-            row.DisplayLabel = BuildDisplayLabel(row.TypeName, row.Granularity, null, _typeCatalog.GetName);
+            row.DisplayLabel = BuildDisplayLabel(row.TypeName, row.Granularity, null);
 
         foreach (var row in achievementRows)
-            row.DisplayLabel = BuildDisplayLabel(row.TypeName, row.Granularity, row.Level, _typeCatalog.GetName);
+            row.DisplayLabel = BuildDisplayLabel(row.TypeName, row.Granularity, row.Level);
 
         foreach (var row in statusByTypeRows)
-            row.DisplayLabel = BuildDisplayLabel(row.TypeName, row.Granularity, row.Level, _typeCatalog.GetName);
+            row.DisplayLabel = BuildDisplayLabel(row.TypeName, row.Granularity, row.Level);
 
         // ──────────────────────────────────────────────────────────────
         // 組裝 DTO（LOG 已獨立至 GetAuditLogsAsync，此處不再帶入）
@@ -530,8 +530,7 @@ public class DashboardService : IDashboardService
     /// <param name="typeName">DB 回傳的 MT_QuestionTypes.Name，CWT 模式使用；LCT 模式可忽略。</param>
     /// <param name="granularity">0=母題或單題，1=子題。</param>
     /// <param name="level">LCT 難度序號（1-5），null 代表 CWT 模式。</param>
-    /// <param name="getTypeName">IQuestionTypeCatalog.GetName — 本方法為 static，透過委派注入。</param>
-    private static string BuildDisplayLabel(string typeName, byte granularity, byte? level, Func<int, string> _)
+    private static string BuildDisplayLabel(string typeName, byte granularity, byte? level)
     {
         // LCT 模式：level 有值，直接對應「難度X」（聽力測驗 5 個難度）
         if (level.HasValue)
@@ -1901,7 +1900,7 @@ public class DashboardService : IDashboardService
                     // LCT 聽力測驗依 Level 顯示「難度X」；LCT 聽力題組顯示「聽力題組」
                     TypeName       = BuildDisplayLabel(
                                         _typeCatalog.GetName(r.QuestionTypeId),
-                                        r.Granularity, r.Level, _typeCatalog.GetName),
+                                        r.Granularity, r.Level),
                     Assigned       = r.Assigned,
                     Produced       = r.Produced,
                     Achievement    = r.Assigned > 0

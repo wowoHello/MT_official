@@ -386,45 +386,6 @@ public static class QuestionFormValidator
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// 驗證 ABCD 四選項與正確答案：
-    ///   1. 四個選項皆需填寫（避免送出空選項）
-    ///   2. Answer 必須是 "A"/"B"/"C"/"D" 之一
-    /// </summary>
-    private static void ValidateOptionsAndAnswer(
-        string[] options,
-        string answer,
-        List<ValidationError> errors,
-        string optionPrefix,
-        string answerKey,
-        int? subIndex = null,
-        string subLabel = "")
-    {
-        // 四個選項都必須有內容
-        var emptyIdx = -1;
-        for (int i = 0; i < 4; i++)
-        {
-            var v = i < options.Length ? options[i] : "";
-            if (IsRichTextEmpty(v))
-            {
-                emptyIdx = i;
-                break;
-            }
-        }
-        if (emptyIdx >= 0)
-        {
-            var letter = "ABCD"[emptyIdx];
-            errors.Add(new($"{optionPrefix}_{emptyIdx}",
-                $"{subLabel}請填寫選項 {letter} 的內容", subIndex));
-        }
-
-        if (string.IsNullOrWhiteSpace(answer)
-            || (answer != "A" && answer != "B" && answer != "C" && answer != "D"))
-        {
-            errors.Add(new(answerKey, $"{subLabel}請選擇正確答案", subIndex));
-        }
-    }
-
-    /// <summary>
     /// 判斷 Quill 富文本內容是否為空。Quill 空內容常見格式：
     ///   ""、"<p><br></p>"、"<p></p>"、純空白字元、純 HTML 標籤無文字。
     /// 規則：剝除所有標籤後若為空白即視為空。

@@ -358,7 +358,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         //   #6 returnCount：總召退回次數
         //   #7 siblings：兄弟子題單元（Stage 由 subquery 自動推導，無 Assignment 時自然回 0 列）
         //
-        // 注意：LoadHistoryAsync / LoadSimilaritiesAsync 兩個 helper 保留供 OverviewService（彙整模式）使用，
+        // 注意：LoadHistoryAsync helper 保留供 OverviewService（彙整模式）使用，
         //       本路徑直接 inline 精準模式 SQL 以利合併 QueryMultiple。
         const string megaSql = """
             -- #1 lastEdit
@@ -1510,42 +1510,6 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         3 => "總修說明",
         _ => "修題說明"
     };
-
-    // ====================================================================
-    //  Helper：相似題比對載入
-    // ====================================================================
-
-    private static async Task<List<ReviewSimilarityEntry>> LoadSimilaritiesAsync(System.Data.IDbConnection conn, int questionId)
-    {
-        const string sql = """
-            SELECT
-                sc.ComparedQuestionId,
-                q.QuestionCode AS ComparedQuestionCode,
-                sc.SimilarityScore,
-                sc.Determination,
-                CASE
-                    WHEN q.QuestionTypeId IN (3, 5, 7) THEN q.ArticleContent
-                    WHEN q.QuestionTypeId = 4          THEN COALESCE(NULLIF(q.Stem, ''), q.ArticleContent)
-                    ELSE q.Stem
-                END AS SummaryHtml
-            FROM dbo.MT_SimilarityChecks sc
-            INNER JOIN dbo.MT_Questions q ON q.Id = sc.ComparedQuestionId
-            WHERE sc.SourceQuestionId = @QuestionId
-              AND q.IsDeleted = 0
-            ORDER BY sc.SimilarityScore DESC;
-            """;
-
-        var rows = await conn.QueryAsync<SimilarityRow>(sql, new { QuestionId = questionId });
-
-        return rows.Select(r => new ReviewSimilarityEntry
-        {
-            ComparedQuestionId   = r.ComparedQuestionId,
-            ComparedQuestionCode = r.ComparedQuestionCode,
-            SimilarityScore      = r.SimilarityScore,
-            Determination        = r.Determination,
-            SummaryText          = StripHtml(r.SummaryHtml)
-        }).ToList();
-    }
 
     // ====================================================================
     //  共用 Helper
