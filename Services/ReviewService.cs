@@ -189,19 +189,11 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc, IH
             """;
 
         // 當前進行中的審題階段（僅 PhaseCode 3/5/7 對應 Mutual/Expert/Final；其餘為 null）
-        const string phaseSql = """
-            SELECT TOP 1 PhaseCode FROM dbo.MT_ProjectPhases
-            WHERE ProjectId = @ProjectId
-              AND PhaseCode > 1
-              AND CAST(GETDATE() AS DATE) BETWEEN StartDate AND EndDate
-            ORDER BY SortOrder;
-            """;
-
         // 不能 Task.WhenAll —— 同一個 connection 並行 query 需要 MultipleActiveResultSets=True，
         // 我們的連線字串沒開（也不該開，MARS 有效能 / 鎖定副作用）。改順序執行
         using var conn = _db.CreateConnection();
         var rows = await conn.QueryAsync<AssignmentListRow>(sql, new { ProjectId = projectId, ReviewerId = reviewerUserId });
-        var phaseCode = await conn.ExecuteScalarAsync<byte?>(phaseSql, new { ProjectId = projectId });
+        var phaseCode = await ProjectPhaseQuery.GetCurrentPhaseCodeAsync(conn, projectId);
 
         var currentStage = phaseCode switch
         {
@@ -757,14 +749,7 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc, IH
 
             // 5. 取目前進行中的 PhaseCode（決定首輪/次輪總審分流）
             //    與 GetCurrentPhaseCodeInTxAsync 邏輯一致：PhaseCode>1 + 今天落於 Start/EndDate 之間
-            const string phaseSql = """
-                SELECT TOP 1 PhaseCode FROM dbo.MT_ProjectPhases
-                WHERE ProjectId = @ProjectId
-                  AND PhaseCode > 1
-                  AND CAST(GETDATE() AS DATE) BETWEEN StartDate AND EndDate
-                ORDER BY SortOrder;
-                """;
-            var currentPhaseCode = await conn.ExecuteScalarAsync<byte?>(phaseSql, new { meta.ProjectId }, tx);
+            var currentPhaseCode = await ProjectPhaseQuery.GetCurrentPhaseCodeAsync(conn, meta.ProjectId, tx);
 
             // 6. 依「階段 + PhaseCode + 決策」計算「該單元」應切換到的新狀態（null = 不變或交由後續邏輯處理）
             //    Stage B-4：MapDecisionToQuestionStatus 的回傳值對母題與子題皆適用，差別只在「寫入哪張表」

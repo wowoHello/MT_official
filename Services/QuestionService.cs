@@ -229,18 +229,9 @@ public class QuestionService(
     /// 在現有 Transaction 內取當前進行中階段的 PhaseCode（找不到則回 null）。
     /// 用於 Plan_009：修題狀態與階段對齊防呆。
     /// </summary>
-    private static async Task<byte?> GetCurrentPhaseCodeInTxAsync(
+    private static Task<byte?> GetCurrentPhaseCodeInTxAsync(
         IDbConnection conn, IDbTransaction tx, int projectId)
-    {
-        return await conn.ExecuteScalarAsync<byte?>("""
-            SELECT TOP 1 PhaseCode
-            FROM dbo.MT_ProjectPhases
-            WHERE ProjectId = @ProjectId
-              AND PhaseCode > 1
-              AND CAST(GETDATE() AS DATE) BETWEEN StartDate AND EndDate
-            ORDER BY SortOrder;
-            """, new { ProjectId = projectId }, tx);
-    }
+        => ProjectPhaseQuery.GetCurrentPhaseCodeAsync(conn, projectId, tx);
 
     // ====================================================================
     //  P3：CRUD
@@ -1423,14 +1414,7 @@ public class QuestionService(
         conn.Open();
 
         // 1. 取當前進行中階段
-        var phaseCode = await conn.ExecuteScalarAsync<byte?>("""
-            SELECT TOP 1 PhaseCode
-            FROM dbo.MT_ProjectPhases
-            WHERE ProjectId = @ProjectId
-              AND PhaseCode > 1
-              AND CAST(GETDATE() AS DATE) BETWEEN StartDate AND EndDate
-            ORDER BY SortOrder;
-            """, new { ProjectId = projectId });
+        var phaseCode = await ProjectPhaseQuery.GetCurrentPhaseCodeAsync(conn, projectId);
 
         if (phaseCode is null) return 0;
 
