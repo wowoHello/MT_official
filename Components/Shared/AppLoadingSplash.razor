@@ -1,11 +1,10 @@
-@*
-    AppLoadingSplash — 全屏載入遮罩
-    用於 F5 重整時遮蔽 SignalR 連線、ProtectedLocalStorage 還原期間的內容閃爍。
-
-    使用方式：
-        <AppLoadingSplash IsHidden="@isAppReady" />
-    當 IsHidden 變為 true 時，先做 300ms 淡出，再從 DOM 移除。
-*@
+@* ====================================================================== *@
+@*   AppLoadingSplash — 全屏載入遮罩                                     *@
+@*   用於 F5 重整時遮蔽 SignalR 連線、ProtectedLocalStorage 還原期間的內容閃爍。 *@
+@*   使用方式：                                                           *@
+@*       <AppLoadingSplash IsHidden="@isAppReady" />                      *@
+@*    當 IsHidden 變為 true 時，先做 300ms 淡出，再從 DOM 移除。          *@
+@* ====================================================================== *@
 
 @implements IDisposable
 

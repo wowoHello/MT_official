@@ -1,6 +1,7 @@
 using System.Data;
 using Dapper;
 using MT.Models;
+using static MT.Services.TextHelper;
 
 namespace MT.Services;
 
@@ -1515,32 +1516,20 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
     //  共用 Helper
     // ====================================================================
 
-    /// <summary>HTML 摘要去標籤（與 CwtList 相同實作；可考慮未來抽到共用 Helper）</summary>
+    /// <summary>HTML 摘要去標籤（呼叫 StripHtmlFull 後截斷 100 字，避免邏輯重複）。</summary>
     private static string StripHtml(string? html)
     {
-        if (string.IsNullOrWhiteSpace(html)) return "";
-        var text = System.Text.RegularExpressions.Regex.Replace(html, "<.*?>", " ");
-        text = System.Net.WebUtility.HtmlDecode(text).Trim();
+        var text = StripHtmlFull(html);
         return text.Length > 100 ? text[..100] + "…" : text;
     }
 
-    /// <summary>StripHtml 但不截斷字數（歷程意見/修題說明全文用，避免被裁掉）。</summary>
+    /// <summary>去標籤 + HtmlDecode + Trim（歷程意見/修題說明全文用，不截斷）。</summary>
     private static string StripHtmlFull(string? html)
     {
         if (string.IsNullOrWhiteSpace(html)) return "";
         var text = System.Text.RegularExpressions.Regex.Replace(html, "<.*?>", " ");
         return System.Net.WebUtility.HtmlDecode(text).Trim();
     }
-
-    // ====================================================================
-    //  Plan_021 私有 helper（複用 QuestionService 的字串安全轉換邏輯）
-    // ====================================================================
-
-    private static string? NullIfEmpty(string? s)
-        => string.IsNullOrWhiteSpace(s) ? null : s;
-
-    private static string? SafeOption(string[] options, int index)
-        => options.Length > index ? NullIfEmpty(options[index]) : null;
 
     // ====================================================================
     //  私有 DTO（僅 Service 內部用）

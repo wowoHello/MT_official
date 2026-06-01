@@ -3,6 +3,7 @@ using System.Text.Json;
 using Dapper;
 using Microsoft.AspNetCore.Http;
 using MT.Models;
+using static MT.Services.TextHelper;
 
 namespace MT.Services;
 
@@ -3087,14 +3088,6 @@ public class QuestionService(
         f.CoreAbility,
         f.DetailIndicator
     };
-
-    /// <summary>從選項陣列安全取出索引（不存在或空白回 NULL，避免 DB 存空字串）。</summary>
-    private static string? SafeOption(string[] options, int index)
-        => options.Length > index ? NullIfEmpty(options[index]) : null;
-
-    /// <summary>空字串 / 純空白一律轉 NULL，避免 NVARCHAR 欄位儲存無意義的 ''。</summary>
-    private static string? NullIfEmpty(string? s)
-        => string.IsNullOrWhiteSpace(s) ? null : s;
 
     // ====================================================================
     //  Dapper DTO（私有，僅 Service 內部使用）

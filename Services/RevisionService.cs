@@ -2,6 +2,7 @@ using System.Data;
 using System.Text.Json;
 using Dapper;
 using MT.Models;
+using static MT.Services.TextHelper;
 
 namespace MT.Services;
 
@@ -670,11 +671,6 @@ public class RevisionService : IRevisionService
     // ====================================================================
     //  通用 helpers
     // ====================================================================
-
-    private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
-
-    private static string? SafeOption(string[] options, int index) =>
-        index < options.Length && !string.IsNullOrWhiteSpace(options[index]) ? options[index] : null;
 
     private static string Truncate(string? text, int maxLength)
     {
