@@ -50,17 +50,20 @@ public class RevisionService : IRevisionService
     private readonly IMembershipService _membership;
     private readonly IHttpContextAccessor _httpAccessor;
     private readonly ILogger<RevisionService> _logger;
+    private readonly IHtmlSanitizationService _sanitizer;
 
     public RevisionService(
         IDatabaseService db,
         IMembershipService membership,
         IHttpContextAccessor httpAccessor,
-        ILogger<RevisionService> logger)
+        ILogger<RevisionService> logger,
+        IHtmlSanitizationService sanitizer)
     {
         _db = db;
         _membership = membership;
         _httpAccessor = httpAccessor;
         _logger = logger;
+        _sanitizer = sanitizer;
     }
 
     // ====================================================================
@@ -103,6 +106,8 @@ public class RevisionService : IRevisionService
         if (string.IsNullOrWhiteSpace(req.RevisionReason))
             return new AdminReviseResult { Success = false, ErrorMessage = "修訂原因為必填" };
 
+        // 題目富文本寫入前消毒（共用 QuestionFormSanitizer，防 Stored XSS）
+        QuestionFormSanitizer.Sanitize(req.FormData, _sanitizer);
         req.FormData.NormalizeFixedAttributes();
 
         using var conn = _db.CreateConnection();

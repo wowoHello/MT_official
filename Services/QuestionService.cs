@@ -68,11 +68,13 @@ public interface IQuestionService
 public class QuestionService(
     IDatabaseService db,
     IHttpContextAccessor httpAccessor,
-    IQuestionTypeCatalog typeCatalog) : IQuestionService
+    IQuestionTypeCatalog typeCatalog,
+    IHtmlSanitizationService sanitizer) : IQuestionService
 {
     private readonly IDatabaseService _db = db;
     private readonly IHttpContextAccessor _httpAccessor = httpAccessor;
     private readonly IQuestionTypeCatalog _typeCatalog = typeCatalog;
+    private readonly IHtmlSanitizationService _sanitizer = sanitizer;
 
     // ====================================================================
     //  既有：配額與階段
@@ -244,6 +246,9 @@ public class QuestionService(
     //  P3：CRUD
     // ====================================================================
 
+    /// <summary>寫入 DB 前消毒 QuestionFormData 富文本欄位（共用 QuestionFormSanitizer，防 Stored XSS）。</summary>
+    private void SanitizeFormData(QuestionFormData f) => QuestionFormSanitizer.Sanitize(f, _sanitizer);
+
     /// <summary>
     /// 新增題目。
     /// initialStatus = 0 草稿 / 1 命題完成 / 2 命題送審
@@ -251,6 +256,8 @@ public class QuestionService(
     /// </summary>
     public async Task<int> CreateAsync(QuestionFormData formData, int creatorUserId, int projectId, byte initialStatus)
     {
+        // 富文本欄位寫入前消毒（Stored XSS 防護）
+        SanitizeFormData(formData);
         // 題組類母題固定 Topic / Subtopic 統一在寫入前補上，避免 DB 不一致
         formData.NormalizeFixedAttributes();
         var typeId = QuestionConstants.TypeKeyToId[formData.QuestionType];
@@ -325,6 +332,8 @@ public class QuestionService(
     /// </summary>
     public async Task<bool> UpdateAsync(int questionId, QuestionFormData formData, byte newStatus, int operatorUserId)
     {
+        // 富文本欄位寫入前消毒（Stored XSS 防護）
+        SanitizeFormData(formData);
         // 題組類母題固定 Topic / Subtopic 統一在寫入前補上
         formData.NormalizeFixedAttributes();
         var typeId = QuestionConstants.TypeKeyToId[formData.QuestionType];
@@ -2399,6 +2408,8 @@ public class QuestionService(
         if (string.IsNullOrWhiteSpace(req.RevisionNote))
             throw new InvalidOperationException("修題說明為必填欄位。");
 
+        // 富文本欄位寫入前消毒（Stored XSS 防護）
+        SanitizeFormData(req.FormData);
         // 題組類母題固定 Topic / Subtopic 統一在寫入前補上
         req.FormData.NormalizeFixedAttributes();
         var typeId = QuestionConstants.TypeKeyToId[req.FormData.QuestionType];

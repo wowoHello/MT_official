@@ -113,6 +113,10 @@ builder.Services.AddSingleton<IPhaseTransitionCoordinator, PhaseTransitionCoordi
 // 7 種題型字典：啟動時載入記憶體，全站 SQL 不再 JOIN MT_QuestionTypes（靜態小表)
 builder.Services.AddSingleton<IQuestionTypeCatalog, QuestionTypeCatalog>();
 
+// 伺服器端 HTML 消毒（Stored XSS 防護）：寫入端 Service 存 DB 前消毒 Quill 富文本
+// 設定一次後不變、執行緒安全 → Singleton
+builder.Services.AddSingleton<IHtmlSanitizationService, HtmlSanitizationService>();
+
 // 使用者「effective 角色 + 模組權限」短 TTL Cache（30 秒）
 // 服務的場景：MainLayout / Home / Announcements 編輯 / 任何權限快速判斷
 builder.Services.AddScoped<IMembershipService, MembershipService>();

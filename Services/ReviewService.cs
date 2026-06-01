@@ -59,10 +59,11 @@ public interface IReviewService
     Task<bool> FinalReviewerEditAndDecideAsync(FinalReviewerEditRequest req, int operatorUserId);
 }
 
-public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : IReviewService
+public class ReviewService(IDatabaseService db, IQuestionService questionSvc, IHtmlSanitizationService sanitizer) : IReviewService
 {
     private readonly IDatabaseService _db = db;
     private readonly IQuestionService _questionSvc = questionSvc;
+    private readonly IHtmlSanitizationService _sanitizer = sanitizer;
 
     // ====================================================================
     //  系統自動 Audit Reason 清單（單一資料來源）
@@ -580,6 +581,9 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
 
     public async Task<bool> SaveCommentDraftAsync(SaveReviewCommentRequest req, int operatorUserId)
     {
+        // 審題意見富文本寫入前消毒（Stored XSS 防護）
+        req.Comment = _sanitizer.Sanitize(req.Comment) ?? "";
+
         using var conn = _db.CreateConnection();
 
         // 取出 Stage / ProjectId / QuestionId / DecidedAt（區分首次完成 vs 修改既有意見）
@@ -688,6 +692,9 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
 
     public async Task<bool> SubmitDecisionAsync(SubmitReviewDecisionRequest req, int operatorUserId)
     {
+        // 審題意見富文本寫入前消毒（Stored XSS 防護）
+        req.Comment = _sanitizer.Sanitize(req.Comment) ?? "";
+
         using var conn = _db.CreateConnection();
         conn.Open();
         using var tx = conn.BeginTransaction();
@@ -968,6 +975,8 @@ public class ReviewService(IDatabaseService db, IQuestionService questionSvc) : 
         if (req.Decision == ReviewDecision.Revise)
             throw new InvalidOperationException("代修題後只可「採用」或「不採用」，不可「改後採用」。");
 
+        // 題目富文本寫入前消毒（共用 QuestionFormSanitizer，防 Stored XSS）
+        QuestionFormSanitizer.Sanitize(req.FormData, _sanitizer);
         // 題組類母題固定 Topic / Subtopic 統一在寫入前補上
         req.FormData.NormalizeFixedAttributes();
         var typeId = QuestionConstants.TypeKeyToId[req.FormData.QuestionType];

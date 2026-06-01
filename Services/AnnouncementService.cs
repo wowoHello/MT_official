@@ -28,17 +28,20 @@ public class AnnouncementService : IAnnouncementService
     private readonly ILogger<AnnouncementService> _logger;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IMembershipService _membership;
+    private readonly IHtmlSanitizationService _sanitizer;
 
     public AnnouncementService(
         IDatabaseService db,
         ILogger<AnnouncementService> logger,
         IHttpContextAccessor httpContextAccessor,
-        IMembershipService membership)
+        IMembershipService membership,
+        IHtmlSanitizationService sanitizer)
     {
         _db = db;
         _logger = logger;
         _httpContextAccessor = httpContextAccessor;
         _membership = membership;
+        _sanitizer = sanitizer;
     }
 
     // ─── 權限門鎖：寫入動作前必過 ───
@@ -175,6 +178,9 @@ public class AnnouncementService : IAnnouncementService
 
         await EnsureCanEditAsync(operatorId);
 
+        // 公告內容富文本寫入前消毒（Stored XSS 防護）
+        model.Content = _sanitizer.Sanitize(model.Content) ?? "";
+
         using var tx = conn.BeginTransaction();
 
         try
@@ -248,6 +254,9 @@ public class AnnouncementService : IAnnouncementService
         conn.Open();
 
         await EnsureCanEditAsync(operatorId);
+
+        // 公告內容富文本寫入前消毒（Stored XSS 防護）
+        model.Content = _sanitizer.Sanitize(model.Content) ?? "";
 
         using var tx = conn.BeginTransaction();
 

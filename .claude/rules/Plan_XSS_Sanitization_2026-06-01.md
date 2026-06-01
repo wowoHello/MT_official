@@ -2,7 +2,9 @@
 
 > **計畫日期**：2026-06-01
 > **作者**：Jay 與 Claude 共同設計
-> **狀態**：⏳ 等待 user 拍板 Q1-Q4 後動工
+> **狀態**：✅ 已實作（2026-06-01）— Q1 Ganss.Xss / Q2 架構 A / Q3 意見消毒 / Q4 移除外部圖片 全數拍板。
+> Stage 1（HtmlSanitizationService + DI）+ Stage 2（4 服務寫入端接線）完成，dotnet build 0 警告 0 錯誤。
+> **Stage 3（既有資料清洗）取消**：user 確認現有為假資料、上正式會先清空一次，新內容一律經消毒寫入路徑，無需遷移。
 > **嚴重度**：🔴 CRITICAL（全站 22 個 `MarkupString` sink 渲染未消毒的使用者 HTML）
 > **影響範圍**：新增 1 個共用 Service（消毒引擎）+ 4 個寫入端 Service 接線 + 既有資料一次性清洗 +（選配）讀取端縱深防禦
 > **關聯審查**：`D:\jay_liu\Desktop\MT_codereview\MT_ClaudeReview.md`（CRITICAL-1）
