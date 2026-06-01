@@ -46,13 +46,6 @@
                         <i class="fa-solid fa-house"></i>
                         <span>回首頁</span>
                     </button>
-
-                    <button type="button"
-                            @onclick="GoProjects"
-                            class="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-slate-main transition-all hover:-translate-y-0.5 hover:border-morandi hover:text-morandi focus:outline-none focus:ring-2 focus:ring-morandi/20">
-                        <i class="fa-solid fa-box-archive"></i>
-                        <span>前往命題專案管理</span>
-                    </button>
                 </div>
             </section>
 
@@ -104,7 +97,6 @@
     private readonly SuggestionItem[] suggestions =
     [
         new("fa-solid fa-house", "先回首頁看看", "從系統首頁重新進入，通常最快找到正確入口。"),
-        new("fa-solid fa-box-archive", "回到命題專案", "如果你剛剛是在處理梯次或專案資料，這裡最常用。"),
         new("fa-solid fa-magnifying-glass", "檢查網址是否有誤", "特別是手動輸入路徑時，少一碼就很容易迷路。")
     ];
 

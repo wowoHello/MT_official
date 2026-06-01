@@ -17,7 +17,7 @@ CwtList.razor 用 `switch (formData.QuestionType)` 切換，**沒有用 DynamicC
 **共用結構（避免重複的 4 個元件）：**
 - `FormSectionCard.razor` — 表單區塊外框（Title + Icon + Required + DataField anchor + ContainerClass for InvalidRing）
 - `OptionGroup.razor` — ABCD 選項共用（Vertical / Grid 兩種 layout，含 radio 標示正確答案）
-- `QuestionAttributesSidebar.razor`（454 行）— 左側屬性側欄，依 `QuestionType` 動態渲染對應 enum 下拉
+- `QuestionAttributesSidebar.razor`（515 行）— 左側屬性側欄，依 `QuestionType` 動態渲染對應 enum 下拉
 - `QuillField.razor`（位於 Shared/，非 QuestionForms/）— 點擊滑出底部 Quill 編輯器
 
 **各題型差異（屬性側欄欄位）：**
@@ -25,7 +25,7 @@ CwtList.razor 用 `switch (formData.QuestionType)` 切換，**沒有用 DynamicC
 - LongText：WritingMode（引導寫作 / 資訊整合）+ Difficulty；可選等級 [0,1,2,4]
 - ReadGroup：Genre（文體）+ Difficulty
 - ShortGroup：Genre + Difficulty；Topic/Subtopic **寫死** Topic=6 文意判讀 / Subtopic=17 篇章辨析（不放入級聯）
-- Listen：CoreAbility（核心能力）+ DetailIndicator（細目指標）+ AudioType + Material；等級 [1..5] 用 ListenLevelLabels「難度一～五」
+- Listen：CoreAbility（核心能力）+ DetailIndicator（細目指標）+ AudioType + Material；等級 [1..5] 用 ListenLevelLabels「難度一～五」。右側內容含「題目」(Stem) + 「內容」(ArticleContent，語音逐字稿 Quill + 附圖 FieldType=6，必填文字或圖片擇一) + 選項 + 解析 —— `QuestionFormListen.razor` 有 ArticleContent / ArticleContentChanged 參數，CwtList L493 `@bind-ArticleContent`
 - ListenGroup：母題僅 AudioType + Material（**無等級**，TypeLevels 為空陣列），兩個固定子題分別 FixedDifficulty=3/4
 
 **子題規則：**

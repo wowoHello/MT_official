@@ -26,7 +26,8 @@
       "mcp__context7__resolve-library-id",
       "Bash(powershell *)",
       "PowerShell(\\(Get-Content \"D:\\\\IISWebSize\\\\MT\\\\Components\\\\Pages\\\\Roles.razor\" | Measure-Object -Line\\).Lines; \\(Get-Content \"D:\\\\IISWebSize\\\\MT\\\\Services\\\\RoleService.cs\" | Measure-Object -Line\\).Lines; \\(Get-Content \"D:\\\\IISWebSize\\\\MT\\\\Models\\\\RoleModels.cs\" | Measure-Object -Line\\).Lines)",
-      "PowerShell(\\(Get-Content \"D:\\\\IISWebSize\\\\MT\\\\Models\\\\ModulePermission.cs\" | Measure-Object -Line\\).Lines; \\(Get-Content \"D:\\\\IISWebSize\\\\MT\\\\Models\\\\RoleTag.cs\" | Measure-Object -Line\\).Lines)"
+      "PowerShell(\\(Get-Content \"D:\\\\IISWebSize\\\\MT\\\\Models\\\\ModulePermission.cs\" | Measure-Object -Line\\).Lines; \\(Get-Content \"D:\\\\IISWebSize\\\\MT\\\\Models\\\\RoleTag.cs\" | Measure-Object -Line\\).Lines)",
+      "PowerShell(\\(Get-Content \"D:\\\\IISWebSize\\\\MT\\\\Components\\\\Pages\\\\Projects.razor\" | Measure-Object -Line\\).Lines; \\(Get-Content \"D:\\\\IISWebSize\\\\MT\\\\Services\\\\ProjectService.cs\" | Measure-Object -Line\\).Lines; \\(Get-Content \"D:\\\\IISWebSize\\\\MT\\\\Models\\\\ProjectModels.cs\" | Measure-Object -Line\\).Lines)"
     ]
   }
 }

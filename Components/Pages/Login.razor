@@ -11,6 +11,7 @@
 @inject IWebHostEnvironment Env
 @inject IAuthService AuthService
 @inject IPasswordResetService ResetService
+@inject IUserGuideService UserGuideService
 
 <PageTitle>CWT 命題工作平臺</PageTitle>
 
@@ -154,6 +155,16 @@
                 </button>
             </EditForm>
 
+            @if (loginGuide is not null)
+            {
+                <div class="mt-4 pt-3 border-t border-gray-100 text-center">
+                    <a href="@($"{Navigation.BaseUri}{loginGuide.RelativeUrl}")" target="_blank" rel="noopener"
+                       class="inline-flex items-center gap-1.5 text-sm text-[var(--color-morandi)] hover:underline rounded-md px-1.5 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-morandi)]">
+                        <i class="fa-solid fa-book-open"></i> 頁面介紹
+                    </a>
+                </div>
+            }
+
             <div class="mt-4 text-center text-xs text-gray-400">
                 &copy; @DateTime.Now.Year 全民中文檢定 CWT. All rights reserved.
             </div>
@@ -282,6 +293,9 @@
 
     private bool IsDev => Env.IsDevelopment();
 
+    // --- 登入頁使用手冊（匿名，未上傳則為 null，不顯示按鈕） ---
+    private GuideViewItem? loginGuide;
+
     protected override async Task OnInitializedAsync()
     {
         var authState = await AuthState;
@@ -297,6 +311,10 @@
         }
 
         GenerateNewCaptcha();
+
+        // 登入頁手冊（匿名可預覽）；失敗不影響登入流程
+        try { loginGuide = await UserGuideService.GetLoginGuideAsync(); }
+        catch { loginGuide = null; }
 
         if (IsDev)
         {

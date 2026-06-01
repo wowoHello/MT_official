@@ -21,10 +21,10 @@ CwtList 不再是 prototype 階段，已是正式實作中的核心頁面。
 - razor / Service 內常見 `// Plan_NNN` 或 `// Stage B-4-2` 註解，動到既有邏輯前先確認該計畫意圖。
 
 **三檔案規則的實際擴張（合理例外）：**
-主三檔案（鐵律，2026-05-22 確認）：
-- `Components/Pages/CwtList.razor`（**1575 行**）
-- `Services/QuestionService.cs`（**3122 行**）
-- `Models/QuestionModels.cs`（**756 行**）
+主三檔案（鐵律，2026-06-01 結案版確認）：
+- `Components/Pages/CwtList.razor`（**1611 行**，@code 起 L582）
+- `Services/QuestionService.cs`（**3187 行**）
+- `Models/QuestionModels.cs`（**779 行**）
 
 但已長出輔助 service / model（其他頁面也共用）：
 - `Services/QuestionFormValidator.cs` — 7 種題型欄位驗證（`ValidateForDraft` 寬鬆 / `ValidateForCompletion` 嚴格）
@@ -33,6 +33,9 @@ CwtList 不再是 prototype 階段，已是正式實作中的核心頁面。
 - `Services/SimilarityService.cs`（**535 行，Plan A 簡化版**）— 只有 ComputeOnDemandAsync 一個方法
 - `Models/SimilarityModels.cs`（211 行）— QuestionDraftSnapshot / SimilarityCompareResult 等
 - DB View `vw_QuestionRoundStartedAt` — 全梯次「上次總審退回時間」聚合，ListAsync CTE 與多處查詢已整合
+
+**ProjectPhaseInfo 生命週期欄位（QuestionModels.cs L22-67）：**
+`ProjectPhaseInfo` 帶 `ClosedAt? / IsClosed / IsUrgent / DisplayState`（computed），搭配 `PhaseDisplayState` enum（Done=0 / Active=1 / Upcoming=2 / Closed=3）。已結案專案依 ClosedAt 落點標 Closed（橘），與 Projects 頁時程列視覺一致。`GetCurrentPhaseAsync` JOIN MT_Projects 帶入 ClosedAt。
 
 **Quill 編輯器架構：**
 所有富文本欄位用 `QuillField` 而非 `QuillEditor` 直接呼叫；外層由 `QuillEditorHost` 提供共用底部面板（CascadingValue `IsFormReadOnly` 控制唯讀）。CwtList 的 Modal 與 RevisionSlideOver 各自包一個 QuillEditorHost。

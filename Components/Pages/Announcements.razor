@@ -5,6 +5,7 @@
 @* ====================================================================== *@
 @page "/announcements"
 @inject IAnnouncementService AnnouncementService
+@inject IUserGuideService UserGuideService
 @inject NavigationManager Navigation
 @inject ILogger<Announcements> Logger
 
@@ -35,7 +36,7 @@
                 <p class="text-sm text-gray-500 mt-1">管理內部看板公告及操作手冊下載。</p>
             </div>
             <div class="flex gap-2">
-                <button type="button" @onclick="ShowUserGuide"
+                <button type="button" @onclick="OpenGuideManagerAsync"
                     class="cursor-pointer px-4 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm focus:outline-none flex items-center gap-2">
                     <i class="fa-solid fa-book"></i> 使用說明手冊
                 </button>
@@ -595,6 +596,88 @@
         <button type="button" @onclick="() => showViewModal = false"
             class="cursor-pointer px-6 py-2 bg-morandi hover:bg-[#5b7a95] text-white rounded-lg font-medium transition-colors focus:outline-none">
             確認關閉
+        </button>
+    </FooterContent>
+</CustomModal>
+
+<!-- ============================================== -->
+<!-- Modal：使用說明手冊管理（11 頁固定槽位）         -->
+<!-- ============================================== -->
+<CustomModal @bind-IsVisible="showGuideModal" Type="CustomModal.ModalType.Center" Title="使用說明手冊管理" MaxWidth="max-w-3xl">
+    <ChildContent>
+        <p class="text-sm text-gray-500 mb-4 flex items-start gap-1.5">
+            <i class="fa-solid fa-circle-info mt-0.5 shrink-0 text-morandi"></i>
+            <span>每個頁面各自上傳一份 PDF 手冊（重新上傳即取代）。使用者於首頁/登入頁依權限預覽對應手冊。僅接受 PDF、上限 30MB。</span>
+        </p>
+
+        @if (isGuideLoading)
+        {
+            <div class="py-10 flex items-center justify-center">
+                <i class="fa-solid fa-spinner fa-spin text-2xl text-morandi"></i>
+            </div>
+        }
+        else
+        {
+            <div class="-mx-6 border-t border-gray-100">
+                @foreach (var slot in guideSlots)
+                {
+                    <div class="px-6 py-3 border-b border-gray-50 flex items-center gap-3 hover:bg-gray-50/50 transition-colors">
+                        <!-- 頁名 -->
+                        <div class="w-40 shrink-0">
+                            <span class="text-sm font-bold text-slate-main">@slot.PageName</span>
+                        </div>
+                        <!-- 檔案資訊 -->
+                        <div class="flex-1 min-w-0">
+                            @if (slot.IsUploaded)
+                            {
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <i class="fa-solid fa-file-pdf text-red-500 shrink-0"></i>
+                                    <span class="text-sm text-gray-700 truncate" title="@slot.FileName">@slot.FileName</span>
+                                </div>
+                                <span class="text-xs text-gray-400">@slot.FileSizeText · @slot.UploadedDisplay</span>
+                            }
+                            else
+                            {
+                                <span class="text-sm text-gray-400">尚未上傳</span>
+                            }
+                        </div>
+                        <!-- 操作 -->
+                        <div class="flex items-center gap-1 shrink-0">
+                            @if (slot.IsUploaded)
+                            {
+                                <a href="@($"{Navigation.BaseUri}{slot.RelativeUrl}")" target="_blank" rel="noopener"
+                                   class="px-2.5 py-1.5 text-xs font-medium text-morandi hover:bg-morandi/10 rounded-lg transition-colors flex items-center gap-1">
+                                    <i class="fa-solid fa-eye"></i> 預覽
+                                </a>
+                            }
+                            <label class="cursor-pointer px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-1 @(uploadingPageKey == slot.PageKey ? "opacity-50 pointer-events-none" : "")">
+                                @if (uploadingPageKey == slot.PageKey)
+                                {
+                                    <i class="fa-solid fa-spinner fa-spin"></i> <span>上傳中</span>
+                                }
+                                else
+                                {
+                                    <i class="fa-solid fa-upload"></i> <span>@(slot.IsUploaded ? "替換" : "上傳")</span>
+                                }
+                                <InputFile OnChange="(e) => HandleGuideUploadAsync(slot.PageKey, e)" accept=".pdf" class="hidden" />
+                            </label>
+                            @if (slot.IsUploaded)
+                            {
+                                <button type="button" @onclick="() => HandleGuideDeleteAsync(slot)"
+                                        class="px-2.5 py-1.5 text-xs font-medium text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1">
+                                    <i class="fa-solid fa-trash-can"></i> 刪除
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </ChildContent>
+    <FooterContent>
+        <button type="button" @onclick="() => showGuideModal = false"
+            class="cursor-pointer px-6 py-2 bg-morandi hover:bg-[#5b7a95] text-white rounded-lg font-medium transition-colors focus:outline-none">
+            關閉
         </button>
     </FooterContent>
 </CustomModal>
@@ -1187,22 +1270,100 @@
         await OpenEditAnnouncement(id);
     }
 
-    // ─── 使用說明手冊 ───
-    private async Task ShowUserGuide()
+    // ─── 使用說明手冊管理 ───
+    private bool showGuideModal;
+    private bool isGuideLoading;
+    private string? uploadingPageKey;   // 上傳中的 PageKey（按鈕 spinner / 防重複）
+    private List<GuideSlotItem> guideSlots = new();
+
+    private const long GuideMaxBytes = 30 * 1024 * 1024;   // 30MB（與 Service 一致，前端先擋）
+
+    private async Task OpenGuideManagerAsync()
     {
-        await JS.InvokeVoidAsync("Swal.fire", new
+        showGuideModal = true;
+        await LoadGuideSlotsAsync();
+    }
+
+    private async Task LoadGuideSlotsAsync()
+    {
+        isGuideLoading = true;
+        try
         {
-            icon = "info",
-            title = "使用說明手冊",
-            html = @"<p class=""text-sm text-gray-600 mb-4"">實際上線後將提供 PDF 文件下載連結。</p>
-                     <div class=""text-left text-sm space-y-2 border-t border-gray-100 pt-4"">
-                         <div class=""flex items-center gap-2 text-gray-700""><i class=""fa-solid fa-file-pdf text-red-500""></i><span>CWT 命題工作平臺 使用說明手冊 v3.2.pdf</span></div>
-                         <div class=""flex items-center gap-2 text-gray-700""><i class=""fa-solid fa-file-pdf text-red-500""></i><span>聽力題組命題操作指引 v1.0.pdf</span></div>
-                         <div class=""flex items-center gap-2 text-gray-700""><i class=""fa-solid fa-file-pdf text-red-500""></i><span>三審流程與迴避規則說明.pdf</span></div>
-                     </div>",
-            confirmButtonColor = "#6B8EAD",
-            confirmButtonText = "瞭解"
+            guideSlots = (await UserGuideService.GetManagementSlotsAsync()).ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "載入手冊槽位失敗");
+            guideSlots = new();
+        }
+        finally
+        {
+            isGuideLoading = false;
+        }
+    }
+
+    private async Task HandleGuideUploadAsync(string pageKey, InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file is null) return;
+
+        if (!file.Name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+        {
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "warning", title = "僅接受 PDF 檔案", confirmButtonColor = "#6B8EAD" });
+            return;
+        }
+        if (file.Size > GuideMaxBytes)
+        {
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "warning", title = "檔案過大", text = "PDF 上限為 30MB。", confirmButtonColor = "#6B8EAD" });
+            return;
+        }
+
+        uploadingPageKey = pageKey;
+        try
+        {
+            var userId = await GetCurrentUserIdAsync();
+            await UserGuideService.UploadAsync(pageKey, file, userId);
+            await LoadGuideSlotsAsync();
+            _ = JS.InvokeVoidAsync("Swal.fire", new { icon = "success", title = "已上傳", toast = true, position = "top-end", showConfirmButton = false, timer = 1800 });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "上傳手冊失敗 PageKey={PageKey}", pageKey);
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "error", title = "上傳失敗", text = ex.Message, confirmButtonColor = "#6B8EAD" });
+        }
+        finally
+        {
+            uploadingPageKey = null;
+        }
+    }
+
+    private async Task HandleGuideDeleteAsync(GuideSlotItem slot)
+    {
+        var confirmed = await JS.InvokeAsync<bool>("swalConfirm", new
+        {
+            title = "確認刪除?",
+            html = $"將刪除「<b>{slot.PageName}使用手冊</b>」，此操作無法復原。",
+            icon = "warning",
+            showCancelButton = true,
+            confirmButtonColor = "#D98A6C",
+            cancelButtonColor = "#6B8EAD",
+            confirmButtonText = "確認刪除",
+            cancelButtonText = "取消"
         });
+        if (!confirmed) return;
+
+        try
+        {
+            var userId = await GetCurrentUserIdAsync();
+            await UserGuideService.DeleteAsync(slot.PageKey, userId);
+            await LoadGuideSlotsAsync();
+            _ = JS.InvokeVoidAsync("Swal.fire", new { icon = "success", title = "已刪除", toast = true, position = "top-end", showConfirmButton = false, timer = 1500 });
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "刪除手冊失敗 PageKey={PageKey}", slot.PageKey);
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "error", title = "刪除失敗", text = ex.Message, confirmButtonColor = "#6B8EAD" });
+        }
     }
 
     // ─── 輔助方法：分類標籤 ───

@@ -1,12 +1,16 @@
 ---
 name: ReviewModal 內部元件 UI 細節（ActionPanel / DecisionBar / Timeline / Similarity）
-description: 罐頭訊息 8 則、MinCommentLength=10、5 種 DecisionBar 配置、Timeline 匿名邏輯、相似題雙模式的實際實作狀態
+description: 罐頭訊息 CWT/LCT 各 6 則、MinCommentLength=10、5 種 DecisionBar 配置、Timeline 匿名邏輯、相似題雙模式的實際實作狀態
 type: project
 ---
 
 ## ReviewActionPanel（右側 30% 操作區）
 
-罐頭訊息共 8 則（按鈕插入 textarea）：題意清晰、答案有爭議、選項長度差異、用詞不當、計算錯誤、鑑別度偏低、文意冗長、圖片不清。
+罐頭訊息共兩組，依題型自動切換（`ActiveCannedMessages` computed property）：
+- **CWT 組 6 則**：選項鑑別明確 / 題幹情境清晰 / 文句通順無誤（sage 正向） / 選項字數失衡（morandi 建議）/ 題幹資訊不足 / 難度不符等級（terracotta 警示）
+- **LCT 組 6 則**：邏輯清晰合理 / 選項鑑別度佳 / 語句通順口語（sage 正向） / 答案易生爭議 / 選項誘答不足（後兩者為 terracotta/morandi） / 文本字數偏多
+- 切換邏輯：`QuestionType is Listen or ListenGroup → LCT 組；其他 → CWT 組`
+
 顏色語意：sage=正向 / terracotta=警示 / morandi=中性建議。
 使用 `TextareaHelper.insertAtCursor` JS interop 插入游標位置，回傳新值後 Blazor 明確同步（避免 IME 打架）。
 意見最小字數 `MinCommentLength = 10`（const，與 ReviewDecisionBar 同步）。
@@ -20,13 +24,13 @@ type: project
 | 未分配 | Assignment is null | 關閉 |
 | 歷史唯讀 | IsHistorical=true | 唯讀文字 + 關閉 |
 | 已完成未解鎖 | IsCompleted && !CanFinalReviewerEdit | 唯讀決策狀態 + 關閉 |
-| 已完成已解鎖 | IsCompleted && CanFinalReviewerEdit | [儲存草稿] + [編輯題目] + [不採用] + [採用] |
+| 已完成已解鎖 | IsCompleted && CanFinalReviewerEdit | [編輯題目] + [不採用] + [採用]（三按鈕，**無儲存草稿**，顯示「已退回 3 次，請直接修改並裁決」提示） |
 | 待審（Pending） | !IsCompleted | 依 Stage 顯示（互審/專審/總審/總審第3次） |
 
 互審 Pending：僅 [儲存意見]（字數不足則 disabled），提示「互審階段僅提供意見回饋」。
 專審 Pending：[儲存意見草稿] + [改後採用] + [採用]（後兩者需 >=10 字）。
 總審 Pending（未解鎖）：[儲存意見草稿] + [改後採用] + [不採用] + [採用]（後三者需 >=10 字）。
-總審 Pending（已解鎖 CanFinalReviewerEdit）：[儲存意見草稿] + [編輯題目]（不需字數） + [不採用] + [採用]（後兩者需 >=10 字）。
+總審 Pending（已解鎖 CanFinalReviewerEdit，RenderFinalThirdButtons）：[編輯題目] + [不採用] + [採用]（三按鈕，**無儲存草稿**，按鈕無意見字數守門）。
 
 ## ReviewHistoryTimeline 匿名邏輯
 

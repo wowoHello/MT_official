@@ -102,6 +102,9 @@ builder.Services.AddScoped<IDashboardService, DashboardService>();
 // 系統活動記錄（登入/人員/專案/公告）統一查詢服務（SystemLogs.razor）
 builder.Services.AddScoped<ISystemLogService, SystemLogService>();
 
+// 使用說明手冊（以頁面為區分）上傳/預覽（Announcements 管理、Home/Login 預覽）
+builder.Services.AddScoped<IUserGuideService, UserGuideService>();
+
 // 階段轉換協調器：CwtList / Reviews / OverviewService 共用入口，60 秒去重
 // Singleton + IMemoryCache 跨 user 跨 tab 共享狀態，避免雜訊 SQL
 builder.Services.AddMemoryCache();

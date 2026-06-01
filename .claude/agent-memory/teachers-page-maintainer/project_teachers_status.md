@@ -1,13 +1,13 @@
 ---
 name: Teachers.razor 完成度狀態
-description: Teachers.razor 頁面程式碼現況（2026-05-29 複核），記錄架構、各波次改動、技術債與關鍵實作細節
+description: Teachers.razor 頁面程式碼現況（2026-06-01 結案複核），記錄架構、各波次改動、已知技術債的事實狀態
 type: project
 ---
 
-## 檔案規模（2026-05-29 複核）
+## 檔案規模（2026-06-01 結案複核）
 
 - `Components/Pages/Teachers.razor`：**2,259 行**（UI + @code block；含批次匯入 Slide-over + 匯出名單 + 聘書相關 UI 邏輯）
-- `Services/TeacherService.cs`：**2,183 行**（含 ITeacherService 介面 + TeacherService 實作 + 10+ 個 private sealed class）
+- `Services/TeacherService.cs`：**2,183 行**（含 ITeacherService 介面 + TeacherService 實作 + 多個 private sealed class；2026-05-29 最終值）
 - `Models/TeacherModels.cs`：**407 行**（含 BatchImportRow / BatchImportRowStatus / BatchImportRowResult + TeacherExportRow / TeacherExportResult）
 
 三檔案規則完全符合。TeacherService 注入 5 個依賴：`IDatabaseService`、`ILogger<TeacherService>`、`IHttpContextAccessor`、`IQuestionTypeCatalog`、`IAppointmentService`。`ITeacherService` 介面共 15 個公開方法（含 `ExportProjectTeachersAsync`）。
@@ -133,7 +133,7 @@ UI 狀態：`composePage`、`reviewPage`（int）、`isLoadingCompose`、`isLoad
 **新建教師預設角色**：查詢名稱為 `N'預設教師'` 的角色 ID。若角色不存在拋出例外。
 
 **教師管理 vs 人員帳號管理定位**：
-- 教師管理（此頁）：**外部人員**（命題教師、審題委員），帳號以**信箱**登入，預設密碼 `CSF@01024304`
+- 教師管理（此頁）：**外部人員**（命題教師、審題委員），帳號以**信箱**登入，預設密碼為動態年份格式 `teacherYYYY`（例：2026 年為 `teacher2026`）
 - 人員帳號管理（Roles 頁）：**內部人員**（CWT 職員、管理員），帳號以自訂帳號登入，預設密碼公司統編 `01024304`
 
 **參與專案 StartDate 來源**：MT_ProjectPhases MIN(StartDate)，若無 Phase 資料 fallback 為 SYSDATETIME()，用於 `ProjectStatusHelper.Resolve(StartDate, EndDate, ClosedAt)`。
@@ -219,8 +219,8 @@ UI 狀態：`composePage`、`reviewPage`（int）、`isLoadingCompose`、`isLoad
 - **TM-05**：`ToggleTeacherStatusAsync` 查詢+更新未包在 Transaction（低風險競態條件）。
 - **TM-08**：帳號狀態 Radio 使用原生 `input type="radio"` 而非 Blazor `InputRadio`。
 - **TM-10**：`composeFilterProjectId` / `reviewFilterProjectId` 為 string 型別，`int.Parse()` 轉換（非數字字串仍可能例外）。
-- **TM-11**：`AssignToProjectAsync` 中角色逐一 INSERT（foreach N 次），未改成批次 INSERT（第三波 #18 已在 RoleService 修，TeacherService 這裡確認仍未跟進，2026-05-29 程式碼行 581-585 確認）。
-- **TM-14（2026-05-22 已處理）**：刪除 6 個死代碼方法（LoadCwtComposeStatsAsync / LoadCwtReviewStatsAsync / AssembleCwtStats / LoadLctComposeStatsAsync / LoadLctReviewStatsAsync / AssembleLctStats）及 3 個廢棄 sealed class（ExportBucketRow / ExportLctGroupRow / ExportUserStats），共 306 行，TeacherService.cs 從 2,422 降至 2,116 行。
+- **TM-11**：`AssignToProjectAsync` 中角色逐一 INSERT（foreach N 次），未改成批次 INSERT（第三波 #18 已在 RoleService 修，TeacherService 這裡確認仍未跟進，2026-06-01 程式碼行 577-585 確認）。
+- **TM-14（2026-05-22 已處理）**：刪除 6 個死代碼方法（LoadCwtComposeStatsAsync / LoadCwtReviewStatsAsync / AssembleCwtStats / LoadLctComposeStatsAsync / LoadLctReviewStatsAsync / AssembleLctStats）及 3 個廢棄 sealed class（ExportBucketRow / ExportLctGroupRow / ExportUserStats）共 306 行。後續 2026-05-27 / 2026-05-29 的匯出調整陸續新增約 67 行，最終行數為 2,183 行（2026-06-01 wc -l 實測）。
 
 **已解除技術債**：
 - TM-06（2026-05-08 修正）：預設角色查詢改為 `N'預設教師'`。
@@ -228,5 +228,3 @@ UI 狀態：`composePage`、`reviewPage`（int）、`isLoadingCompose`、`isLoad
 - TM-12（2026-05-21 解除）：`TeacherProjectItem` + SQL 加 `ProjectType`，參與專案卡片顯示 CWT/LCT badge。
 - TM-13（2026-05-21 解除）：`TeacherComposeItem` / `TeacherReviewItem` 加 `ProjectType`，歷程列表顯示 CWT/LCT badge，LevelText 依 ProjectType 切換邏輯。
 
-**Why:** 提供完整評估記錄，追蹤技術債進度，避免未來重複評估或誤判完成度。
-**How to apply:** 若使用者提議修改 Teachers 頁面，先比對此清單；若詢問驗證問題，這是已知技術債 TM-01，可在計畫書中提出改進。

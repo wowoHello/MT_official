@@ -10,6 +10,7 @@
 @inject NavigationManager Navigation
 @inject IHomeService HomeService
 @inject IQuestionService QuestionService
+@inject IUserGuideService UserGuideService
 
 <div class="flex min-h-[calc(100vh-4rem)] flex-col px-4 pt-4 pb-2 sm:px-6 lg:px-8">
 
@@ -77,7 +78,7 @@
                     <h2 class="text-lg font-bold flex items-center gap-2">
                         <i class="fa-regular fa-bell text-terracotta"></i> 今日提醒看板
                     </h2>
-                    <button type="button" @onclick="ShowManualComingSoon"
+                    <button type="button" @onclick="OpenGuideListAsync"
                             class="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-morandi hover:text-white text-morandi text-xs font-bold rounded-lg border border-morandi/30 shadow-sm transition-colors cursor-pointer">
                         <i class="fa-solid fa-book"></i> 使用說明手冊
                     </button>
@@ -301,6 +302,49 @@
                         </button>
                     </FooterContent>
                 </CustomModal>
+
+                <!-- 使用說明手冊清單 Modal（依權限顯示，點按新分頁預覽） -->
+                <CustomModal @bind-IsVisible="showGuideModal" Type="CustomModal.ModalType.Center" Title="使用說明手冊">
+                    <ChildContent>
+                        @if (isGuideLoading)
+                        {
+                            <div class="py-10 flex items-center justify-center">
+                                <i class="fa-solid fa-spinner fa-spin text-2xl text-morandi"></i>
+                            </div>
+                        }
+                        else if (guideItems.Count == 0)
+                        {
+                            <div class="py-10 flex flex-col items-center justify-center text-center">
+                                <i class="fa-regular fa-folder-open text-[3rem] text-slate-main/20 mb-3"></i>
+                                <p class="text-sm font-bold text-slate-main/60">目前尚無可用的手冊</p>
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-xs text-gray-500 mb-3 flex items-start gap-1.5">
+                                <i class="fa-solid fa-circle-info mt-0.5 shrink-0 text-morandi"></i>
+                                <span>點擊後於新分頁開啟 PDF 預覽，可於閱覽器自行下載。</span>
+                            </p>
+                            <div class="space-y-2">
+                                @foreach (var item in guideItems)
+                                {
+                                    <a href="@($"{Navigation.BaseUri}{item.RelativeUrl}")" target="_blank" rel="noopener"
+                                       class="flex items-center gap-3 px-4 py-3 rounded-lg border border-gray-200 hover:border-morandi hover:bg-morandi/5 transition-colors group">
+                                        <i class="fa-solid fa-file-pdf text-red-500 text-lg shrink-0"></i>
+                                        <span class="flex-1 text-sm font-bold text-slate-main group-hover:text-morandi">@item.DisplayTitle</span>
+                                        <i class="fa-solid fa-up-right-from-square text-gray-300 text-xs group-hover:text-morandi"></i>
+                                    </a>
+                                }
+                            </div>
+                        }
+                    </ChildContent>
+                    <FooterContent>
+                        <button type="button" @onclick="() => showGuideModal = false"
+                                class="px-6 py-2 bg-morandi hover:bg-[#5b7a95] text-white rounded-lg font-medium transition-colors cursor-pointer">
+                            關閉
+                        </button>
+                    </FooterContent>
+                </CustomModal>
             </div>
         </div>
 
@@ -427,10 +471,27 @@
         OpenAnnouncementModal(item);
     }
 
-    /// <summary>使用說明手冊：PDF 尚未建置，先以提示取代。</summary>
-    private async Task ShowManualComingSoon()
+    // ─── 使用說明手冊（依權限預覽） ───
+    private bool showGuideModal;
+    private bool isGuideLoading;
+    private List<GuideViewItem> guideItems = [];
+
+    private async Task OpenGuideListAsync()
     {
-        await JS.InvokeVoidAsync("swalInterop.fireToast", "info", "使用說明手冊", "手冊 PDF 建置中，敬請期待。", 2500);
+        showGuideModal = true;
+        isGuideLoading = true;
+        try
+        {
+            guideItems = (await UserGuideService.GetViewableAsync(ModuleCards ?? [])).ToList();
+        }
+        catch
+        {
+            guideItems = [];
+        }
+        finally
+        {
+            isGuideLoading = false;
+        }
     }
 
     // ================================================================

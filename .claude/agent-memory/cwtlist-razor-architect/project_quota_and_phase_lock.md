@@ -11,7 +11,7 @@ type: project
 2. Questions 統計：`MT_Questions WHERE CreatorId=@U AND ProjectId=@P AND IsDeleted=0 AND Status>=1` GROUP BY `QuestionTypeId, Level`
 3. SubQuestions 統計：`MT_SubQuestions sq INNER JOIN MT_Questions q ON q.Id=sq.ParentQuestionId WHERE ... AND sq.Status>=1` GROUP BY `q.QuestionTypeId`
 
-C# 端 `ComputeQuotaCompleted` 依四種 case 計算 Completed：
+C# 端 `ComputeQuotaCompleted`（QuestionService L152-173）依 3 分支計算 Completed：
 - **LCT 單題**（Level 非 NULL, Granularity=0）：按 TypeId+Level 取 Questions 計數
 - **CWT 子題**（Granularity=1）：按 TypeId 取 SubQuestions 計數
 - **其他**（CWT 母題/單題、LCT 聽力題組）：按 TypeId 合計 Questions
@@ -22,7 +22,7 @@ C# 端 `ComputeQuotaCompleted` 依四種 case 計算 Completed：
 
 **Why:** 一旦離開草稿階段，題目就「貢獻給配額」，避免命題教師退回再修還要重複算配額。
 
-**配額卡片 UI（CwtList:1420-1574）：**
+**配額卡片 UI（CwtList:QuotaCard L1456 / QuotaCardWithSub L1543 / BuildQuotaCardEntries L1518 / GetQuotaSuffix L1501）：**
 
 UI 兩種卡片：
 - `QuotaCard(q)`：普通單段卡（一般單選 / 長文 / 聽力 / 聽力題組 + 子題獨立顯示）
@@ -56,8 +56,8 @@ UI 兩種卡片：
 **配額為 0 的攔截：**
 `LoadPageDataAsync` 回傳空 `quotaProgress` 時設 `needNoPermissionRedirect=true`，等 `OnAfterRenderAsync(firstRender)` 後彈 SweetAlert 警告「此身分在該專案沒有命題任務」並導回首頁，避免 prerender 階段呼叫 JS。
 
-**LoadPageDataAsync 並行設計：**
-8 個 Task 同時跑：quota / phase / counts / phaseEnd / replied / subCounts / subReplied / list。`Task.WhenAll` 之後填欄位。Revision 相關（replied / subCounts / subReplied）只在 `currentTab == "revision"` 時實際發 SQL，否則填空。
+**LoadPageDataAsync 並行設計（L706-746）：**
+8 個 Task 同時跑：quota / phase / counts / phaseEnd / replied / subCounts / subReplied / list。`Task.WhenAll` 之後填欄位。子題計數與「已修題」計數一律永遠載入（不 lazy by tab）—— 因為審修作業區 tab badge 是「母 + 子」合計，切 tab 前就要正確；計數 SQL 都是輕量 COUNT GROUP BY，並行下總時間取決於最慢的 ListAsync。`silent=true` 時不切 isLoadingQuota/isLoadingList 避免背景刷新二次閃爍。
 
 **How to apply:**
 - 動到階段轉換邏輯前先看 `EnsureCompositionPhaseClosedAsync` 與 `EnsurePhaseTransitionAsync`（Idempotent，可重複呼叫）。

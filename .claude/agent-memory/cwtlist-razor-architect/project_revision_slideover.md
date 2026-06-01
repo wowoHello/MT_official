@@ -9,7 +9,7 @@ type: project
 
 **Why:** 命名沿用 Plan_010 早期設計，後改 FullScreen 但檔名沒換。動到時別誤以為是 slide-over panel。
 
-**呼叫端傳入參數（CwtList:493-497）：**
+**呼叫端傳入參數（CwtList:517）：**
 ```razor
 <RevisionSlideOver @bind-IsVisible="showRevisionSlideOver"
                    QuestionId="@revisionQuestionId"
@@ -55,7 +55,7 @@ SQL 用 `CreatedAt > ISNULL((SELECT RoundStartedAt FROM vw_QuestionRoundStartedA
 - `GetMyRevisionRepliedCountAsync` / `GetMySubQuestionRevisionRepliedCountAsync`
 - 其他頁面（Reviews / Overview / Home / Dashboard）也同樣整合
 
-**SaveRevisionAsync（QuestionService:2387+）：**
+**SaveRevisionAsync（QuestionService:2396+）：**
 帶 `SaveRevisionRequest { QuestionId, SubQuestionId, FormData, RevisionNote }`：
 - SubQuestionId 決定 Status 檢查對象（母題用 MT_Questions.Status；子題用 MT_SubQuestions.Status）
 - 也決定 MT_RevisionReplies 寫入時 SubQuestionId 欄位值

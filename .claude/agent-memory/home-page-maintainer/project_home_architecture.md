@@ -1,18 +1,18 @@
 ---
 name: 首頁三檔案架構現況
-description: Home.razor / HomeService.cs / HomeModel.cs 的實際結構與職責分工（2026-05-29 查核）
+description: Home.razor / HomeService.cs / HomeModel.cs 的實際結構與職責分工（2026-06-01 查核）
 type: project
 ---
 
-## 檔案規模（2026-05-29 查核）
+## 檔案規模（2026-06-01 查核）
 
-- `Components/Pages/Home.razor` — 474 行（UI + @code 合計）
+- `Components/Pages/Home.razor` — 602 行（UI + @code 合計）
 - `Services/HomeService.cs` — 512 行（IHomeService 介面 + HomeService 實作 + 6 個 private sealed class）
 - `Models/HomeModel.cs` — 49 行（2 個 enum + 1 個 class）
 
 ## Home.razor 架構重點
 
-- 注入：`IHomeService`、`IQuestionService`（命題配額與成員判斷）、`NavigationManager`
+- 注入：`IHomeService`、`IQuestionService`（命題配額與成員判斷）、`NavigationManager`、`IUserGuideService`（使用說明手冊預覽）
 - CascadingParameter：`AuthenticationState`、`ModuleCards`（`List<UserModuleCard>`，由 MainLayout 傳入，`Name="ModuleCards"`）、`CurrentProject`（`ProjectSwitcherItem?`，`Name="CurrentProject"`）
 - 功能卡片清單（`enabledModules`）由 `ModuleCards` 過濾 `IsEnabled==true` 產生，**不在 Home 自行查 DB**
 - 生命週期：`OnInitialized` 設定日期顯示（中文星期格式）；`OnParametersSetAsync` 偵測梯次切換（`projectId != previousProjectId` 或 `!hasLoadedHomeData`）後呼叫 `LoadHomeDataAsync`（無 `OnAfterRenderAsync`）
@@ -24,7 +24,7 @@ type: project
 ## HomeService.cs 架構重點
 
 - 依賴：`IDatabaseService`（Dapper）、`IAnnouncementService`（公告委派）、`IQuestionService`（個人配額計算）、`ILogger<HomeService>`
-- **不依賴** `IMembershipService` 或 `IQuestionTypeCatalog`（第二波共用基底未整合至此）
+- **不依賴** `IMembershipService` 或 `IQuestionTypeCatalog`
 - 核心方法：`GetAnnouncementsAsync`（委派給 `_announcementService.GetHomeAnnouncementsAsync`）、`GetUrgentAlertsAsync`（主邏輯 — 10 結果集 QueryMultiple）
 - **額外 Service 呼叫**：`GetUrgentAlertsAsync` 在 10 結果集之外，額外呼叫 `_questionService.GetMyQuotaProgressAsync(userId, projectId)` 取得個人配額精確缺口（結果集 #3 的 SUM 算法不含子題且無 cap，因此用 QuestionService per-row 計算補救）
 - 閥值常數：`AlertThresholdDays = 5`、`CriticalThresholdDays = 2`
@@ -40,12 +40,25 @@ type: project
 - `AlertType` enum（PhaseCountdown=0, PersonalBacklog=1, QuotaGap=2, PhaseOverdue=3, AdminSummary=4）
 - `UrgentAlertItem` class（AlertType, Severity, PhaseCode, DaysLeft, Title, Subtitle）
 - `AnnouncementListItem` 定義於 `Models/AnnouncementModels.cs`（非 HomeModel.cs）
+- `GuideViewItem` 定義於 `Models/UserGuideModels.cs`（非 HomeModel.cs）
 
 ## 右側今日提醒看板結構
 
-1. 標題列 + 「使用說明手冊」按鈕（`ShowManualComingSoon`，呼叫 `swalInterop.fireToast`，Toast 提示「手冊 PDF 建置中，敬請期待。」）
+1. 標題列 + **「使用說明手冊」按鈕**（呼叫 `OpenGuideListAsync`，開啟 `showGuideModal`，依 `ModuleCards` 權限過濾可見手冊，`target="_blank"` 新分頁預覽 PDF）
 2. **急件 / 到期警示**（`urgentAlerts`）— 紅色背景、含計數 Badge；空時顯示笑臉圖示
-3. **公告與通知**（`announcements`）— 可捲動列表；點擊呼叫 `OpenAnnouncementModal` 開啟 `CustomModal` 詳情
+3. **公告與通知**（`announcements`）— 顯示最多 5 筆；超過 5 筆顯示「查看全部 N 則公告」按鈕（開啟 `showAllAnnouncementsModal`）；點擊呼叫 `OpenAnnouncementModal` 開啟 `CustomModal` 詳情
+
+## 公告詳情 Modal 的多梯次顯示
+
+- `selectedAnnouncement.ProjectIds.Count == 0` → 顯示「全站廣播」chip
+- 否則呼叫 `GetProjectNameByCurrentId(CurrentProject?.Id)` 只顯示當前切換梯次對應的名稱（避免雜訊）
+
+## 使用說明手冊 Modal（已上線，Plan_UserGuideManual 2026-06-01）
+
+- `showGuideModal` / `isGuideLoading` / `guideItems`（`List<GuideViewItem>`）
+- `OpenGuideListAsync`：呼叫 `UserGuideService.GetViewableAsync(ModuleCards ?? [])` 依權限過濾
+- 每筆手冊用 `<a href="@($"{Navigation.BaseUri}{item.RelativeUrl}")" target="_blank" rel="noopener">` 開新分頁 PDF 預覽
+- 無手冊時顯示「目前尚無可用的手冊」空狀態
 
 ## 導航防護（NavigateToModuleAsync）
 
@@ -56,13 +69,3 @@ type: project
 
 **Why:** 防止無任務的使用者誤入頁面。
 **How to apply:** 修改導航邏輯時須維持此防護。
-
-## 技術債（2026-05-29 查核）
-
-1. **結果集 #4 與 #10 邏輯重複**：同一個「修題中本輪未回覆」NOT EXISTS 子查詢在個人視角和管理員視角各寫一次。
-2. **HomeService 未整合 IMembershipService**：結果集 #2（梯次角色）是 HomeService 自己打 DB，而非用第二波 #7 建好的 `IMembershipService` cache。
-3. **使用說明手冊未串接 DB**：`MT_UserGuideFiles` 資料表存在，`ShowManualComingSoon` 方法目前只顯示 Toast，尚未串接真正下載。
-4. **急件警示無直接連結**：alert 卡片點擊無跳頁行為（`warning_MODIFY.md` 規劃的 `?tab=compose/revision` 連結尚未實作到 Blazor 版本）。
-5. **SQL 評論不一致**：HomeService `const string sql` 標頭評論寫「8 個結果集」，實際有 10 個（管理員視角 9/10 未在標頭反映）。
-6. **CWT/LCT 未區分**：`GetUrgentAlertsAsync` 不讀取 `ProjectType`，LCT 梯次的配額缺口計算行為未驗證。詳見 `project_cwt_lct_distinction.md`。
-7. **個人配額計算雙重查詢**：`GetUrgentAlertsAsync` 在結果集 #3 外又呼叫 `_questionService.GetMyQuotaProgressAsync`（額外一次 DB 查詢），結果集 #3 的 SUM 算法不含子題且未做 cap，屬補救性 workaround。

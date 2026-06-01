@@ -1,6 +1,6 @@
 ---
 name: 急件警示產生邏輯
-description: HomeService.GetUrgentAlertsAsync 的完整邏輯：10 個結果集、5 種 AlertType、雙視角（個人/管理員）（2026-05-29 查核）
+description: HomeService.GetUrgentAlertsAsync 的完整邏輯：10 個結果集、5 種 AlertType、雙視角（個人/管理員）（2026-06-01 查核）
 type: project
 ---
 
@@ -20,15 +20,15 @@ type: project
 | # | 內容 | 備註 |
 |---|------|------|
 | 1 | 當前進行中且倒數 ≤5 天的階段（PhaseCode > 1，BETWEEN StartDate AND EndDate） | DaysLeft = DATEDIFF(DAY, TODAY, EndDate) |
-| 2 | 使用者在該梯次的角色名稱集合（r.Name） | 未用 IMembershipService（已知技術債） |
-| 3 | 個人命題配額 vs 已產出數（SUM(QuotaCount), COUNT Status>=1） | 算法不含子題/不做 cap，實際不直接使用 |
+| 2 | 使用者在該梯次的角色名稱集合（r.Name） | 自行 JOIN MT_ProjectMembers/Roles，未用 IMembershipService |
+| 3 | 個人命題配額 vs 已產出數（SUM(QuotaCount), COUNT Status>=1） | 算法不含子題/不做 cap，讀取後實際不用於警示計算 |
 | 4 | 個人修題中題目（Status IN 4,6,8）本輪未送回覆 | 使用 `vw_QuestionRoundStartedAt` View，GROUP BY q.Status |
 | 5 | 個人待審任務（ReviewStatus IN 0,1，按 ReviewStage） | GROUP BY ReviewStage |
 | 6 | 系統角色分類（r.Category，透過 MT_Users JOIN MT_Roles） | 0=內部，1=外部 |
 | 7 | 全梯次配額目標 vs 已產出（ProjectTargets 為主表，CROSS APPLY 算 Produced，含 CWT/LCT 分支與 Granularity，clamp 到 Target） | |
 | 8 | 最新逾期階段（TOP 1，EndDate < 今日且下一階段未開始，ORDER BY PhaseCode DESC） | |
 | 9 | 管理員：全梯次待審彙整（ReviewStatus IN 0,1，GROUP BY ReviewStage） | |
-| 10 | 管理員：全梯次待修彙整（Status 4/6/8，本輪未回覆，GROUP BY q.Status） | 使用 `vw_QuestionRoundStartedAt`；與結果集 #4 邏輯完全相同（技術債） |
+| 10 | 管理員：全梯次待修彙整（Status 4/6/8，本輪未回覆，GROUP BY q.Status） | 使用 `vw_QuestionRoundStartedAt`；與結果集 #4 邏輯完全相同 |
 
 ## 結果集 #7 的 CWT/LCT 分支設計（CROSS APPLY 內）
 
@@ -38,7 +38,7 @@ type: project
 
 ## 個人配額缺口的實際計算路徑
 
-`const string sql` 的結果集 #3 算出的 `quotaRow` 並**不直接用於警示**。  
+`const string sql` 的結果集 #3 算出的 `quotaRow` **不直接用於警示**。
 在 QueryMultiple 完成後，額外呼叫 `_questionService.GetMyQuotaProgressAsync(userId, projectId)` 取得精確缺口：
 
 ```csharp
@@ -73,7 +73,7 @@ var personalQuotaShortage = quotaProgress.Sum(q => Math.Max(0, q.Target - q.Comp
 1. **逾期（僅管理員）**：`overdue != null && isAdmin` → PhaseOverdue（先加，不在 foreach 內）
 2. **個人視角**（foreach phases）：`BuildAlertForPhase` — 依角色資格，有積壓 → PersonalBacklog，無積壓 → PhaseCountdown
 3. **管理員視角 PhaseCode=2**（forEach 內）：有缺口 → QuotaGap；無缺口且同 PhaseCode 無 PhaseCountdown → PhaseCountdown
-4. **管理員視角 PhaseCode 3~8**（forEach 內）：AddAdminSummaryAlert（與個人卡片可並存，但同 PhaseCode+AdminSummary 不重複）
+4. **管理員視角 PhaseCode 3~8**（forEach 內）：BuildAdminSummaryAlert（與個人卡片可並存，但同 PhaseCode+AdminSummary 不重複）
 
 ## 排序優先順序
 
@@ -116,10 +116,6 @@ RoleConvener = "總召集人"
 **Why:** 靠資料庫 IsDefault 角色名稱比對，改名會靜默失效（不報錯但警示消失）。
 **How to apply:** 任何角色名稱更動須同步確認這三個常數。
 
-## 技術債
+## SQL 內部評論不一致（現況事實）
 
-- **SQL 內部評論不一致**：`const string sql` 的標頭評論寫「8 個結果集」，但實際有 10 個（含管理員 9/10）
-- 結果集 #4 與 #10 的 NOT EXISTS 子查詢邏輯完全相同（個人 vs 全梯次），應抽共用 CTE 或 View
-- 結果集 #2 自行 JOIN MT_ProjectMembers/Roles，未使用 IMembershipService cache（第二波 #7 建好但未整合）
-- alert 卡片點擊無跳頁行為（`warning_MODIFY.md` 規劃的 `?tab=compose/revision` 連結尚未實作到 Blazor）
-- 結果集 #3 的 quotaRow 算出來但不用於個人警示計算（僅作為查詢骨架殘留）
+`const string sql` 的標頭評論寫「8 個結果集」，但實際有 10 個（含管理員 9/10）。
