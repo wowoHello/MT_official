@@ -14,7 +14,7 @@
 
 <div class="flex min-h-[calc(100vh-4rem)] flex-col px-4 pt-4 pb-2 sm:px-6 lg:px-8">
 
-    <!-- 頁面標題列 -->
+    @* 頁面標題列 *@
     <div class="mb-4 flex flex-col sm:flex-row sm:items-end justify-between gap-4 flex-shrink-0">
         <div>
             <h1 tabindex="-1" class="text-2xl pb-1 font-bold mb-0.5 focus:outline-none">功能總覽</h1>
@@ -26,10 +26,10 @@
         </div>
     </div>
 
-    <!-- 主內容區：功能卡片 + 今日提醒 -->
+    @* 主內容區：功能卡片 + 今日提醒 *@
     <div class="mb-2 flex flex-col gap-5 lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden">
 
-        <!-- 左側：功能模組卡片 Grid（僅渲染有權限的模組） -->
+        @* 左側：功能模組卡片 Grid（僅渲染有權限的模組） *@
         <div class="flex flex-col lg:w-2/3 lg:min-h-0 lg:overflow-hidden xl:w-3/4">
             @if (ModuleCards is null)
             {
@@ -71,7 +71,7 @@
             }
         </div>
 
-        <!-- 右側：今日提醒看板 -->
+        @* 右側：今日提醒看板 *@
         <div class="flex flex-col lg:w-1/3 lg:min-h-0 lg:overflow-hidden xl:w-1/4">
             <div class="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:overflow-hidden">
                 <div class="flex items-center justify-between gap-2 mb-0.5 flex-shrink-0">
@@ -84,7 +84,7 @@
                     </button>
                 </div>
 
-                <!-- 急件 / 到期警示 -->
+                @* 急件 / 到期警示 *@
                 <div class="bg-red-50 rounded-xl border border-red-100 overflow-hidden shadow-sm shadow-red-100/50 flex-shrink-0">
                     <div class="bg-red-100 px-4 py-1.5 font-bold text-terracotta text-sm border-b border-red-200 flex items-center justify-between">
                         <span>急件 / 到期警示</span>
@@ -142,7 +142,7 @@
                     }
                 </div>
 
-                <!-- 公告與通知（最多顯示 5 筆；超過則由底部「查看全部」開 Modal） -->
+                @* 公告與通知（最多顯示 5 筆；超過則由底部「查看全部」開 Modal） *@
                 <div class="flex min-h-[240px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm flex-shrink-0">
                     <div class="bg-gray-50 px-4 py-2.5 font-bold text-gray-700 text-sm border-b border-gray-200 flex justify-between items-center flex-shrink-0">
                         <span>公告與通知</span>
@@ -206,7 +206,7 @@
                     }
                 </div>
 
-                <!-- 全部公告 Modal — 公告 >5 筆時由「查看全部」按鈕開啟 -->
+                @* 全部公告 Modal — 公告 >5 筆時由「查看全部」按鈕開啟 *@
                 <CustomModal @bind-IsVisible="showAllAnnouncementsModal" Type="CustomModal.ModalType.Center"
                              Title="@($"全部公告與通知（{announcements.Count} 則）")">
                     <ChildContent>
@@ -244,13 +244,13 @@
                     </FooterContent>
                 </CustomModal>
 
-                <!-- 公告檢視 Modal -->
+                @* 公告檢視 Modal *@
                 <CustomModal @bind-IsVisible="showAnnouncementModal" Type="CustomModal.ModalType.Center" Title="公告詳情">
                     <ChildContent>
                         @if (selectedAnnouncement is not null)
                         {
                             <div class="space-y-4">
-                                <!-- 標籤列 -->
+                                @* 標籤列 *@
                                 <div class="flex flex-wrap items-center gap-2">
                                     @if (selectedAnnouncement.IsPinned)
                                     {
@@ -273,10 +273,10 @@
                                     }
                                 </div>
 
-                                <!-- 標題 -->
+                                @* 標題 *@
                                 <h2 class="text-xl font-bold text-slate-main leading-tight">@selectedAnnouncement.Title</h2>
 
-                                <!-- 發佈資訊 -->
+                                @* 發佈資訊 *@
                                 <div class="text-xs text-gray-500 flex items-center gap-3">
                                     <span class="flex items-center gap-1">
                                         <i class="fa-regular fa-clock"></i> 發佈時間：@selectedAnnouncement.PublishDate.ToString("yyyy-MM-dd")（@FormatRelativeDate(selectedAnnouncement.PublishDate)）
@@ -288,7 +288,7 @@
 
                                 <hr class="border-gray-100" />
 
-                                <!-- 富文本內容 -->
+                                @* 富文本內容 *@
                                 <div class="text-gray-700 leading-relaxed text-sm space-y-3 prose prose-sm max-w-none">
                                     @((MarkupString)selectedAnnouncement.Content)
                                 </div>
@@ -303,7 +303,7 @@
                     </FooterContent>
                 </CustomModal>
 
-                <!-- 使用說明手冊清單 Modal（依權限顯示，點按新分頁預覽） -->
+                @* 使用說明手冊清單 Modal（依權限顯示，點按新分頁預覽） *@
                 <CustomModal @bind-IsVisible="showGuideModal" Type="CustomModal.ModalType.Center" Title="使用說明手冊">
                     <ChildContent>
                         @if (isGuideLoading)

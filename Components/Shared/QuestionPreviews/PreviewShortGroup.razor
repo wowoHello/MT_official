@@ -3,15 +3,15 @@
 
 <PreviewHeader QuestionType="短文題組" Level="@Level" Difficulty="@Difficulty" Tags="@Tags" />
 
-<!-- 文章內容（實際考卷格式：不顯示「題目」，直接顯示文章；含附圖） -->
+@* 文章內容（實際考卷格式：不顯示「題目」，直接顯示文章；含附圖） *@
 <PreviewPassage Content="@Passage" Label="閱讀文章" Images="ArticleImages" FieldKey="article" />
 
-<!-- 作答提示 -->
+@* 作答提示 *@
 <p class="text-xs text-gray-500 italic mt-4 mb-2 font-sans">
     <i class="fa-solid fa-pen text-gray-400 mr-1"></i>請依據上方文章內容回答下列問題：
 </p>
 
-<!-- 子題 -->
+@* 子題 *@
 <div class="space-y-6 mt-4">
     @for (int i = 0; i < SubQuestions.Count; i++)
     {
@@ -22,7 +22,7 @@
         var num = idx + 1;
         var subStemImages = SubStemImagesOf(idx);
         <div class="@(i > 0 ? "border-t border-gray-200 pt-5" : "")">
-            <!-- 題號 + 題幹 -->
+            @* 題號 + 題幹 *@
             <div class="flex items-baseline gap-3 mb-3 font-serif">
                 <span class="text-lg font-bold text-gray-900 leading-none">@num.</span>
                 <div class="flex-1 prose prose-base max-w-none leading-relaxed text-gray-900" data-annot-target="@($"subStem.{idx}")">
@@ -39,12 +39,12 @@
             </div>
             <PreviewImageRow Images="subStemImages" />
 
-            <!-- 自由作答框 -->
+            @* 自由作答框 *@
             <div class="border border-gray-200 rounded-md bg-gray-50/40 p-3 min-h-[80px] flex items-center justify-center text-xs text-gray-400 italic font-sans">
                 自由作答區（請於正式考試時於稿紙填寫答案）
             </div>
 
-            <!-- 命題端 metadata（給命題者驗收，淡化處理） -->
+            @* 命題端 metadata（給命題者驗收，淡化處理） *@
             <div class="mt-2 pt-2 border-t border-dashed border-gray-200 flex flex-wrap items-center gap-2 text-xs font-sans">
                 <span class="text-gray-400"><i class="fa-solid fa-key mr-1"></i>命題者參考：</span>
                 <span class="inline-flex items-center rounded-full border border-morandi/15 bg-morandi/5 px-2 py-0.5 text-morandi/80">

@@ -11,7 +11,7 @@
 @inject ILogger<Projects> Logger
 
 <div class="mx-auto flex w-full flex-grow flex-col min-h-[calc(100vh-4rem)] lg:h-[calc(100vh-4rem)] lg:overflow-hidden">
-    <!-- Breadcrumb & Header Row -->
+    @* Breadcrumb & Header Row *@
     <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur border-b border-gray-200">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
@@ -42,11 +42,11 @@
         </div>
     </div>
 
-    <!-- Split Layout (Left List, Right Detail) -->
+    @* Split Layout (Left List, Right Detail) *@
     <div class="flex flex-col flex-grow lg:flex-row lg:overflow-hidden">
-        <!-- Left Panel: Project List -->
+        @* Left Panel: Project List *@
         <div class="z-10 flex w-full flex-col border-b border-gray-200 bg-white lg:w-1/3 lg:flex-shrink-0 lg:border-r lg:border-b-0 xl:w-1/4">
-            <!-- Filters -->
+            @* Filters *@
             <div class="p-4 border-b border-gray-100 bg-gray-50 flex flex-col gap-3 flex-shrink-0">
                 <DebouncedSearchInput @bind-Value="searchKeyword"
                                       Placeholder="搜尋專案名稱 / 年度 / 合作學校..." />
@@ -61,7 +61,7 @@
                     }
                 </div>
             </div>
-            <!-- List -->
+            @* List *@
             <div class="overflow-y-auto custom-scroll lg:flex-grow">
                 @{ var filtered = GetFilteredProjects(); }
                 @if (filtered.Count == 0)
@@ -69,7 +69,7 @@
                     <div class="flex flex-col items-center justify-center py-12 px-6">
                         @if (allProjects.Count == 0)
                         {
-                            <!-- 全空狀態：歡迎風格 -->
+                            @* 全空狀態：歡迎風格 *@
                             <div class="w-20 h-20 rounded-full bg-gradient-to-br from-morandi/20 to-sage/20 flex items-center justify-center mb-4 animate-[bounce_3s_ease-in-out_infinite]">
                                 <i class="fa-solid fa-folder-plus text-3xl text-morandi/60"></i>
                             </div>
@@ -84,7 +84,7 @@
                         }
                         else
                         {
-                            <!-- 搜尋/篩選後查無結果 -->
+                            @* 搜尋/篩選後查無結果 *@
                             <div class="w-16 h-16 rounded-full bg-gradient-to-br from-terracotta/10 to-amber-100 flex items-center justify-center mb-4">
                                 <i class="fa-solid fa-magnifying-glass text-2xl text-terracotta/50"></i>
                             </div>
@@ -128,11 +128,11 @@
             </div>
         </div>
 
-        <!-- Right Panel: Project Details -->
+        @* Right Panel: Project Details *@
         <div class="flex min-h-[320px] flex-col bg-[var(--color-oatmeal)] lg:min-h-0 lg:w-2/3 lg:overflow-hidden xl:w-3/4">
             @if (selectedDetail == null)
             {
-                <!-- 空狀態 -->
+                @* 空狀態 *@
                 <div class="flex flex-1 flex-col items-center justify-center p-8 text-gray-400 lg:flex-grow">
                     <i class="fa-solid fa-folder-open text-6xl mb-4 text-gray-300"></i>
                     <p class="text-lg font-medium">請由左側列表選擇專案，或建立新梯次。</p>
@@ -140,9 +140,9 @@
             }
             else
             {
-                <!-- 詳情內容 -->
+                @* 詳情內容 *@
                 <div class="custom-scroll lg:flex-grow lg:overflow-y-auto">
-                    <!-- 頂部資訊卡 -->
+                    @* 頂部資訊卡 *@
                     <div class="px-8 pt-6 pb-2">
                         <div class="flex flex-col items-start justify-between gap-4 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:flex-row sm:items-start">
                             <div class="flex flex-col gap-1">
@@ -168,7 +168,7 @@
                                     <span><i class="fa-solid fa-user-gear w-4 text-center"></i> 建立者：@selectedDetail.CreatorName</span>
                                 </div>
                             </div>
-                            <!-- 操作按鈕 -->
+                            @* 操作按鈕 *@
                             @if (!selectedDetail.IsClosed)
                             {
                                 <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-shrink-0 sm:items-end">
@@ -222,9 +222,9 @@
                         }
                     </div>
 
-                    <!-- 主要內容：時程 + 題型 + 成員 -->
+                    @* 主要內容：時程 + 題型 + 成員 *@
                     <div class="px-8 pb-8 grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-                        <!-- 時程規劃設定 -->
+                        @* 時程規劃設定 *@
                         <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
                             <h3 class="text-base font-black text-slate-main mb-1 flex items-center gap-2">
                                 <i class="fa-solid fa-clock text-morandi"></i> 時程規劃設定
@@ -342,9 +342,9 @@
                             }
                         </div>
 
-                        <!-- 右側：題型目標 + 成員 -->
+                        @* 右側：題型目標 + 成員 *@
                         <div class="flex flex-col gap-6">
-                            <!-- 題型目標數量 -->
+                            @* 題型目標數量 *@
                             <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
                                 <h3 class="text-base font-black text-slate-main mb-3 flex items-center gap-2">
                                     <i class="fa-solid fa-bullseye text-terracotta"></i> 題型目標數量
@@ -430,7 +430,7 @@
                                 }
                             </div>
 
-                            <!-- 指派人員 -->
+                            @* 指派人員 *@
                             <div class="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
                                 <div class="flex justify-between items-center mb-3">
                                     <h3 class="text-base font-black text-slate-main flex items-center gap-2">
@@ -503,13 +503,13 @@
     </div>
 </div>
 
-<!-- Slide-over panel: 新增 / 編輯專案 -->
+@* Slide-over panel: 新增 / 編輯專案 *@
 <CustomModal @bind-IsVisible="showProjectModal" Type="CustomModal.ModalType.SlideOver" Title="@(isEditMode ? "編輯專案 (梯次)" : "新增專案 (梯次)")"
     MaxWidth="max-w-2xl" HeaderIcon="fa-solid fa-layer-group" CloseOnBackdropClick="true">
     <ChildContent>
         <EditForm Model="formModel" OnValidSubmit="SaveProject" class="space-y-8">
 
-            <!-- ═══ 區塊 1: 基本資料 ═══ -->
+            @* ═══ 區塊 1: 基本資料 ═══ *@
             <div class="space-y-4">
                 <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
                     <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span>
@@ -567,7 +567,7 @@
                 </div>
             </div>
 
-            <!-- ═══ 區塊 2: 8 大階段連動時程 ═══ -->
+            @* ═══ 區塊 2: 8 大階段連動時程 ═══ *@
             <div class="space-y-4 pt-2">
                 <div class="border-b border-morandi/30 pb-2 mb-2">
                     <h3 class="text-base font-bold text-gray-800 flex items-center gap-2">
@@ -576,14 +576,14 @@
                     </h3>
                 </div>
 
-                <!-- 操作提示 -->
+                @* 操作提示 *@
                 <div class="text-xs text-morandi bg-blue-50/50 p-2 rounded border border-blue-100 font-medium">
                     <i class="fa-solid fa-lightbulb mr-1"></i>
                     只要設定第一階段「產學計畫區間」的「開始日」，系統就自動推算半年內的 7 階段日程！<br />
                     此外，手動變更任一階段日期的「結束日」，皆會自動將「下一階段的開始日」連動推進為隔天。
                 </div>
 
-                <!-- 8 階段日期列表 -->
+                @* 8 階段日期列表 *@
                 <div class="space-y-2">
                     @for (int i = 0; i < stages.Length; i++)
                     {
@@ -616,7 +616,7 @@
                 </div>
             </div>
 
-            <!-- ═══ 區塊 3: 目標題數與人員指派 ═══ -->
+            @* ═══ 區塊 3: 目標題數與人員指派 ═══ *@
             <div class="space-y-4 pt-2">
                 <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
                     <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">3</span>
@@ -629,7 +629,7 @@
                     }
                 </h3>
 
-                <!-- 專案需求題數 / 組數 -->
+                @* 專案需求題數 / 組數 *@
                 <div class="@(IsCompositionPhaseEnded ? "bg-gray-100 p-3 rounded border border-gray-300 cursor-not-allowed" : "bg-white p-3 rounded border border-morandi/30")"
                      title="@(IsCompositionPhaseEnded ? "命題階段已結束，題數需求不可再修改" : null)">
                     <label class="block text-sm font-bold text-gray-700 mb-3">專案需求題數 / 組數</label>
@@ -775,18 +775,18 @@
                     }
                 </div>
 
-                <!-- 指派人員（來源：教師管理系統人才庫） -->
+                @* 指派人員（來源：教師管理系統人才庫） *@
                 <div>
                     <div class="flex items-center justify-between mb-2">
                         <label class="block text-sm font-bold text-gray-700">指派人員 (命審題教師/委員列表)</label>
                     </div>
-                    <!-- 搜尋框（debounce 250ms） -->
+                    @* 搜尋框（debounce 250ms） *@
                     <div class="mb-2">
                         <DebouncedSearchInput @bind-Value="personSearchKeyword"
                                               Placeholder="搜尋姓名或編號..."
                                               CssClass="w-full pl-9 pr-3 py-1.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-morandi" />
                     </div>
-                    <!-- 人員列表容器 -->
+                    @* 人員列表容器 *@
                     <div class="border border-gray-300 rounded h-56 overflow-y-auto custom-scroll bg-white divide-y divide-gray-100 @(IsCompositionPhaseEnded ? "opacity-60 cursor-not-allowed" : "")"
                          title="@(IsCompositionPhaseEnded ? "命題階段已結束，已進入審題流程，無法再變更指派人員與身份" : null)">
                         @{ var filteredPersons = GetFilteredPersons(); }
@@ -888,7 +888,7 @@
                 </div>
             </div>
 
-            <!-- ═══ 區塊 4: 人員命題數量配置 ═══ -->
+            @* ═══ 區塊 4: 人員命題數量配置 ═══ *@
             <div class="space-y-4 pt-2 border-t border-gray-100 @(IsCompositionPhaseEnded ? "cursor-not-allowed" : "")"
                  title="@(IsCompositionPhaseEnded ? "命題階段已結束，配額不可再修改" : null)">
                 <div class="flex justify-between items-center border-b border-morandi/30 pb-2">
@@ -914,7 +914,7 @@
                     系統會自動帶入具備「命題教師」身分的人員。配額總數須與「專案需求題數 / 組數」相符。
                 </p>
 
-                <!-- 教師配額列表 -->
+                @* 教師配額列表 *@
                 <div class="space-y-3 max-h-96 overflow-y-auto custom-scroll pr-2 -mr-2">
                     @if (allocationTeachers.Count == 0)
                     {
@@ -955,7 +955,7 @@
                     }
                 </div>
 
-                <!-- 分配狀態檢核 -->
+                @* 分配狀態檢核 *@
                 <div class="bg-gray-50 rounded border border-gray-200 p-3 mt-4">
                     <div class="text-xs font-bold text-gray-500 mb-2 flex items-center justify-between">
                         <span>分配狀態檢核：(已分配 / 需分配)</span>

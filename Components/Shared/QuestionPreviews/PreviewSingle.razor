@@ -3,7 +3,7 @@
 
 <PreviewHeader QuestionType="@QuestionType" Level="@Level" Difficulty="@Difficulty" Tags="@Tags" />
 
-<!-- 題號 + 題幹（data-annot-target 給審題劃記用；其他場景無害） -->
+@* 題號 + 題幹（data-annot-target 給審題劃記用；其他場景無害） *@
 <div class="flex items-baseline gap-3 mb-3 font-serif">
     <span class="text-xl font-bold text-gray-900 leading-none">1.</span>
     <div class="flex-1 prose prose-base max-w-none leading-relaxed text-gray-900" data-annot-target="stem">
@@ -19,10 +19,10 @@
     </div>
 </div>
 
-<!-- 題幹附圖 -->
+@* 題幹附圖 *@
 <PreviewImageRow Images="StemImages" />
 
-<!-- ABCD 選項 -->
+@* ABCD 選項 *@
 <PreviewChoiceOptions Options="@Options" Answer="@Answer" Images="@Images"
                       HideOptionAnswerMarker="@HideOptionAnswerMarker" />
 

@@ -3,16 +3,16 @@
 
 <PreviewHeader QuestionType="閱讀題組" Level="@Level" Difficulty="@Difficulty" Tags="@Tags" />
 
-<!-- 文章內容 + 附圖（實際考卷格式：不顯示「標題」，直接顯示文章） -->
+@* 文章內容 + 附圖（實際考卷格式：不顯示「標題」，直接顯示文章） *@
 <PreviewPassage Content="@Passage" Label="閱讀文章" FieldKey="article" />
 <PreviewImageRow Images="ArticleImages" />
 
-<!-- 作答提示 -->
+@* 作答提示 *@
 <p class="text-xs text-gray-500 italic mt-4 mb-2 font-sans">
     <i class="fa-solid fa-circle-info text-gray-400 mr-1"></i>請依據上方文章作答下列題目：
 </p>
 
-<!-- 子題 -->
+@* 子題 *@
 <div class="space-y-6 mt-4">
     @for (int i = 0; i < SubQuestions.Count; i++)
     {
@@ -25,7 +25,7 @@
         var hasStemText = HasContent(subStem);
         var subStemImages = SubStemImages(idx);
         <div class="@(i > 0 ? "border-t border-gray-200 pt-5" : "")">
-            <!-- 題號 + 題幹（純圖時不顯示「尚未填寫」佔位字） -->
+            @* 題號 + 題幹（純圖時不顯示「尚未填寫」佔位字） *@
             <div class="flex items-baseline gap-3 mb-2 font-serif">
                 <span class="text-lg font-bold text-gray-900 leading-none">@num.</span>
                 <div class="flex-1 prose prose-base max-w-none leading-relaxed text-gray-900" data-annot-target="@($"subStem.{idx}")">
@@ -39,15 +39,15 @@
                     }
                 </div>
             </div>
-            <!-- 子題題幹附圖 -->
+            @* 子題題幹附圖 *@
             <PreviewImageRow Images="subStemImages" />
 
-            <!-- 子題選項：傳 SubQuestionIndex 給 PreviewChoiceOptions，由它依 (FieldType, SubQuestionIndex) 抓對應圖 -->
+            @* 子題選項：傳 SubQuestionIndex 給 PreviewChoiceOptions，由它依 (FieldType, SubQuestionIndex) 抓對應圖 *@
             <PreviewChoiceOptions Options="@sq.Options" Answer="@sq.Answer"
                 Images="@Images" SubQuestionIndex="idx"
                 HideOptionAnswerMarker="@HideOptionAnswerMarker" />
 
-            <!-- 命題端 metadata（給命題者驗收，淡化處理） -->
+            @* 命題端 metadata（給命題者驗收，淡化處理） *@
             <div class="mt-2 pt-2 border-t border-dashed border-gray-200 flex flex-wrap items-center gap-2 text-xs font-sans">
                 <span class="text-gray-400"><i class="fa-solid fa-key mr-1"></i>命題者參考：</span>
                 <span class="inline-flex items-center rounded-full border border-morandi/15 bg-morandi/5 px-2 py-0.5 text-morandi/80">

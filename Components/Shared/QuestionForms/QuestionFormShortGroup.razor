@@ -12,7 +12,7 @@
 
     @if (IsFocusMode)
     {
-        <!-- Focus 模式提示條（單一子題修題視角） -->
+        @* Focus 模式提示條（單一子題修題視角） *@
         <div class="px-4 py-2.5 bg-morandi/10 border border-morandi/25 rounded-lg text-sm text-morandi font-bold flex items-center gap-2">
             <i class="fa-solid fa-bullseye"></i>
             <span>正在編輯第 @FocusSubOrder 子題（母題文章作為上下文僅供參考、無法修改）</span>
@@ -23,7 +23,7 @@
         DataField="ArticleContent" ContainerClass="@InvalidRing("ArticleContent")">
         @if (!IsFocusMode)
         {
-            <!-- 短文題組母題提醒（focus 模式不顯示） -->
+            @* 短文題組母題提醒（focus 模式不顯示） *@
             <div class="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md text-sm flex items-start gap-2">
                 <i class="fa-solid fa-circle-info text-amber-500 mt-0.5 flex-shrink-0"></i>
                 <div class="text-xs leading-relaxed text-amber-700">
@@ -77,7 +77,7 @@
                 var indicatorKey  = $"ShortSub_{n}_Indicator";
                 var analysisKey   = $"ShortSub_{n}_Analysis";
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                    <!-- 子題標頭：第 N 題 + 子題碼（命題後配發） -->
+                    @* 子題標頭：第 N 題 + 子題碼（命題後配發） *@
                     <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
                         <span class="text-sm font-bold text-slate-main flex items-center gap-2">
                             第 @n 題
@@ -96,7 +96,7 @@
                         }
                     </div>
                     <div class="p-4 space-y-4">
-                        <!-- 主向度 + 能力指標（與聽力題組對齊，置於題目內容之上） -->
+                        @* 主向度 + 能力指標（與聽力題組對齊，置於題目內容之上） *@
                         <div class="grid grid-cols-2 gap-3">
                             <div data-field="@coreKey" class="@InvalidRing(coreKey) rounded-lg p-1">
                                 <label class="block text-xs font-medium text-gray-600 mb-1">主向度 <span class="text-red-400">*</span></label>
@@ -127,7 +127,7 @@
                             </div>
                         </div>
 
-                        <!-- 題目內容 -->
+                        @* 題目內容 *@
                         <div data-field="@stemKey" class="@InvalidRing(stemKey) rounded-lg p-1">
                             <label class="block text-sm font-bold text-gray-700 mb-2">
                                 題目內容 <span class="text-red-400">*</span>
@@ -138,7 +138,7 @@
                                 ImagesChanged="upd => ApplyImageChange(QuestionImageField.Stem, idx, upd)" />
                         </div>
 
-                        <!-- 試題解析（樣式對齊一般單選題：lightbulb 琥珀色 + 標題與 hint 分層） -->
+                        @* 試題解析（樣式對齊一般單選題：lightbulb 琥珀色 + 標題與 hint 分層） *@
                         <div data-field="@analysisKey" class="@InvalidRing(analysisKey) rounded-lg p-1">
                             <label class="text-sm font-bold text-gray-700 flex items-center gap-2 mb-2">
                                 <i class="fa-solid fa-lightbulb text-amber-500"></i>

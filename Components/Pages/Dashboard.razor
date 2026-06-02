@@ -11,11 +11,11 @@
 @implements IAsyncDisposable
 
 <div class="flex-grow w-full mx-auto flex flex-col">
-    <!-- Breadcrumb & Header -->
+    @* Breadcrumb & Header *@
     <div class="px-4 sm:px-6 lg:px-8 py-4 bg-white/50 backdrop-blur border-b border-gray-200 flex-shrink-0">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-                <!-- Breadcrumb -->
+                @* Breadcrumb *@
                 <nav class="flex text-sm text-gray-500 mb-2 font-medium" aria-label="Breadcrumb">
                     <ol class="inline-flex items-center space-x-1 md:space-x-2">
                         <li class="inline-flex items-center">
@@ -37,7 +37,7 @@
                 <p class="text-sm text-gray-500 mt-1">監控目前梯次的題目產出達成率、題型缺口與逾期狀態。資料會隨梯次切換動態更新。</p>
             </div>
 
-            <!-- Quick Actions -->
+            @* Quick Actions *@
             <div class="flex gap-2">
                 <NavLink href="projects" class="px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-50 hover:text-[var(--color-morandi)] hover:-translate-y-0.5 hover:shadow-md cursor-pointer active:scale-95 transition-all duration-200 shadow-sm focus:outline-none flex items-center">
                     <i class="fa-solid fa-gear mr-1"></i> 專案設定
@@ -49,15 +49,15 @@
         </div>
     </div>
 
-    <!-- Main Content -->
+    @* Main Content *@
     <div class="flex-grow p-4 sm:p-6 lg:p-8">
 
-        <!-- 4 KPI Cards：統一結構 Header → Main → Divider → Footer（mt-auto 推底） -->
+        @* 4 KPI Cards：統一結構 Header → Main → Divider → Footer（mt-auto 推底） *@
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
 
             @* ── 卡片 1：總目標題數（morandi 灰藍） ── *@
             <div class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all border-l-[3px] border-l-[var(--color-morandi)] p-5 flex flex-col min-h-[200px]">
-                <!-- Header -->
+                @* Header *@
                 <div class="flex items-center gap-2.5 mb-2">
                     <div class="w-8 h-8 rounded-lg bg-blue-50 text-[var(--color-morandi)] flex items-center justify-center shrink-0">
                         <i class="fa-solid fa-bullseye text-sm"></i>
@@ -70,14 +70,14 @@
                         <i class="fa-regular fa-circle-question text-sm"></i>
                     </button>
                 </div>
-                <!-- Main -->
+                @* Main *@
                 <div class="flex items-baseline gap-1.5 mb-3">
                     <h3 class="text-4xl font-black text-[var(--color-morandi)] tabular-nums leading-none">
                         @(isLoading ? "…" : kpi.TotalTarget.ToString())
                     </h3>
                     <span class="text-sm text-gray-400">題</span>
                 </div>
-                <!-- Footer：永遠顯示題型明細（即使全為 0 也顯示列表） -->
+                @* Footer：永遠顯示題型明細（即使全為 0 也顯示列表） *@
                 <div class="mt-auto pt-3 border-t border-gray-100">
                     @if (isLoading)
                     {
@@ -104,21 +104,21 @@
 
             @* ── 卡片 2：已納入題庫（採用）（sage 鼠尾草綠） ── *@
             <div class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all border-l-[3px] border-l-[var(--color-sage)] p-5 flex flex-col min-h-[200px]">
-                <!-- Header -->
+                @* Header *@
                 <div class="flex items-center gap-2.5 mb-2">
                     <div class="w-8 h-8 rounded-lg bg-green-50 text-[var(--color-sage)] flex items-center justify-center shrink-0">
                         <i class="fa-solid fa-check-double text-sm"></i>
                     </div>
                     <p class="text-sm font-semibold text-gray-600">已納入題庫（採用）</p>
                 </div>
-                <!-- Main -->
+                @* Main *@
                 <div class="flex items-baseline gap-1.5 mb-3">
                     <h3 class="text-4xl font-black text-[var(--color-sage)] tabular-nums leading-none">
                         @(isLoading ? "…" : kpi.AdoptedTotal.ToString())
                     </h3>
                     <span class="text-sm text-gray-400">題</span>
                 </div>
-                <!-- Footer：永遠顯示進度條，0% 也呈現結構 -->
+                @* Footer：永遠顯示進度條，0% 也呈現結構 *@
                 <div class="mt-auto pt-3 border-t border-gray-100">
                     @if (isLoading)
                     {
@@ -142,7 +142,7 @@
             @* 依當前 PhaseCode 對應 ReviewStage，顯示審題完成度（已完成/總數） *@
             @* 非審題階段顯示「未啟動」替代區塊；Footer 顯示真正當前階段名稱 *@
             <div class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all border-l-[3px] border-l-amber-500 p-5 flex flex-col min-h-[200px]">
-                <!-- Header：圖示 + 標題 + 計算口徑 ⓘ + 右上角階段 Pill Badge -->
+                @* Header：圖示 + 標題 + 計算口徑 ⓘ + 右上角階段 Pill Badge *@
                 <div class="flex items-center gap-2.5 mb-2">
                     <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
                         <i class="fa-solid @(isLoading ? "fa-spinner fa-spin-pulse" : "fa-magnifying-glass") text-sm"></i>
@@ -161,7 +161,7 @@
                         </span>
                     }
                 </div>
-                <!-- Main：審題階段顯示 XX/OO 題；非審題階段顯示「未啟動」替代區 -->
+                @* Main：審題階段顯示 XX/OO 題；非審題階段顯示「未啟動」替代區 *@
                 <div class="mb-3 min-h-[44px]">
                     @if (isLoading)
                     {
@@ -222,7 +222,7 @@
                         </div>
                     }
                 </div>
-                <!-- Footer：依 PhaseStatusType 顯示真正當前階段 -->
+                @* Footer：依 PhaseStatusType 顯示真正當前階段 *@
                 <div class="mt-auto pt-3 border-t border-gray-100">
                     @if (isLoading)
                     {
@@ -272,7 +272,7 @@
             @* 依當前 PhaseCode 對應 RevisionStage，顯示修題完成度（已修完/待修總數） *@
             @* 非修題階段顯示「未啟動」替代區塊；已結案顯示印章卡；Footer 顯示真正當前階段名稱 *@
             <div class="bg-white rounded-xl shadow-sm hover:shadow-md transition-all border-l-[3px] border-l-[var(--color-terracotta)] p-5 flex flex-col min-h-[200px]">
-                <!-- Header：圖示 + 標題 + 計算口徑 ⓘ + 右上角階段 Pill Badge -->
+                @* Header：圖示 + 標題 + 計算口徑 ⓘ + 右上角階段 Pill Badge *@
                 <div class="flex items-center gap-2.5 mb-2">
                     <div class="w-8 h-8 rounded-lg bg-red-50 text-[var(--color-terracotta)] flex items-center justify-center shrink-0">
                         <i class="fa-solid @(isLoading ? "fa-spinner fa-spin-pulse" : "fa-pen-to-square") text-sm"></i>
@@ -291,7 +291,7 @@
                         </span>
                     }
                 </div>
-                <!-- Main：修題階段顯示 XX/OO 題；非修題階段顯示「未啟動」；已結案顯示印章卡 -->
+                @* Main：修題階段顯示 XX/OO 題；非修題階段顯示「未啟動」；已結案顯示印章卡 *@
                 <div class="mb-3 min-h-[44px]">
                     @if (isLoading)
                     {
@@ -363,7 +363,7 @@
                         </div>
                     }
                 </div>
-                <!-- Footer：依 PhaseStatusType 顯示真正當前階段（與卡片 3 共用邏輯） -->
+                @* Footer：依 PhaseStatusType 顯示真正當前階段（與卡片 3 共用邏輯） *@
                 <div class="mt-auto pt-3 border-t border-gray-100">
                     @if (isLoading)
                     {
@@ -411,9 +411,9 @@
 
         </div>
 
-        <!-- Charts Row -->
+        @* Charts Row *@
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-            <!-- Chart 1：題型缺口達成率（Horizontal Bar + Goals） -->
+            @* Chart 1：題型缺口達成率（Horizontal Bar + Goals） *@
             <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-1 flex flex-col h-[350px] overflow-hidden">
                 <h3 class="text-lg font-bold text-slate-main mb-1">題型缺口達成率</h3>
                 <p class="text-xs text-gray-500 mb-2">展示目前各題型「已產出」與「目標」比例。</p>
@@ -433,7 +433,7 @@
                 </div>
             </div>
 
-            <!-- Chart 2：依題型狀態分佈（Vertical Stacked Bar） -->
+            @* Chart 2：依題型狀態分佈（Vertical Stacked Bar） *@
             <div class="bg-white rounded-xl shadow-sm p-6 lg:col-span-2 flex flex-col h-[350px] overflow-hidden">
                 <h3 class="text-lg font-bold text-slate-main mb-1">依題型狀態分佈表</h3>
                 <p class="text-xs text-gray-500 mb-2">依當前階段動態呈現：草稿、階段進行中、階段完成、採用、不採用。</p>
@@ -457,9 +457,9 @@
             </div>
         </div>
 
-        <!-- Bottom Row: Alerts & Audits -->
+        @* Bottom Row: Alerts & Audits *@
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12">
-            <!-- Urgent Tasks -->
+            @* Urgent Tasks *@
             @{
                 // 拆分階段倒數（Header 右側顯示，純資訊）與教師待辦（清單，可點開 Modal）
                 var phaseAlert    = kpi.UrgentItems.FirstOrDefault(x => x.Source == UrgentSourceType.PhaseDeadline);
@@ -526,9 +526,9 @@
                 }
             </div>
 
-            <!-- Audit Logs -->
+            @* Audit Logs *@
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden">
-                <!-- Header：標題 + 筆數 badge（梯次內試題/審題 CUD 紀錄；登入及人員/專案/公告變動請至「系統活動記錄」頁） -->
+                @* Header：標題 + 筆數 badge（梯次內試題/審題 CUD 紀錄；登入及人員/專案/公告變動請至「系統活動記錄」頁） *@
                 <div class="bg-gray-50 px-5 py-3 border-b border-gray-200 flex justify-between items-center gap-3 shrink-0">
                     <h3 class="font-bold text-gray-700 text-sm flex items-center gap-2 shrink-0">
                         <i class="fa-solid fa-list-ul text-gray-400"></i> 本梯次稽核歷程 (LOG)
@@ -546,7 +546,7 @@
                     </NavLink>
                 </div>
 
-                <!-- Filter Chips（單選） -->
+                @* Filter Chips（單選） *@
                 <div class="px-3 py-2 border-b border-gray-100 flex items-center gap-1.5 overflow-x-auto bg-white shrink-0">
                     @foreach (var f in LogFilters)
                     {
@@ -562,7 +562,7 @@
                     }
                 </div>
 
-                <!-- Body -->
+                @* Body *@
                 @if (logPage is null && isLoadingLogs)
                 {
                     <div class="flex-grow flex items-center justify-center p-4">

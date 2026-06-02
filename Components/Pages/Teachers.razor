@@ -90,7 +90,7 @@
 
             @* ── Left Panel: Teacher List ── *@
             <div class="w-full lg:w-[380px] xl:w-[420px] border-r border-gray-200 flex flex-col z-10 flex-shrink-0">
-                <!-- 搜尋 + 篩選 -->
+                @* 搜尋 + 篩選 *@
                 <div class="p-4 border-b border-gray-100 bg-gray-50 flex flex-col gap-3 flex-shrink-0">
                     <DebouncedSearchInput @bind-Value="searchKeyword"
                                           Placeholder="搜尋姓名、編號、學校或信箱..." />
@@ -106,7 +106,7 @@
                     </div>
                 </div>
 
-                <!-- 列表 -->
+                @* 列表 *@
                 <div class="flex-grow overflow-y-auto custom-scroll">
                     @if (isLoadingList)
                     {
@@ -126,21 +126,21 @@
                             <div @onclick="() => SelectTeacher(teacher.Id)" @key="teacher.Id"
                                 class="@(isSelected ? "bg-blue-50/70 border-l-[3px] border-l-morandi" : "border-l-[3px] border-l-transparent hover:bg-gray-50") cursor-pointer p-4 border-b border-gray-100 transition-colors">
                                 <div class="flex items-start gap-3">
-                                    <!-- 狀態圓點 + 頭像 -->
+                                    @* 狀態圓點 + 頭像 *@
                                     <div class="relative flex-shrink-0">
                                         <div class="w-10 h-10 rounded-full bg-morandi/15 text-morandi flex items-center justify-center font-bold text-sm">
                                             @(teacher.DisplayName.Length > 0 ? teacher.DisplayName[0] : '?')
                                         </div>
                                         <span class="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white @(teacher.Status == 1 ? "bg-sage" : "bg-terracotta")"></span>
                                     </div>
-                                    <!-- 資訊 -->
+                                    @* 資訊 *@
                                     <div class="flex-grow min-w-0">
                                         <div class="flex items-center gap-2">
                                             <span class="font-bold text-sm text-slate-main truncate">@teacher.DisplayName</span>
                                             <span class="text-xs text-gray-400 font-mono">@teacher.TeacherCode</span>
                                         </div>
                                         <div class="text-xs text-gray-500 mt-0.5 truncate">@teacher.School</div>
-                                        <!-- 角色 Badge（依 Category 配色：內部紫 / 外部琥珀） -->
+                                        @* 角色 Badge（依 Category 配色：內部紫 / 外部琥珀） *@
                                         <div class="flex flex-wrap gap-1 mt-1.5">
                                             @if (teacher.ProjectRoles.Count > 0)
                                             {
@@ -174,14 +174,14 @@
                 }
                 else
                 {
-                    <!-- 頂部資訊卡片（Prototype 風格） -->
+                    @* 頂部資訊卡片（Prototype 風格） *@
                     <div class="p-6 bg-white border-b border-gray-200 flex-shrink-0">
                         <div class="flex items-center gap-6">
-                            <!-- 大頭像 -->
+                            @* 大頭像 *@
                             <div class="w-[72px] h-[72px] rounded-full bg-morandi/15 text-morandi flex items-center justify-center font-bold text-2xl flex-shrink-0 border-2 border-morandi/20">
                                 @(selectedDetail.DisplayName.Length > 0 ? selectedDetail.DisplayName[0] : '?')
                             </div>
-                            <!-- 資訊 -->
+                            @* 資訊 *@
                             <div class="flex-grow min-w-0">
                                 <div class="flex items-center gap-2 mb-1">
                                     <h2 class="text-xl font-bold text-slate-main">@selectedDetail.DisplayName</h2>
@@ -199,7 +199,7 @@
                                     </div>
                                 }
                             </div>
-                            <!-- 操作按鈕（垂直堆疊） -->
+                            @* 操作按鈕（垂直堆疊） *@
                             <div class="flex flex-col gap-2 flex-shrink-0">
                                 <button @onclick="OpenEditTeacher" disabled="@isActionBusy"
                                     class="cursor-pointer px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors focus:outline-none shadow-sm disabled:opacity-50 flex items-center gap-1.5 justify-center">
@@ -218,7 +218,7 @@
                         </div>
                     </div>
 
-                    <!-- Tab 按鈕（Prototype 風格） -->
+                    @* Tab 按鈕（Prototype 風格） *@
                     <div class="px-6 pt-4 flex-shrink-0">
                         <div class="flex gap-1 border-b border-gray-200">
                             @foreach (var (key, label, icon) in new[] {
@@ -237,13 +237,13 @@
                         </div>
                     </div>
 
-                    <!-- Tab 內容（與上方資訊卡共用外層捲軸） -->
+                    @* Tab 內容（與上方資訊卡共用外層捲軸） *@
                     <div class="p-6">
                         @* ── Tab: 基本資料 ── *@
                         @if (detailTab == "info")
                         {
                             <div class="space-y-6">
-                                <!-- 個人資料 -->
+                                @* 個人資料 *@
                                 <div>
                                     <h3 class="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
                                         <i class="fa-solid fa-id-card text-morandi"></i> 個人資料
@@ -259,7 +259,7 @@
                                         @InfoRow("最後登入", selectedDetail.LastLoginAt?.ToString("yyyy-MM-dd HH:mm") ?? "從未登入")
                                     </div>
                                 </div>
-                                <!-- 任教背景 -->
+                                @* 任教背景 *@
                                 <div>
                                     <h3 class="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
                                         <i class="fa-solid fa-graduation-cap text-morandi"></i> 任教背景
@@ -288,7 +288,7 @@
                         @* ── Tab: 命題歷程 ── *@
                         else if (detailTab == "compose")
                         {
-                            <!-- 統計卡片（載入中時整列 pulse + 數字暫顯 — 避免閃 0） -->
+                            @* 統計卡片（載入中時整列 pulse + 數字暫顯 — 避免閃 0） *@
                             <div class="grid grid-cols-4 gap-3 mb-4 @(isLoadingCompose ? "animate-pulse" : "")">
                                 <div class="bg-white p-3 rounded-lg border border-gray-100 text-center">
                                     <div class="text-xs text-gray-500 font-bold">累計產出</div>
@@ -307,7 +307,7 @@
                                     <div class="text-xl font-bold text-morandi mt-1">@(isLoadingCompose ? "—" : composeStats.ReviewingCount.ToString())</div>
                                 </div>
                             </div>
-                            <!-- 篩選 + 列表 -->
+                            @* 篩選 + 列表 *@
                             <div class="bg-white rounded-lg border border-gray-100">
                                 <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                                     <span class="font-bold text-sm text-gray-800">
@@ -375,7 +375,7 @@
                         @* ── Tab: 審題歷程 ── *@
                         else if (detailTab == "review")
                         {
-                            <!-- 統計卡片（載入中時整列 pulse + 數字暫顯 — 避免閃 0） -->
+                            @* 統計卡片（載入中時整列 pulse + 數字暫顯 — 避免閃 0） *@
                             <div class="grid grid-cols-3 gap-3 mb-4 @(isLoadingReview ? "animate-pulse" : "")">
                                 <div class="bg-white p-3 rounded-lg border border-gray-100 text-center">
                                     <div class="text-xs text-gray-500 font-bold">審題總數</div>
@@ -390,7 +390,7 @@
                                     <div class="text-xl font-bold text-sage mt-1">@(isLoadingReview ? "—" : reviewStats.CompletedCount.ToString())</div>
                                 </div>
                             </div>
-                            <!-- 篩選 + 列表 -->
+                            @* 篩選 + 列表 *@
                             <div class="bg-white rounded-lg border border-gray-100">
                                 <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                                     <span class="font-bold text-sm text-gray-800">
@@ -494,7 +494,7 @@
                                             _ => "準備中"
                                         };
                                         <div class="bg-white rounded-lg border border-gray-200 p-5 hover:shadow-md transition-shadow">
-                                            <!-- 頂部列：狀態標籤 + CWT/LCT badge + 專案編號 + 移除按鈕 -->
+                                            @* 頂部列：狀態標籤 + CWT/LCT badge + 專案編號 + 移除按鈕 *@
                                             <div class="flex items-center justify-between mb-2">
                                                 <div class="flex items-center gap-2">
                                                     <span class="px-2.5 py-1 text-xs font-bold rounded @statusBadgeClass">@statusLabel</span>
@@ -516,11 +516,11 @@
                                                     </button>
                                                 }
                                             </div>
-                                            <!-- 專案名稱 -->
+                                            @* 專案名稱 *@
                                             <h4 class="text-base font-bold text-slate-main mb-3">
                                                 @project.ProjectYear 年度 @project.ProjectName
                                             </h4>
-                                            <!-- 角色（如有）：內部紫 / 外部琥珀 -->
+                                            @* 角色（如有）：內部紫 / 外部琥珀 *@
                                             @if (project.Roles.Count > 0)
                                             {
                                                 <div class="flex flex-wrap gap-1 mb-3">
@@ -530,7 +530,7 @@
                                                     }
                                                 </div>
                                             }
-                                            <!-- 統計列 + 下載聘書 -->
+                                            @* 統計列 + 下載聘書 *@
                                             <div class="flex items-center justify-between gap-3 text-sm text-gray-600">
                                                 <div class="flex items-center gap-5">
                                                     <span class="flex items-center gap-1.5">
@@ -587,7 +587,7 @@
     <ChildContent>
         <EditForm Model="formModel" OnValidSubmit="HandleSaveTeacher" FormName="teacherForm">
             <div class="space-y-8">
-                <!-- 聘書相關欄位提醒：跨區塊提示，避免使用者忽略職稱必填 -->
+                @* 聘書相關欄位提醒：跨區塊提示，避免使用者忽略職稱必填 *@
                 <div class="px-4 py-3 bg-morandi/10 border border-morandi/30 rounded-lg flex items-start gap-2.5 text-sm text-morandi">
                     <i class="fa-solid fa-award mt-0.5 flex-shrink-0 text-base"></i>
                     <span class="leading-relaxed">
@@ -598,7 +598,7 @@
                     </span>
                 </div>
 
-                <!-- 區塊 1: 基本資料 -->
+                @* 區塊 1: 基本資料 *@
                 <div class="space-y-4">
                     <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
                         <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span>
@@ -646,7 +646,7 @@
                     </div>
                 </div>
 
-                <!-- 區塊 2: 任教背景 -->
+                @* 區塊 2: 任教背景 *@
                 <div class="space-y-4 pt-2">
                     <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
                         <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">2</span>
@@ -693,7 +693,7 @@
                     </div>
                 </div>
 
-                <!-- 區塊 3: 帳號設定 -->
+                @* 區塊 3: 帳號設定 *@
                 <div class="space-y-4 pt-2">
                     <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
                         <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">3</span>

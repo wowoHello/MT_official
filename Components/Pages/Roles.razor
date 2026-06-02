@@ -8,7 +8,7 @@
 @inject ILogger<Roles> Logger
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
-    <!-- Breadcrumb & Header Row -->
+    @* Breadcrumb & Header Row *@
     <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur border-b border-gray-200">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
@@ -32,7 +32,7 @@
                 </h1>
                 <p class="text-sm text-gray-500 mt-1">系統帳號新增、外部人員身份指派及功能開關。</p>
             </div>
-            <!-- 動態按鈕區（依據 Tab 切換） -->
+            @* 動態按鈕區（依據 Tab 切換） *@
             <div class="flex gap-2">
                 @if (currentTab == "accounts")
                 {
@@ -52,7 +52,7 @@
         </div>
     </div>
 
-    <!-- Tab Navigation (underline style) -->
+    @* Tab Navigation (underline style) *@
     <div class="px-4 sm:px-6 lg:px-8 pt-4 flex-shrink-0">
         <div class="flex border-b border-gray-200 mb-4">
             <button @onclick='() => currentTab = "accounts"'
@@ -66,13 +66,13 @@
         </div>
     </div>
 
-    <!-- Tab Content -->
+    @* Tab Content *@
     @if (currentTab == "accounts")
     {
-        <!-- Tab Panel 1: 人員帳號管理 -->
+        @* Tab Panel 1: 人員帳號管理 *@
         <div class="flex-grow flex flex-col overflow-hidden px-4 sm:px-6 lg:px-8 pb-4">
 
-            <!-- Statistics Cards -->
+            @* Statistics Cards *@
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 flex-shrink-0">
                 @StatCard("帳號總數", allAccounts.Count.ToString(), "fa-users", "text-morandi", "text-slate-main")
                 @StatCard("啟用中", allAccounts.Count(a => a.Status == 1).ToString(), "fa-circle-check", "text-sage", "text-sage")
@@ -80,12 +80,12 @@
                 @StatCard("系統管理員", allAccounts.Count(a => a.RoleName == "系統管理員").ToString(), "fa-user-shield", "text-purple-500", "text-purple-600")
             </div>
 
-            <!-- Split Layout (Left List, Right Detail) -->
+            @* Split Layout (Left List, Right Detail) *@
             <div class="flex-grow flex overflow-hidden bg-white rounded-xl shadow-sm border border-gray-200">
 
-                <!-- Left Panel: Account List -->
+                @* Left Panel: Account List *@
                 <div class="w-full lg:w-[380px] xl:w-[420px] border-r border-gray-200 flex flex-col z-10 flex-shrink-0">
-                    <!-- Filters -->
+                    @* Filters *@
                     <div class="p-4 border-b border-gray-100 bg-gray-50 flex flex-col gap-3 flex-shrink-0">
                         <DebouncedSearchInput @bind-Value="accountKeyword"
                                               Placeholder="搜尋姓名、帳號或信箱..." />
@@ -98,7 +98,7 @@
                                 class="flex-1 py-1 text-xs font-bold rounded cursor-pointer transition @(accountStatusFilter == "inactive" ? "bg-morandi text-white" : "border border-gray-200 text-gray-500 hover:bg-gray-100")">停用中</button>
                         </div>
                     </div>
-                    <!-- List -->
+                    @* List *@
                     <div class="flex-grow overflow-y-auto custom-scroll">
                         @if (isLoadingAccounts)
                         {
@@ -139,7 +139,7 @@
                     </div>
                 </div>
 
-                <!-- Right Panel: Account Details -->
+                @* Right Panel: Account Details *@
                 <div class="hidden lg:flex flex-col flex-grow bg-[var(--color-oatmeal)] overflow-hidden">
                     @if (isLoadingAccountDetail)
                     {
@@ -156,7 +156,7 @@
                     else
                     {
                         <div class="flex-grow overflow-y-auto custom-scroll p-6 lg:p-8">
-                            <!-- Top Info Row -->
+                            @* Top Info Row *@
                             <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-6">
                                 <div class="flex flex-col sm:flex-row justify-between items-start gap-4">
                                     <div class="flex items-start gap-4">
@@ -195,9 +195,9 @@
                                 </div>
                             </div>
 
-                            <!-- Detail Info Cards -->
+                            @* Detail Info Cards *@
                             <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                                <!-- 基本資料 -->
+                                @* 基本資料 *@
                                 <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                                     <h3 class="text-lg font-bold text-slate-main mb-4 flex items-center gap-2">
                                         <i class="fa-solid fa-user text-morandi"></i> 基本資料
@@ -242,7 +242,7 @@
                                     </div>
                                 </div>
 
-                                <!-- 權限資訊 -->
+                                @* 權限資訊 *@
                                 <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
                                     <h3 class="text-lg font-bold text-slate-main mb-4 flex items-center gap-2">
                                         <i class="fa-solid fa-shield-halved @(selectedAccount.RoleCategory == 0 ? "text-purple-500" : "text-amber-500")"></i> 權限資訊
@@ -292,17 +292,17 @@
     }
     else
     {
-        <!-- Tab Panel 2: 角色權限管理 -->
+        @* Tab Panel 2: 角色權限管理 *@
         <div class="flex-grow flex flex-col overflow-hidden px-4 sm:px-6 lg:px-8 pb-4">
 
-            <!-- 角色統計 -->
+            @* 角色統計 *@
             <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4 flex-shrink-0">
                 @StatCard("角色總數", allRoles.Count.ToString(), "fa-shield-halved", "text-morandi", "text-slate-main")
                 @StatCard("內部人員角色", allRoles.Count(r => r.Category == 0).ToString(), "fa-building", "text-morandi", "text-morandi")
                 @StatCard("外部人員角色", allRoles.Count(r => r.Category == 1).ToString(), "fa-user-graduate", "text-sage", "text-sage")
             </div>
 
-            <!-- Role Cards Grid -->
+            @* Role Cards Grid *@
             <div class="flex-grow overflow-y-auto custom-scroll">
                 @if (isLoadingRoles)
                 {
@@ -322,7 +322,7 @@
                         @foreach (var role in allRoles)
                         {
                             <div @key="role.Id" class="group bg-white rounded-xl shadow-sm border-2 border-transparent hover:border-morandi hover:shadow-lg transition-all p-5 flex flex-col">
-                                <!-- Header：圖示 + 名稱 + 鎖頭 -->
+                                @* Header：圖示 + 名稱 + 鎖頭 *@
                                 <div class="flex items-start justify-between mb-3">
                                     <div class="flex items-center gap-3 min-w-0">
                                         <div class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 @(role.Category == 0 ? "bg-purple-100 text-purple-600" : "bg-amber-100 text-amber-600")">
@@ -346,12 +346,12 @@
                                     </div>
                                 </div>
 
-                                <!-- 角色描述 -->
+                                @* 角色描述 *@
                                 <p class="text-sm text-gray-500 mb-3 line-clamp-2 min-h-[2.5rem]">
                                     @(string.IsNullOrWhiteSpace(role.Description) ? "—" : role.Description)
                                 </p>
 
-                                <!-- 已啟用功能 Badge -->
+                                @* 已啟用功能 Badge *@
                                 <div class="flex flex-wrap gap-1 mb-3 min-h-[22px]">
                                     @foreach (var m in role.EnabledModules.Take(6))
                                     {
@@ -368,7 +368,7 @@
                                     }
                                 </div>
 
-                                <!-- Footer -->
+                                @* Footer *@
                                 <div class="mt-auto flex items-center justify-between pt-3 border-t border-gray-100">
                                     <button type="button" @onclick="() => OpenRoleUsersModal(role.Id, role.Name, role.Category)"
                                             disabled="@(role.UserCount == 0)"
@@ -401,7 +401,7 @@
     }
 </div>
 
-<!-- Add / Edit Account Modal -->
+@* Add / Edit Account Modal *@
 <CustomModal IsVisible="showAccountModal" IsVisibleChanged="OnAccountModalVisibleChanged"
              Type="CustomModal.ModalType.SlideOver"
              Title="@(isAccountEditMode ? "編輯人員" : "新增人員")"
@@ -411,7 +411,7 @@
         <EditForm Model="newAccountModel" class="space-y-6">
             <DataAnnotationsValidator />
 
-            <!-- 區塊 1：基本資料 -->
+            @* 區塊 1：基本資料 *@
             <div class="space-y-4">
                 <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
                     <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span>
@@ -463,7 +463,7 @@
                 </div>
             </div>
 
-            <!-- 區塊 2：帳號設定 -->
+            @* 區塊 2：帳號設定 *@
             <div class="space-y-4 pt-2">
                 <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
                     <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">2</span>
@@ -528,7 +528,7 @@
     </FooterContent>
 </CustomModal>
 
-<!-- Add / Edit / View Role Modal -->
+@* Add / Edit / View Role Modal *@
 <CustomModal IsVisible="showRoleModal" IsVisibleChanged="OnRoleModalVisibleChanged"
              Type="CustomModal.ModalType.Center" Title="@RoleModalTitle" CloseOnBackdropClick="true" KeepAlive="true">
     <ChildContent>
@@ -543,7 +543,7 @@
                 </div>
             }
 
-            <!-- 區塊 1：角色資訊 -->
+            @* 區塊 1：角色資訊 *@
             <div class="space-y-4">
                 <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
                     <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span>
@@ -577,7 +577,7 @@
                 </div>
             </div>
 
-            <!-- 區塊 2：功能區塊權限 -->
+            @* 區塊 2：功能區塊權限 *@
             <div class="space-y-4">
                 <h3 class="text-base font-bold text-gray-800 border-b border-morandi/30 pb-2 flex items-center gap-2">
                     <span class="bg-morandi text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">2</span>
@@ -639,7 +639,7 @@
     </FooterContent>
 </CustomModal>
 
-<!-- Role Users Modal：檢視使用此角色的所有人員 -->
+@* Role Users Modal：檢視使用此角色的所有人員 *@
 <CustomModal @bind-IsVisible="showRoleUsersModal" Type="CustomModal.ModalType.Center"
              Title="@($"使用「{roleUsersRoleName}」的人員")" CloseOnBackdropClick="true" KeepAlive="true">
     <ChildContent>

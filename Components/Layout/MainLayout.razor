@@ -202,7 +202,7 @@
     </div>
 </nav>
 
-<!-- Profile Modal -->
+@* Profile Modal *@
 <CustomModal @bind-IsVisible="showProfileModal" Type="CustomModal.ModalType.Center" Title="個人資料" CloseOnBackdropClick="true" KeepAlive="true">
     <ChildContent>
         @if (isLoadingProfile)
@@ -215,7 +215,7 @@
         {
             var hasCurrentBatchRole = currentProject is not null && userProfile.ProjectRoles.Count > 0;
             <div class="space-y-5">
-                <!-- 頭部：頭像 + 姓名 + 角色 + 狀態（右側放下載聘書按鈕） -->
+                @* 頭部：頭像 + 姓名 + 角色 + 狀態（右側放下載聘書按鈕） *@
                 <div class="flex items-center justify-between gap-3 p-4 bg-gray-50 rounded-xl">
                     <div class="flex items-center gap-4 min-w-0">
                         <div class="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl flex-shrink-0 @(userProfile.Status == 1 ? "bg-morandi" : "bg-gray-400")">
@@ -236,7 +236,7 @@
                             </div>
                         </div>
                     </div>
-                    <!-- 下載本梯次聘書 — 直接導向 zip endpoint，多身份打包成單一 zip -->
+                    @* 下載本梯次聘書 — 直接導向 zip endpoint，多身份打包成單一 zip *@
                     @if (hasCurrentBatchRole && hasDownloadableCertsForCurrentProject && currentProject is not null)
                     {
                         <a href="@($"api/appointment-cert/download/{currentProject.Id}")"
@@ -249,7 +249,7 @@
                     }
                 </div>
 
-                <!-- 資訊列表 -->
+                @* 資訊列表 *@
                 <div class="space-y-3 text-sm">
                     <div class="flex justify-between gap-4">
                         <span class="text-gray-500">登入帳號</span>
@@ -277,7 +277,7 @@
                     </div>
                 </div>
 
-                <!-- 變更密碼區（可折疊） -->
+                @* 變更密碼區（可折疊） *@
                 <div class="border-t border-gray-200 pt-4">
                     @if (!showPasswordForm)
                     {

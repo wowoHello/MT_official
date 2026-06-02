@@ -6,7 +6,7 @@
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
-<!-- 可編輯欄位（點擊觸發底部編輯器） -->
+@* 可編輯欄位（點擊觸發底部編輯器） *@
 <div class="editable-field cursor-text border-[1.5px] border-gray-200 rounded-lg min-h-[100px] max-h-[200px] overflow-y-auto custom-scroll p-4 hover:border-blue-300 transition-all @(isOpen ? "border-morandi shadow-[0_0_0_3px_rgba(107,142,173,0.15)]" : "")"
      @onclick="OpenEditor">
     @if (string.IsNullOrEmpty(Value))
@@ -19,16 +19,16 @@
     }
 </div>
 
-<!-- 底部滑入式 Quill 面板（始終渲染，CSS 控制顯隱） -->
-<!-- Backdrop -->
+@* 底部滑入式 Quill 面板（始終渲染，CSS 控制顯隱） *@
+@* Backdrop *@
 <div class="fixed inset-0 bg-slate-900/10 z-[150] transition-opacity duration-300 @(isOpen ? "opacity-100" : "opacity-0 pointer-events-none")"
      @onclick="CloseEditor"></div>
 
-<!-- Editor Sheet -->
+@* Editor Sheet *@
 <div class="fixed inset-x-0 bottom-0 z-[150] transition-transform duration-300 ease-in-out @(isOpen ? "translate-y-0" : "translate-y-full")">
     <div class="bg-white shadow-[0_-2px_8px_rgba(0,0,0,0.08)] h-[40vh] flex flex-col rounded-t-2xl overflow-visible">
 
-        <!-- 標頭：欄位指示 + 中文標點 + 收起 -->
+        @* 標頭：欄位指示 + 中文標點 + 收起 *@
         <div class="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200 gap-2 flex-shrink-0">
             <div class="flex items-center gap-2 text-sm text-gray-600 min-w-0 flex-wrap">
                 <i class="fa-solid fa-pen-to-square text-morandi"></i>
@@ -60,7 +60,7 @@
             </button>
         </div>
 
-        <!-- Quill 編輯器容器 -->
+        @* Quill 編輯器容器 *@
         <div id="@containerId" class="quill-editor-container flex-grow min-h-0"></div>
     </div>
 </div>

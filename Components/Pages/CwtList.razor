@@ -14,7 +14,7 @@
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
 
-    <!-- Header: Breadcrumb + Title + Actions -->
+    @* Header: Breadcrumb + Title + Actions *@
     <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur border-b border-gray-200">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
@@ -37,7 +37,7 @@
                     <h1 tabindex="-1" class="text-2xl font-bold flex items-center gap-2 focus:outline-none">
                         <i class="fa-solid fa-pen-ruler text-[var(--color-morandi)]"></i> 命題任務
                     </h1>
-                    <!-- 當前階段指示燈 -->
+                    @* 當前階段指示燈 *@
                     @if (currentPhase is not null)
                     {
                         var urgentCss = currentPhase.IsUrgent
@@ -72,10 +72,10 @@
         </div>
     </div>
 
-    <!-- Scrollable Body -->
+    @* Scrollable Body *@
     <div class="flex-grow overflow-y-auto custom-scroll">
 
-        <!-- 配額進度卡片區 -->
+        @* 配額進度卡片區 *@
         <div class="px-4 sm:px-6 lg:px-8 pt-5 pb-3">
             <div class="flex items-center gap-2 mb-3 flex-wrap">
                 <h2 class="text-sm font-bold text-gray-500"><i class="fa-solid fa-chart-pie mr-1"></i> 我的命題配額進度</h2>
@@ -122,11 +122,11 @@
             </div>
         </div>
 
-        <!-- 三大 Tab 工作區 -->
+        @* 三大 Tab 工作區 *@
         <div class="px-4 sm:px-6 lg:px-8 pb-6">
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
 
-                <!-- Tab Bar -->
+                @* Tab Bar *@
                 <div class="flex border-b border-gray-200 bg-white sticky top-0 z-20 overflow-x-auto">
                     <button @onclick='() => SwitchTab("compose")'
                         class="@(currentTab == "compose" ? "text-sage border-b-sage font-bold" : "text-gray-500 border-transparent") px-5 py-3 text-sm border-b-2 transition-colors hover:text-sage cursor-pointer focus:outline-none whitespace-nowrap">
@@ -160,7 +160,7 @@
                     </div>
                 }
 
-                <!-- Tab 統計卡片區 -->
+                @* Tab 統計卡片區 *@
                 <div class="p-4 border-b border-gray-100 bg-gray-50/50 flex-shrink-0">
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                         @if (currentTab == "compose")
@@ -211,7 +211,7 @@
                     </div>
                 </div>
 
-                <!-- 篩選列 -->
+                @* 篩選列 *@
                 <div class="p-4 border-b border-gray-100 bg-white flex flex-col xl:flex-row gap-3 items-start xl:items-center justify-between flex-shrink-0">
                     <div class="flex flex-wrap items-center gap-3 w-full xl:w-auto">
                         <div class="w-full md:w-56">
@@ -257,7 +257,7 @@
                     </div>
                 </div>
 
-                <!-- 題目列表 -->
+                @* 題目列表 *@
                 @if (isLoadingList)
                 {
                     <div class="p-8 text-center text-gray-400 text-sm">
@@ -379,7 +379,7 @@
     </div>
 </div>
 
-<!-- FullScreen 命題表單 Modal -->
+@* FullScreen 命題表單 Modal *@
 <CustomModal @bind-IsVisible="showComposeModal" Type="CustomModal.ModalType.FullScreen" Title="@composeModalTitle" CloseOnBackdropClick="false" KeepAlive="true">
     <TitleSubtitle>
         @if (currentFormUpdatedAt is not null)
@@ -442,7 +442,7 @@
             @{ var isFormReadOnly = !IsEditableStatus(currentFormStatus); }
             <CascadingValue Name="IsFormReadOnly" Value="@isFormReadOnly" IsFixed="false">
             <div class="flex-grow flex overflow-hidden relative min-h-0 h-full">
-                <!-- 伸縮標籤按鈕（外置於 fieldset 之上，避免檢視模式被一併禁用） -->
+                @* 伸縮標籤按鈕（外置於 fieldset 之上，避免檢視模式被一併禁用） *@
                 <button type="button" @onclick="() => sidebarCollapsed = !sidebarCollapsed"
                     class="absolute top-1/2 -translate-y-1/2 z-20 bg-white border border-gray-200 border-l-0 rounded-r-lg shadow-sm px-1.5 py-3 flex flex-col items-center gap-1 text-gray-400 hover:text-morandi hover:bg-gray-50 transition-all duration-300 cursor-pointer focus:outline-none @(sidebarCollapsed ? "left-0" : "left-60 lg:left-72")"
                     title="@(sidebarCollapsed ? "展開屬性欄" : "收合屬性欄")">
@@ -453,7 +453,7 @@
 
                 <fieldset disabled="@isFormReadOnly"
                     class="flex-grow flex overflow-hidden min-h-0 h-full m-0 p-0 border-0 disabled:opacity-95">
-                    <!-- 左側邊欄：屬性設定（可收合） -->
+                    @* 左側邊欄：屬性設定（可收合） *@
                     <div class="@(sidebarCollapsed ? "w-0" : "w-60 lg:w-72") flex-shrink-0 bg-white border-r border-gray-200 overflow-hidden flex flex-col transition-all duration-300 ease-in-out">
                         <QuestionAttributesSidebar IsCollapsed="sidebarCollapsed"
                             QuestionType="@formData.QuestionType" QuestionTypeChanged="OnQuestionTypeChanged"
@@ -467,7 +467,7 @@
                             InvalidFields="invalidFields" />
                     </div>
 
-                <!-- 右側：主要編輯區 -->
+                @* 右側：主要編輯區 *@
                 <div class="flex-grow overflow-y-auto custom-scroll bg-oatmeal min-h-0">
                     @switch (formData.QuestionType)
                     {
@@ -513,14 +513,14 @@
     </ChildContent>
 </CustomModal>
 
-<!-- Plan_010 + Stage B-4-2：審修作業區「修題」Slide-Over，支援母題列 / 子題列拆分 -->
+@* Plan_010 + Stage B-4-2：審修作業區「修題」Slide-Over，支援母題列 / 子題列拆分 *@
 <RevisionSlideOver @bind-IsVisible="showRevisionSlideOver"
                    QuestionId="@revisionQuestionId"
                    SubQuestionId="@revisionSubQuestionId"
                    CurrentUserId="@(currentUserId ?? 0)"
                    OnSaved="OnRevisionSavedAsync" />
 
-<!-- 考卷預覽 Modal -->
+@* 考卷預覽 Modal *@
 <QuestionPreviewModal Visible="showPreviewModal" OnClose="() => showPreviewModal = false">
     @switch (formData.QuestionType)
     {
@@ -573,7 +573,7 @@
     }
 </QuestionPreviewModal>
 
-<!-- 相似題比對結果彈窗 -->
+@* 相似題比對結果彈窗 *@
 <SimilarityCheckModal @bind-IsVisible="showSimilarityModal"
                       Loading="@isCheckingSimilarity"
                       Results="@similarityResults"
@@ -900,11 +900,11 @@
         if (currentTab == "compose" && status >= QuestionStatus.Submitted)
             return false;
 
-        // Plan_008：命題階段結束後，草稿與命題完成皆視為唯讀
+        // 命題階段結束後，草稿與命題完成皆視為唯讀
         if (IsCompositionPhaseClosed && status is QuestionStatus.Draft or QuestionStatus.Completed)
             return false;
 
-        // Plan_009：修題狀態必須與當前階段對齊才開放編輯
+        // 修題狀態必須與當前階段對齊才開放編輯
         //   PeerEditing(4)→PhaseCode=4 / ExpertEditing(6)→PhaseCode=6 / FinalEditing(8)→PhaseCode=8
         if (status == QuestionStatus.PeerEditing)
             return currentPhase?.PhaseCode == 4;
@@ -916,7 +916,7 @@
         return status is QuestionStatus.Draft or QuestionStatus.Completed;
     }
 
-    /// <summary>EmptyState 文案依當前 Tab 與階段提供更具脈絡的提示（Plan_009）。</summary>
+    /// <summary>EmptyState 文案依當前 Tab 與階段提供更具脈絡的提示。</summary>
     private (string Icon, string Message, string SubMessage) GetEmptyStateContent()
     {
         if (currentTab == "compose")
@@ -949,7 +949,7 @@
     }
 
     /// <summary>
-    /// 審修作業區階段橫幅（Plan_009）。回傳 (背景樣式, icon, 標題, 副標)。
+    /// 審修作業區階段橫幅。回傳 (背景樣式, icon, 標題, 副標)。
     /// 依當前 PhaseCode 顯示審題鎖定／修題開放／尚未開始／已結束四種狀態。
     /// </summary>
     private (string Css, string Icon, string Title, string Text) GetRevisionPhaseBanner()

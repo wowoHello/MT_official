@@ -13,7 +13,7 @@
 
     @if (IsFocusMode)
     {
-        <!-- Focus 模式提示條（單一子題修題視角） -->
+        @* Focus 模式提示條（單一子題修題視角） *@
         <div class="px-4 py-2.5 bg-morandi/10 border border-morandi/25 rounded-lg text-sm text-morandi font-bold flex items-center gap-2">
             <i class="fa-solid fa-bullseye"></i>
             <span>正在編輯第 @FocusSubOrder 子題（母題音檔與語音內容作為上下文僅供參考、無法修改）</span>
@@ -77,7 +77,7 @@
                                             $"ListenSub_{n}_Options_2", $"ListenSub_{n}_Options_3", answerKey };
 
                 <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                    <!-- 子題標頭：第 N 題 + 子題碼（命題後配發） + 難度 badge -->
+                    @* 子題標頭：第 N 題 + 子題碼（命題後配發） + 難度 badge *@
                     <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
                         <span class="text-sm font-bold text-slate-main flex items-center gap-2">
                             第 @n 題
@@ -89,7 +89,7 @@
                         <span class="px-2 py-0.5 rounded bg-blue-50 text-blue-600 text-xs font-bold">@subLevelLabel</span>
                     </div>
                     <div class="p-4 space-y-4">
-                        <!-- 核心能力 + 細目指標 -->
+                        @* 核心能力 + 細目指標 *@
                         <div class="grid grid-cols-2 gap-3">
                             <div data-field="@coreKey" class="@InvalidRing(coreKey) rounded-lg p-1">
                                 <label class="block text-xs font-medium text-gray-600 mb-1">核心能力 <span class="text-red-400">*</span></label>
@@ -123,7 +123,7 @@
                             </div>
                         </div>
 
-                        <!-- 題目內容 -->
+                        @* 題目內容 *@
                         <div data-field="@stemKey" class="@InvalidRing(stemKey) rounded-lg p-1">
                             <label class="block text-sm font-bold text-gray-700 mb-2">
                                 題目內容 <span class="text-red-400">*</span>
@@ -134,7 +134,7 @@
                                 ImagesChanged="upd => ApplyImageChange(QuestionImageField.Stem, idx, upd)" />
                         </div>
 
-                        <!-- 選項與答案 -->
+                        @* 選項與答案 *@
                         <div data-field="@answerKey" class="@InvalidRingAny(optionAnyKey) rounded-lg p-1">
                             <label class="block text-sm font-bold text-gray-700 mb-2">
                                 <i class="fa-solid fa-list-ol text-morandi"></i> 選項與答案 <span class="text-red-400">*</span>
@@ -147,7 +147,7 @@
                                 OptionImageChanged="e => OnSubOptionImagesChanged(idx, e)" />
                         </div>
 
-                        <!-- 試題解析（樣式對齊一般單選題：lightbulb 琥珀色 + 標題與 hint 分層） -->
+                        @* 試題解析（樣式對齊一般單選題：lightbulb 琥珀色 + 標題與 hint 分層） *@
                         <div data-field="@analysisKey" class="@InvalidRing(analysisKey) rounded-lg p-1">
                             <label class="text-sm font-bold text-gray-700 flex items-center gap-2 mb-2">
                                 <i class="fa-solid fa-lightbulb text-amber-500"></i>

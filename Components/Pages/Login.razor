@@ -17,25 +17,25 @@
 
 <div class="h-screen flex items-center justify-center relative overflow-hidden bg-[var(--color-oatmeal)]">
 
-    <!-- Background Decoration / Illustration Area -->
+    @* Background Decoration / Illustration Area *@
     <div class="absolute inset-0 z-0 flex md:flex-row flex-col">
-        <!-- Left Side Image -->
+        @* Left Side Image *@
         <div class="hidden md:block w-3/5 h-full relative">
             <img src="img/login-bg.png" alt="Knowledge Background"
                 class="w-full h-full object-cover opacity-90">
-            <!-- Overlay Gradient -->
+            @* Overlay Gradient *@
             <div class="absolute inset-0 bg-gradient-to-r from-transparent to-[var(--color-oatmeal)]"></div>
         </div>
-        <!-- Right Side Space -->
+        @* Right Side Space *@
         <div class="w-full md:w-2/5 h-full bg-[var(--color-oatmeal)]"></div>
     </div>
 
-    <!-- Main Content Container -->
+    @* Main Content Container *@
     <div class="container mx-auto px-4 py-4 z-10 flex md:justify-end justify-center items-center h-full overflow-y-auto">
-        <!-- Login Card -->
+        @* Login Card *@
         <div class="glass-card w-full max-w-md p-6 sm:py-6 sm:px-8 rounded-2xl shadow-xl md:mr-[10%] xl:mr-[15%]">
 
-            <!-- Logo & Title -->
+            @* Logo & Title *@
             <div class="text-center mb-4">
                 <div class="w-12 h-12 bg-[var(--color-morandi)]/10 rounded-full flex items-center justify-center mx-auto mb-2">
                     <img src="img/pencil.png" alt="CWT Logo" class="w-8 h-8 object-contain">
@@ -46,7 +46,7 @@
                 <p class="text-sm text-gray-500">歡迎回來，請登入您的帳號</p>
             </div>
 
-            <!-- Dev Mode Indicator -->
+            @* Dev Mode Indicator *@
             @if (IsDev)
             {
                 <div class="mb-4 p-2.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs flex items-center gap-2">
@@ -55,7 +55,7 @@
                 </div>
             }
 
-            <!-- Error Alert -->
+            @* Error Alert *@
             @if (!string.IsNullOrEmpty(errorMessage))
             {
                 <div class="mb-3 p-2 bg-red-50 text-[var(--color-terracotta)] border border-red-200 rounded-lg text-sm flex items-center gap-2">
@@ -64,9 +64,9 @@
                 </div>
             }
 
-            <!-- Login Form -->
+            @* Login Form *@
             <EditForm Model="loginModel" OnValidSubmit="HandleLogin" FormName="loginForm" class="space-y-3">
-                <!-- Account or Email -->
+                @* Account or Email *@
                 <div>
                     <label for="username" class="block text-sm font-medium mb-1">帳號或信箱</label>
                     <div class="relative">
@@ -82,7 +82,7 @@
                     @RenderFieldError(nameof(loginModel.Username))
                 </div>
 
-                <!-- Password -->
+                @* Password *@
                 <div>
                     <label for="password" class="block text-sm font-medium mb-1">密碼</label>
                     <div class="relative">
@@ -101,14 +101,14 @@
                         </button>
                     </div>
                     @RenderFieldError(nameof(loginModel.Password))
-                    <!-- Forgot Password -->
+                    @* Forgot Password *@
                     <div class="flex items-center justify-end mt-2">
                         <button type="button" @onclick="OpenForgotPwdModal"
                             class="text-sm text-[var(--color-morandi)] hover:text-blue-700 hover:underline transition-all rounded-md px-1.5 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-morandi)] focus-visible:ring-offset-2 focus-visible:bg-[var(--color-morandi)]/5 cursor-pointer">忘記密碼？</button>
                     </div>
                 </div>
 
-                <!-- Captcha -->
+                @* Captcha *@
                 <div>
                     <label for="captcha" class="block text-sm font-medium mb-1">驗證碼 <span class="text-xs text-gray-400 font-normal">（不分大小寫）</span></label>
                     <div class="flex gap-3">
@@ -124,7 +124,7 @@
                     @RenderFieldError(nameof(loginModel.CaptchaInput))
                 </div>
 
-                <!-- Security Notice -->
+                @* Security Notice *@
                 <div class="bg-blue-50/70 border border-blue-100 rounded-lg p-2.5 text-xs text-blue-800 flex items-start gap-2">
                     <i class="fa-solid fa-shield-halved mt-0.5 text-[var(--color-morandi)]"></i>
                     <div>
@@ -137,7 +137,7 @@
                     </div>
                 </div>
 
-                <!-- Submit -->
+                @* Submit *@
                 <button type="submit" disabled="@isLoading"
                     class="w-full py-3 bg-[var(--color-morandi)] hover:bg-[#5b7a95] text-white rounded-lg font-medium transition-all shadow-md flex justify-center items-center gap-2 mt-2 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--color-morandi)] disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer">
                     <span>@(isLoading ? "登入中..." : "登入系統")</span>
@@ -171,13 +171,13 @@
         </div>
     </div>
 
-    <!-- Forgot Password Modal -->
+    @* Forgot Password Modal *@
     @if (showForgotPwdModal)
     {
         <div class="fixed inset-0 z-[100] flex items-center justify-center">
-            <!-- Backdrop -->
+            @* Backdrop *@
             <div class="absolute inset-0 bg-black/50" @onclick="CloseForgotPwdModal"></div>
-            <!-- Modal Content -->
+            @* Modal Content *@
             <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 relative z-10 transform transition-all duration-300"
                 style="animation: modalIn 0.3s ease-out;">
                 <div class="p-6 border-b border-gray-100 flex justify-between items-center">

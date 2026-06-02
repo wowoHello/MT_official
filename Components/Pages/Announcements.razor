@@ -11,7 +11,7 @@
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
 
-    <!-- Breadcrumb & Header Row -->
+    @* Breadcrumb & Header Row *@
     <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur border-b border-gray-200">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
@@ -48,7 +48,7 @@
         </div>
     </div>
 
-    <!-- Statistics Cards -->
+    @* Statistics Cards *@
     <div class="px-4 sm:px-6 lg:px-8 pt-4 flex-shrink-0">
         <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 transition duration-200 hover:shadow-md">
@@ -84,11 +84,11 @@
         </div>
     </div>
 
-    <!-- Main Content Area -->
+    @* Main Content Area *@
     <div class="flex-grow flex flex-col overflow-hidden px-4 sm:px-6 lg:px-8 pb-4">
         <div class="flex-grow flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
 
-            <!-- Filters Bar -->
+            @* Filters Bar *@
             <div class="p-4 border-b border-gray-100 bg-gray-50 flex flex-col md:flex-row gap-3 items-center justify-between shrink-0">
                 <div class="flex flex-wrap items-center gap-3 w-full md:w-auto">
                     <div class="w-full md:w-64">
@@ -117,10 +117,10 @@
                 </div>
             </div>
 
-            <!-- Table Header -->
-            <!-- 小螢幕: 置頂(1)+分類(1)+標題(7)+狀態(2)+操作(1)=12 -->
-            <!-- md:     置頂(1)+分類(1)+標題(6)+狀態(1)+發佈日(2)+操作(1)=12 -->
-            <!-- lg:     置頂(1)+分類(1)+標題(5)+梯次(2)+狀態(1)+發佈日(1)+操作(1)=12 -->
+            @* Table Header *@
+            @* 小螢幕: 置頂(1)+分類(1)+標題(7)+狀態(2)+操作(1)=12 *@
+            @* md:     置頂(1)+分類(1)+標題(6)+狀態(1)+發佈日(2)+操作(1)=12 *@
+            @* lg:     置頂(1)+分類(1)+標題(5)+梯次(2)+狀態(1)+發佈日(1)+操作(1)=12 *@
             <div class="grid grid-cols-12 gap-2 px-6 py-3 border-b border-gray-200 bg-white text-sm font-bold text-gray-500 tracking-wider shrink-0">
                 <div class="col-span-1 text-center">置頂</div>
                 <div class="col-span-1">分類</div>
@@ -131,7 +131,7 @@
                 <div class="col-span-1 text-center">操作</div>
             </div>
 
-            <!-- Announcement List -->
+            @* Announcement List *@
             <div class="flex-grow overflow-y-auto custom-scroll">
                 @if (FilteredList.Count == 0)
                 {
@@ -145,7 +145,7 @@
                     {
                         <div class="grid grid-cols-12 gap-2 px-6 py-3.5 border-b border-gray-50 hover:bg-gray-50/50 transition-colors items-center cursor-pointer"
                              @onclick="() => OpenViewModal(ann)">
-                            <!-- 置頂 -->
+                            @* 置頂 *@
                             <div class="col-span-1 flex justify-center">
                                 @if (ann.IsPinned)
                                 {
@@ -156,13 +156,13 @@
                                     <span class="text-gray-300">—</span>
                                 }
                             </div>
-                            <!-- 分類 -->
+                            @* 分類 *@
                             <div class="col-span-1">
                                 <span class="text-xs font-bold px-1.5 py-0.5 rounded @GetCategoryClass(ann.Category)">
                                     @GetCategoryLabel(ann.Category)
                                 </span>
                             </div>
-                            <!-- 標題 -->
+                            @* 標題 *@
                             <div class="col-span-7 md:col-span-6 lg:col-span-5 min-w-0">
                                 <div class="flex items-center gap-2">
                                     @if (ann.IsPinned)
@@ -173,7 +173,7 @@
                                 </div>
                                 <p class="text-sm text-gray-400 mt-0.5 truncate">@StripHtml(ann.Content, 60)</p>
                             </div>
-                            <!-- 綁定梯次（複選後顯示「首梯次 +N」；hover 看完整列表） -->
+                            @* 綁定梯次（複選後顯示「首梯次 +N」；hover 看完整列表） *@
                             <div class="hidden lg:block lg:col-span-2">
                                 @if (ann.ProjectIds.Count == 0)
                                 {
@@ -190,15 +190,15 @@
                                     </span>
                                 }
                             </div>
-                            <!-- 狀態 -->
+                            @* 狀態 *@
                             <div class="col-span-2 md:col-span-1">
                                 <StatusBadge StatusText="@ann.DisplayStatus" Compact="true" />
                             </div>
-                            <!-- 發佈日 -->
+                            @* 發佈日 *@
                             <div class="hidden md:block md:col-span-2 lg:col-span-1">
                                 <span class="text-sm text-gray-500">@ann.PublishDate.ToString("yyyy/MM/dd HH:mm")</span>
                             </div>
-                            <!-- 操作 -->
+                            @* 操作 *@
                             <div class="col-span-1 flex justify-center gap-1">
                                 <button class="w-8 h-8 rounded-full hover:bg-blue-50 text-gray-400 hover:text-morandi flex items-center justify-center transition-colors"
                                         @onclick="() => OpenEditAnnouncement(ann.Id)" @onclick:stopPropagation="true" title="編輯">
@@ -225,21 +225,21 @@
     </div>
 </div>
 
-<!-- ============================================== -->
-<!-- SlideOver：新增 / 編輯公告                       -->
-<!-- ============================================== -->
+@* ============================================== *@
+@* SlideOver：新增 / 編輯公告                       *@
+@* ============================================== *@
 <CustomModal @bind-IsVisible="showSlideOver" Type="CustomModal.ModalType.SlideOver" Title="@panelTitle" MaxWidth="max-w-2xl" CloseOnBackdropClick="true" OnBackdropClose="HandleBackdropSaveDraft" KeepAlive="true">
     <ChildContent>
         <EditForm Model="formModel" class="space-y-7">
 
-            <!-- ═══ 區塊 1：公告設定 ═══ -->
+            @* ═══ 區塊 1：公告設定 ═══ *@
             <section>
                 <div class="border-l-4 border-l-morandi pl-3 mb-5">
                     <h3 class="text-base font-bold text-slate-main">公告設定</h3>
                 </div>
 
                 <div class="space-y-5">
-                    <!-- 分類 -->
+                    @* 分類 *@
                     <div>
                         <label class="block text-sm font-semibold mb-2 text-gray-700">公告分類</label>
                         <InputSelect @bind-Value="formModel.Category"
@@ -251,7 +251,7 @@
                         </InputSelect>
                     </div>
 
-                    <!-- 綁定梯次（Searchable Combobox：搜尋 + 分組 + 多選 + 互斥全站） -->
+                    @* 綁定梯次（Searchable Combobox：搜尋 + 分組 + 多選 + 互斥全站） *@
                     <div>
                         <label class="block text-sm font-semibold mb-2 text-gray-700">綁定顯示梯次</label>
                         <div class="relative">
@@ -270,7 +270,7 @@
                             {
                                 <div class="fixed inset-0 z-[60]" @onclick="CloseProjectComboPopover"></div>
                                 <div class="absolute left-0 right-0 top-full mt-1 z-[70] bg-white rounded-lg shadow-xl border border-gray-200 max-h-96 overflow-hidden flex flex-col">
-                                    <!-- 搜尋框 -->
+                                    @* 搜尋框 *@
                                     <div class="p-2 border-b border-gray-100">
                                         <div class="relative">
                                             <i class="fa-solid fa-magnifying-glass text-gray-400 text-xs absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
@@ -279,9 +279,9 @@
                                                    class="w-full pl-8 pr-3 py-2 border border-gray-200 rounded text-sm focus:outline-none focus:ring-1 focus:ring-morandi focus:border-morandi" />
                                         </div>
                                     </div>
-                                    <!-- 列表 -->
+                                    @* 列表 *@
                                     <div class="overflow-y-auto custom-scroll flex-1">
-                                        <!-- ★ 全站廣播（固定置頂） -->
+                                        @* ★ 全站廣播（固定置頂） *@
                                         <button type="button" @onclick="SelectGlobalBroadcast"
                                                 class="w-full px-3 py-2.5 flex items-center gap-3 hover:bg-morandi/5 transition-colors text-left border-b border-gray-100">
                                             <i class="fa-solid fa-star text-amber-500 text-sm w-4 shrink-0"></i>
@@ -298,7 +298,7 @@
                                             var closedFiltered    = FilterByGroup(projectDropdown.Closed).ToList();
                                         }
 
-                                        <!-- 進行中 -->
+                                        @* 進行中 *@
                                         @if (activeFiltered.Count > 0)
                                         {
                                             <div class="px-3 py-1.5 text-xs font-bold text-gray-500 bg-gray-50">
@@ -310,7 +310,7 @@
                                             }
                                         }
 
-                                        <!-- 準備中 -->
+                                        @* 準備中 *@
                                         @if (preparingFiltered.Count > 0)
                                         {
                                             <div class="px-3 py-1.5 text-xs font-bold text-gray-500 bg-gray-50">
@@ -322,7 +322,7 @@
                                             }
                                         }
 
-                                        <!-- 已結案（預設摺疊） -->
+                                        @* 已結案（預設摺疊） *@
                                         @if (closedFiltered.Count > 0)
                                         {
                                             <button type="button" @onclick="() => closedGroupExpanded = !closedGroupExpanded"
@@ -339,7 +339,7 @@
                                             }
                                         }
 
-                                        <!-- 空結果 -->
+                                        @* 空結果 *@
                                         @if (activeFiltered.Count == 0 && preparingFiltered.Count == 0 && closedFiltered.Count == 0)
                                         {
                                             <div class="px-3 py-6 text-center text-sm text-gray-400">
@@ -356,14 +356,14 @@
                         </p>
                     </div>
 
-                    <!-- 排程副卡（上下架日期合併） -->
+                    @* 排程副卡（上下架日期合併） *@
                     <div class="bg-morandi/5 rounded-lg p-4 ring-1 ring-morandi/10">
                         <div class="flex items-center gap-2 mb-3">
                             <i class="fa-regular fa-calendar text-morandi text-sm"></i>
                             <span class="text-sm font-semibold text-gray-700">排程</span>
                         </div>
                         <div class="grid grid-cols-2 gap-4">
-                            <!-- 上架日期 -->
+                            @* 上架日期 *@
                             <div>
                                 <label class="block text-xs font-semibold mb-2 text-gray-600">上架日期 <span class="text-red-500">*</span></label>
                                 <div class="flex gap-2">
@@ -414,7 +414,7 @@
                                     </div>
                                 </div>
                             </div>
-                            <!-- 下架日期 -->
+                            @* 下架日期 *@
                             <div>
                                 <label class="block text-xs font-semibold mb-2 text-gray-600">下架日期 <span class="text-gray-400 font-normal">(選填)</span></label>
                                 <div class="flex gap-2">
@@ -472,7 +472,7 @@
                         </p>
                     </div>
 
-                    <!-- 置頂 toggle -->
+                    @* 置頂 toggle *@
                     <label class="flex items-center justify-between gap-4 cursor-pointer p-3 -mx-3 rounded-lg hover:bg-gray-50 transition-colors">
                         <div class="flex items-center gap-3 flex-1 min-w-0">
                             <div class="w-9 h-9 rounded-full bg-morandi/10 flex items-center justify-center shrink-0">
@@ -492,20 +492,20 @@
                 </div>
             </section>
 
-            <!-- ═══ 區塊 2：公告內容 ═══ -->
+            @* ═══ 區塊 2：公告內容 ═══ *@
             <section>
                 <div class="border-l-4 border-l-morandi pl-3 mb-5">
                     <h3 class="text-base font-bold text-slate-main">公告內容</h3>
                 </div>
 
                 <div class="space-y-5">
-                    <!-- 標題 -->
+                    @* 標題 *@
                     <div>
                         <label class="block text-sm font-semibold mb-2 text-gray-700">公告標題 <span class="text-red-500">*</span></label>
                         <InputText @bind-Value="formModel.Title" placeholder="請輸入公告標題"
                             class="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-morandi/30 focus:border-morandi focus:outline-none text-base transition-shadow" />
                     </div>
-                    <!-- 內容 -->
+                    @* 內容 *@
                     <div>
                         <label class="block text-sm font-semibold mb-2 text-gray-700">公告內容 <span class="text-red-500">*</span></label>
                         <InlineQuillEditor @bind-Value="formModel.Content" EditorClass="min-h-[240px]" />
@@ -531,14 +531,14 @@
     </FooterContent>
 </CustomModal>
 
-<!-- ============================================== -->
-<!-- Modal：公告檢視                                  -->
-<!-- ============================================== -->
+@* ============================================== *@
+@* Modal：公告檢視                                  *@
+@* ============================================== *@
 <CustomModal @bind-IsVisible="showViewModal" Type="CustomModal.ModalType.Center" Title="公告詳情">
     <ChildContent>
         @if (viewingAnnouncement is not null)
         {
-            <!-- 標籤列 -->
+            @* 標籤列 *@
             <div class="mb-3 flex gap-2 flex-wrap">
                 <span class="text-xs font-bold px-2 py-0.5 rounded @GetCategoryClass(viewingAnnouncement.Category)">
                     @GetCategoryLabel(viewingAnnouncement.Category)
@@ -551,9 +551,9 @@
                     </span>
                 }
             </div>
-            <!-- 標題 -->
+            @* 標題 *@
             <h2 class="text-xl font-bold text-slate-main leading-tight mb-2">@viewingAnnouncement.Title</h2>
-            <!-- 元資料 -->
+            @* 元資料 *@
             <div class="text-xs text-gray-500 mb-4 flex items-center gap-3 flex-wrap">
                 <span class="flex items-center gap-1">
                     <i class="fa-regular fa-clock"></i> 發佈：@viewingAnnouncement.PublishDate.ToString("yyyy/MM/dd HH:mm:ss")
@@ -579,7 +579,7 @@
                     }
                 </span>
             </div>
-            <!-- 內容 -->
+            @* 內容 *@
             <div class="text-gray-700 leading-relaxed text-sm space-y-4 border-t border-gray-100 pt-4">
                 @((MarkupString)viewingAnnouncement.Content)
             </div>
@@ -600,9 +600,9 @@
     </FooterContent>
 </CustomModal>
 
-<!-- ============================================== -->
-<!-- Modal：使用說明手冊管理（11 頁固定槽位）         -->
-<!-- ============================================== -->
+@* ============================================== *@
+@* Modal：使用說明手冊管理（11 頁固定槽位）         *@
+@* ============================================== *@
 <CustomModal @bind-IsVisible="showGuideModal" Type="CustomModal.ModalType.Center" Title="使用說明手冊管理" MaxWidth="max-w-3xl">
     <ChildContent>
         <p class="text-sm text-gray-500 mb-4 flex items-start gap-1.5">
@@ -622,11 +622,11 @@
                 @foreach (var slot in guideSlots)
                 {
                     <div class="px-6 py-3 border-b border-gray-50 flex items-center gap-3 hover:bg-gray-50/50 transition-colors">
-                        <!-- 頁名 -->
+                        @* 頁名 *@
                         <div class="w-40 shrink-0">
                             <span class="text-sm font-bold text-slate-main">@slot.PageName</span>
                         </div>
-                        <!-- 檔案資訊 -->
+                        @* 檔案資訊 *@
                         <div class="flex-1 min-w-0">
                             @if (slot.IsUploaded)
                             {
@@ -641,7 +641,7 @@
                                 <span class="text-sm text-gray-400">尚未上傳</span>
                             }
                         </div>
-                        <!-- 操作 -->
+                        @* 操作 *@
                         <div class="flex items-center gap-1 shrink-0">
                             @if (slot.IsUploaded)
                             {

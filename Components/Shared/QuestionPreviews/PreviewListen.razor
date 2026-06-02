@@ -3,10 +3,10 @@
 
 <PreviewHeader QuestionType="聽力測驗" Level="@Level" Difficulty="@Difficulty" Tags="@Tags" />
 
-<!-- 音檔播放器（仿真實考卷上方音檔框） -->
+@* 音檔播放器（仿真實考卷上方音檔框） *@
 <PreviewAudioSection AudioFileName="@AudioFileName" />
 
-<!-- 題號 + 題目（data-annot-target 給審題劃記用） -->
+@* 題號 + 題目（data-annot-target 給審題劃記用） *@
 <div class="flex items-baseline gap-3 mb-3 mt-6 font-serif">
     <span class="text-xl font-bold text-gray-900 leading-none">1.</span>
     <div class="flex-1 prose prose-base max-w-none leading-relaxed text-gray-900" data-annot-target="stem">
@@ -21,13 +21,13 @@
     </div>
 </div>
 
-<!-- 內容區（語音逐字稿/補充內容；文字或圖片其一存在即渲染） -->
+@* 內容區（語音逐字稿/補充內容；文字或圖片其一存在即渲染） *@
 @if (HasContent(Content) || ArticleImages.Count > 0)
 {
     <PreviewPassage Content="@Content" Label="內容" FieldKey="article" Images="ArticleImages" />
 }
 
-<!-- ABCD 選項（含每選項附圖，SubQuestionIndex=null 表母題層級） -->
+@* ABCD 選項（含每選項附圖，SubQuestionIndex=null 表母題層級） *@
 <PreviewChoiceOptions Options="@Options" Answer="@Answer" Images="@Images"
                       HideOptionAnswerMarker="@HideOptionAnswerMarker" />
 

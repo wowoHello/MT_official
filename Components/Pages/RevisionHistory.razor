@@ -18,7 +18,7 @@
 
 <div class="flex-grow flex flex-col w-full mx-auto">
 
-    <!-- Header -->
+    @* Header *@
     <div class="sticky top-16 z-30 px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/95 backdrop-blur-md border-b border-gray-200 shadow-sm">
         <nav class="flex text-sm text-gray-500 mb-2 font-medium" aria-label="Breadcrumb">
             <ol class="inline-flex items-center space-x-1">
@@ -55,7 +55,7 @@
         <p class="text-sm text-gray-500 mt-1">追蹤所有「三審結束 / 結案後」由管理員執行的修訂紀錄。每筆紀錄保留完整 Before / After 對照。</p>
     </div>
 
-    <!-- Body -->
+    @* Body *@
     <div class="p-4 sm:p-6 lg:p-8">
 
         @if (isAccessChecked && !hasAccess)
@@ -69,7 +69,7 @@
         }
         else if (hasAccess)
         {
-            <!-- 篩選列（即時反應 + 起迄防呆 + 視覺分組） -->
+            @* 篩選列（即時反應 + 起迄防呆 + 視覺分組） *@
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 px-4 py-3 mb-6">
                 <div class="flex flex-wrap items-center gap-x-5 gap-y-3">
 
@@ -140,7 +140,7 @@
                 </div>
             </div>
 
-            <!-- 列表 -->
+            @* 列表 *@
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                 @if (isLoading)
                 {

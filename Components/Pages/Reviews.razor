@@ -15,7 +15,7 @@
 
 <div class="flex-grow flex flex-col w-full mx-auto h-[calc(100vh-4rem)] overflow-hidden">
 
-    <!-- Header: Breadcrumb + Title -->
+    @* Header: Breadcrumb + Title *@
     <div class="px-4 sm:px-6 lg:px-8 py-4 flex-shrink-0 bg-white/50 backdrop-blur-sm border-b border-gray-200">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
             <div>
@@ -79,14 +79,14 @@
         </div>
     </div>
 
-    <!-- Scrollable Body -->
+    @* Scrollable Body *@
     <div class="flex-grow overflow-y-auto custom-scroll">
 
-        <!-- 二大 Tab 工作區 -->
+        @* 二大 Tab 工作區 *@
         <div class="px-4 sm:px-6 lg:px-8 py-5">
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
 
-                <!-- Tab Bar -->
+                @* Tab Bar *@
                 <div class="flex border-b border-gray-200 bg-white sticky top-0 z-20 overflow-x-auto">
                     <button @onclick='() => SwitchTab("review")'
                         class="@(currentTab == "review" ? "text-terracotta border-b-terracotta font-bold" : "text-gray-500 border-transparent") px-5 py-3 text-sm border-b-2 transition-colors hover:text-terracotta cursor-pointer focus:outline-none whitespace-nowrap">
@@ -100,11 +100,11 @@
                     </button>
                 </div>
 
-                <!-- Tab 內容區 -->
+                @* Tab 內容區 *@
                 <div class="p-4 border-b border-gray-100 bg-gray-50/50 flex-shrink-0">
                     @if (currentTab == "review")
                     {
-                        <!-- 七階段時程燈號條（資料來源：MT_ProjectPhases，PhaseCode 1~7） -->
+                        @* 七階段時程燈號條（資料來源：MT_ProjectPhases，PhaseCode 1~7） *@
                         <div class="mb-4">
                             <div class="stage-timeline relative">
                                 @for (int i = 0; i < phases.Count; i++)
@@ -205,7 +205,7 @@
                     }
                     else
                     {
-                        <!-- 歷史 Tab 統計卡片 -->
+                        @* 歷史 Tab 統計卡片 *@
                         <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                             @HistoryStatCard("全部題目", historyItems.Count.ToString(), "fa-layer-group", "text-morandi", "text-slate-main")
                             @HistoryStatCard("已採用", historyItems.Count(h => h.FinalStatus is QuestionStatus.Adopted or QuestionStatus.Archived).ToString(), "fa-circle-check", "text-sage", "text-sage")
@@ -217,7 +217,7 @@
                 @* 命題階段：篩選列無意義（沒有題目可篩） *@
                 @if (currentTab == "history" || !IsCompositionPhase)
                 {
-                    <!-- 篩選列 -->
+                    @* 篩選列 *@
                     <div class="p-4 border-b border-gray-100 bg-white flex flex-col xl:flex-row gap-3 items-start xl:items-center justify-between flex-shrink-0">
                         <div class="flex flex-wrap items-center gap-3 w-full xl:w-auto">
                             <div class="w-full md:w-56">
@@ -276,7 +276,7 @@
                     </div>
                 }
 
-                <!-- 題目列表 / 階段等待狀態 -->
+                @* 題目列表 / 階段等待狀態 *@
                 @if (currentTab == "review" && IsCompositionPhase)
                 {
                     @* 命題階段專用空狀態：四層次 — 圖示／主訊息／倒數連結／引導動作 *@
