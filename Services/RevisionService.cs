@@ -72,19 +72,15 @@ public class RevisionService : IRevisionService
 
     public async Task<bool> CanReviseAsync(int userId, int projectId)
     {
-        var roleIds = await _membership.GetEffectiveRoleIdsAsync(userId, projectId);
-        if (roleIds.Count == 0) return false;
-
         using var conn = _db.CreateConnection();
-        var count = await conn.ExecuteScalarAsync<int>(
-            "SELECT COUNT(*) FROM dbo.MT_Roles WHERE Id IN @Ids AND Name IN @Names;",
-            new { Ids = roleIds, Names = AllowedRoleNames });
-
-        return count > 0;
+        return await CanReviseCoreAsync(conn, null, userId, projectId);
     }
 
-    /// <summary>同上但在既有 transaction 內查詢，避免 SaveAsync 重複開連線。</summary>
-    private async Task<bool> CanReviseInTxAsync(IDbConnection conn, IDbTransaction tx, int userId, int projectId)
+    /// <summary>
+    /// 核心權限判斷：使用者於該梯次的有效角色是否落在可審後修訂的角色集合。
+    /// 可選 tx：SaveAsync 在既有 transaction 內呼叫傳入；公開的 CanReviseAsync 自開連線傳 null。
+    /// </summary>
+    private async Task<bool> CanReviseCoreAsync(IDbConnection conn, IDbTransaction? tx, int userId, int projectId)
     {
         var roleIds = await _membership.GetEffectiveRoleIdsAsync(userId, projectId);
         if (roleIds.Count == 0) return false;
@@ -121,7 +117,7 @@ public class RevisionService : IRevisionService
                 return new AdminReviseResult { Success = false, ErrorMessage = "題目不存在或已刪除" };
 
             // 2. 權限檢查（讀完才知道 ProjectId）
-            if (!await CanReviseInTxAsync(conn, tx, operatorUserId, meta.ProjectId))
+            if (!await CanReviseCoreAsync(conn, tx, operatorUserId, meta.ProjectId))
                 return new AdminReviseResult { Success = false, ErrorMessage = "您無權執行此修訂操作" };
 
             // 3. Status 必須是決策後狀態（9/10/11/12）
