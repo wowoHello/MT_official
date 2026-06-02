@@ -1336,13 +1336,6 @@ public class QuestionService(
             var subMap = await LoadSubQuestionMapAsync(conn, tx, candidates.Select(c => c.Id));
 
             // 7. 逐題分配：選擇「負載最低 + ≠ Creator + 該題尚未分配給此人」的審題者
-            const string auditSql = """
-                INSERT INTO dbo.MT_AuditLogs
-                    (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
-                VALUES
-                    (NULL, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
-                """;
-
             var processed = 0;
             foreach (var (questionId, creatorId) in candidates)
             {
@@ -1371,21 +1364,15 @@ public class QuestionService(
                 loadCounts[bestReviewer.Value]++;
                 existingPairs.Add((questionId, bestReviewer.Value));
 
-                await conn.ExecuteAsync(auditSql, new
-                {
-                    ProjectId  = projectId,
-                    Action     = AuditLogAction.Modify,
-                    TargetType = AuditLogTargetType.Questions,
-                    TargetId   = questionId,
-                    OldValue   = JsonSerializer.Serialize(new { Status = QuestionStatus.Completed }),
-                    NewValue   = JsonSerializer.Serialize(new
+                await WriteSystemAuditLogAsync(conn, tx, projectId, AuditLogAction.Modify, questionId,
+                    new { Status = QuestionStatus.Completed },
+                    new
                     {
                         Status         = QuestionStatus.Submitted,
                         Reason         = "CompositionPhaseEnded",
                         ReviewerId     = bestReviewer.Value,
                         SubUnitCount   = subIds.Count   // 0=非題組；>0=題組類，分配 N+1 個審題單元
-                    })
-                }, tx);
+                    });
 
                 processed++;
             }
@@ -1513,24 +1500,11 @@ public class QuestionService(
                     }, tx);
 
                 // 5. 逐筆 AuditLog（UserId=NULL 表系統批次）
-                const string auditSql = """
-                    INSERT INTO dbo.MT_AuditLogs
-                        (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
-                    VALUES
-                        (NULL, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
-                    """;
-
                 foreach (var (qid, oldStatus) in candidates)
                 {
-                    await conn.ExecuteAsync(auditSql, new
-                    {
-                        ProjectId  = projectId,
-                        Action     = AuditLogAction.Modify,
-                        TargetType = AuditLogTargetType.Questions,
-                        TargetId   = qid,
-                        OldValue   = JsonSerializer.Serialize(new { Status = oldStatus }),
-                        NewValue   = JsonSerializer.Serialize(new { Status = toStatus, Reason = reasonLabel })
-                    }, tx);
+                    await WriteSystemAuditLogAsync(conn, tx, projectId, AuditLogAction.Modify, qid,
+                        new { Status = oldStatus },
+                        new { Status = toStatus, Reason = reasonLabel });
                 }
             }
 
@@ -1675,24 +1649,11 @@ public class QuestionService(
             }
 
             // 3. 批次 AuditLog（UserId=NULL 表系統批次）— TargetId 用 母題 Id，SubQuestionId 寫 payload
-            const string auditSql = """
-                INSERT INTO dbo.MT_AuditLogs
-                    (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
-                VALUES
-                    (NULL, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
-                """;
-
             foreach (var qid in masterIds)
             {
-                await conn.ExecuteAsync(auditSql, new
-                {
-                    ProjectId  = projectId,
-                    Action     = AuditLogAction.Modify,
-                    TargetType = AuditLogTargetType.Questions,
-                    TargetId   = qid,
-                    OldValue   = JsonSerializer.Serialize(new { UnitStatus = QuestionStatus.FinalReviewing, SubQuestionId = (int?)null }),
-                    NewValue   = JsonSerializer.Serialize(new { UnitStatus = QuestionStatus.FinalEditing,   SubQuestionId = (int?)null, Reason = "FinalEditingPhaseStart" })
-                }, tx);
+                await WriteSystemAuditLogAsync(conn, tx, projectId, AuditLogAction.Modify, qid,
+                    new { UnitStatus = QuestionStatus.FinalReviewing, SubQuestionId = (int?)null },
+                    new { UnitStatus = QuestionStatus.FinalEditing,   SubQuestionId = (int?)null, Reason = "FinalEditingPhaseStart" });
             }
 
             // 子題的稽核：TargetId 用母題 Id（與審題級稽核一致），透過 SubQuestionId 區分單元
@@ -1706,15 +1667,9 @@ public class QuestionService(
                 foreach (var sid in subIds)
                 {
                     if (!subToParent.TryGetValue(sid, out var parentId)) continue;
-                    await conn.ExecuteAsync(auditSql, new
-                    {
-                        ProjectId  = projectId,
-                        Action     = AuditLogAction.Modify,
-                        TargetType = AuditLogTargetType.Questions,
-                        TargetId   = parentId,
-                        OldValue   = JsonSerializer.Serialize(new { UnitStatus = QuestionStatus.FinalReviewing, SubQuestionId = (int?)sid }),
-                        NewValue   = JsonSerializer.Serialize(new { UnitStatus = QuestionStatus.FinalEditing,   SubQuestionId = (int?)sid, Reason = "FinalEditingPhaseStart" })
-                    }, tx);
+                    await WriteSystemAuditLogAsync(conn, tx, projectId, AuditLogAction.Modify, parentId,
+                        new { UnitStatus = QuestionStatus.FinalReviewing, SubQuestionId = (int?)sid },
+                        new { UnitStatus = QuestionStatus.FinalEditing,   SubQuestionId = (int?)sid, Reason = "FinalEditingPhaseStart" });
                 }
             }
 
@@ -1991,13 +1946,6 @@ public class QuestionService(
             """,
             new { ProjectId = projectId }, tx)).ToHashSet();
 
-        const string auditSql = """
-            INSERT INTO dbo.MT_AuditLogs
-                (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
-            VALUES
-                (NULL, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
-            """;
-
         foreach (var (questionId, creatorId) in candidates)
         {
             // 此題已有 Stage=2 分配記錄 → 直接跳過（演算法主條件）
@@ -2024,21 +1972,15 @@ public class QuestionService(
             existingPairs.Add((questionId, bestReviewer.Value));
             existingQuestionIds.Add(questionId); // 同步更新，防後續 loop 重複
 
-            await conn.ExecuteAsync(auditSql, new
-            {
-                ProjectId  = projectId,
-                Action     = AuditLogAction.Modify,
-                TargetType = AuditLogTargetType.Questions,
-                TargetId   = questionId,
-                OldValue   = JsonSerializer.Serialize(new { ReviewStage = 2, Status = "Pending" }),
-                NewValue   = JsonSerializer.Serialize(new
+            await WriteSystemAuditLogAsync(conn, tx, projectId, AuditLogAction.Modify, questionId,
+                new { ReviewStage = 2, Status = "Pending" },
+                new
                 {
                     ReviewStage  = 2,
                     ReviewerId   = bestReviewer.Value,
                     Reason       = "ExpertReviewAssigned",
                     SubUnitCount = subIds.Count
-                })
-            }, tx);
+                });
         }
     }
 
@@ -2177,13 +2119,6 @@ public class QuestionService(
         // 撈每題的子題 mapping
         var subMap = await LoadSubQuestionMapAsync(conn, tx, candidates.Select(c => c.Id));
 
-        const string auditSql = """
-            INSERT INTO dbo.MT_AuditLogs
-                (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
-            VALUES
-                (NULL, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
-            """;
-
         foreach (var (questionId, creatorId) in candidates)
         {
             // 此題已有 Stage=3 分配記錄 → 直接跳過（演算法主條件）
@@ -2210,21 +2145,15 @@ public class QuestionService(
             existingPairs.Add((questionId, bestReviewer.Value));
             existingQuestionIds.Add(questionId); // 同步更新，防後續 loop 重複
 
-            await conn.ExecuteAsync(auditSql, new
-            {
-                ProjectId  = projectId,
-                Action     = AuditLogAction.Modify,
-                TargetType = AuditLogTargetType.Questions,
-                TargetId   = questionId,
-                OldValue   = JsonSerializer.Serialize(new { ReviewStage = 3, Status = "Pending" }),
-                NewValue   = JsonSerializer.Serialize(new
+            await WriteSystemAuditLogAsync(conn, tx, projectId, AuditLogAction.Modify, questionId,
+                new { ReviewStage = 3, Status = "Pending" },
+                new
                 {
                     ReviewStage  = 3,
                     ReviewerId   = bestReviewer.Value,
                     Reason       = "FinalReviewAssigned",
                     SubUnitCount = subIds.Count
-                })
-            }, tx);
+                });
         }
     }
 
@@ -3049,6 +2978,31 @@ public class QuestionService(
             OldValue   = oldValue is null ? null : JsonSerializer.Serialize(oldValue),
             NewValue   = newValue is null ? null : JsonSerializer.Serialize(newValue),
             IpAddress  = ip
+        }, tx);
+    }
+
+    /// <summary>
+    /// 系統批次稽核寫入（UserId=NULL、不掛 IP）：階段推進 / 審題分配等「系統自動」操作專用。
+    /// 與 WriteAuditLogAsync（使用者操作版，掛真實 UserId + IP）區分；TargetType 同為 Questions。
+    /// 內部負責 JSON 序列化（null → DB NULL）。
+    /// </summary>
+    private static Task WriteSystemAuditLogAsync(IDbConnection conn, IDbTransaction tx,
+        int projectId, byte action, int targetId, object? oldValue, object? newValue)
+    {
+        const string sql = """
+            INSERT INTO dbo.MT_AuditLogs
+                (UserId, ProjectId, Action, TargetType, TargetId, OldValue, NewValue, CreatedAt)
+            VALUES
+                (NULL, @ProjectId, @Action, @TargetType, @TargetId, @OldValue, @NewValue, SYSDATETIME());
+            """;
+        return conn.ExecuteAsync(sql, new
+        {
+            ProjectId  = projectId,
+            Action     = action,
+            TargetType = AuditLogTargetType.Questions,
+            TargetId   = targetId,
+            OldValue   = oldValue is null ? null : JsonSerializer.Serialize(oldValue),
+            NewValue   = newValue is null ? null : JsonSerializer.Serialize(newValue)
         }, tx);
     }
 
