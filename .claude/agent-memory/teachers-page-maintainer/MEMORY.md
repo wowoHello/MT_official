@@ -1,3 +1,0 @@
-- [Teachers.razor 完成度狀態](project_teachers_status.md) — 2026-06-01 結案複核：Teachers.razor 2259行/TeacherService 2183行/Models 407行；預設密碼動態 teacherYYYY；TM-11 仍存在（角色逐一INSERT）
-- [教師管理頁參考文件路徑](reference_teachers_doc.md) — 主文件改為 D:\MTrefer\pageFinal_doc\Teachers.md，舊原型 html/js 路徑已棄用
-- [匯出採用/不採用欄位的結案判斷規則](feedback_export_closed_status.md) — 未結案顯示「－」，已結案（ClosedAt IS NOT NULL）才顯示實際數字

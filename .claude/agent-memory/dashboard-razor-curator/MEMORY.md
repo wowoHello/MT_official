@@ -1,2 +1,0 @@
-- [Dashboard KPI 實作模式](project_dashboard_kpi.md) — 4 KPI 卡片、2 圖表、雙波並行 SQL、逾期待辦三分支、LOG 分頁、LCT 雙模式分路（2026-05-29 全文盤點，3 檔實際行數、所有私有方法、ResolveLogVerb 語意化動詞）
-- [Dashboard 參考文件路徑](reference_dashboard_doc.md) — 整合文件位於 pageFinal_doc/Dashboard.md，舊原型 html/js 已棄用
