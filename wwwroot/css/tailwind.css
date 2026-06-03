@@ -4453,14 +4453,6 @@
       --tw-ring-color: var(--color-morandi);
     }
   }
-  .focus\:ring-morandi\/20 {
-    &:focus {
-      --tw-ring-color: color-mix(in srgb, #6B8EAD 20%, transparent);
-      @supports (color: color-mix(in lab, red, red)) {
-        --tw-ring-color: color-mix(in oklab, var(--color-morandi) 20%, transparent);
-      }
-    }
-  }
   .focus\:ring-morandi\/30 {
     &:focus {
       --tw-ring-color: color-mix(in srgb, #6B8EAD 30%, transparent);

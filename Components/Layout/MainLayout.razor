@@ -236,7 +236,7 @@
                             </div>
                         </div>
                     </div>
-                    @* 下載本梯次聘書 — 直接導向 zip endpoint，多身份打包成單一 zip *@
+                    @* 下載本梯次聘書 — 單身分下載png，多身份打包成單一 zip *@
                     @if (hasCurrentBatchRole && hasDownloadableCertsForCurrentProject && currentProject is not null)
                     {
                         <a href="@($"api/appointment-cert/download/{currentProject.Id}")"

@@ -13,6 +13,8 @@ wwwroot/files/
 .dotnet-home/
 appsettings.Development.json
 appsettings.Production.json
+.claude/
+.codex/
 
 # dotenv files
 .env
