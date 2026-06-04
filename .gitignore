@@ -3,6 +3,7 @@
 ##
 ## Get latest from `dotnet new gitignore`
 ## folders
+## customize
 
 agents/
 bin/
@@ -11,10 +12,12 @@ example/
 wwwroot/uploads/
 wwwroot/files/
 .dotnet-home/
-appsettings.Development.json
-appsettings.Production.json
 .claude/
 .codex/
+appsettings.Development.json
+appsettings.Production.json
+CLAUDE.md
+Properties/
 
 # dotenv files
 .env
