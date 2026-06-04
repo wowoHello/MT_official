@@ -10,7 +10,7 @@ public class OverviewFilter
     /// <summary>
     /// 狀態識別碼：與 Overview 列表「當前狀態」Badge 100% 對齊（見 OverviewStatusKey）。
     /// 由 OverviewService 翻譯成 StatusesOverride / HasReplied / 額外條件，避免雙寫 ResolveDisplayStatus 邏輯。
-    /// null/"" = 不篩選。
+    /// null = 不篩選。
     /// </summary>
     public string? StatusKey { get; set; }
     public int? QuestionTypeId { get; set; }
@@ -76,7 +76,7 @@ public static class OverviewStatusKey
     // 命題
     public const string Draft               = "draft";                // 命題草稿
     public const string Completed           = "completed";            // 命題完成
-    public const string FailedComposition   = "failed-composition";   // 未完成命題（草稿落隊，R1）
+    public const string FailedComposition   = "failed-composition";   // 未完成命題（草稿落隊）
 
     // 審題
     public const string AwaitingReview      = "awaiting-review";      // 待審（R2 warning）

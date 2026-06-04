@@ -482,7 +482,11 @@
         isGuideLoading = true;
         try
         {
-            guideItems = (await UserGuideService.GetViewableAsync(ModuleCards ?? [])).ToList();
+            // 依使用者在「當前梯次」的角色聯集過濾可見手冊（無 userId 則不顯示）
+            var userId = await ResolveUserIdAsync();
+            guideItems = userId is null
+                ? []
+                : (await UserGuideService.GetViewableAsync(userId.Value, CurrentProject?.Id)).ToList();
         }
         catch
         {

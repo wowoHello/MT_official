@@ -199,7 +199,7 @@ public class SimilarityService(
 //  Internal Helper 1：TextNormalizer
 //  把 HTML 髒污文字洗成乾淨字串，給 N-gram 切分用
 //
-//  範例輸入：「<p>下列何者為&nbsp;<strong>臺灣</strong>最高峰？</p>」
+//  範例輸入：「<p>下列何者為 <strong>臺灣</strong>最高峰？</p>」
 //  範例輸出：「下列何者為臺灣最高峰?」
 // ============================================================
 
@@ -213,7 +213,7 @@ internal static class TextNormalizer
 
     /// <summary>
     /// 移除 HTML tag + 解碼 HTML entity（&amp; &nbsp; 等）
-    /// 不處理 &lt;script&gt; 或惡意內容（Service 層輸入來自我們 Quill，可信）
+    /// 不處理 <script> </script> 或惡意內容（Service 層輸入來自Quill）
     /// </summary>
     public static string StripHtml(string? raw)
     {

@@ -14,7 +14,6 @@ namespace MT.Services;
 public interface IAuthService
 {
     Task<(bool Success, string Message, UserInfo? User)> ValidateLoginAsync(string username, string password, string? userAgent = null);
-    Task<List<ModulePermission>> GetUserPermissionsAsync(int roleId);
     Task LogLoginAttemptAsync(int? userId, string username, bool isSuccess, string? failReason, string? ip, string? userAgent);
     Task UpdateLastLoginAsync(int userId);
 
@@ -242,23 +241,6 @@ public class AuthService : IAuthService
                   UpdatedAt = SYSDATETIME()
               WHERE Id = @UserId",
             new { UserId = userId, PasswordHash = newHash });
-    }
-
-    public async Task<List<ModulePermission>> GetUserPermissionsAsync(int roleId)
-    {
-        using var conn = _db.CreateConnection();
-
-        var permissions = await conn.QueryAsync<ModulePermission>(
-            @"SELECT m.ModuleKey, m.Name, m.Icon, m.PageUrl,
-                     m.Description, m.ColorClass, m.BgColorClass,
-                     rp.IsEnabled
-              FROM dbo.MT_RolePermissions rp
-              INNER JOIN dbo.MT_Modules m ON m.Id = rp.ModuleId
-              WHERE rp.RoleId = @RoleId AND rp.IsEnabled = 1 AND m.IsActive = 1
-              ORDER BY m.SortOrder",
-            new { RoleId = roleId });
-
-        return permissions.ToList();
     }
 
     public async Task LogLoginAttemptAsync(int? userId, string username, bool isSuccess, string? failReason, string? ip, string? userAgent)

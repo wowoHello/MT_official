@@ -1,18 +1,18 @@
 namespace MT.Models;
 
-/// <summary>
-/// 聘書繪製待辦清單 — server 端 SyncCertificatesAsync 後撈出 FileName IS NULL 的紀錄組成，
-/// 傳給 JS 端由 Canvas 繪製並上傳。
-/// camelCase property name 透過 System.Text.Json 自動小寫（JS interop 用），這裡保持 PascalCase。
-/// </summary>
+// ======================================================================
+// 聘書繪製待辦清單 — server 端 SyncCertificatesAsync 後撈出 FileName IS NULL 的紀錄組成，
+// 傳給 JS 端由 Canvas 繪製並上傳。
+// camelCase property name 透過 System.Text.Json 自動小寫（JS interop 用），這裡保持 PascalCase。
+// ======================================================================
 public class AppointmentDraftDto
 {
     public int CertId { get; set; }                  // MT_AppointmentCertificates.Id
-    public string TargetFileName { get; set; } = ""; // {UserId}_{yyyyMMdd}_{RoleId}.jpg
+    public string TargetFileName { get; set; } = ""; // {CertId}_{UserId}_{yyyyMMdd}_{RoleId}.jpg
 
     // 8 個繪製欄位（對應計畫書 ① ~ ⑧）
     public string CertNumberText { get; set; } = ""; // ① {Year}中檢(中)聘字第{NNNNN}號
-    public string School { get; set; } = "";          // ②
+    public string School { get; set; } = "";          // ② 學校名稱
     public string DisplayName { get; set; } = "";     // ③ 姓名
     public string Title { get; set; } = "";           // ③ 教師職稱
     public string RoleName { get; set; } = "";        // ④ 梯次內身份
@@ -24,7 +24,7 @@ public class AppointmentDraftDto
 
 /// <summary>
 /// 教師詳細頁「參與專案」分頁的下載按鈕清單項目。
-/// 也用於 MainLayout 下拉「下載本梯次聘書」。
+/// 也用於導覽列使用者頭像下拉選單裡的「下載聘書」按鈕。
 /// </summary>
 public class AppointmentDownloadItem
 {
@@ -61,7 +61,6 @@ public class CertEditInfo
     public DateTime? CustomStartDate { get; set; }
     public DateTime? CustomEndDate { get; set; }
 
-    /// <summary>是否已客製（兩個 Custom 都有值）。UI 用來顯示「自訂」標記。</summary>
     public bool IsCustomized => CustomStartDate.HasValue && CustomEndDate.HasValue;
 }
 

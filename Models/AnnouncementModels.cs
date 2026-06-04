@@ -1,6 +1,8 @@
 namespace MT.Models;
 
-// ─── 公告分類 (DB: MT_Announcements.Category TINYINT) ───
+// ======================================================================
+// 公告分類
+// ======================================================================
 public enum AnnouncementCategory : byte
 {
     System = 1,   // 系統公告（藍）
@@ -9,20 +11,20 @@ public enum AnnouncementCategory : byte
     Other = 4     // 其它（灰）
 }
 
-// ─── 公告狀態 (DB: MT_Announcements.Status TINYINT) ───
-// DB 僅存兩種：0=草稿、1=發佈
-// 「已下架」由前端根據日期推導（發佈 + 不在上架~下架期間）
+/// <summary>
+/// 公告狀態。DB 僅存兩種：0=草稿、1=發佈；
+/// 「已下架」由前端根據日期推導（發佈 + 不在上架~下架期間）。
+/// </summary>
 public enum AnnouncementStatus : byte
 {
     Draft = 0,     // 草稿
     Published = 1  // 發佈
 }
 
-// ─── 梯次生命週期狀態（給 Combobox 分組用） ───
-// 由 GetProjectDropdownAsync SQL 端推導：
-//   ClosedAt 非 NULL → Closed
-//   命題階段 StartDate <= 今天 → Active
-//   否則 → Preparing
+/// <summary>
+/// 梯次生命週期狀態（給 Combobox 分組用）。由 GetProjectDropdownAsync SQL 端推導：
+/// ClosedAt 非 NULL → Closed；命題階段 StartDate &lt;= 今天 → Active；否則 → Preparing。
+/// </summary>
 public enum ProjectLifecycleGroup : byte
 {
     Preparing = 1, // 準備中
@@ -30,19 +32,20 @@ public enum ProjectLifecycleGroup : byte
     Closed    = 3  // 已結案
 }
 
-// ─── 列表項目 DTO ───
-// 多選後：ProjectIds 空 list = 全站廣播；非空 = 指定的梯次集合
+/// <summary>
+/// 列表項目 DTO。多選後：ProjectIds 空 list = 全站廣播；非空 = 指定的梯次集合。
+/// </summary>
 public class AnnouncementListItem
 {
     public int Id { get; set; }
     public byte Category { get; set; }
     public byte Status { get; set; }
 
-    // 從 STUFF + FOR XML 拼出的 csv（"1,3,5"）；C# 端 split 後填 ProjectIds
+    /// <summary>從 STUFF + FOR XML 拼出的 csv（"1,3,5"）；C# 端 split 後填 ProjectIds。</summary>
     public string? ProjectIdsCsv { get; set; }
     public string? ProjectNamesCsv { get; set; }
 
-    // 解析後的陣列（從 csv 派生）
+    /// <summary>解析後的陣列（從 csv 派生）。</summary>
     public IReadOnlyList<int> ProjectIds
         => string.IsNullOrEmpty(ProjectIdsCsv)
             ? []
@@ -65,7 +68,7 @@ public class AnnouncementListItem
     /// 列表「綁定梯次」欄顯示文字：
     /// 0 梯次 → 「全站廣播」
     /// 1 梯次 → 梯次名稱
-    /// N (N&gt;1) 梯次 → 「首梯次 +N-1」
+    /// N (N > 1) 梯次 → 「首梯次 + N-1」
     /// </summary>
     public string ProjectBindingDisplay
     {
@@ -100,9 +103,9 @@ public class AnnouncementListItem
     /// <summary>
     /// 根據 DB Status + 日期推導顯示狀態：
     /// Status=0 → 草稿
-    /// Status=1 + 今天 &lt; 上架日 → 未發佈
+    /// Status=1 + 今天 < 上架日 → 未發佈
     /// Status=1 + 在上架~下架期間 → 已發佈
-    /// Status=1 + 今天 &gt; 下架日 → 已下架
+    /// Status=1 + 今天 > 下架日 → 已下架
     /// </summary>
     public string DisplayStatus
     {
@@ -117,7 +120,7 @@ public class AnnouncementListItem
     }
 }
 
-// ─── 統計卡片 DTO（前端計算，不再由 SQL 統計） ───
+/// <summary>統計卡片 DTO（前端計算，不再由 SQL 統計）。</summary>
 public class AnnouncementStats
 {
     public int Total { get; set; }
@@ -127,8 +130,9 @@ public class AnnouncementStats
     public int Pinned { get; set; }
 }
 
-// ─── 編輯載入 DTO ───
-// ProjectIds 從 MT_AnnouncementProjects junction 表 GROUP_CONCAT 後 C# 端 split
+/// <summary>
+/// 編輯載入 DTO。ProjectIds 從 MT_AnnouncementProjects junction 表 GROUP_CONCAT 後 C# 端 split。
+/// </summary>
 public class AnnouncementEditDto
 {
     public int Id { get; set; }
@@ -142,8 +146,10 @@ public class AnnouncementEditDto
     public List<int> ProjectIds { get; set; } = [];   // 空 list = 全站廣播
 }
 
-// ─── 梯次下拉選項 DTO（給 Combobox 分組用） ───
-// 加 ProjectType / Year / LifecycleStatus 三個欄位給 UI 渲染徽章、年度、分組
+/// <summary>
+/// 梯次下拉選項 DTO（給 Combobox 分組用）。
+/// 加 ProjectType / Year / LifecycleStatus 三個欄位給 UI 渲染徽章、年度、分組。
+/// </summary>
 public class ProjectDropdownItem
 {
     public int Id { get; set; }
@@ -153,7 +159,7 @@ public class ProjectDropdownItem
     public byte LifecycleStatus { get; set; }   // ProjectLifecycleGroup 1=Preparing, 2=Active, 3=Closed
 }
 
-// ─── 分組後的下拉資料（Combobox UI 用） ───
+/// <summary>分組後的下拉資料（Combobox UI 用）。</summary>
 public class ProjectGroupedDropdown
 {
     public IReadOnlyList<ProjectDropdownItem> Active    { get; init; } = [];  // 進行中
@@ -161,8 +167,9 @@ public class ProjectGroupedDropdown
     public IReadOnlyList<ProjectDropdownItem> Closed    { get; init; } = [];  // 已結案
 }
 
-// ─── EditForm 表單模型 ───
-// ProjectIds 空 list = 全站廣播；非空 = 指定的梯次集合（與「全站」互斥）
+/// <summary>
+/// EditForm 表單模型。ProjectIds 空 list = 全站廣播；非空 = 指定的梯次集合（與「全站」互斥）。
+/// </summary>
 public class AnnouncementFormModel
 {
     public byte Category { get; set; } = (byte)AnnouncementCategory.System;

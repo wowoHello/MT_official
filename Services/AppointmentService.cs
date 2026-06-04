@@ -32,9 +32,15 @@ public interface IAppointmentService
     Task SyncCertificatesAsync(int projectId, IDbConnection conn, IDbTransaction transaction);
 
     /// <summary>
-    /// JS 上傳 jpeg blob 後，server 寫檔到 wwwroot/files/ 並更新 FileName。
+    /// JS 上傳 jpg/png blob 後，server 寫檔到 wwwroot/files/ 並更新 FileName。
     /// </summary>
-    Task<bool> SaveDrawnFileAsync(int certId, byte[] jpegBytes, string webRootPath);
+    Task<bool> SaveDrawnFileAsync(
+        int certId,
+        byte[] imageBytes,
+        string webRootPath,
+        int requesterUserId,
+        bool canManageCertificates,
+        string fileExtension);
 
     /// <summary>
     /// 撈該使用者所有「未完成繪製」（FileName IS NULL、IsRevoked=0）的聘書，
@@ -56,7 +62,7 @@ public interface IAppointmentService
 
     /// <summary>
     /// 「下載本梯次聘書」用 — 智慧切換：
-    ///   - 1 份聘書 → 直接回該 jpg 檔案（單檔直下）
+    ///   - 1 份聘書 → 直接回該圖片檔案（單檔直下）
     ///   - 2 份以上 → 動態打包成 zip
     /// 無聘書或檔案不存在時回 null。
     /// </summary>
@@ -199,8 +205,17 @@ public class AppointmentService : IAppointmentService
     //  繪製檔案上傳
     // ====================================================================
 
-    public async Task<bool> SaveDrawnFileAsync(int certId, byte[] jpegBytes, string webRootPath)
+    public async Task<bool> SaveDrawnFileAsync(
+        int certId,
+        byte[] imageBytes,
+        string webRootPath,
+        int requesterUserId,
+        bool canManageCertificates,
+        string fileExtension)
     {
+        var normalizedExt = NormalizeCertificateImageExtension(fileExtension);
+        if (normalizedExt is null) return false;
+
         using var conn = _db.CreateConnection();
 
         // 1. 撈紀錄取得需要的欄位組檔名
@@ -213,16 +228,21 @@ public class AppointmentService : IAppointmentService
             selectSql, new { Id = certId });
         if (row is null) return false;
 
+        if (row.Value.UserId != requesterUserId && !canManageCertificates) return false;
+
         // CertId 作為檔名前綴：cert 表 IDENTITY PK 全表唯一，防止「同 UserId+RoleId+CreatedAt
-        // 跨梯次（不同 ProjectId）」的聘書 jpg 互相覆蓋（DB UNIQUE 是 UserId+ProjectId+RoleId，
+        // 跨梯次（不同 ProjectId）」的聘書圖片互相覆蓋（DB UNIQUE 是 UserId+ProjectId+RoleId，
         // 但檔名規則缺 ProjectId 會撞檔，導致下載時檔名字號與圖內字號不一致）
-        var fileName = $"{certId}_{row.Value.UserId}_{row.Value.CreatedAt:yyyyMMdd}_{row.Value.RoleId}.jpg";
+        var fileStem = $"{certId}_{row.Value.UserId}_{row.Value.CreatedAt:yyyyMMdd}_{row.Value.RoleId}";
+        var fileName = $"{fileStem}{normalizedExt}";
         var filesDir = Path.Combine(webRootPath, "files");
         Directory.CreateDirectory(filesDir);
         var filePath = Path.Combine(filesDir, fileName);
 
+        DeleteAlternateCertificateImageFiles(filesDir, fileStem, normalizedExt);
+
         // 2. 寫檔（覆寫既有，避免恢復場景檔案不存在）
-        await File.WriteAllBytesAsync(filePath, jpegBytes);
+        await File.WriteAllBytesAsync(filePath, imageBytes);
 
         // 3. 更新 FileName 欄位
         const string updateSql = """
@@ -371,7 +391,7 @@ public class AppointmentService : IAppointmentService
     }
 
     // ====================================================================
-    //  下載（1 份直回 jpg、2+ 打包 zip）— MainLayout / Teachers / Projects 下載聘書共用
+    //  下載（1 份直回圖片、2+ 打包 zip）— MainLayout / Teachers / Projects 下載聘書共用
     // ====================================================================
 
     public async Task<AppointmentDownloadFile?> BuildDownloadForUserProjectAsync(int userId, int projectId, string webRootPath)
@@ -381,7 +401,7 @@ public class AppointmentService : IAppointmentService
 
         var filesDir = Path.Combine(webRootPath, "files");
 
-        // ① 1 份：直接讀 jpg 檔案內容回傳（Results.File 會帶 Content-Disposition: attachment 強制下載）
+        // ① 1 份：直接讀圖片檔案內容回傳（Results.File 會帶 Content-Disposition: attachment 強制下載）
         if (items.Count == 1)
         {
             var only = items[0];
@@ -390,7 +410,7 @@ public class AppointmentService : IAppointmentService
 
             var bytes = await File.ReadAllBytesAsync(filePath);
             var displayName = BuildDownloadName(only);
-            return new AppointmentDownloadFile(bytes, "image/jpeg", displayName);
+            return new AppointmentDownloadFile(bytes, GetCertificateImageContentType(only.FileName), displayName);
         }
 
         // ② 2+ 份：動態打包成 zip
@@ -412,7 +432,7 @@ public class AppointmentService : IAppointmentService
     }
 
     /// <summary>
-    /// 下載呈現用檔名：{姓名}_{身份名}_{字號}.jpg（user 解壓 / 看到的檔名更直觀）。
+    /// 下載呈現用檔名：{姓名}_{身份名}_{字號}.{原副檔名}（user 解壓 / 看到的檔名更直觀）。
     /// 移除作業系統不允許的字元避免寫檔 / zip 內 entry name 問題。
     /// </summary>
     private static string BuildDownloadName(AppointmentDownloadItem item)
@@ -421,7 +441,8 @@ public class AppointmentService : IAppointmentService
         var safeName = string.Concat(item.DisplayName.Where(c => !invalid.Contains(c)));
         var safeRole = string.Concat(item.RoleName.Where(c => !invalid.Contains(c)));
         var safeCert = string.Concat(item.CertNumberText.Where(c => !invalid.Contains(c)));
-        return $"{safeName}_{safeRole}_{safeCert}.jpg";
+        var ext = NormalizeCertificateImageExtension(Path.GetExtension(item.FileName)) ?? ".jpg";
+        return $"{safeName}_{safeRole}_{safeCert}{ext}";
     }
 
     // ====================================================================
@@ -559,6 +580,36 @@ public class AppointmentService : IAppointmentService
     private static string FormatCertNumber(int year, int certNumber)
         => $"({year})中檢(中)聘字第{certNumber:D5}號";
 
+    private static string? NormalizeCertificateImageExtension(string? extension)
+        => extension?.Trim().ToLowerInvariant() switch
+        {
+            ".jpg"  => ".jpg",
+            ".jpeg" => ".jpg",
+            ".png"  => ".png",
+            _       => null
+        };
+
+    private static string GetCertificateImageContentType(string fileName)
+        => NormalizeCertificateImageExtension(Path.GetExtension(fileName)) switch
+        {
+            ".png" => "image/png",
+            _      => "image/jpeg"
+        };
+
+    private static void DeleteAlternateCertificateImageFiles(string filesDir, string fileStem, string currentExtension)
+    {
+        foreach (var ext in new[] { ".jpg", ".png" })
+        {
+            if (string.Equals(ext, currentExtension, StringComparison.OrdinalIgnoreCase)) continue;
+
+            var path = Path.Combine(filesDir, $"{fileStem}{ext}");
+            if (File.Exists(path))
+            {
+                try { File.Delete(path); } catch { /* 舊副檔名檔案刪除失敗不阻擋新檔寫入 */ }
+            }
+        }
+    }
+
     private static AppointmentDraftDto BuildDraftDto(PendingDraftRow r)
     {
         var startYearROC = r.ProjectStart.Year - 1911;
@@ -569,7 +620,7 @@ public class AppointmentService : IAppointmentService
         return new AppointmentDraftDto
         {
             CertId          = r.CertId,
-            // CertId 前綴必須與 SaveDrawnFileAsync 同步（同檔內 line 219），避免跨梯次相同 user+role 撞檔
+            // CertId 前綴必須與 SaveDrawnFileAsync 同步，避免跨梯次相同 user+role 撞檔
             TargetFileName  = $"{r.CertId}_{r.UserId}_{r.CreatedAt:yyyyMMdd}_{r.RoleId}.jpg",
             CertNumberText  = FormatCertNumber(r.Year, r.CertNumber),
             School          = r.School,

@@ -1,10 +1,10 @@
 namespace MT.Models;
 
-// ============================================================
-//  審題任務（Reviews.razor）專用 DTO 與 Enum
-//  對應資料表：MT_ReviewAssignments、MT_ReviewReturnCounts、
-//             MT_RevisionReplies、MT_SimilarityChecks、MT_AuditLogs
-// ============================================================
+// ======================================================================
+// 審題任務（Reviews.razor）專用 DTO 與 Enum
+// 對應資料表：MT_ReviewAssignments、MT_ReviewReturnCounts、
+// MT_RevisionReplies、MT_SimilarityChecks、MT_AuditLogs
+// ======================================================================
 
 /// <summary>審題階段（對應 MT_ReviewAssignments.ReviewStage）</summary>
 public enum ReviewStage : byte

@@ -53,6 +53,12 @@
         }
     </FormSectionCard>
 
+    @* 修題「母題單元」視角（LockSubQuestions=true）：母題與每個子題是各自獨立的審題單元，
+       開母題單元修題時子題一律唯讀（僅供上下文參考）；子題要修需從審修列表的子題列各自進入（focus 模式）。
+       命題情境不傳 LockSubQuestions（預設 false），子題照常可編輯。
+       SubReadOnly 同時餵給：① 子題區內「直接 markup」的 select（component 自身欄位參考，CascadingValue 蓋不到）
+       ② 巢狀 CascadingValue → 子元件（QuillField / OptionGroup / QuestionImagesField）。 *@
+    <CascadingValue Name="IsFormReadOnly" Value="@SubReadOnly" IsFixed="false">
     <FormSectionCard Title="子題區" Icon="fa-layer-group" BodyClass="p-5">
         <HeaderRight>
             @* 命題階段（Draft / Completed）開放新增子題；送審後鎖定，避免破壞審題分配 pipeline *@
@@ -105,7 +111,7 @@
                             <div data-field="@coreKey" class="@InvalidRing(coreKey) rounded-lg p-1">
                                 <label class="block text-xs font-medium text-gray-600 mb-1">主向度 <span class="text-red-400">*</span></label>
                                 <select @bind="sq.CoreAbility" @bind:after="() => OnCoreAbilityChanged(sq)"
-                                    disabled="@IsFormReadOnly"
+                                    disabled="@SubReadOnly"
                                     class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed">
                                     <option value="">請選擇</option>
                                     @foreach (var pair in QuestionConstants.ShortGroupCoreAbilityLabels)
@@ -118,7 +124,7 @@
                                 <label class="block text-xs font-medium text-gray-600 mb-1">能力指標 <span class="text-red-400">*</span></label>
                                 <select @bind="sq.Indicator"
                                     class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed @(sq.CoreAbility is null ? "bg-gray-50 text-gray-300" : "")"
-                                    disabled="@(IsFormReadOnly || sq.CoreAbility is null)">
+                                    disabled="@(SubReadOnly || sq.CoreAbility is null)">
                                     <option value="">@(sq.CoreAbility is null ? "先選主向度" : "請選擇")</option>
                                     @if (sq.CoreAbility is not null && QuestionConstants.ShortGroupCoreAbilityIndicatorMap.TryGetValue(sq.CoreAbility.Value, out var indicators))
                                     {
@@ -173,6 +179,7 @@
             </div>
         </ChildContent>
     </FormSectionCard>
+    </CascadingValue>
 </div>
 
 @code {
@@ -202,10 +209,20 @@
     /// </summary>
     [Parameter] public int? FocusSubDbId { get; set; }
 
+    /// <summary>
+    /// 修題「母題單元」視角：母題與子題各為獨立審題單元，開母題單元修題時子題一律唯讀。
+    /// 由 RevisionSlideOver 在 SubQuestionId 為 null（母題單元）時傳 true；命題情境維持 false。
+    /// 與 IsFocusMode 互斥（focus 模式只渲染單一子題、用於子題單元修題）。
+    /// </summary>
+    [Parameter] public bool LockSubQuestions { get; set; }
+
     /// <summary>由父層（QuestionForm Modal）透過 CascadingValue 傳入，檢視模式時所有子題控件變唯讀。</summary>
     [CascadingParameter(Name = "IsFormReadOnly")] private bool IsFormReadOnly { get; set; }
 
     private bool IsFocusMode => FocusSubDbId is not null;
+
+    /// <summary>子題區實際唯讀旗標：父層唯讀（檢視）或母題單元修題鎖子題時為 true。</summary>
+    private bool SubReadOnly => IsFormReadOnly || LockSubQuestions;
 
     /// <summary>focus 模式下顯示「第 N 子題」的 N（找不到時回 0，提示條會被略過渲染）。</summary>
     private int FocusSubOrder =>

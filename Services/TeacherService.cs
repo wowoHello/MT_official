@@ -731,12 +731,15 @@ public class TeacherService : ITeacherService
                     throw new InvalidOperationException("系統尚未建立「預設教師」角色，請先至角色管理建立。");
 
                 // 建立 MT_Users
+                // CreatedAt / UpdatedAt 由 INSERT 明確寫入 SYSDATETIME()：
+                // 線上 MT_Users 這兩欄為 NOT NULL 且「無預設值約束」，省略會插入 NULL 而失敗
+                // （與下方 MT_Teachers INSERT 一致）。
                 var passwordHash = AuthService.HashPassword(DefaultTeacherPassword);
                 const string insertUserSql = """
                     INSERT INTO dbo.MT_Users
-                        (Username, DisplayName, Email, PasswordHash, RoleId, Status, IsFirstLogin)
+                        (Username, DisplayName, Email, PasswordHash, RoleId, Status, IsFirstLogin, CreatedAt, UpdatedAt)
                     OUTPUT INSERTED.Id
-                    VALUES (@Username, @DisplayName, @Email, @PasswordHash, @RoleId, @Status, 1);
+                    VALUES (@Username, @DisplayName, @Email, @PasswordHash, @RoleId, @Status, 1, SYSDATETIME(), SYSDATETIME());
                     """;
                 try
                 {
@@ -771,11 +774,14 @@ public class TeacherService : ITeacherService
             var teacherCode = $"{prefix}{(maxSeq + 1):D3}";
 
             // 建立 MT_Teachers（不論是否沿用，都會新增一筆教師資料）
+            // CreatedAt / UpdatedAt 由 INSERT 明確寫入 SYSDATETIME()：
+            // 線上 MT_Teachers 這兩欄為 NOT NULL 且「無預設值約束」，省略會插入 NULL 而失敗。
+            // 不依賴 DB 預設值，與 UpdateTeacherAsync 明確 SET UpdatedAt 的作法一致。
             const string insertTeacherSql = """
                 INSERT INTO dbo.MT_Teachers
-                    (UserId, TeacherCode, Gender, Phone, IdNumber, School, Department, Title, Expertise, TeachingYears, Education, Note)
+                    (UserId, TeacherCode, Gender, Phone, IdNumber, School, Department, Title, Expertise, TeachingYears, Education, Note, CreatedAt, UpdatedAt)
                 OUTPUT INSERTED.Id
-                VALUES (@UserId, @TeacherCode, @Gender, @Phone, @IdNumber, @School, @Department, @Title, @Expertise, @TeachingYears, @Education, @Note);
+                VALUES (@UserId, @TeacherCode, @Gender, @Phone, @IdNumber, @School, @Department, @Title, @Expertise, @TeachingYears, @Education, @Note, SYSDATETIME(), SYSDATETIME());
                 """;
             var teacherId = await conn.ExecuteScalarAsync<int>(insertTeacherSql, new
             {

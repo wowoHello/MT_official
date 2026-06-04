@@ -37,30 +37,44 @@
                 <span class="ml-1 text-xs font-normal text-morandi">（依專案統一設定）</span>
             }
         </label>
-        <select @bind="Level" @bind:after="OnLevelChanged"
-            disabled="@(IsFormReadOnly || IsLevelLockedByProject)"
-            title="@(IsLevelLockedByProject ? "此 CWT 專案統一命題等級，不可單題變更" : null)"
-            class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed">
-            <option value="">請選擇等級</option>
-            @if (QuestionConstants.TypeLevels.TryGetValue(QuestionType, out var allowed))
-            {
-                @foreach (var lv in allowed)
+        @if (IsLevelLockedByProject)
+        {
+            @* CWT 統一等級鎖定：等級恆等於專案 ExamLevel，無「選擇」語意。
+               改用 disabled 純顯示（不走 <select>）—— 避免「題型切換造成 option 集合整批重建」
+               或「CustomModal KeepAlive 重用 select DOM」時，Blazor 對 <select> 的 selected
+               同步失效而退回第一個 option「請選擇等級」。
+               值由 CwtList 的 OpenComposeModal / OnQuestionTypeChanged 設入 formData.Level，
+               此處僅負責顯示，純文字 diff 必定正確。 *@
+            <input type="text" value="@LevelLabel(ExamLevel!.Value)" disabled
+                title="此 CWT 專案統一命題等級，不可單題變更"
+                class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-gray-100 text-gray-500 cursor-not-allowed" />
+        }
+        else
+        {
+            <select @bind="Level" @bind:after="OnLevelChanged"
+                disabled="@IsFormReadOnly"
+                class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-morandi bg-white cursor-pointer disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed">
+                <option value="">請選擇等級</option>
+                @if (QuestionConstants.TypeLevels.TryGetValue(QuestionType, out var allowed))
                 {
-                    <option value="@lv">@LevelLabel(lv)</option>
+                    @foreach (var lv in allowed)
+                    {
+                        <option value="@lv">@LevelLabel(lv)</option>
+                    }
                 }
-            }
-            else
-            {
-                // 題型未選 fallback：依 ProjectType 渲染全部等級，讓 CWT ExamLevel 鎖定值可正確顯示
-                var fallbackLabels = ProjectType == ProjectType.Lct
-                    ? QuestionConstants.ListenLevelLabels
-                    : QuestionConstants.GeneralLevelLabels;
-                foreach (var kv in fallbackLabels)
+                else
                 {
-                    <option value="@kv.Key">@kv.Value</option>
+                    // 題型未選 fallback：依 ProjectType 渲染全部等級（此分支僅未鎖定情境，即 LCT）
+                    var fallbackLabels = ProjectType == ProjectType.Lct
+                        ? QuestionConstants.ListenLevelLabels
+                        : QuestionConstants.GeneralLevelLabels;
+                    foreach (var kv in fallbackLabels)
+                    {
+                        <option value="@kv.Key">@kv.Value</option>
+                    }
                 }
-            }
-        </select>
+            </select>
+        }
     </div>
 
     @* 題型專屬屬性 *@

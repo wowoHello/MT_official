@@ -229,7 +229,7 @@ public class AnnouncementService : IAnnouncementService
     }
 
     // ─── 更新公告 ───
-    // 主檔 UPDATE 不帶 ProjectId；junction 先全刪後重建（簡單且原子）
+    // 主檔 UPDATE 不帶 ProjectId；junction 先全刪後重建
     public async Task UpdateAsync(int id, AnnouncementFormModel model, int operatorId)
     {
         const string updateSql = """

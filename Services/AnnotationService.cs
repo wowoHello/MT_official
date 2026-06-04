@@ -140,7 +140,7 @@ public class AnnotationService(IDatabaseService db) : IAnnotationService
         using var tx = conn.BeginTransaction();
         try
         {
-            // 2. INSERT annotation — 冗餘三欄由 Service 由 Assignment 反查填入，保證一致
+            // 2. INSERT annotation — 冗餘三欄由 Service 由 Assignment 反查填入
             const string insertSql = """
                 INSERT INTO dbo.MT_ReviewAnnotations
                     (AssignmentId, QuestionId, SubQuestionId, ReviewStage,
@@ -292,7 +292,7 @@ public class AnnotationService(IDatabaseService db) : IAnnotationService
                 WHERE Id = @Id AND ResponseState IS NULL;
                 """;
 
-            // Accepted 時清空 NoChangeReason 欄位（語意上不需理由）
+            // Accepted 時清空 NoChangeReason 欄位
             var storedReason = req.State == AnnotationResponseState.Rejected ? reason : null;
 
             var affected = await conn.ExecuteAsync(updateSql, new

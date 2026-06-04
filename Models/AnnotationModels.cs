@@ -1,10 +1,10 @@
 namespace MT.Models;
 
-// ============================================================
+// ======================================================================
 //  審題劃記評語（Inline Annotation）— MT_ReviewAnnotations
 //  - 對應 ReviewAssignment（隱含 Q/Sub/Stage/Reviewer 四維度）
 //  - 標記題目特定文字段落 + 評語 + 命題者回應狀態
-// ============================================================
+// ======================================================================
 
 /// <summary>命題者對劃記的回應狀態（對應 MT_ReviewAnnotations.ResponseState）</summary>
 public enum AnnotationResponseState : byte
@@ -60,10 +60,10 @@ public class ReviewAnnotation
     public DateTime CreatedAt { get; set; }
     public int CreatedByUserId { get; set; }
 
-    /// <summary>劃記建立人顯示名稱（給審題 timeline / 修題列表顯示用）</summary>
+    /// <summary>劃記建立人顯示名稱</summary>
     public string CreatorName { get; set; } = string.Empty;
 
-    /// <summary>是否已回覆（便利 helper，避免前端到處寫 ResponseState.HasValue）</summary>
+    /// <summary>是否已回覆</summary>
     public bool IsResponded => ResponseState.HasValue;
 }
 
@@ -116,7 +116,7 @@ public static class AnnotationActorLabel
 }
 
 // ============================================================
-//  FieldKey ↔ 使用者友善描述
+// 轉換描述
 // ============================================================
 
 /// <summary>

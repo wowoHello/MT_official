@@ -1,8 +1,8 @@
 namespace MT.Models;
 
-// ======================================================================
-//  既有：配額進度與階段資訊
-// ======================================================================
+/// <summary>
+/// 既有配額進度與階段資訊
+/// <summary>
 public class QuotaProgressItem
 {
     public int QuestionTypeId { get; set; }
@@ -435,28 +435,23 @@ public class ListenGroupSubQuestion      // 用於聽力題組
     public DateTime? DecidedAt { get; set; }
 }
 
-/// <summary>
-/// 題目編號 / 子題編號產生器。
-/// 母題碼格式：Q-{民國年}-{NNNNN}（由 QuestionService 配發，存於 MT_Questions.QuestionCode）
-/// 子題碼格式：母題碼-{NN}（兩位 SortOrder 補零，純顯示用，不存於 DB）
-///
-/// 設計取捨：
-///   - 不在 DB 為子題另存 code 欄位；保留 SortOrder 作為唯一序號來源
-///   - 若使用者刪除中間子題，SortOrder 會在 UpsertSubQuestionsAsync 重編，
-///     後續子題碼會「往前推」一格 — 命題期可接受；送審後題目鎖定即固定
-/// </summary>
+// 題目編號 / 子題編號產生器。
+// 母題碼格式：Q-{民國年}-{NNNNN}（由 QuestionService 配發，存於 MT_Questions.QuestionCode）
+// 子題碼格式：母題碼-{NN}（兩位 SortOrder 補零，純顯示用，不存於 DB）
+// 設計取捨：
+//   - 不在 DB 為子題另存 code 欄位；保留 SortOrder 作為唯一序號來源
+//   - 若使用者刪除中間子題，SortOrder 會在 UpsertSubQuestionsAsync 重編，
+//     後續子題碼會「往前推」一格 — 命題期可接受；送審後題目鎖定即固定
 public static class QuestionCodeHelper
 {
-    /// <summary>
-    /// 子題碼。parentCode 為空字串（新題尚未配發碼）時回傳空字串。
-    /// 範例：(parentCode="Q-115-00012", sortOrder=2) → "Q-115-00012-02"
-    /// </summary>
+    // 子題碼。parentCode 為空字串（新題尚未配發碼）時回傳空字串。
+    // 範例：(parentCode="Q-115-00012", sortOrder=2) → "Q-115-00012-02"
     public static string SubCode(string? parentCode, int sortOrder) =>
         string.IsNullOrWhiteSpace(parentCode) ? "" : $"{parentCode}-{sortOrder:D2}";
 }
 
 // ======================================================================
-//  Status 13 種狀態 enum 常數（對應 MT_Questions.Status，0-12；舊 11=SentBack 於 2026-05-05 廢用，11/12 前移）
+//  Status 13 種狀態 enum 常數（對應 MT_Questions.Status）
 // ======================================================================
 public static class QuestionStatus
 {
@@ -471,9 +466,8 @@ public static class QuestionStatus
     public const byte FinalEditing       = 8;   // 總審修題中
     public const byte Adopted            = 9;   // 採用
     public const byte Rejected           = 10;  // 不採用
-    // Status=11（SentBack）已於 2026-05-05 正式廢用（D1 決策），不再使用
-    public const byte ClosedNotAdopted   = 11;  // 結案未採用（原 12，前移一位）
-    public const byte Archived           = 12;  // 結案入庫（原 13，前移一位）
+    public const byte ClosedNotAdopted   = 11;  // 結案未採用
+    public const byte Archived           = 12;  // 結案入庫
 
     public static readonly Dictionary<byte, string> Labels = new()
     {
@@ -493,7 +487,7 @@ public static class QuestionStatus
     public static readonly byte[] RevisionTabStatuses = [2, 3, 4, 5, 6, 7, 8];
     public static readonly byte[] HistoryTabStatuses  = [9, 10, 11, 12];
 
-    /// <summary>命題作業區的「已送審」分類：所有命題流程結束後仍未結案的狀態（2-8）。</summary>
+    // 命題作業區的「已送審」分類：所有命題流程結束後仍未結案的狀態（2-8）。
     public static readonly byte[] SubmittedSnapshotStatuses = [2, 3, 4, 5, 6, 7, 8];
 }
 
@@ -534,21 +528,19 @@ public class QuestionListFilter
     public int Page { get; set; } = 1;
     public int PageSize { get; set; } = 12;
 
-    /// <summary>是否包含已軟刪除題目（Overview=true、CwtList 預設 false）。</summary>
+    // 是否包含已軟刪除題目（Overview=true、CwtList 預設 false）。
     public bool IncludeDeleted { get; set; } = false;
 
-    /// <summary>關鍵字是否額外比對命題教師姓名（MT_Users.DisplayName）。僅 Overview 用，CwtList/Reviews 預設 false。</summary>
+    // 關鍵字是否額外比對命題教師姓名（MT_Users.DisplayName）。僅 Overview 用，CwtList/Reviews 預設 false。
     public bool SearchCreatorName { get; set; } = false;
 
-    /// <summary>修題回覆篩選：true=只看已送出修題、false=只看未送出、null=不限。
-    /// 僅在 Status ∈ {4,6,8} 時有意義；其他 Tab/Status 設此值無效果。</summary>
+    // 修題回覆篩選：true=只看已送出修題、false=只看未送出、null=不限。
+    // 僅在 Status ∈ {4,6,8} 時有意義；其他 Tab/Status 設此值無效果。
     public bool? HasReplied { get; set; }
 
-    /// <summary>
-    /// 是否啟用題組類「N+1 列拆解」（母題 + 每個子題各一列）。
-    /// 預設 false 保留原行為；Overview 端設 true 以便子題列獨立顯示燈號與當前狀態。
-    /// 內部會與 Tab=="revision" 結果 OR 起來，避免影響 CwtList 審修作業區既有邏輯。
-    /// </summary>
+    // 是否啟用題組類「N+1 列拆解」（母題 + 每個子題各一列）。
+    // 預設 false 保留原行為；Overview 端設 true 以便子題列獨立顯示燈號與當前狀態。
+    // 內部會與 Tab=="revision" 結果 OR 起來，避免影響 CwtList 審修作業區既有邏輯。
     public bool IncludeSubRows { get; set; } = false;
 }
 
@@ -560,24 +552,20 @@ public class QuestionListResult
     public int PageSize { get; set; }
     public int PageCount => PageSize > 0 ? (TotalCount + PageSize - 1) / PageSize : 0;
 
-    /// <summary>
-    /// 該 Tab 範圍內每個 QuestionTypeId 的題數計數。
-    /// 計算範圍：僅套用 ProjectId / CreatorId / IsDeleted / Tab status 範圍，
-    /// 刻意忽略使用者自選的 type / level / keyword / HasReplied filter —
-    /// 確保使用者選了 type filter 後，type dropdown 內的選項仍維持全集。
-    /// CwtList 篩選下拉「有項目才出現」設計使用。
-    /// </summary>
+    // 該 Tab 範圍內每個 QuestionTypeId 的題數計數。
+    // 計算範圍：僅套用 ProjectId / CreatorId / IsDeleted / Tab status 範圍，
+    // 刻意忽略使用者自選的 type / level / keyword / HasReplied filter —
+    // 確保使用者選了 type filter 後，type dropdown 內的選項仍維持全集。
+    // CwtList 篩選下拉「有項目才出現」設計使用。
     public Dictionary<int, int> TypeIdCounts { get; set; } = new();
 
-    /// <summary>
-    /// 該 Tab 範圍內每個 Level (byte) 的題數計數。
-    /// 計算範圍同 TypeIdCounts；Level 為 NULL 的題目不入此 dict。
-    /// </summary>
+    // 該 Tab 範圍內每個 Level (byte) 的題數計數。
+    // 計算範圍同 TypeIdCounts；Level 為 NULL 的題目不入此 dict。
     public Dictionary<byte, int> LevelCounts { get; set; } = new();
 }
 
 // ======================================================================
-//  共用表單資料模型（P2 收攏目標 / P3 CRUD 進出參數）
+//  共用表單資料模型
 // ======================================================================
 public class QuestionFormData
 {
@@ -613,26 +601,23 @@ public class QuestionFormData
     public List<ListenGroupSubQuestion> ListenGroupSubQuestions { get; set; } =
         [new() { FixedDifficulty = 3 }, new() { FixedDifficulty = 4 }];
 
-    /// <summary>
-    /// 題目附圖（對應 MT_QuestionImages 表）。
-    /// 母題附圖 SubQuestionIndex=null；子題附圖 SubQuestionIndex 為 0-based 子題索引。
-    /// 透過 GetImages / SetImages helper 進行欄位切片。
-    /// </summary>
+    // 題目附圖（對應 MT_QuestionImages 表）。
+    // 母題附圖 SubQuestionIndex=null；子題附圖 SubQuestionIndex 為 0-based 子題索引。
+    // 透過 GetImages / SetImages helper 進行欄位切片。
     public List<QuestionImage> Images { get; set; } = [];
 
-    /// <summary>題目建立時間（審題 Modal 顯示用，由 GetByIdAsync 填入）</summary>
+    // 題目建立時間（審題 Modal 顯示用，由 GetByIdAsync 填入）
+
     public DateTime CreatedAt { get; set; }
 
-    /// <summary>題目最後編輯時間（審題 Modal 顯示用，由 GetByIdAsync 填入）</summary>
+    // 題目最後編輯時間（審題 Modal 顯示用，由 GetByIdAsync 填入）
     public DateTime UpdatedAt { get; set; }
 
-    /// <summary>
-    /// 儲存前統一補上「題型固定屬性」：
-    /// 閱讀題組 / 短文題組母題的 Topic（主類）/ Subtopic（次類）一律固定為
-    /// 6（文意判讀）/ 17（篇章辨析），不論前端是否帶值，保證 DB 一致性。
-    /// 所有寫入 MT_Questions 的入口（CreateAsync / UpdateAsync / SaveRevisionAsync /
-    /// FinalReviewerEditAndDecideAsync）都應在組 SQL 參數前先呼叫此方法。
-    /// </summary>
+    // 儲存前統一補上「題型固定屬性」：
+    // 閱讀題組 / 短文題組母題的 Topic（主類）/ Subtopic（次類）一律固定為
+    // 6（文意判讀）/ 17（篇章辨析），不論前端是否帶值，保證 DB 一致性。
+    // 所有寫入 MT_Questions 的入口（CreateAsync / UpdateAsync / SaveRevisionAsync /
+    // FinalReviewerEditAndDecideAsync）都應在組 SQL 參數前先呼叫此方法。
     public void NormalizeFixedAttributes()
     {
         if (QuestionType is QuestionTypeCodes.ReadGroup or QuestionTypeCodes.ShortGroup)
@@ -642,13 +627,14 @@ public class QuestionFormData
         }
     }
 
-    /// <summary>取得指定欄位的附圖（依 SortOrder 升冪排序）。</summary>
+    // 取得指定欄位的附圖（依 SortOrder 升冪排序）。
+
     public List<QuestionImage> GetImages(QuestionImageField fieldType, int? subQuestionIndex = null) =>
         Images.Where(i => i.FieldType == (byte)fieldType && i.SubQuestionIndex == subQuestionIndex)
               .OrderBy(i => i.SortOrder)
               .ToList();
 
-    /// <summary>覆蓋指定欄位的附圖清單（會先移除舊紀錄、再寫入新清單，並自動寫入 FieldType / SubQuestionIndex / SortOrder）。</summary>
+    // 覆蓋指定欄位的附圖清單（會先移除舊紀錄、再寫入新清單，並自動寫入 FieldType / SubQuestionIndex / SortOrder）。
     public void SetImages(QuestionImageField fieldType, int? subQuestionIndex, List<QuestionImage> updated)
     {
         Images.RemoveAll(i => i.FieldType == (byte)fieldType && i.SubQuestionIndex == subQuestionIndex);
@@ -662,10 +648,8 @@ public class QuestionFormData
     }
 }
 
-/// <summary>
-/// 題目附圖（對應 MT_QuestionImages 一筆 row）。
-/// 在 UI 編輯期間 Id=0 的視為新增；存檔後由 Service 層回填真實 Id。
-/// </summary>
+// 題目附圖（對應 MT_QuestionImages 一筆 row）。
+// 在 UI 編輯期間 Id=0 的視為新增；存檔後由 Service 層回填真實 Id。
 public class QuestionImage
 {
     public int Id { get; set; }                  // 0 = 新增；> 0 = 既有 row
@@ -676,7 +660,7 @@ public class QuestionImage
 }
 
 // ======================================================================
-//  列表項類別（為 P3/P4 鋪路：題目列表查詢結果）
+//  列表項類別
 // ======================================================================
 public class QuestionListItem
 {
@@ -714,15 +698,13 @@ public class QuestionListItem
 //  Plan_010：審修作業區「修題」Slide-Over 用 DTO
 // ======================================================================
 
-/// <summary>修題 Slide-Over 開啟時一次拉取的完整資料包。</summary>
+// 修題 Slide-Over 開啟時一次拉取的完整資料包。
 public class RevisionSlideOverData
 {
     public QuestionFormData Question { get; set; } = new();
-
-    /// <summary>
-    /// Stage B-4-2：當前修題單元 — NULL = 母題單元、非 NULL = 該子題單元。
-    /// 用於 UI 顯示「正在修第 N 子題」+ SaveRevisionAsync 寫回時定位 RevisionReplies。
-    /// </summary>
+        
+    // Stage B-4-2：當前修題單元 — NULL = 母題單元、非 NULL = 該子題單元。
+    // 用於 UI 顯示「正在修第 N 子題」+ SaveRevisionAsync 寫回時定位 RevisionReplies。
     public int? SubQuestionId { get; set; }
 
     public List<ReviewCommentEntry> Comments { get; set; } = [];   // 跨階段審題意見（匿名化）— Stage B-4-2 已過濾為「該單元」的意見
@@ -731,10 +713,10 @@ public class RevisionSlideOverData
     public DateTime? PhaseEndDate { get; set; }
     public string CurrentDraftContent { get; set; } = "";          // 當前階段最新一筆 reply（編輯時帶入）
     public bool HasReplied { get; set; }                            // false=未修題、true=已修題
-    public int FinalReturnCount { get; set; }                       // 該單元總審退回次數（Stage B-4-2 按單元計）
+    public int FinalReturnCount { get; set; }                       // 該單元總審退回次數
     public byte QStatus { get; set; }                                // 該單元當前 Status（4/6/8 才能修；母題=MT_Questions.Status / 子題=MT_SubQuestions.Status）
 
-    /// <summary>修題期間是否仍開放編輯（PhaseCode 對齊 + 該單元 Status 對齊）。前端用以決定 fieldset disabled。</summary>
+    // 修題期間是否仍開放編輯（PhaseCode 對齊 + 該單元 Status 對齊）。前端用以決定 fieldset disabled。
     public bool IsEditable => CurrentPhaseCode switch
     {
         4 => QStatus == 4,
@@ -744,7 +726,7 @@ public class RevisionSlideOverData
     };
 }
 
-/// <summary>單筆審題意見（匿名化「審題老師 A/B/C」）。</summary>
+// 單筆審題意見（匿名化「審題老師 A/B/C」）。
 public class ReviewCommentEntry
 {
     public byte Stage { get; set; }      // 1=互審 / 2=專審 / 3=總審
@@ -753,7 +735,7 @@ public class ReviewCommentEntry
     public DateTime DecidedAt { get; set; }
 }
 
-/// <summary>單筆修題說明（自己過往）。</summary>
+// 單筆修題說明（過往修題說明）。
 public class RevisionReplyEntry
 {
     public byte Stage { get; set; }      // 4=互修 / 6=專修 / 8=總修
@@ -761,17 +743,15 @@ public class RevisionReplyEntry
     public DateTime CreatedAt { get; set; }
 }
 
-/// <summary>儲存修題（題目 + 修題說明）請求。</summary>
+// 儲存修題（題目 + 修題說明）請求。
 public class SaveRevisionRequest
 {
     public int QuestionId { get; set; }
 
-    /// <summary>
-    /// Stage B-4-2：當前修題單元 — NULL = 母題單元、非 NULL = 該子題單元。
-    /// SaveRevisionAsync 用此欄位決定：
-    ///   1) Status 檢查的對象（母題用 MT_Questions.Status；子題用 MT_SubQuestions.Status）
-    ///   2) MT_RevisionReplies 寫入時的 SubQuestionId 欄位值
-    /// </summary>
+    // Stage B-4-2：當前修題單元 — NULL = 母題單元、非 NULL = 該子題單元。
+    // SaveRevisionAsync 用此欄位決定：
+    //   1) Status 檢查的對象（母題用 MT_Questions.Status；子題用 MT_SubQuestions.Status）
+    //   2) MT_RevisionReplies 寫入時的 SubQuestionId 欄位值
     public int? SubQuestionId { get; set; }
 
     public QuestionFormData FormData { get; set; } = new();

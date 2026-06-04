@@ -147,7 +147,16 @@
 
             @* 水平捲動容器：包住 Header + List，narrow 時整塊一起橫向捲動，
                header 與 row 的 min-w-[1080px] 才能真正撐開不被父層 overflow-hidden 壓扁 *@
-            @if (isLoading)
+            @if (CurrentProject is null)
+            {
+                @* 守門：使用者無任何可見梯次時 CurrentProject 永久為 null，
+                   OnParametersSetAsync 會在設定 isLoading=false 前提早 return，
+                   若不在此攔截會卡在「載入中…」無限轉圈（見 OnParametersSetAsync 的 null 早退）。 *@
+                <div class="flex-grow p-4">
+                    <EmptyState IconClass="fa-layer-group" Message="尚未選擇梯次" SubMessage="目前沒有可檢視的梯次，請先於頂部切換器選擇梯次。" />
+                </div>
+            }
+            else if (isLoading)
             {
                 <div class="p-8 text-center text-gray-400 text-sm flex-grow">
                     <i class="fa-solid fa-spinner fa-spin mr-2"></i> 載入中…

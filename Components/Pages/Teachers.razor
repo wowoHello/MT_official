@@ -1498,6 +1498,15 @@
         showTeacherModal = true;
     }
 
+    /// <summary>
+    /// 取得可安全顯示給使用者的錯誤訊息。
+    /// 服務層刻意拋出的 InvalidOperationException 視為「業務型友善訊息」可直接顯示；
+    /// 其餘（如 SqlException）一律以通用訊息呈現，避免資料庫內部錯誤外洩給使用者。
+    /// 注意：使用此 helper 的 catch 必須另以 Logger.LogError 記錄完整例外，否則細節會遺失。
+    /// </summary>
+    private static string UserFacingError(Exception ex)
+        => ex is InvalidOperationException ? ex.Message : "系統發生錯誤，請稍後再試或聯絡系統管理員。";
+
     // ──── 儲存教師 ────
     private async Task HandleSaveTeacher()
     {
@@ -1607,7 +1616,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "儲存教師失敗");
-            await JS.InvokeVoidAsync("Swal.fire", new { icon = "error", title = "儲存失敗", text = ex.Message, confirmButtonColor = "#6B8EAD" });
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "error", title = "儲存失敗", text = UserFacingError(ex), confirmButtonColor = "#6B8EAD" });
         }
         finally
         {
@@ -1646,7 +1655,8 @@
         }
         catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("Swal.fire", new { icon = "error", title = "操作失敗", text = ex.Message, confirmButtonColor = "#6B8EAD" });
+            Logger.LogError(ex, "切換教師帳號狀態失敗");
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "error", title = "操作失敗", text = UserFacingError(ex), confirmButtonColor = "#6B8EAD" });
         }
         finally
         {
@@ -1681,7 +1691,8 @@
         }
         catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("Swal.fire", new { icon = "error", title = "操作失敗", text = ex.Message, confirmButtonColor = "#6B8EAD" });
+            Logger.LogError(ex, "重設教師密碼失敗");
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "error", title = "操作失敗", text = UserFacingError(ex), confirmButtonColor = "#6B8EAD" });
         }
         finally
         {
@@ -1725,7 +1736,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "匯出教師名單失敗");
-            await JS.InvokeVoidAsync("Swal.fire", new { icon = "error", title = "匯出失敗", text = ex.Message, confirmButtonColor = "#6B8EAD" });
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "error", title = "匯出失敗", text = UserFacingError(ex), confirmButtonColor = "#6B8EAD" });
         }
     }
 
@@ -1988,8 +1999,8 @@
         }
         catch (Exception ex)
         {
-            importErrorBanner = $"解析失敗：{ex.Message}";
             Logger.LogError(ex, "批次匯入解析 Excel 失敗");
+            importErrorBanner = $"解析失敗：{UserFacingError(ex)}";
         }
         finally
         {
@@ -2033,7 +2044,8 @@
         }
         catch (Exception ex)
         {
-            importErrorBanner = $"匯入過程發生錯誤：{ex.Message}";
+            Logger.LogError(ex, "批次匯入教師失敗");
+            importErrorBanner = $"匯入過程發生錯誤：{UserFacingError(ex)}";
         }
         finally
         {
@@ -2130,7 +2142,8 @@
         }
         catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("Swal.fire", new { icon = "error", title = "加入失敗", text = ex.Message, confirmButtonColor = "#6B8EAD" });
+            Logger.LogError(ex, "加入梯次失敗");
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "error", title = "加入失敗", text = UserFacingError(ex), confirmButtonColor = "#6B8EAD" });
         }
         finally
         {
@@ -2168,7 +2181,8 @@
         }
         catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("Swal.fire", new { icon = "error", title = "移除失敗", text = ex.Message, confirmButtonColor = "#6B8EAD" });
+            Logger.LogError(ex, "移除梯次失敗");
+            await JS.InvokeVoidAsync("Swal.fire", new { icon = "error", title = "移除失敗", text = UserFacingError(ex), confirmButtonColor = "#6B8EAD" });
         }
         finally
         {

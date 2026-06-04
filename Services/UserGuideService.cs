@@ -8,17 +8,17 @@ namespace MT.Services;
 // ─── 介面 ───
 public interface IUserGuideService
 {
-    /// <summary>管理端（Announcements）：11 槽位現況（已上傳帶檔案資訊，未上傳為空）。</summary>
+    /// <summary>管理端（Announcements）：登入頁槽位 + 每個角色一個槽位（已上傳帶檔案資訊，未上傳為空）。</summary>
     Task<IReadOnlyList<GuideSlotItem>> GetManagementSlotsAsync();
 
-    /// <summary>上傳/替換：限 PDF + 30MB；舊 active 列 IsActive=0 + 刪舊檔 → 存 guid 檔 + INSERT。</summary>
-    Task UploadAsync(string pageKey, IBrowserFile file, int operatorUserId);
+    /// <summary>上傳/替換：限 PDF + 30MB；舊 active 列 IsActive=0 + 刪舊檔 → 存 guid 檔 + INSERT。slotKey="login" 或 "role:{id}"。</summary>
+    Task UploadAsync(string slotKey, IBrowserFile file, int operatorUserId);
 
     /// <summary>刪除：IsActive=0 + 刪物理檔。</summary>
-    Task DeleteAsync(string pageKey, int operatorUserId);
+    Task DeleteAsync(string slotKey, int operatorUserId);
 
-    /// <summary>下載端（Home）：依使用者 ModuleCards 過濾出可見且已上傳的手冊。</summary>
-    Task<IReadOnlyList<GuideViewItem>> GetViewableAsync(IReadOnlyList<UserModuleCard> moduleCards);
+    /// <summary>下載端（Home）：依使用者在當前梯次的角色聯集，過濾出可見且已上傳的角色手冊。</summary>
+    Task<IReadOnlyList<GuideViewItem>> GetViewableAsync(int userId, int? projectId);
 
     /// <summary>登入頁專用：取 login 手冊（匿名，回 null 表示尚未上傳）。</summary>
     Task<GuideViewItem?> GetLoginGuideAsync();
@@ -28,6 +28,7 @@ public interface IUserGuideService
 public class UserGuideService : IUserGuideService
 {
     private readonly IDatabaseService _db;
+    private readonly IMembershipService _membership;
     private readonly IWebHostEnvironment _env;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<UserGuideService> _logger;
@@ -37,11 +38,13 @@ public class UserGuideService : IUserGuideService
 
     public UserGuideService(
         IDatabaseService db,
+        IMembershipService membership,
         IWebHostEnvironment env,
         IHttpContextAccessor httpContextAccessor,
         ILogger<UserGuideService> logger)
     {
         _db = db;
+        _membership = membership;
         _env = env;
         _httpContextAccessor = httpContextAccessor;
         _logger = logger;
@@ -56,46 +59,56 @@ public class UserGuideService : IUserGuideService
     private const string AuditInsertOldSql =
         "INSERT INTO dbo.MT_AuditLogs (UserId, Action, TargetType, TargetId, OldValue, IpAddress) VALUES (@UserId, @Action, @TargetType, @TargetId, @Value, @IpAddress);";
 
-    // ─── 管理端：11 槽位現況 ───
+    // ─── 管理端：登入頁 + 每個角色一槽位 ───
     public async Task<IReadOnlyList<GuideSlotItem>> GetManagementSlotsAsync()
     {
         var byKey = await GetUploadedMapAsync();
+        var roles = await GetAllRolesAsync();
 
-        var list = new List<GuideSlotItem>(GuidePageCatalog.All.Count);
-        foreach (var def in GuidePageCatalog.All)
+        var list = new List<GuideSlotItem>(roles.Count + 1)
         {
-            if (byKey.TryGetValue(def.PageKey, out var row))
-            {
-                var (display, ticks) = ResolveFileMeta(row.FilePath);
-                list.Add(new GuideSlotItem
-                {
-                    PageKey = def.PageKey,
-                    PageName = def.DisplayName,
-                    IsUploaded = true,
-                    FileName = row.FileName,
-                    FileSizeText = FormatSize(row.FileSize),
-                    UploadedDisplay = display,
-                    RelativeUrl = $"{row.FilePath}?v={ticks}"
-                });
-            }
-            else
-            {
-                list.Add(new GuideSlotItem
-                {
-                    PageKey = def.PageKey,
-                    PageName = def.DisplayName,
-                    IsUploaded = false
-                });
-            }
-        }
+            // 登入頁槽位固定置頂（頁面制、匿名）
+            BuildSlot(GuideSlot.LoginKey, GuideSlot.LoginDisplayName, isLogin: true, byKey)
+        };
+
+        // 每個角色一個槽位（含自訂角色、含預設教師；管理員不上傳即不顯示）
+        foreach (var r in roles)
+            list.Add(BuildSlot(GuideSlot.RoleKey(r.Id), r.Name, isLogin: false, byKey));
+
         return list;
     }
 
-    // ─── 上傳 / 替換 ───
-    public async Task UploadAsync(string pageKey, IBrowserFile file, int operatorUserId)
+    private GuideSlotItem BuildSlot(string slotKey, string displayName, bool isLogin, Dictionary<string, GuideFileRow> byKey)
     {
-        var def = GuidePageCatalog.Find(pageKey)
-            ?? throw new ArgumentException($"未知的頁面識別：{pageKey}", nameof(pageKey));
+        if (byKey.TryGetValue(slotKey, out var row))
+        {
+            var (display, ticks) = ResolveFileMeta(row.FilePath);
+            return new GuideSlotItem
+            {
+                PageKey = slotKey,
+                DisplayName = displayName,
+                IsLogin = isLogin,
+                IsUploaded = true,
+                FileName = row.FileName,
+                FileSizeText = FormatSize(row.FileSize),
+                UploadedDisplay = display,
+                RelativeUrl = $"{row.FilePath}?v={ticks}"
+            };
+        }
+        return new GuideSlotItem
+        {
+            PageKey = slotKey,
+            DisplayName = displayName,
+            IsLogin = isLogin,
+            IsUploaded = false
+        };
+    }
+
+    // ─── 上傳 / 替換 ───
+    public async Task UploadAsync(string slotKey, IBrowserFile file, int operatorUserId)
+    {
+        // 驗證槽位 + 取顯示名稱（audit 用）。非法 slotKey 直接擋下。
+        var displayName = await ResolveSlotDisplayNameAsync(slotKey);
 
         var ext = Path.GetExtension(file.Name);
         if (!string.Equals(ext, ".pdf", StringComparison.OrdinalIgnoreCase))
@@ -124,18 +137,18 @@ public class UserGuideService : IUserGuideService
         {
             var oldPaths = (await conn.QueryAsync<string>(
                 "SELECT FilePath FROM dbo.MT_UserGuideFiles WHERE PageKey = @PageKey AND IsActive = 1;",
-                new { PageKey = pageKey }, tx)).ToList();
+                new { PageKey = slotKey }, tx)).ToList();
 
             await conn.ExecuteAsync(
                 "UPDATE dbo.MT_UserGuideFiles SET IsActive = 0 WHERE PageKey = @PageKey AND IsActive = 1;",
-                new { PageKey = pageKey }, tx);
+                new { PageKey = slotKey }, tx);
 
             var newId = await conn.QuerySingleAsync<int>("""
                 INSERT INTO dbo.MT_UserGuideFiles (FileName, FilePath, FileSize, UploadedBy, IsActive, PageKey)
                 OUTPUT INSERTED.Id
                 VALUES (@FileName, @FilePath, @FileSize, @UploadedBy, 1, @PageKey);
                 """,
-                new { FileName = file.Name, FilePath = relative, FileSize = file.Size, UploadedBy = operatorUserId, PageKey = pageKey }, tx);
+                new { FileName = file.Name, FilePath = relative, FileSize = file.Size, UploadedBy = operatorUserId, PageKey = slotKey }, tx);
 
             await conn.ExecuteAsync(AuditInsertNewSql, new
             {
@@ -145,9 +158,9 @@ public class UserGuideService : IUserGuideService
                 TargetId = newId,
                 Value = AuditLogJsonHelper.Serialize(new
                 {
-                    pageKey,
+                    slotKey,
                     fileName = file.Name,
-                    targetDisplayName = def.GuideTitle
+                    targetDisplayName = GuideSlot.GuideTitle(displayName)
                 }),
                 IpAddress = ClientIpResolver.Resolve(_httpContextAccessor)
             }, tx);
@@ -166,10 +179,9 @@ public class UserGuideService : IUserGuideService
     }
 
     // ─── 刪除 ───
-    public async Task DeleteAsync(string pageKey, int operatorUserId)
+    public async Task DeleteAsync(string slotKey, int operatorUserId)
     {
-        var def = GuidePageCatalog.Find(pageKey)
-            ?? throw new ArgumentException($"未知的頁面識別：{pageKey}", nameof(pageKey));
+        var displayName = await ResolveSlotDisplayNameAsync(slotKey);
 
         using var conn = _db.CreateConnection();
         conn.Open();
@@ -178,7 +190,7 @@ public class UserGuideService : IUserGuideService
         {
             var rows = (await conn.QueryAsync<(int Id, string FilePath)>(
                 "SELECT Id, FilePath FROM dbo.MT_UserGuideFiles WHERE PageKey = @PageKey AND IsActive = 1;",
-                new { PageKey = pageKey }, tx)).ToList();
+                new { PageKey = slotKey }, tx)).ToList();
 
             if (rows.Count == 0)
             {
@@ -188,7 +200,7 @@ public class UserGuideService : IUserGuideService
 
             await conn.ExecuteAsync(
                 "UPDATE dbo.MT_UserGuideFiles SET IsActive = 0 WHERE PageKey = @PageKey AND IsActive = 1;",
-                new { PageKey = pageKey }, tx);
+                new { PageKey = slotKey }, tx);
 
             await conn.ExecuteAsync(AuditInsertOldSql, new
             {
@@ -198,8 +210,8 @@ public class UserGuideService : IUserGuideService
                 TargetId = rows[0].Id,
                 Value = AuditLogJsonHelper.Serialize(new
                 {
-                    pageKey,
-                    targetDisplayName = def.GuideTitle
+                    slotKey,
+                    targetDisplayName = GuideSlot.GuideTitle(displayName)
                 }),
                 IpAddress = ClientIpResolver.Resolve(_httpContextAccessor)
             }, tx);
@@ -215,34 +227,27 @@ public class UserGuideService : IUserGuideService
         }
     }
 
-    // ─── 下載端（Home）：依權限過濾 ───
-    public async Task<IReadOnlyList<GuideViewItem>> GetViewableAsync(IReadOnlyList<UserModuleCard> moduleCards)
+    // ─── 下載端（Home）：依當前梯次角色聯集過濾 ───
+    public async Task<IReadOnlyList<GuideViewItem>> GetViewableAsync(int userId, int? projectId)
     {
-        var uploaded = await GetUploadedMapAsync();
+        // 全站角色 ∪ 該梯次內角色（projectId 為 null 時不過濾梯次）
+        var roleIds = await _membership.GetEffectiveRoleIdsAsync(userId, projectId);
+        if (roleIds.Count == 0) return [];
 
-        var enabled = (moduleCards ?? [])
-            .Where(m => m.IsEnabled)
-            .Select(m => GuidePageCatalog.Normalize(m.PageUrl))
-            .ToHashSet();
+        var uploaded = await GetUploadedMapAsync();
+        var roleNames = await GetRoleNamesAsync(roleIds);
 
         var list = new List<GuideViewItem>();
-        foreach (var def in GuidePageCatalog.All)
+        foreach (var roleId in roleIds)
         {
-            if (def.Audience == GuideAudience.LoginOnly) continue;          // 登入頁手冊不進首頁清單
-            if (!uploaded.TryGetValue(def.PageKey, out var row)) continue;  // 未上傳不顯示
-
-            var visible = def.Audience switch
-            {
-                GuideAudience.AllUsers => true,
-                GuideAudience.Module   => def.PermissionPageUrl is not null && enabled.Contains(def.PermissionPageUrl),
-                _ => false
-            };
-            if (!visible) continue;
+            var slotKey = GuideSlot.RoleKey(roleId);
+            if (!uploaded.TryGetValue(slotKey, out var row)) continue;   // 該角色未上傳手冊
+            if (!roleNames.TryGetValue(roleId, out var name)) continue;  // 角色已刪除等 → 跳過
 
             list.Add(new GuideViewItem
             {
-                PageKey = def.PageKey,
-                DisplayTitle = def.GuideTitle,
+                PageKey = slotKey,
+                DisplayTitle = GuideSlot.GuideTitle(name),
                 RelativeUrl = $"{row.FilePath}?v={ResolveTicks(row.FilePath)}"
             });
         }
@@ -253,18 +258,49 @@ public class UserGuideService : IUserGuideService
     public async Task<GuideViewItem?> GetLoginGuideAsync()
     {
         var uploaded = await GetUploadedMapAsync();
-        if (!uploaded.TryGetValue("login", out var row)) return null;
+        if (!uploaded.TryGetValue(GuideSlot.LoginKey, out var row)) return null;
 
-        var def = GuidePageCatalog.Find("login")!;
         return new GuideViewItem
         {
-            PageKey = "login",
-            DisplayTitle = def.GuideTitle,
+            PageKey = GuideSlot.LoginKey,
+            DisplayTitle = GuideSlot.GuideTitle(GuideSlot.LoginDisplayName),
             RelativeUrl = $"{row.FilePath}?v={ResolveTicks(row.FilePath)}"
         };
     }
 
     // ─── 私有輔助 ───
+
+    /// <summary>驗證槽位鍵並回顯示名稱（登入頁 / 角色名）；非法槽位拋例外。</summary>
+    private async Task<string> ResolveSlotDisplayNameAsync(string slotKey)
+    {
+        if (slotKey == GuideSlot.LoginKey) return GuideSlot.LoginDisplayName;
+
+        if (GuideSlot.TryParseRoleKey(slotKey, out var roleId))
+        {
+            using var conn = _db.CreateConnection();
+            var name = await conn.QuerySingleOrDefaultAsync<string>(
+                "SELECT Name FROM dbo.MT_Roles WHERE Id = @Id;", new { Id = roleId });
+            if (!string.IsNullOrEmpty(name)) return name;
+        }
+
+        throw new ArgumentException($"未知的手冊槽位：{slotKey}", nameof(slotKey));
+    }
+
+    private async Task<List<RoleRow>> GetAllRolesAsync()
+    {
+        using var conn = _db.CreateConnection();
+        var rows = await conn.QueryAsync<RoleRow>("SELECT Id, Name FROM dbo.MT_Roles ORDER BY Id;");
+        return rows.AsList();
+    }
+
+    private async Task<Dictionary<int, string>> GetRoleNamesAsync(IReadOnlyCollection<int> roleIds)
+    {
+        using var conn = _db.CreateConnection();
+        var rows = await conn.QueryAsync<RoleRow>(
+            "SELECT Id, Name FROM dbo.MT_Roles WHERE Id IN @Ids;", new { Ids = roleIds });
+        return rows.ToDictionary(r => r.Id, r => r.Name);
+    }
+
     private async Task<Dictionary<string, GuideFileRow>> GetUploadedMapAsync()
     {
         using var conn = _db.CreateConnection();
@@ -324,5 +360,11 @@ public class UserGuideService : IUserGuideService
         public string FileName { get; set; } = "";
         public string FilePath { get; set; } = "";
         public long FileSize { get; set; }
+    }
+
+    private sealed class RoleRow
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = "";
     }
 }

@@ -204,7 +204,8 @@
                                                                            @bind-Images="data.Question.Images"
                                                                            ParentQuestionCode="@data.Question.QuestionCode"
                                                                            InvalidFields="invalidFields"
-                                                                           FocusSubDbId="@data.SubQuestionId" />
+                                                                           FocusSubDbId="@data.SubQuestionId"
+                                                                           LockSubQuestions="@(data.SubQuestionId is null)" />
                                                     break;
                                                 case QuestionTypeCodes.ShortGroup:
                                                     <QuestionFormShortGroup Status="@data.QStatus"
@@ -213,7 +214,8 @@
                                                                             ParentQuestionCode="@data.Question.QuestionCode"
                                                                             @bind-Images="data.Question.Images"
                                                                             InvalidFields="invalidFields"
-                                                                            FocusSubDbId="@data.SubQuestionId" />
+                                                                            FocusSubDbId="@data.SubQuestionId"
+                                                                            LockSubQuestions="@(data.SubQuestionId is null)" />
                                                     break;
                                                 case QuestionTypeCodes.Listen:
                                                     <QuestionFormListen @bind-AudioFileName="data.Question.AudioUrl" @bind-Stem="data.Question.Stem"
@@ -230,7 +232,8 @@
                                                                              ParentQuestionCode="@data.Question.QuestionCode"
                                                                              @bind-Images="data.Question.Images"
                                                                              InvalidFields="invalidFields"
-                                                                             FocusSubDbId="@data.SubQuestionId" />
+                                                                             FocusSubDbId="@data.SubQuestionId"
+                                                                             LockSubQuestions="@(data.SubQuestionId is null)" />
                                                     break;
                                             }
                                         }

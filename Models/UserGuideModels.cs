@@ -1,66 +1,53 @@
 namespace MT.Models;
 
 // ======================================================================
-//  使用說明手冊（以頁面為區分）— DTO 與 11 頁固定槽位目錄
-//  對應頁面：Announcements（上傳管理）/ Home（預覽清單）/ Login（頁面介紹）
-//  儲存：MT_UserGuideFiles（FileName=原始檔名、FilePath=guid 路徑、PageKey=頁面身分）
+//  使用說明手冊（依角色區分；登入頁維持頁面制）— DTO 與槽位鍵工具
+//  對應頁面：Announcements（上傳管理）/ Home（依角色預覽）/ Login（登入頁手冊）
+//  儲存：MT_UserGuideFiles（FileName=原始檔名、FilePath=guid 路徑、
+//        PageKey=槽位鍵："login" 或 "role:{RoleId}"）
+//  說明：原本以 11 個固定頁面分槽，改為「登入頁（頁面制，匿名）+ 每個角色各一份（動態）」。
+//        沿用既有 PageKey 欄位當槽位鍵，零 DB migration；唯一過濾索引天然保證一槽一份。
 // ======================================================================
 
-/// <summary>手冊可見性類別。</summary>
-public enum GuideAudience
+/// <summary>手冊槽位鍵工具：login（頁面制）與 role:{id}（角色制）兩種。</summary>
+public static class GuideSlot
 {
-    /// <summary>僅登入頁專屬入口（匿名），不出現在首頁清單。</summary>
-    LoginOnly,
-    /// <summary>所有登入者皆可見（如首頁手冊）。</summary>
-    AllUsers,
-    /// <summary>依 ModuleCard 權限判定（PermissionPageUrl 對應啟用才可見）。</summary>
-    Module
-}
+    /// <summary>登入頁槽位鍵（匿名，維持頁面制，不依角色）。</summary>
+    public const string LoginKey = "login";
 
-/// <summary>單一頁面手冊定義（固定 11 筆，以 Model 管理不入表）。</summary>
-public sealed record GuidePageDef(
-    string PageKey,            // login / home / dashboard / ... / system-logs
-    string DisplayName,        // 「登入頁」「命題任務」…
-    GuideAudience Audience,
-    string? PermissionPageUrl  // Audience=Module 時，需對應的 ModuleCard.PageUrl
-)
-{
-    /// <summary>下載/預覽清單顯示標題，如「命題任務使用手冊」。</summary>
-    public string GuideTitle => $"{DisplayName}使用手冊";
-}
+    /// <summary>登入頁槽位顯示名稱。</summary>
+    public const string LoginDisplayName = "登入頁";
 
-/// <summary>11 頁固定手冊目錄。PageKey 對齊 ModuleCard.PageUrl。</summary>
-public static class GuidePageCatalog
-{
-    public static readonly IReadOnlyList<GuidePageDef> All =
-    [
-        new("login",         "登入頁",          GuideAudience.LoginOnly, null),
-        new("home",          "首頁",            GuideAudience.AllUsers,  null),
-        new("dashboard",     "命題儀表板",      GuideAudience.Module,    "dashboard"),
-        new("projects",      "命題專案管理",    GuideAudience.Module,    "projects"),
-        new("overview",      "命題總覽",        GuideAudience.Module,    "overview"),
-        new("cwt-list",      "命題任務",        GuideAudience.Module,    "cwt-list"),
-        new("reviews",       "審題任務",        GuideAudience.Module,    "reviews"),
-        new("teachers",      "教師管理系統",    GuideAudience.Module,    "teachers"),
-        new("roles",         "角色與權限管理",  GuideAudience.Module,    "roles"),
-        new("announcements", "系統公告/使用說明", GuideAudience.Module,  "announcements"),
-        // 系統活動記錄不在 8 大模組內 → 併入「角色與權限管理」(roles) 權限
-        new("system-logs",   "系統活動記錄",    GuideAudience.Module,    "roles"),
-    ];
+    private const string RolePrefix = "role:";
 
-    public static GuidePageDef? Find(string pageKey) =>
-        All.FirstOrDefault(d => d.PageKey == pageKey);
+    /// <summary>組角色槽位鍵：role:{roleId}。</summary>
+    public static string RoleKey(int roleId) => $"{RolePrefix}{roleId}";
 
-    /// <summary>PageUrl 正規化（去前導斜線、轉小寫），供權限比對用。</summary>
-    public static string Normalize(string? pageUrl) =>
-        (pageUrl ?? "").Trim().TrimStart('/').ToLowerInvariant();
+    /// <summary>解析角色槽位鍵；非角色鍵（如 "login"）回 false。</summary>
+    public static bool TryParseRoleKey(string? slotKey, out int roleId)
+    {
+        roleId = 0;
+        if (string.IsNullOrEmpty(slotKey) || !slotKey.StartsWith(RolePrefix, StringComparison.Ordinal))
+            return false;
+        return int.TryParse(slotKey.AsSpan(RolePrefix.Length), out roleId);
+    }
+
+    /// <summary>下載/預覽清單顯示標題，如「命題教師使用手冊」。</summary>
+    public static string GuideTitle(string displayName) => $"{displayName}使用手冊";
 }
 
 /// <summary>管理端（Announcements）單一槽位現況。</summary>
 public sealed class GuideSlotItem
 {
+    /// <summary>槽位鍵："login" 或 "role:{id}"（沿用 DB 的 PageKey 欄位）。</summary>
     public string PageKey { get; init; } = "";
-    public string PageName { get; init; } = "";
+
+    /// <summary>顯示名稱：登入頁為「登入頁」，角色槽位為角色名。</summary>
+    public string DisplayName { get; init; } = "";
+
+    /// <summary>是否為登入頁槽位（與角色槽位分區顯示）。</summary>
+    public bool IsLogin { get; init; }
+
     public bool IsUploaded { get; init; }
     public string? FileName { get; init; }         // 原始檔名
     public string? FileSizeText { get; init; }     // 「2.4 MB」
@@ -71,7 +58,7 @@ public sealed class GuideSlotItem
 /// <summary>下載/預覽端（Home / Login）單一可見手冊。</summary>
 public sealed class GuideViewItem
 {
-    public string PageKey { get; init; } = "";
-    public string DisplayTitle { get; init; } = ""; // 「命題任務使用手冊」
+    public string PageKey { get; init; } = "";      // "login" 或 "role:{id}"
+    public string DisplayTitle { get; init; } = ""; // 「命題教師使用手冊」
     public string RelativeUrl { get; init; } = "";  // 「uploads/guides/{guid}.pdf?v={ticks}」
 }

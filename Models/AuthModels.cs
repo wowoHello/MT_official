@@ -1,6 +1,8 @@
 namespace MT.Models;
 
-/// <summary>登入表單（Login.razor）。</summary>
+// ======================================================================
+// 登入表單（Login.razor）
+// ======================================================================
 public sealed class LoginFormModel
 {
     public string Username { get; set; } = "";

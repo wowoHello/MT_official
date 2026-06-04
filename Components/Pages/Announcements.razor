@@ -601,13 +601,13 @@
 </CustomModal>
 
 @* ============================================== *@
-@* Modal：使用說明手冊管理（11 頁固定槽位）         *@
+@* Modal：使用說明手冊管理（登入頁 + 每個角色各一槽位）   *@
 @* ============================================== *@
 <CustomModal @bind-IsVisible="showGuideModal" Type="CustomModal.ModalType.Center" Title="使用說明手冊管理" MaxWidth="max-w-3xl">
     <ChildContent>
         <p class="text-sm text-gray-500 mb-4 flex items-start gap-1.5">
             <i class="fa-solid fa-circle-info mt-0.5 shrink-0 text-morandi"></i>
-            <span>每個頁面各自上傳一份 PDF 手冊（重新上傳即取代）。使用者於首頁/登入頁依權限預覽對應手冊。僅接受 PDF、上限 30MB。</span>
+            <span>登入頁手冊所有人皆可預覽；其餘每個角色各自上傳一份 PDF（重新上傳即取代），使用者登入後依自身角色於首頁預覽對應手冊。僅接受 PDF、上限 30MB。</span>
         </p>
 
         @if (isGuideLoading)
@@ -619,57 +619,22 @@
         else
         {
             <div class="-mx-6 border-t border-gray-100">
-                @foreach (var slot in guideSlots)
+                @* 登入頁（頁面制、匿名，所有人可預覽） *@
+                <div class="px-6 pt-3 pb-1.5 bg-gray-50/40">
+                    <span class="text-xs font-bold text-gray-400">登入頁（未登入即可預覽）</span>
+                </div>
+                @foreach (var slot in guideSlots.Where(s => s.IsLogin))
                 {
-                    <div class="px-6 py-3 border-b border-gray-50 flex items-center gap-3 hover:bg-gray-50/50 transition-colors">
-                        @* 頁名 *@
-                        <div class="w-40 shrink-0">
-                            <span class="text-sm font-bold text-slate-main">@slot.PageName</span>
-                        </div>
-                        @* 檔案資訊 *@
-                        <div class="flex-1 min-w-0">
-                            @if (slot.IsUploaded)
-                            {
-                                <div class="flex items-center gap-2 min-w-0">
-                                    <i class="fa-solid fa-file-pdf text-red-500 shrink-0"></i>
-                                    <span class="text-sm text-gray-700 truncate" title="@slot.FileName">@slot.FileName</span>
-                                </div>
-                                <span class="text-xs text-gray-400">@slot.FileSizeText · @slot.UploadedDisplay</span>
-                            }
-                            else
-                            {
-                                <span class="text-sm text-gray-400">尚未上傳</span>
-                            }
-                        </div>
-                        @* 操作 *@
-                        <div class="flex items-center gap-1 shrink-0">
-                            @if (slot.IsUploaded)
-                            {
-                                <a href="@($"{Navigation.BaseUri}{slot.RelativeUrl}")" target="_blank" rel="noopener"
-                                   class="px-2.5 py-1.5 text-xs font-medium text-morandi hover:bg-morandi/10 rounded-lg transition-colors flex items-center gap-1">
-                                    <i class="fa-solid fa-eye"></i> 預覽
-                                </a>
-                            }
-                            <label class="cursor-pointer px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-1 @(uploadingPageKey == slot.PageKey ? "opacity-50 pointer-events-none" : "")">
-                                @if (uploadingPageKey == slot.PageKey)
-                                {
-                                    <i class="fa-solid fa-spinner fa-spin"></i> <span>上傳中</span>
-                                }
-                                else
-                                {
-                                    <i class="fa-solid fa-upload"></i> <span>@(slot.IsUploaded ? "替換" : "上傳")</span>
-                                }
-                                <InputFile OnChange="(e) => HandleGuideUploadAsync(slot.PageKey, e)" accept=".pdf" class="hidden" />
-                            </label>
-                            @if (slot.IsUploaded)
-                            {
-                                <button type="button" @onclick="() => HandleGuideDeleteAsync(slot)"
-                                        class="px-2.5 py-1.5 text-xs font-medium text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1">
-                                    <i class="fa-solid fa-trash-can"></i> 刪除
-                                </button>
-                            }
-                        </div>
-                    </div>
+                    @GuideSlotRow(slot)
+                }
+
+                @* 角色手冊（登入後依使用者身分顯示） *@
+                <div class="px-6 pt-3 pb-1.5 bg-gray-50/40 border-t border-gray-100">
+                    <span class="text-xs font-bold text-gray-400">角色手冊（登入後依使用者角色顯示）</span>
+                </div>
+                @foreach (var slot in guideSlots.Where(s => !s.IsLogin))
+                {
+                    @GuideSlotRow(slot)
                 }
             </div>
         }
@@ -1278,6 +1243,58 @@
 
     private const long GuideMaxBytes = 30 * 1024 * 1024;   // 30MB（與 Service 一致，前端先擋）
 
+    /// <summary>單一手冊槽位列（登入頁與角色槽位共用渲染）。</summary>
+    private RenderFragment GuideSlotRow(GuideSlotItem slot) =>
+        @<div class="px-6 py-3 border-b border-gray-50 flex items-center gap-3 hover:bg-gray-50/50 transition-colors">
+            @* 槽位名稱 *@
+            <div class="w-40 shrink-0">
+                <span class="text-sm font-bold text-slate-main">@slot.DisplayName</span>
+            </div>
+            @* 檔案資訊 *@
+            <div class="flex-1 min-w-0">
+                @if (slot.IsUploaded)
+                {
+                    <div class="flex items-center gap-2 min-w-0">
+                        <i class="fa-solid fa-file-pdf text-red-500 shrink-0"></i>
+                        <span class="text-sm text-gray-700 truncate" title="@slot.FileName">@slot.FileName</span>
+                    </div>
+                    <span class="text-xs text-gray-400">@slot.FileSizeText · @slot.UploadedDisplay</span>
+                }
+                else
+                {
+                    <span class="text-sm text-gray-400">尚未上傳</span>
+                }
+            </div>
+            @* 操作 *@
+            <div class="flex items-center gap-1 shrink-0">
+                @if (slot.IsUploaded)
+                {
+                    <a href="@($"{Navigation.BaseUri}{slot.RelativeUrl}")" target="_blank" rel="noopener"
+                       class="px-2.5 py-1.5 text-xs font-medium text-morandi hover:bg-morandi/10 rounded-lg transition-colors flex items-center gap-1">
+                        <i class="fa-solid fa-eye"></i> 預覽
+                    </a>
+                }
+                <label class="cursor-pointer px-2.5 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-1 @(uploadingPageKey == slot.PageKey ? "opacity-50 pointer-events-none" : "")">
+                    @if (uploadingPageKey == slot.PageKey)
+                    {
+                        <i class="fa-solid fa-spinner fa-spin"></i> <span>上傳中</span>
+                    }
+                    else
+                    {
+                        <i class="fa-solid fa-upload"></i> <span>@(slot.IsUploaded ? "替換" : "上傳")</span>
+                    }
+                    <InputFile OnChange="(e) => HandleGuideUploadAsync(slot.PageKey, e)" accept=".pdf" class="hidden" />
+                </label>
+                @if (slot.IsUploaded)
+                {
+                    <button type="button" @onclick="() => HandleGuideDeleteAsync(slot)"
+                            class="px-2.5 py-1.5 text-xs font-medium text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1">
+                        <i class="fa-solid fa-trash-can"></i> 刪除
+                    </button>
+                }
+            </div>
+        </div>;
+
     private async Task OpenGuideManagerAsync()
     {
         showGuideModal = true;
@@ -1342,7 +1359,7 @@
         var confirmed = await JS.InvokeAsync<bool>("swalConfirm", new
         {
             title = "確認刪除?",
-            html = $"將刪除「<b>{slot.PageName}使用手冊</b>」，此操作無法復原。",
+            html = $"將刪除「<b>{slot.DisplayName}使用手冊</b>」，此操作無法復原。",
             icon = "warning",
             showCancelButton = true,
             confirmButtonColor = "#D98A6C",
