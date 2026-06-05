@@ -28,7 +28,7 @@ namespace MT.Services;
 
 public interface IRevisionService
 {
-    /// <summary>判斷使用者是否有「審後修訂」資格（計畫主持人 / 總召集人 / 系統管理員）。</summary>
+    /// <summary>判斷使用者是否有「審後修訂」資格（內部人員且具命題總覽模組權限）。</summary>
     Task<bool> CanReviseAsync(int userId, int projectId);
 
     /// <summary>儲存修訂（母題或子題擇一，依 req.SubQuestionId 是否為 null 決定）。</summary>
@@ -43,9 +43,6 @@ public interface IRevisionService
 
 public class RevisionService : IRevisionService
 {
-    // 三種具修訂資格的角色名稱（對應 MT_Roles.Name）
-    private static readonly string[] AllowedRoleNames = ["計畫主持人", "總召集人", "系統管理員"];
-
     private readonly IDatabaseService _db;
     private readonly IMembershipService _membership;
     private readonly IHttpContextAccessor _httpAccessor;
@@ -77,7 +74,8 @@ public class RevisionService : IRevisionService
     }
 
     /// <summary>
-    /// 核心權限判斷：使用者於該梯次的有效角色是否落在可審後修訂的角色集合。
+    /// 核心權限判斷：使用者於該梯次的有效角色中，是否有「同一個角色」同時為內部人員
+    /// （MT_Roles.Category = 0）且具命題總覽模組權限（MT_Modules.Id = 3、IsEnabled = 1）。
     /// 可選 tx：SaveAsync 在既有 transaction 內呼叫傳入；公開的 CanReviseAsync 自開連線傳 null。
     /// </summary>
     private async Task<bool> CanReviseCoreAsync(IDbConnection conn, IDbTransaction? tx, int userId, int projectId)
@@ -85,9 +83,18 @@ public class RevisionService : IRevisionService
         var roleIds = await _membership.GetEffectiveRoleIdsAsync(userId, projectId);
         if (roleIds.Count == 0) return false;
 
+        // 內部人員（Category=0）且該角色擁有命題總覽模組（ModuleId=3 且 IsEnabled=1）才可審後修訂。
+        // MT_Modules 為固定種子字典、Id 不變，故直接比對 Id=3。
         var count = await conn.ExecuteScalarAsync<int>(
-            "SELECT COUNT(*) FROM dbo.MT_Roles WHERE Id IN @Ids AND Name IN @Names;",
-            new { Ids = roleIds, Names = AllowedRoleNames }, tx);
+            """
+            SELECT COUNT(*)
+            FROM dbo.MT_Roles r
+            WHERE r.Id IN @Ids
+              AND r.Category = 0
+              AND EXISTS (SELECT 1 FROM dbo.MT_RolePermissions rp
+                          WHERE rp.RoleId = r.Id AND rp.ModuleId = 3 AND rp.IsEnabled = 1);
+            """,
+            new { Ids = roleIds }, tx);
 
         return count > 0;
     }
