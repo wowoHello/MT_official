@@ -11,7 +11,7 @@ public class AppointmentDraftDto
     public string TargetFileName { get; set; } = ""; // {CertId}_{UserId}_{yyyyMMdd}_{RoleId}.jpg
 
     // 8 個繪製欄位（對應計畫書 ① ~ ⑧）
-    public string CertNumberText { get; set; } = ""; // ① {Year}中檢(中)聘字第{NNNNN}號
+    public string CertNumberText { get; set; } = ""; // ① ({Year})中檢(中)聘字第{NNNN}號（4 碼，每民國年從 100 起）
     public string School { get; set; } = "";          // ② 學校名稱
     public string DisplayName { get; set; } = "";     // ③ 姓名
     public string Title { get; set; } = "";           // ③ 教師職稱

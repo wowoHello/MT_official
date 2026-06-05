@@ -11,9 +11,10 @@ namespace MT.Services;
 /// 業務 key = (UserId, ProjectId, RoleId)；不掛 MT_ProjectMembers.Id 因為 ProjectService 的
 /// ReplaceProjectChildRecordsAsync 會整批 DELETE/INSERT 造成 FK 失效。
 ///
-/// 字號 Year 取自 MT_Projects.StartDate 民國年；CertNumber 流水號用「SELECT MAX(CertNumber)+1
-/// WITH (UPDLOCK, HOLDLOCK) WHERE Year=@Year」在現有 transaction 內取得，配合 UNIQUE(Year, CertNumber)
-/// 雙保險避免 race condition。
+/// 字號 Year 取自 MT_Projects.StartDate 民國年；CertNumber 為「每民國年從 100 起跳」的 4 碼流水號，
+/// 用「SELECT ISNULL(MAX(CertNumber),99)+1 WITH (UPDLOCK, HOLDLOCK) WHERE Year=@Year」在現有
+/// transaction 內取得，配合 UNIQUE(Year, CertNumber) 雙保險避免 race condition。
+/// 完整字號格式：(民國年)中檢(中)聘字第{4碼}號，見 FormatCertNumber。
 ///
 /// 同步邏輯（SyncCertificatesAsync）：
 ///   - 現存 ProjectMemberRoles - 已簽發 ⇒ 新建（INSERT FileName=null）
@@ -150,8 +151,9 @@ public class AppointmentService : IAppointmentService
         if (toInsert.Count > 0)
         {
             // 一次性鎖該年範圍取 MAX，C# 端逐一遞增分配，最後一起 INSERT
+            // ISNULL 種子 99：該民國年尚無聘書時，第一號 = 99+1 = 100（每民國年皆從 100 起跳）
             const string maxSql = """
-                SELECT ISNULL(MAX(CertNumber), 0)
+                SELECT ISNULL(MAX(CertNumber), 99)
                 FROM dbo.MT_AppointmentCertificates WITH (UPDLOCK, HOLDLOCK)
                 WHERE Year = @Year;
                 """;
@@ -578,7 +580,7 @@ public class AppointmentService : IAppointmentService
     // ====================================================================
 
     private static string FormatCertNumber(int year, int certNumber)
-        => $"({year})中檢(中)聘字第{certNumber:D5}號";
+        => $"({year})中檢(中)聘字第{certNumber:D4}號";
 
     private static string? NormalizeCertificateImageExtension(string? extension)
         => extension?.Trim().ToLowerInvariant() switch
