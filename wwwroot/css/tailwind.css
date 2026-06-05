@@ -2779,9 +2779,6 @@
   .text-\[4rem\] {
     font-size: 4rem;
   }
-  .text-\[10px\] {
-    font-size: 10px;
-  }
   .leading-6 {
     --tw-leading: calc(var(--spacing) * 6);
     line-height: calc(var(--spacing) * 6);
