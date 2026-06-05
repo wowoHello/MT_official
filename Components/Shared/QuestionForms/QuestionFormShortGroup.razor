@@ -148,7 +148,6 @@
                             <label class="text-sm font-bold text-gray-700 flex items-center gap-2 mb-2">
                                 <i class="fa-solid fa-lightbulb text-amber-500"></i>
                                 <span>試題解析</span>
-                                <span class="text-red-400">*</span>
                                 <span class="text-xs text-gray-400 font-normal">紀錄答案理由</span>
                             </label>
                             <QuillField Value="@sq.Analysis" ValueChanged="v => { sq.Analysis = v; SubQuestionsChanged.InvokeAsync(SubQuestions); }"

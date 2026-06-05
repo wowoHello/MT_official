@@ -147,8 +147,7 @@ public static class QuestionFormValidator
             errors.Add(new(nameof(QuestionFormData.Answer), "請選擇正確答案"));
         }
 
-        if (IsRichTextEmpty(data.Analysis))
-            errors.Add(new(nameof(QuestionFormData.Analysis), "請填寫試題解析"));
+        // 試題解析為選填，不再強制驗證（2026-06：解析/批閱說明改為非必填）
     }
 
     /// <summary>檢查母題層級指定 FieldType 是否至少有一張有效圖片。</summary>
@@ -157,7 +156,7 @@ public static class QuestionFormValidator
                      && i.SubQuestionIndex is null
                      && !string.IsNullOrWhiteSpace(i.ImagePath));
 
-    /// <summary>長文題目。文章內容：文字或圖片擇一；批閱說明：必填文字。</summary>
+    /// <summary>長文題目。文章內容：文字或圖片擇一；批閱說明：選填。</summary>
     private static void ValidateLongText(QuestionFormData data, List<ValidationError> errors)
     {
         if (data.WritingMode is null)
@@ -168,8 +167,7 @@ public static class QuestionFormValidator
         // 題目（Stem）在 razor 中沒標必填、不檢查
         if (IsRichTextEmpty(data.ArticleContent) && !HasMasterImage(data.Images, QuestionImageField.ArticleContent))
             errors.Add(new(nameof(QuestionFormData.ArticleContent), "請填寫文章內容或上傳文章圖片"));
-        if (IsRichTextEmpty(data.GradingNote))
-            errors.Add(new(nameof(QuestionFormData.GradingNote), "請填寫批閱說明"));
+        // 批閱說明為選填，不再強制驗證（2026-06：解析/批閱說明改為非必填）
     }
 
     /// <summary>閱讀題組。</summary>
@@ -229,8 +227,7 @@ public static class QuestionFormValidator
                 errors.Add(new($"ReadSub_{n}_Answer", $"子題 {n}：請選擇正確答案", n));
             }
 
-            if (IsRichTextEmpty(sub.Analysis))
-                errors.Add(new($"ReadSub_{n}_Analysis", $"子題 {n}：請填寫試題解析", n));
+            // 子題試題解析為選填，不再強制驗證（2026-06：解析改為非必填）
         }
     }
 
@@ -272,12 +269,11 @@ public static class QuestionFormValidator
             if (sub.Indicator is null)
                 errors.Add(new($"ShortSub_{n}_Indicator", $"子題 {n}：請選擇能力指標", n));
 
-            if (IsRichTextEmpty(sub.Analysis))
-                errors.Add(new($"ShortSub_{n}_Analysis", $"子題 {n}：請填寫試題解析", n));
+            // 子題試題解析為選填，不再強制驗證（2026-06：解析改為非必填）
         }
     }
 
-    /// <summary>聽力測驗。題幹必填文字；選項：文字或圖片擇一（聽圖辨識題型）；解析必填文字。</summary>
+    /// <summary>聽力測驗。題幹必填文字；選項：文字或圖片擇一（聽圖辨識題型）；解析選填。</summary>
     private static void ValidateListen(QuestionFormData data, List<ValidationError> errors)
     {
         if (data.CoreAbility is null)
@@ -319,8 +315,7 @@ public static class QuestionFormValidator
             errors.Add(new(nameof(QuestionFormData.Answer), "請選擇正確答案"));
         }
 
-        if (IsRichTextEmpty(data.Analysis))
-            errors.Add(new(nameof(QuestionFormData.Analysis), "請填寫試題解析"));
+        // 試題解析為選填，不再強制驗證（2026-06：解析/批閱說明改為非必填）
     }
 
     /// <summary>聽力題組（母題無等級無難度，固定 2 子題）。</summary>
@@ -376,8 +371,7 @@ public static class QuestionFormValidator
                 errors.Add(new($"ListenSub_{n}_Answer", $"子題 {n}：請選擇正確答案", n));
             }
 
-            if (IsRichTextEmpty(sub.Analysis))
-                errors.Add(new($"ListenSub_{n}_Analysis", $"子題 {n}：請填寫試題解析", n));
+            // 子題試題解析為選填，不再強制驗證（2026-06：解析改為非必填）
         }
     }
 

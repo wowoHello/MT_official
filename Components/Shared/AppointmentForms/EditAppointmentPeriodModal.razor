@@ -245,8 +245,8 @@
     private async Task Cancel() => await Close();
 
     /// <summary>
-    /// 內層 CustomModal 透過 X 按鈕 / 背景點擊關閉時觸發 — 改走 Close() 確保
-    /// 我 Modal 的內部狀態（loadedUserId/Id、data）被清掉並且 propagate 到父層，
+    /// 內層 CustomModal 透過 X 按鈕 / 背景點擊關閉時觸發 — 走 Close() 確保
+    /// Modal 的內部狀態（loadedUserId/Id、data）被清掉並且 propagate 到父層，
     /// 否則父層 showEditPeriodModal 仍為 true，下次點按鈕值沒變 Blazor 不會 re-render。
     /// </summary>
     private async Task OnInnerVisibleChanged(bool newValue)
